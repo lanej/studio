@@ -1,0 +1,182 @@
+import { Database } from "bun:sqlite";
+import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
+import { mkdirSync, realpathSync } from "node:fs";
+import { join } from "node:path";
+import { z } from "zod";
+import { stateDirectory } from "../attempts.ts";
+import { LeadMode, leadPlanSchema, planDigest } from "../lead-plan.ts";
+import { runtimeProjectSchema } from "../config.ts";
+import { specRecord } from "../socrates/spec.ts";
+
+export enum HandoffPhase {
+  Pending = "pending",
+  Complete = "complete",
+  Uncertain = "uncertain",
+}
+export const discoverySchema = z.object({
+  id: z.uuid(),
+  title: z.string().min(1),
+  project: z.string(),
+  conversation: z.string(),
+  revision: z.string(),
+  specification: specRecord.optional(),
+  history: z.array(specRecord).default([]),
+  leadPlan: leadPlanSchema,
+  handoff: z
+    .object({
+      operation: z.uuid(),
+      digest: z.string(),
+      revision: z.string(),
+      phase: z.enum(HandoffPhase),
+      owner: z
+        .object({ pid: z.number().int().positive(), started: z.string() })
+        .optional(),
+      target: runtimeProjectSchema
+        .extend({ id: z.uuid() })
+        .refine(
+          (project) => project.id === project.source.projectId,
+          "Handoff project authority differs from its configured source",
+        ),
+    })
+    .optional(),
+  approved: z.string().optional(),
+  graph: z.record(z.string(), z.string()).optional(),
+});
+export type Discovery = z.infer<typeof discoverySchema>;
+
+/** Discovery is private conversational state, not another task backlog. */
+export class Discoveries {
+  private readonly db: Database;
+  constructor(directory = stateDirectory()) {
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    this.db = new Database(join(directory, "discoveries.sqlite"), {
+      create: true,
+    });
+    this.db.run("PRAGMA busy_timeout=5000");
+    this.db.run(
+      "CREATE TABLE IF NOT EXISTS discoveries (id TEXT PRIMARY KEY, project TEXT NOT NULL, record TEXT NOT NULL)",
+    );
+  }
+  beginHandoff(
+    expected: Discovery,
+    target: z.infer<typeof runtimeProjectSchema> & { id: string },
+    owner?: { pid: number; started: string },
+    recoverPending = false,
+  ): Discovery {
+    if (expected.leadPlan.draft === null)
+      throw new Error("No displayed draft to approve");
+    const digest = planDigest(expected.leadPlan.draft);
+    return this.change(
+      expected.id,
+      (row) => {
+        if (
+          row.revision !== expected.revision ||
+          row.project !== expected.project ||
+          row.specification?.version !== expected.specification?.version ||
+          row.leadPlan.draft === null ||
+          planDigest(row.leadPlan.draft) !== digest
+        )
+          throw new Error(
+            "The displayed draft changed before approval; review it again",
+          );
+        const retained = row.handoff;
+        if (
+          retained !== undefined &&
+          retained.phase !== HandoffPhase.Complete &&
+          (!isDeepStrictEqual(retained.target, target) ||
+            retained.digest !== digest ||
+            retained.revision !== row.revision)
+        )
+          throw new Error(
+            "The uncertain handoff retains its original project authority and draft; reconcile that target first",
+          );
+        if (
+          retained?.phase === HandoffPhase.Pending &&
+          (!recoverPending ||
+            owner === undefined ||
+            !isDeepStrictEqual(retained, expected.handoff))
+        )
+          throw new Error(
+            "This exact handoff is already in progress; inspect its outcome before retrying",
+          );
+        row.handoff = {
+          operation:
+            retained !== undefined && retained.phase !== HandoffPhase.Complete
+              ? retained.operation
+              : randomUUID(),
+          digest,
+          revision: row.revision,
+          target,
+          phase: HandoffPhase.Pending,
+          owner,
+        };
+      },
+      true,
+    );
+  }
+  close(): void {
+    this.db.close();
+  }
+  list(project: string): Discovery[] {
+    return this.db
+      .query(
+        "SELECT record FROM discoveries WHERE project=? ORDER BY rowid DESC",
+      )
+      .all(realpathSync(project))
+      .map(decode);
+  }
+  get(id: string): Discovery {
+    return decode(
+      this.db.query("SELECT record FROM discoveries WHERE id=?").get(id),
+    );
+  }
+  create(project: string, conversation: string, title: string): Discovery {
+    const record: Discovery = {
+      id: randomUUID(),
+      title,
+      project: realpathSync(project),
+      conversation,
+      revision: randomUUID(),
+      history: [],
+      leadPlan: { mode: LeadMode.Planning, draft: null },
+    };
+    this.db
+      .query("INSERT INTO discoveries VALUES (?,?,?)")
+      .run(record.id, record.project, JSON.stringify(record));
+    return record;
+  }
+  change(
+    id: string,
+    update: (record: Discovery) => void,
+    handoff = false,
+  ): Discovery {
+    this.db.run("BEGIN IMMEDIATE");
+    try {
+      const record = this.get(id);
+      if (
+        !handoff &&
+        record.handoff !== undefined &&
+        record.handoff.phase !== HandoffPhase.Complete
+      )
+        throw new Error(
+          "The approved handoff is pending or uncertain; reconcile it before editing this discovery",
+        );
+      update(record);
+      const checked = discoverySchema.parse(record);
+      this.db
+        .query("UPDATE discoveries SET record=? WHERE id=?")
+        .run(JSON.stringify(checked), id);
+      this.db.run("COMMIT");
+      return checked;
+    } catch (error) {
+      this.db.run("ROLLBACK");
+      throw error;
+    }
+  }
+}
+function decode(value: unknown): Discovery {
+  return discoverySchema.parse(
+    JSON.parse(z.object({ record: z.string() }).parse(value).record),
+  );
+}

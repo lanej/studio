@@ -4,6 +4,7 @@ jobs:
   check:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
@@ -30,9 +31,11 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y shellcheck
+          sudo apt-get install -y shellcheck bubblewrap
           shellcheck scripts/pi scripts/studio acceptance/install-worktree-manager
       - run: bun run check
+      - run: bun run test:git-boundary-native
+      - run: bun run test:verification-native
       - run: bun run test:pi-native
       - run: bun run check:beads-api
       - run: bun run check:zellij
@@ -45,6 +48,7 @@ jobs:
   lsp-native:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     timeout-minutes: 5
@@ -70,8 +74,14 @@ jobs:
       - run: bun run test:lsp-native
 
   beads-native:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -84,6 +94,15 @@ jobs:
         with:
           bun-version: ${{ steps.runtime.outputs.bun }}
       - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Install verification isolation
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y bubblewrap
+      - name: Install acceptance worktree manager
+        run: |
+          HOME="$RUNNER_TEMP/manager" sh acceptance/install-worktree-manager 0.2.0
+          echo "$RUNNER_TEMP/manager/.local/bin" >> "$GITHUB_PATH"
       - name: Install the pinned external Beads fixture
         run: |
           git clone --no-checkout https://github.com/lanej/dotfiles.git "$RUNNER_TEMP/dotfiles"
@@ -93,4 +112,8 @@ jobs:
         run: |
           manifest="$HOME/.local/share/beads-service/runtime.json"
           bun run test:beads-native -- \
+            --bd "$(jq -er .bd "$manifest")" --dolt "$(jq -er .dolt "$manifest")"
+          bun run test:runtime-beads-native -- \
+            --bd "$(jq -er .bd "$manifest")" --dolt "$(jq -er .dolt "$manifest")"
+          bun run test:runtime-worker-native -- \
             --bd "$(jq -er .bd "$manifest")" --dolt "$(jq -er .dolt "$manifest")"

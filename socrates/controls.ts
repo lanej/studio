@@ -27,12 +27,47 @@ import { reviewPlan, showTask } from "../ui.ts";
 export const askTool = "ask_user_question";
 export const specTool = "draft_socrates_specification";
 
+export interface SocratesState {
+  revision: string | null;
+  specification?: Attempt["specification"];
+  leadPlan?: Attempt["leadPlan"];
+}
+
 export function registerSocrates(
   pi: ExtensionAPI,
   db: Attempts,
   id: string,
   requireBinding: (ctx: ExtensionContext) => Promise<Attempt>,
   approvalPending: (active: boolean) => void,
+) {
+  registerSocratesControls(pi, db, id, requireBinding, approvalPending, {
+    subject: "the accepted Beads task",
+    label: (record) => record.bead.id,
+    check: async (record, revision) => {
+      await new TaskBeads(record.source).requireCurrent(
+        record.bead,
+        revision,
+        id,
+      );
+    },
+  });
+}
+
+export function registerSocratesControls<T extends SocratesState>(
+  pi: ExtensionAPI,
+  db: {
+    get(id: string): T;
+    change(id: string, update: (row: T) => void): unknown;
+  },
+  id: string,
+  requireBinding: (ctx: ExtensionContext) => Promise<T>,
+  approvalPending: (active: boolean) => void,
+  scope: {
+    subject: string;
+    label(record: T): string;
+    check(record: T, revision: string): Promise<void>;
+    select?(argument: string, ctx: ExtensionContext): Promise<void>;
+  },
 ) {
   async function showQuestion(
     ctx: ExtensionContext,
@@ -42,16 +77,15 @@ export function registerSocrates(
     const exchange = spec.exchange;
     if (exchange === undefined || exchange.answer !== undefined)
       throw new Error("There is no unanswered Socrates question");
-    if (!ctx.hasUI) throw new Error("Open the managed Pi TUI to answer");
+    if (!ctx.hasUI) throw new Error("Open the Pi TUI to answer");
     const record = await requireBinding(ctx);
-    const beads = new TaskBeads(record.source);
-    await beads.requireCurrent(record.bead, spec.acceptedRevision, id);
+    await scope.check(record, spec.acceptedRevision);
     approvalPending(true);
     try {
       const answer = await ask(ctx, exchange.prompt, signal);
       if (answer === undefined) return undefined;
       await requireBinding(ctx);
-      await beads.requireCurrent(record.bead, spec.acceptedRevision, id);
+      await scope.check(record, spec.acceptedRevision);
       db.change(id, (row) => {
         if (
           row.leadPlan?.mode !== LeadMode.Planning ||
@@ -110,7 +144,7 @@ export function registerSocrates(
       ),
     }),
     async execute(_call, params, signal, _update, ctx) {
-      if (!ctx.hasUI) throw new Error("Open the managed Pi TUI to answer");
+      if (!ctx.hasUI) throw new Error("Open the Pi TUI to answer");
       const record = await requireBinding(ctx);
       const prompt = specQuestion.parse(params);
       const spec = record.specification;
@@ -135,11 +169,7 @@ export function registerSocrates(
         throw new Error(
           "Save this exact question and its open decision in the draft first",
         );
-      await new TaskBeads(record.source).requireCurrent(
-        record.bead,
-        spec.acceptedRevision,
-        id,
-      );
+      await scope.check(record, spec.acceptedRevision);
       const pending = { ...spec, exchange: { prompt } };
       db.change(id, (row) => {
         if (
@@ -167,20 +197,17 @@ export function registerSocrates(
   });
 
   pi.registerCommand("socrates", {
-    description: "Start or inspect Socrates discovery for this Beads task",
+    description: `Start or inspect Socrates discovery for ${scope.subject}`,
     async handler(_argument, ctx) {
       if (!ctx.isIdle()) throw new Error("Wait for the lead turn to settle");
+      await scope.select?.(_argument, ctx);
       const record = await requireBinding(ctx);
       const spec = record.specification;
       if (spec?.status === SpecStatus.Interrogating) {
         await socratesGuidance();
         if (record.revision !== spec.acceptedRevision)
           throw new Error("Refresh the Socrates brief before resuming");
-        await new TaskBeads(record.source).requireCurrent(
-          record.bead,
-          spec.acceptedRevision,
-          id,
-        );
+        await scope.check(record, spec.acceptedRevision);
         if (spec.exchange !== undefined) {
           if (
             spec.exchange.answer !== undefined ||
@@ -196,9 +223,7 @@ export function registerSocrates(
           spec.draft.blockingQuestions.length > 0 ||
           !specDraft.safeParse(spec.draft).success
         ) {
-          pi.sendUserMessage(
-            "Resume Socrates discovery for the accepted bead.",
-          );
+          pi.sendUserMessage(`Resume Socrates discovery for ${scope.subject}.`);
           return;
         }
       }
@@ -218,11 +243,7 @@ export function registerSocrates(
         throw new Error("Start Socrates before approving implementation");
       await socratesGuidance();
       const acceptedRevision = record.revision;
-      await new TaskBeads(record.source).requireCurrent(
-        record.bead,
-        acceptedRevision,
-        id,
-      );
+      await scope.check(record, acceptedRevision);
       db.change(id, (row) => {
         if (
           row.specification !== undefined ||
@@ -239,7 +260,7 @@ export function registerSocrates(
         row.leadPlan = { ...row.leadPlan, draft: null };
       });
       pi.sendUserMessage(
-        "Begin Socrates discovery for the accepted bead using the shared procedure.",
+        `Begin Socrates discovery for ${scope.subject} using the shared procedure.`,
       );
     },
   });
@@ -283,11 +304,7 @@ export function registerSocrates(
       const draft = specDraft.parse(params);
       if (record.revision === null)
         throw new Error("The accepted revision is missing");
-      await new TaskBeads(record.source).requireCurrent(
-        record.bead,
-        record.revision,
-        id,
-      );
+      await scope.check(record, record.revision);
       db.change(id, (row) => {
         const specification = row.specification;
         if (
@@ -336,24 +353,20 @@ export function registerSocrates(
         record.revision !== spec.acceptedRevision
       )
         throw new Error(
-          "Resolve the blocking questions and draft against the current Beads brief",
+          `Resolve the blocking questions and draft against ${scope.subject}`,
         );
       approvalPending(true);
       try {
         if (
           !(await reviewPlan(
             ctx,
-            `Freeze specification for ${record.bead.id}`,
+            `Freeze specification for ${scope.label(record)}`,
             specText(spec),
             "freeze spec",
           ))
         )
           return;
-        await new TaskBeads(record.source).requireCurrent(
-          record.bead,
-          spec.acceptedRevision,
-          id,
-        );
+        await scope.check(record, spec.acceptedRevision);
         db.change(id, (row) => {
           if (
             !isDeepStrictEqual(row.specification, spec) ||

@@ -9,7 +9,18 @@ export enum LeadMode {
   Implementing = "implementing",
 }
 
-const taskKey = z.string().regex(/^[a-z][a-z0-9-]{0,31}$/u);
+export enum TaskDelivery {
+  Local = "local",
+  PullRequest = "pull-request",
+}
+
+const taskKey = z
+  .string()
+  .regex(/^[a-z][a-z0-9-]{0,31}$/u)
+  .refine(
+    (key) => key !== "root",
+    "The root task key is reserved for the graph container",
+  );
 export const draftSchema = z
   .strictObject({
     summary: z.string().trim().min(1).max(8000),
@@ -17,6 +28,9 @@ export const draftSchema = z
       .array(
         z.strictObject({
           key: taskKey,
+          hold: z.boolean().optional(),
+          check: z.array(z.string().min(1)).max(64).optional(),
+          delivery: z.enum(TaskDelivery).optional(),
           title: z.string().trim().min(1).max(200),
           description: z.string().trim().min(1).max(2000),
           acceptance: z.string().trim().min(1).max(2000),
@@ -108,7 +122,11 @@ export function describePlan(draft: LeadDraft): string {
         ...(task.requirements.length > 0
           ? [`Requirements · ${task.requirements.join(", ")}`]
           : []),
-        ...(task.owns.length > 0 ? [`Owns · ${task.owns.join(", ")}`] : []),
+        `Owns · ${task.owns.length === 0 ? "the entire isolated checkout" : task.owns.join(", ")}`,
+        `Admission · ${task.hold === true ? "on hold" : "when ready"}`,
+        `Delivery · ${task.delivery ?? TaskDelivery.Local}`,
+        `Verification · ${task.check === undefined || task.check.length === 0 ? "independent criterion review; no executable agreed" : JSON.stringify(task.check)}`,
+
         ...(task.blockedBy.length > 0
           ? [`Blocked by · ${task.blockedBy.join(", ")}`]
           : []),

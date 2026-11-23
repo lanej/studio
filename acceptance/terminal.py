@@ -4,6 +4,9 @@
 # ///
 """Exercise native Pi keyboard flows in owned PTYs and retain rendered screenshots."""
 import argparse
+import atexit
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
 import fcntl
 import gzip
 import json
@@ -29,7 +32,21 @@ palette = json.loads((root / "resources/colors.json").read_text())
 output = Path(args.output)
 output.mkdir(parents=True, exist_ok=True)
 
-with tempfile.TemporaryDirectory(prefix="studio-terminal-") as directory:
+class DiscoveryProvider(BaseHTTPRequestHandler):
+    def log_message(self, *_args): pass
+    def do_POST(self):
+        request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        prompt = "\n".join(str(message.get("content", "")) for message in request["messages"] if message["role"] == "system")
+        assert "Harmony" in prompt and "Keep the lead free for research" in prompt, prompt
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        result = {"id": "discovery-fixture", "object": "chat.completion.chunk", "created": 1, "model": "tiny", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "Discovery remains open."}, "finish_reason": "stop"}]}
+        self.wfile.write(("data: " + json.dumps(result) + "\n\ndata: [DONE]\n\n").encode())
+
+with tempfile.TemporaryDirectory(prefix="studio-terminal-") as directory, ThreadingHTTPServer(("127.0.0.1", 0), DiscoveryProvider) as provider:
+    Thread(target=provider.serve_forever, daemon=True).start()
+    atexit.register(provider.shutdown)
     home = Path(directory).resolve()
     agent = home / ".pi/agent"
     agent.mkdir(parents=True)
@@ -45,7 +62,7 @@ with tempfile.TemporaryDirectory(prefix="studio-terminal-") as directory:
         archive.executemany("INSERT INTO session_data VALUES (?, ?)", [("first", gzip.compress(body.encode())), ("second", b"corrupt")])
     archive.close()
     archive_before = archive_file.read_bytes()
-    (agent / "models.json").write_text('{"providers":{"fixture":{"baseUrl":"http://127.0.0.1:9/v1","api":"openai-completions","apiKey":"fixture","models":[{"id":"tiny"}]}}}')
+    (agent / "models.json").write_text(json.dumps({"providers": {"fixture": {"baseUrl": f"http://127.0.0.1:{provider.server_port}/v1", "api": "openai-completions", "apiKey": "fixture", "models": [{"id": "tiny"}]}}}))
     workspace = home / "beads"
     workspace.mkdir()
     (workspace / ".beads").mkdir()
@@ -65,8 +82,12 @@ elif 'show' in sys.argv: print(json.dumps([{'id':sys.argv[-1],'title':'Idle comp
 ''')
     boundary.chmod(0o755)
     (home / "config.json").write_text(json.dumps({"beads": {"workspace": str(workspace), "database": "fixture", "branch": "main", "executable": str(boundary)}}))
-    env = {**os.environ, "HOME": str(home), "PI_CODING_AGENT_DIR": str(agent), "STUDIO_CONFIG": str(home / "config.json"), "TERM": "xterm-256color", "COLORTERM": "truecolor", "PI_TELEMETRY": "0", "PI_SKIP_VERSION_CHECK": "1"}
+    env = {**os.environ, "HOME": str(home), "PI_CODING_AGENT_DIR": str(agent), "STUDIO_CONFIG": str(home / "config.json"), "STUDIO_STATE_DIR": str(home / "studio-state"), "TERM": "xterm-256color", "COLORTERM": "truecolor", "PI_TELEMETRY": "0", "PI_SKIP_VERSION_CHECK": "1"}
     subprocess.run([sys.executable, str(root / "scripts/configure.py"), str(root), str(agent)], env=env, check=True, stdout=subprocess.DEVNULL)
+    settings_path = agent / "settings.json"
+    settings = json.loads(settings_path.read_text())
+    settings["retry"] = {"enabled": False, "maxRetries": 0}
+    settings_path.write_text(json.dumps(settings))
     (home / "design").mkdir()
     project = home / "development/dotfiles"
     project.mkdir(parents=True)
@@ -82,6 +103,27 @@ elif 'show' in sys.argv: print(json.dumps([{'id':sys.argv[-1],'title':'Idle comp
     git("add", "tracked.txt")
     tracked.write_text("new\nkeep\nextra\n")
     (project / "untracked.txt").touch()
+    seed = f"""
+import {{ Discoveries }} from {json.dumps(str(root / 'discovery/store.ts'))};
+import {{ SpecStatus }} from {json.dumps(str(root / 'socrates/spec.ts'))};
+import {{ draftSchema }} from {json.dumps(str(root / 'lead-plan.ts'))};
+const store=new Discoveries();
+const record=store.create({json.dumps(str(project))}, 'terminal-fixture', 'Explore independently');
+store.create({json.dumps(str(project))}, 'terminal-fixture', 'Separate research');
+store.change(record.id, row=>{{
+ row.specification={{status:SpecStatus.Interrogating,version:1,acceptedRevision:row.revision,draft:{{objective:'Keep the lead free for research',scope:['Independent discovery'],requirements:[{{id:'R1',outcome:'Review proposed work',acceptance:'No tasks before approval'}}],decisions:[{{id:'D1',decision:'Choose work timing',basis:'observed',evidence:'Operator workflow',disposition:'open',uncertainty:'Need timing'}}],blockingQuestions:['When should work begin?']}},exchange:{{prompt:{{decisionId:'D1',question:'When should work begin?',options:[{{label:'After review',description:'Keep discovery free'}},{{label:'Keep exploring',description:'Leave work unqueued'}}]}}}}}};
+ row.leadPlan.draft=draftSchema.parse({{summary:'Review before creating tasks',tasks:[{{key:'first',title:'Keep lead available',description:'Use separate workers',acceptance:'Lead remains free',hold:false,delivery:'local',check:['bun','test'],owns:['src']}}]}});
+}});
+const ready=store.create({json.dumps(str(project))}, 'terminal-fixture', 'Ready discovery');
+store.change(ready.id,row=>{{
+ const source=store.get(record.id);
+ row.specification={{...source.specification,acceptedRevision:row.revision,exchange:undefined,draft:{{...source.specification.draft,blockingQuestions:[],decisions:[{{id:'D1',decision:'Choose work timing',basis:'decided',evidence:'After review',disposition:'resolved',uncertainty:'None'}}]}}}};
+}});
+console.log(JSON.stringify({{discovery:record.id,ready:ready.id}}));store.close();
+"""
+    seeded = json.loads(subprocess.run(["bun", "--no-env-file", "-e", seed], env=env, cwd=root, text=True, capture_output=True, check=True).stdout)
+    discovery_id = seeded["discovery"]
+    ready_id = seeded["ready"]
     directory_label = "~/dev/dotfiles" if shutil.which("shortpath") else "~/development/dotfiles"
     try:
         font = ImageFont.truetype("/System/Library/Fonts/Menlo.ttc", 14)
@@ -130,6 +172,46 @@ elif 'show' in sys.argv: print(json.dumps([{'id':sys.argv[-1],'title':'Idle comp
             assert footer and len(footer) == columns, screen.display
             assert "↱ main" in footer and "Δ1 +2 −1 ?1" in footer, screen.display
             capture("daily-driver")
+            os.write(master, f"/socrates {discovery_id}\r".encode())
+            pump(.5)
+            if columns == 100:
+                assert "When should work begin?" in "\n".join(screen.display), screen.display
+                capture("discovery-question")
+                os.write(master, b"\r")
+                pump(1)
+            else:
+                # A fresh native lead resumes the recorded answer from the previous host.
+                pump(1)
+            with sqlite3.connect(home / "studio-state/discoveries.sqlite") as discoveries:
+                record = json.loads(discoveries.execute("SELECT record FROM discoveries WHERE id=?", (discovery_id,)).fetchone()[0])
+            assert record["specification"]["exchange"]["answer"]["text"] == "After review", record
+            assert "graph" not in record and "approved" not in record, record
+            os.write(master, b"/plan\r")
+            pump(.5)
+            assert "Review before creating tasks" in "\n".join(screen.display), screen.display
+            capture("discovery-breakdown")
+            os.write(master, b"\x1b")
+            pump(.3)
+            os.write(master, f"/socrates {ready_id}\r".encode())
+            pump(.4)
+            assert "Keep the lead free for research" in "\n".join(screen.display), screen.display
+            os.write(master, b"\x1b")
+            pump(.2)
+            if columns == 100:
+                os.write(master, b"/spec-freeze\r")
+                pump(.3)
+                assert "Freeze specification" in "\n".join(screen.display), screen.display
+                for _ in range(12):
+                    os.write(master, b"\r")
+                    pump(.2)
+                    with sqlite3.connect(home / "studio-state/discoveries.sqlite") as discoveries:
+                        ready = json.loads(discoveries.execute("SELECT record FROM discoveries WHERE id=?", (ready_id,)).fetchone()[0])
+                    if ready["specification"]["status"] == "frozen": break
+                pump(.5)
+            with sqlite3.connect(home / "studio-state/discoveries.sqlite") as discoveries:
+                ready = json.loads(discoveries.execute("SELECT record FROM discoveries WHERE id=?", (ready_id,)).fetchone()[0])
+            assert ready["specification"]["status"] == "frozen", ready
+            assert "graph" not in ready, ready
             os.write(master, b"/tasks\r")
             pump(1)
             assert any("→ ◐ daily-1" in line for line in screen.display), screen.display
@@ -200,4 +282,5 @@ elif 'show' in sys.argv: print(json.dumps([{'id':sys.argv[-1],'title':'Idle comp
             try: process.wait(timeout=5)
             except subprocess.TimeoutExpired: process.kill(); process.wait()
             os.close(master)
-print("Native Pi tree selection, Escape recovery, directory switching, and draft editing passed.")
+    provider.shutdown()
+print("Native Pi discovery answer/resume, breakdown review, tree selection, directory switching, and draft editing passed.")
