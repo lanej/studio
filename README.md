@@ -22,6 +22,10 @@ The selector returns an item index or cancellation. Socrates owns the typed-answ
 
 ## Install
 
+With [dotfiles](https://github.com/lanej/dotfiles/blob/master/docs/pi.md#install), select `workstation` or set `tools.studio = true`, then run `make install`. Use `make studio-install` from the dotfiles checkout for a Studio-only installation. Dotfiles provisions the project-pinned private Bun runtime and delegates to this project's installer; existing source revisions, local work, and Pi settings are preserved. Set `tools.studio = false` to disable installation without uninstalling Studio.
+
+For standalone installation, use the Bun version in `.bun-version`:
+
 ```sh
 git clone https://github.com/lanej/studio.git ~/src/studio
 cd ~/src/studio
@@ -35,13 +39,7 @@ For development, `bun run configure` registers this source package without insta
 
 The project-owned updater adapter is `scripts/lifecycle.mjs`. Once the separate checkout is registered with the workstation's project updater, use `project-update pull studio`, `project-update build studio`, and `project-update restart studio`, or `project-update update studio` for the sequence. Restart returns 3 with a manual reload/relaunch reminder; it does not terminate sessions. Status reports installed source identity separately from the unknown running revision. Build stages the selected checkout without pulling. Previous bundles remain available.
 
-Dotfiles registers this checkout with its project updater:
-
-```toml
-[projects.studio]
-path = "~/src/studio"
-command = ["bun", "scripts/lifecycle.mjs"]
-```
+Dotfiles registers this checkout as `studio` and selects the project-pinned Bun runtime for its updater. The [dotfiles registry](https://github.com/lanej/dotfiles/blob/master/config/project-updates.toml) owns that registration; a global Bun installation is not required for dotfiles-managed builds.
 
 Export standalone source with `python3 scripts/export.py /path/to/empty-destination`. See [source provenance and integration ownership](EXTRACTION.md).
 
