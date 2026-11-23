@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { registerRuntimeCommands } from "./execution/cli.ts";
 import { startSession } from "./session.ts";
+import { generatePiModels } from "./pi-models.ts";
 import {
   BeadsReader,
   taskDetails,
@@ -20,7 +21,6 @@ import {
   configPath,
   studioProfileSchema,
   exampleConfig,
-  piModelsExample,
   loadConfig,
 } from "./config.ts";
 
@@ -58,21 +58,40 @@ program
   .option("--example", "Print a configuration example")
   .addOption(
     new Option(
-      "--pi-models",
-      "Print the Bedrock Mantle provider example for Pi models.json",
+      "--pi-models [catalog]",
+      "Generate Mantle entries for Pi models.json (optionally from a saved models.dev catalog)",
     ).conflicts("example"),
   )
-  .action(async (options: { example?: boolean; piModels?: boolean }) => {
-    if (options.piModels === true) {
-      output(piModelsExample);
-      return;
-    }
-    output(
-      options.example === true
-        ? exampleConfig
-        : { path: configPath(), configuration: await loadConfig() },
-    );
-  });
+  .addOption(
+    new Option(
+      "--region <region>",
+      "Mantle AWS region (or AWS_REGION/AWS_DEFAULT_REGION)",
+    )
+      .implies({ piModels: true })
+      .conflicts("example"),
+  )
+  .action(
+    async (options: {
+      example?: boolean;
+      piModels?: boolean | string;
+      region?: string;
+    }) => {
+      if (options.piModels !== undefined && options.piModels !== false) {
+        output(
+          await generatePiModels(
+            options.region,
+            typeof options.piModels === "string" ? options.piModels : undefined,
+          ),
+        );
+        return;
+      }
+      output(
+        options.example === true
+          ? exampleConfig
+          : { path: configPath(), configuration: await loadConfig() },
+      );
+    },
+  );
 program
   .command("doctor")
   .description(
@@ -302,7 +321,7 @@ program
       [HelpTopic.Compaction]:
         "Load the Pi package to enable idle compaction. Defaults: five settled minutes AND 60% context use. Active work, drafts, dialogs, queued input, unknown usage, and active child work prevent compaction. Failed attempts do not loop. Pi near-limit compaction remains independent.",
       [HelpTopic.Profiles]:
-        "Configure work/personal roles using studio config --example. studio config --pi-models prints the work provider entry to merge into Pi models.json. /studio-profile explicitly selects the lead model in Pi after registry validation. Work uses Bedrock Mantle's /openai/v1 Responses API; personal uses Pi openai-codex authentication. No credential copies or automatic cross-profile fallback.",
+        "Configure work/personal roles using studio config --example. studio config --pi-models --region REGION generates Mantle models from Pi metadata and models.dev API declarations for merging into Pi models.json. /studio-profile explicitly selects the lead model in Pi after registry validation. Personal uses Pi openai-codex authentication. No credential copies or automatic cross-profile fallback.",
       [HelpTopic.Dispatch]:
         "From the repository in Zellij: studio start BEAD_ID --profile work -- make test. Supply a check that covers the accepted criteria; omit it for human review. Repeat the command to focus the registered worker. Use /task-submit SUMMARY in its Pi pane. Inspect studio tasks BEAD_ID --json for the result.",
     } satisfies Record<HelpTopic, string>;

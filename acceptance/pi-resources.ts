@@ -1,12 +1,11 @@
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import assert from "node:assert/strict";
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 import { z } from "zod";
 import {
   AgentRole,
@@ -19,52 +18,15 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const temporary = await mkdtemp(join(tmpdir(), "studio-resources-"));
 const agent = join(temporary, ".pi/agent");
 await mkdir(agent, { recursive: true });
-const execute = promisify(execFile);
-const example = await execute(
-  join(root, "scripts/studio"),
-  ["config", "--pi-models"],
-  {
-    cwd: temporary,
-    env: {
-      ...process.env,
-      PI_CODING_AGENT_DIR: agent,
-      STUDIO_CONFIG: join(temporary, "absent.json"),
-    },
-    timeout: 10_000,
-  },
-);
-await writeFile(join(agent, "models.json"), example.stdout);
 const registry = await ModelRuntime.create({
   authPath: join(agent, "auth.json"),
-  modelsPath: join(agent, "models.json"),
+  modelsPath: null,
 });
 for (const [role, selection] of Object.entries(exampleConfig.profiles.personal))
   assert.ok(
     registry.getModel(selection.provider, selection.model) !== undefined,
     `The personal example's ${role} model is unavailable: ${selection.model}`,
   );
-for (const [role, selection] of Object.entries(exampleConfig.profiles.work)) {
-  const model = registry.getModel(selection.provider, selection.model);
-  assert.ok(model !== undefined, `The work example's ${role} is unavailable`);
-  assert.equal(model.id, "openai.gpt-6.2-sol");
-  assert.equal(model.api, "openai-responses");
-  assert.equal(
-    model.baseUrl,
-    "https://bedrock-mantle.us-east-1.api.aws/openai/v1",
-  );
-  assert.equal(model.reasoning, true);
-  assert.equal(model.contextWindow, 1_050_000);
-  assert.equal(model.maxTokens, 128_000);
-  assert.deepEqual(model.cost.tiers, [
-    {
-      inputTokensAbove: 272_000,
-      input: 4.4,
-      output: 16.5,
-      cacheRead: 0.22,
-      cacheWrite: 5.5,
-    },
-  ]);
-}
 
 const workModel = {
   provider: "fixture-mantle",
@@ -227,7 +189,7 @@ try {
     /Failed to load|Error loading|Cannot load|Warning: Extension package/,
   );
   console.log(
-    "Pi 1.4.0 loaded the emitted Sol 6.2 Mantle provider, discovered the Studio commands, and kept the current model after a rejected profile switch.",
+    "Pi 1.4.0 discovered the Studio commands and kept the current model after a rejected profile switch.",
   );
 } finally {
   clearTimeout(timeout);
