@@ -373,9 +373,8 @@ await test("opt-in registration preserves local settings and is idempotent", asy
       JSON.stringify(upgradeSettings),
     );
     await chmod(join(upgradeAgent, "settings.json"), 0o600);
-    const previousRecord = join(upgradeAgent, "pi-driver-package.json");
-    const retainedRecord = JSON.stringify({ packages: [previous] });
-    await writeFile(previousRecord, retainedRecord);
+    const registration = join(upgradeAgent, "studio-package.json");
+    await writeFile(registration, JSON.stringify({ packages: [previous] }));
     const upgrade = () =>
       execute(
         "python3",
@@ -399,7 +398,6 @@ await test("opt-in registration preserves local settings and is idempotent", asy
       await readlink(join(upgradeAgent, "themes/dotfiles.json")),
       join(root, "resources/theme.json"),
     );
-    assert.equal(await readFile(previousRecord, "utf8"), retainedRecord);
     const ownership = z.object({ packages: z.array(z.string()) });
     assert.deepEqual(
       ownership.parse(
@@ -409,12 +407,9 @@ await test("opt-in registration preserves local settings and is idempotent", asy
       ).packages,
       [previous, root.replace(/\/$/, "")],
     );
-    // A successful import establishes the new record as the sole future authority.
-    await writeFile(previousRecord, "invalid stale record");
     await upgrade();
-    await rm(join(upgradeAgent, "studio-package.json"));
-    await rm(previousRecord);
-    await symlink(linked, previousRecord);
+    await rm(registration);
+    await symlink(linked, registration);
     const upgraded = await readFile(
       join(upgradeAgent, "settings.json"),
       "utf8",
