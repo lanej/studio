@@ -696,7 +696,9 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     if (lead.pid !== undefined) process.kill(-lead.pid, "SIGTERM");
     await once(lead, "close");
     release?.();
-    const deadline = Date.now() + 60000;
+    // Hosted runners may still be verifying accepted work after the local one-minute budget.
+    const completionMs = process.env["CI"] === "true" ? 180000 : 60000;
+    const deadline = Date.now() + completionMs;
     let restarted = false;
     for (;;) {
       if (crashedAttempt !== undefined && !restarted) {
@@ -733,7 +735,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
           ),
         );
         throw new Error(
-          `Unattended fixture failed: ${JSON.stringify(attempts)}\n${diagnostics}\n${logs.join("\n")}\nLead: ${leadErrors}`,
+          `Unattended fixture ${failed === undefined ? `timed out after ${String(completionMs)} ms` : "failed"}: ${JSON.stringify(attempts)}\n${diagnostics}\n${logs.join("\n")}\nLead: ${leadErrors}`,
         );
       }
       await new Promise((resolve) => setTimeout(resolve, 100));

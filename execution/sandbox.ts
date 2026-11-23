@@ -13,7 +13,14 @@ import {
 } from "node:fs/promises";
 import { constants } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
-import { delimiter, dirname, isAbsolute, join, relative } from "node:path";
+import {
+  basename,
+  delimiter,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+} from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { configPath } from "../config.ts";
 import { packageRoot } from "../package-resources.ts";
@@ -262,6 +269,29 @@ export async function verificationSandbox(
     }
     if (requestedRoot === undefined)
       throw new Error("The agreed verification executable is unavailable");
+    let developer: { directory: string; root: string } | undefined;
+    if (process.platform === "darwin") {
+      const selection =
+        process.env["DEVELOPER_DIR"] ??
+        (await run("/usr/bin/xcode-select", ["--print-path"])).trim();
+      const selected = await realpath(selection);
+      const directory = await realpath(
+        join(selected, "Contents", "Developer"),
+      ).catch(() => selected);
+      if (!(await stat(directory)).isDirectory())
+        throw new Error(
+          "The selected Apple developer directory is unavailable",
+        );
+      const contents = dirname(directory);
+      const bundle = dirname(contents);
+      developer = {
+        directory,
+        root:
+          basename(contents) === "Contents" && bundle.endsWith(".app")
+            ? bundle
+            : directory,
+      };
+    }
     const allowed = [
       checkout,
       temporary,
@@ -269,6 +299,7 @@ export async function verificationSandbox(
       await realpath(packageRoot),
       executableRoot,
       requestedRoot,
+      ...(developer === undefined ? [] : [developer.root]),
       ...objectBindings.map((binding) => binding.source),
       ...explicitReadPaths,
     ];
@@ -294,6 +325,9 @@ export async function verificationSandbox(
       GIT_CONFIG_NOSYSTEM: "1",
       BUN_INSTALL_CACHE_DIR: join(temporary, "bun-cache"),
       NO_COLOR: "1",
+      ...(developer === undefined
+        ? {}
+        : { DEVELOPER_DIR: developer.directory }),
       ...(snapshot === undefined
         ? {}
         : {
