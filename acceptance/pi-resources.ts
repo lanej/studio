@@ -95,9 +95,9 @@ let errors = "";
 pi.stderr.on("data", (chunk: Buffer) => {
   errors += chunk.toString();
 });
-let closed = false;
+const lifecycle = { closed: false };
 pi.once("close", () => {
-  closed = true;
+  lifecycle.closed = true;
 });
 const stop = (signal: NodeJS.Signals): void => {
   if (pi.pid === undefined) return;
@@ -194,7 +194,7 @@ try {
   );
 } finally {
   clearTimeout(timeout);
-  if (!closed) {
+  if (!lifecycle.closed) {
     pi.stdin.end();
     stop("SIGTERM");
     const force = setTimeout(() => {
