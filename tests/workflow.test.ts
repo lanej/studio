@@ -279,6 +279,22 @@ await test("environment-backed entrypoints preserve directory, Pi arguments and 
   }
 });
 
+await test("the shared Bun gate accepts newer stable runtimes and rejects old or prerelease runtimes", async () => {
+  const validate = (version: string) =>
+    execute(
+      process.execPath,
+      [
+        "--eval",
+        `Object.defineProperty(process.versions, "bun", {value: ${JSON.stringify(version)}}); await import(${JSON.stringify(join(root, "scripts/runtime.mjs"))});`,
+      ],
+      { cwd: root },
+    );
+  await validate("1.4.5");
+  await validate("1.5.0");
+  await assert.rejects(validate("1.4.4"), /requires Bun/);
+  await assert.rejects(validate("1.4.5-canary"), /requires Bun/);
+});
+
 await test("opt-in registration preserves local settings and is idempotent", async () => {
   const temporary = await realpath(
     await mkdtemp(join(tmpdir(), "studio-install-")),

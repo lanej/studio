@@ -38,7 +38,6 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     PI_CODING_AGENT_DIR: agent,
     STUDIO_CONFIG: configFile,
     STUDIO_STATE_DIR: state,
-    STUDIO_USE_SOURCE: "1",
     PI_SKIP_VERSION_CHECK: "1",
     PI_TELEMETRY: "0",
     GIT_CONFIG_GLOBAL: "/dev/null",

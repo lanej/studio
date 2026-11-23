@@ -460,7 +460,6 @@ export async function assertVerificationIsolation(
   readPaths: string[] = [],
 ): Promise<void> {
   const candidates = [
-    join(packageRoot, "runtime/bun"),
     ...(process.env["PATH"] ?? "")
       .split(delimiter)
       .map((directory) => join(directory, "bun")),
@@ -476,25 +475,22 @@ export async function assertVerificationIsolation(
     }
   }
   if (executable === undefined)
-    throw new Error(
-      "The pinned Bun runtime is unavailable for isolated verification",
-    );
+    throw new Error("Bun is unavailable on PATH for isolated verification");
   const sandbox = await verificationSandbox(
     cwd,
-    [executable, "--version"],
+    [
+      executable,
+      "--no-env-file",
+      `--config=${join(packageRoot, "resources/bunfig.toml")}`,
+      join(packageRoot, "scripts/runtime.mjs"),
+    ],
     readPaths,
   );
   try {
     const [command, ...args] = sandbox.argv;
     if (command === undefined)
       throw new Error("No verification isolation backend is available");
-    const version = (
-      await run(command, args, { cwd: sandbox.cwd, env: sandbox.environment })
-    ).trim();
-    if (version !== "1.4.5")
-      throw new Error(
-        "Isolated verification requires the package's pinned Bun 1.4.5",
-      );
+    await run(command, args, { cwd: sandbox.cwd, env: sandbox.environment });
   } finally {
     await sandbox.close();
   }
