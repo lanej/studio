@@ -14,7 +14,7 @@ agent.mkdir(parents=True, exist_ok=True)
 
 
 def atomic_json(path, value):
-    temporary = path.with_name(".pi-driver-" + path.name + "-" + str(os.getpid()))
+    temporary = path.with_name(".studio-" + path.name + "-" + str(os.getpid()))
     try:
         mode = path.stat().st_mode & 0o777 if path.exists() else 0o600
         descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -26,11 +26,13 @@ def atomic_json(path, value):
         temporary.unlink(missing_ok=True)
 
 
-with (agent / ".pi-driver-configure.lock").open("a") as lock:
+with (agent / ".studio-configure.lock").open("a") as lock:
     fcntl.flock(lock, fcntl.LOCK_EX)
     settings = agent / "settings.json"
-    registration = agent / "pi-driver-package.json"
-    if settings.is_symlink() or registration.is_symlink():
+    registration = agent / "studio-package.json"
+    # Import the prior installer's ownership once; subsequent updates use Studio's record.
+    ownership = registration if registration.exists() else agent / "pi-driver-package.json"
+    if settings.is_symlink() or registration.is_symlink() or ownership.is_symlink():
         raise SystemExit("Preserving linked Pi settings or registration; configure its source explicitly.")
     value = json.loads(settings.read_text()) if settings.exists() else {}
     if not isinstance(value, dict):
@@ -38,34 +40,15 @@ with (agent / ".pi-driver-configure.lock").open("a") as lock:
     packages = value.get("packages", [])
     if not isinstance(packages, list):
         raise SystemExit("Pi packages must be an array; existing file preserved.")
-    record = json.loads(registration.read_text()) if registration.exists() else {}
+    record = json.loads(ownership.read_text()) if ownership.exists() else {}
     managed = record.get("packages", [record["package"]] if "package" in record else [])
     if not isinstance(managed, list) or not all(isinstance(item, str) for item in managed):
-        raise SystemExit("Invalid driver registration; existing settings preserved.")
+        raise SystemExit("Invalid Studio registration; existing settings preserved.")
     theme = package / "resources/theme.json"
     if not theme.is_file():
-        raise SystemExit("The installed driver theme is missing.")
+        raise SystemExit("The installed Studio theme is missing.")
     theme_link = agent / "themes/dotfiles.json"
     owned_themes = {str(Path(item) / "resources/theme.json") for item in [*managed, str(package)]}
-    # The former dotfiles helper registered this package and its generated theme together.
-    # Recognize that exact pair while leaving unrelated packages and theme links alone.
-    for entry in packages:
-        if not isinstance(entry, str):
-            continue
-        previous = Path(entry)
-        if not previous.is_absolute() or previous.name != "daily-driver" or previous.parent.name != "pi":
-            continue
-        legacy_theme = previous.parents[1] / "design-system/generated/pi.json"
-        if not theme_link.is_symlink() or theme_link.resolve() != legacy_theme.resolve():
-            continue
-        try:
-            metadata = json.loads((previous / "package.json").read_text())
-        except (OSError, ValueError):
-            continue
-        if isinstance(metadata, dict) and metadata.get("name") == "@lanej/pi-daily-driver":
-            owned_themes.add(str(legacy_theme.resolve()))
-            if entry not in managed:
-                managed.append(entry)
     if theme_link.is_symlink():
         if str(theme_link.resolve()) not in owned_themes:
             raise SystemExit("Preserving the existing dotfiles.json theme link; configure its source explicitly.")
@@ -76,7 +59,7 @@ with (agent / ".pi-driver-configure.lock").open("a") as lock:
     # Retain both sides of an interrupted settings update so retry/upgrade can remove only owned registrations.
     atomic_json(registration, {"packages": list(dict.fromkeys([*managed, str(package)]))})
     theme_link.parent.mkdir(parents=True, exist_ok=True)
-    temporary_link = theme_link.with_name(".pi-driver-theme-" + str(os.getpid()))
+    temporary_link = theme_link.with_name(".studio-theme-" + str(os.getpid()))
     try:
         temporary_link.symlink_to(theme)
         os.replace(temporary_link, theme_link)
@@ -86,4 +69,4 @@ with (agent / ".pi-driver-configure.lock").open("a") as lock:
     value.setdefault("theme", "dotfiles")
     value.setdefault("quietStartup", True)
     atomic_json(settings, value)
-print("Registered the Pi driver.")
+print("Registered Studio.")

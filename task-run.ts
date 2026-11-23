@@ -13,8 +13,8 @@ import { Attempts, Phase, stateDirectory, type Attempt } from "./attempts.ts";
 import {
   AgentRole,
   DefaultProvider,
-  DriverProfile,
-  type DriverConfig,
+  StudioProfile,
+  type StudioConfig,
   knownProvider,
   loadConfig,
 } from "./config.ts";
@@ -35,7 +35,7 @@ async function focus(
   zellij: Zellij,
   service: TaskBeads,
   primary: string,
-  profile: DriverProfile,
+  profile: StudioProfile,
   check: string[],
 ): Promise<Attempt> {
   if (
@@ -103,7 +103,7 @@ async function focusRegisteredPane(
 ): Promise<Attempt> {
   if (record.pid === null || record.pane === null || record.revision === null) {
     throw new Error(
-      `Attempt ${record.id} is ${record.phase}. ${record.message}. Inspect pi-driver tasks ${record.bead.id} --json`,
+      `Attempt ${record.id} is ${record.phase}. ${record.message}. Inspect studio tasks ${record.bead.id} --json`,
     );
   }
   await service.requireCurrent(record.bead, record.revision, record.id);
@@ -134,8 +134,8 @@ async function focusRegisteredPane(
 }
 
 async function assertLeadProfile(
-  config: DriverConfig,
-  profile: DriverProfile,
+  config: StudioConfig,
+  profile: StudioProfile,
 ): Promise<void> {
   const agent = getAgentDir();
   const runtime = await ModelRuntime.create({
@@ -151,10 +151,10 @@ async function assertLeadProfile(
     if (
       model === undefined ||
       !runtime.hasConfiguredAuth(model.provider) ||
-      (profile === DriverProfile.Personal &&
+      (profile === StudioProfile.Personal &&
         knownProvider(model.provider) !==
           DefaultProvider.ChatGPTSubscription) ||
-      (profile === DriverProfile.Work &&
+      (profile === StudioProfile.Work &&
         !/^https:\/\/bedrock-mantle\.[a-z0-9-]+\.api\.aws(?:\/|$)/u.test(
           model.baseUrl,
         ))
@@ -191,12 +191,12 @@ async function launchPi(
   const lead = record.leadPlan !== undefined;
   if (checkout === null) throw new Error("Missing managed checkout");
   const environment = [
-    `PI_DRIVER_STATE_DIR=${db.directory}`,
-    `PI_DRIVER_ATTEMPT=${attempt}`,
+    `STUDIO_STATE_DIR=${db.directory}`,
+    `STUDIO_ATTEMPT=${attempt}`,
     // Pi does not detect hyperlink support from the managed Zellij pane alone.
     ...(lead ? ["PI_HYPERLINKS=1"] : []),
   ];
-  for (const key of ["PI_CODING_AGENT_DIR", "PI_DRIVER_CONFIG", "PATH"]) {
+  for (const key of ["PI_CODING_AGENT_DIR", "STUDIO_CONFIG", "PATH"]) {
     const value = process.env[key];
     if (value !== undefined) environment.push(`${key}=${value}`);
   }
@@ -364,7 +364,7 @@ export async function resumeLead(
 
 export async function startTask(
   id: string,
-  profile: DriverProfile,
+  profile: StudioProfile,
   check: string[],
   targetTab?: number,
   lead = true,
@@ -382,7 +382,7 @@ export async function startTask(
   if (model === undefined)
     throw new Error(`Configure the model for the ${profile} profile`);
   const expectedProvider =
-    profile === DriverProfile.Personal
+    profile === StudioProfile.Personal
       ? DefaultProvider.ChatGPTSubscription
       : DefaultProvider.BedrockMantle;
   if (knownProvider(model.provider) !== expectedProvider)

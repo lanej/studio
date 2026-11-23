@@ -6,7 +6,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -22,7 +22,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y shellcheck
-          shellcheck scripts/pi scripts/pi-driver acceptance/install-worktree-manager
+          shellcheck scripts/pi scripts/studio acceptance/install-worktree-manager
       - run: bun run check
       - run: bun run test:pi-native
       - run: bun run check:beads-api

@@ -8,10 +8,10 @@ import { access, realpath, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { processFailure } from "./process.ts";
-import type { DriverProfile } from "./config.ts";
+import type { StudioProfile } from "./config.ts";
 import { PiMode, piModeSchema } from "./runtime.ts";
 
-export const directoryProfileType = "pi-driver:directory-profile";
+export const directoryProfileType = "studio:directory-profile";
 
 async function destination(argument: string, cwd: string): Promise<string> {
   let path = argument.trim();
@@ -32,10 +32,10 @@ async function destination(argument: string, cwd: string): Promise<string> {
 export function registerDirectory(
   pi: ExtensionAPI,
   hasChildWork: (sessionId: string) => boolean,
-  selectedProfile: () => DriverProfile | undefined = () => undefined,
+  selectedProfile: () => StudioProfile | undefined = () => undefined,
 ): void {
   const blocked = (ctx: ExtensionCommandContext): string | undefined => {
-    if (process.env["PI_DRIVER_ATTEMPT"] !== undefined)
+    if (process.env["STUDIO_ATTEMPT"] !== undefined)
       return "Managed tasks stay in their assigned checkout.";
     if (piModeSchema.parse(ctx.mode) !== PiMode.Tui)
       return "Use /cd in an interactive Pi terminal.";
@@ -89,7 +89,7 @@ export function registerDirectory(
           manager.appendModelChange(ctx.model.provider, ctx.model.id);
         manager.appendThinkingLevelChange(pi.getThinkingLevel());
         manager.appendCustomMessageEntry(
-          "pi-driver:directory",
+          "studio:directory",
           `Working directory changed from ${ctx.cwd} to ${target}.`,
           false,
         );

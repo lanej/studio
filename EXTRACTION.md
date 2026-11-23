@@ -2,7 +2,7 @@
 
 Prepared from [lanej/dotfiles at d33526d125a69ea5be9faf12eb8507014d20e170](https://github.com/lanej/dotfiles/tree/d33526d125a69ea5be9faf12eb8507014d20e170). Studio is maintained in [lanej/studio](https://github.com/lanej/studio), with source checkout `~/src/studio`. The extraction snapshot includes the preparation in [dotfiles at a5b3da4e5a3e7f864ec677144ce37bcd21cc1815](https://github.com/lanej/dotfiles/tree/a5b3da4e5a3e7f864ec677144ce37bcd21cc1815/pi/daily-driver).
 
-`vendor/task-runtime` is derived from `tools/task-runtime` at that revision, with Bun commands, strict-lint adaptations, and configured worktree-executable support. Paseo retains its original client. Update the client, schema and generated declarations together, then run `bun run check:beads-api` in the vendor package and the driver acceptance checks. Its Beads schema provenance is in `vendor/task-runtime/api/README.md`.
+`vendor/task-runtime` is derived from `tools/task-runtime` at that revision, with Bun commands, strict-lint adaptations, and configured worktree-executable support. Paseo retains its original client. Update the client, schema and generated declarations together, then run `bun run check:beads-api` in the vendor package and Studio acceptance checks. Its Beads schema provenance is in `vendor/task-runtime/api/README.md`.
 
 `resources/socrates` and the generated theme and palette are snapshots from the same revision. Their authoring sources remain in dotfiles. Refresh them deliberately and rerun native Pi resource and terminal acceptance. Keep `LICENSE.session-snap`, `LICENSE.smart-plan`, and `generated/zellij/LICENSE.md` with redistributed source.
 
@@ -10,7 +10,7 @@ Prepared from [lanej/dotfiles at d33526d125a69ea5be9faf12eb8507014d20e170](https
 
 Studio owns its source, installation, and macOS/Linux acceptance. Dotfiles retains the shared resource authors and registers `~/src/studio` as `studio` in `config/project-updates.toml`. External Beads acceptance uses the dotfiles service installer at the CI-pinned revision; this fixture does not make dotfiles a runtime dependency. The generated Zellij protocol revision is pinned independently in `zellij-revision`.
 
-There is no pre-extraction driver database to migrate. Existing Beads data and unrelated Pi sessions remain outside this extraction. The driver retains its normal persistent attempt and recovery records for future use.
+There is no pre-extraction application database to migrate. Existing Beads data and unrelated Pi sessions remain outside this extraction. Studio retains its normal persistent attempt and recovery records for future use.
 
 Optional integrations are disabled by default and are admitted only when configured and present. Core installation and standalone acceptance do not require Beads, Zellij, worktree manager, or Octo; use `--with-integrations` for native delegation acceptance.
 

@@ -6,12 +6,12 @@ export const dispatchGate = {
   repeatedClaimReconciled: true,
   cliOwnerStatusGuardsFenceBrief: false,
   reason:
-    "Local coding runs use pi-driver start and the Beads HTTP revision guard. Fleet dispatch, replacement workers and automatic cleanup require separate lifecycle support.",
+    "Local coding runs use studio start and the Beads HTTP revision guard. Fleet dispatch, replacement workers and automatic cleanup require separate lifecycle support.",
   contract: "https://github.com/lanej/dotfiles/issues/353",
 } as const;
 
 export function requireDispatch(): never {
   throw new Error(
-    `${dispatchGate.reason} Inspect the original attempt with pi-driver tasks ID --json before recovery.`,
+    `${dispatchGate.reason} Inspect the original attempt with studio tasks ID --json before recovery.`,
   );
 }

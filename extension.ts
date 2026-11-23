@@ -24,8 +24,8 @@ import { dispatchGate } from "./capabilities.ts";
 import {
   AgentRole,
   DefaultProvider,
-  DriverProfile,
-  driverProfileSchema,
+  StudioProfile,
+  studioProfileSchema,
   knownProvider,
   loadConfig,
 } from "./config.ts";
@@ -46,13 +46,13 @@ import {
   TaskAction,
 } from "./ui.ts";
 
-const attemptType = "pi-driver:idle-attempt";
+const attemptType = "studio:idle-attempt";
 const attemptSchema = z.object({ historyId: z.string() });
 
-export default function dailyDriver(
+export default function studioExtension(
   pi: ExtensionAPI,
   managed?: {
-    profile: DriverProfile;
+    profile: StudioProfile;
     approvalPending: () => boolean;
     trackedPullRequest: () => string | undefined;
   },
@@ -93,7 +93,7 @@ export default function dailyDriver(
     release();
     const generation = lifecycle;
     try {
-      ctx.ui.setStatus("pi-driver", undefined);
+      ctx.ui.setStatus("studio", undefined);
       const config = await loadConfig();
       if (generation !== lifecycle) return;
       const mode = piModeSchema.parse(ctx.mode);
@@ -206,7 +206,7 @@ export default function dailyDriver(
             entry.customType === directoryProfileType,
         );
       if (marker !== undefined && isEntry(marker, PiEntryType.Custom)) {
-        const profile = driverProfileSchema.safeParse(marker.data);
+        const profile = studioProfileSchema.safeParse(marker.data);
         if (profile.success) {
           // Consume the handoff before revalidation so a later resume does not
           // override a model or profile the user selected after this switch.
@@ -251,7 +251,7 @@ export default function dailyDriver(
       const config = await loadConfig();
       if (config.beads === undefined && config.beadsService === undefined) {
         ctx.ui.notify(
-          "Configure a Beads service or read-only workspace in pi-driver/config.json",
+          "Configure a Beads service or read-only workspace in studio/config.json",
           "warning",
         );
         return;
@@ -323,8 +323,8 @@ export default function dailyDriver(
     ctx: ExtensionContext,
     restoring = false,
   ): Promise<void> {
-    if (process.env["PI_DRIVER_ATTEMPT"] !== undefined) {
-      ctx.ui.notify("Set the profile on pi-driver start.", "warning");
+    if (process.env["STUDIO_ATTEMPT"] !== undefined) {
+      ctx.ui.notify("Set the profile on studio start.", "warning");
       return;
     }
     if (!ctx.isIdle() || ctx.hasPendingMessages()) {
@@ -335,10 +335,10 @@ export default function dailyDriver(
       return;
     }
     const config = await loadConfig();
-    const parsedName = driverProfileSchema.safeParse(argument.trim());
+    const parsedName = studioProfileSchema.safeParse(argument.trim());
     if (!parsedName.success) {
       ctx.ui.notify(
-        "Use /driver-profile work or /driver-profile personal",
+        "Use /studio-profile work or /studio-profile personal",
         "warning",
       );
       return;
@@ -347,7 +347,7 @@ export default function dailyDriver(
     const profile = config.profiles[name];
     if (profile === undefined) {
       ctx.ui.notify(
-        `Configure the ${name} profile first; pi-driver config --example shows the role selections`,
+        `Configure the ${name} profile first; studio config --example shows the role selections`,
         "warning",
       );
       return;
@@ -363,7 +363,7 @@ export default function dailyDriver(
       return;
     }
     if (
-      name === DriverProfile.Personal &&
+      name === StudioProfile.Personal &&
       Object.values(profile).some(
         (role) =>
           knownProvider(role.provider) !== DefaultProvider.ChatGPTSubscription,
@@ -376,7 +376,7 @@ export default function dailyDriver(
       return;
     }
     if (
-      name === DriverProfile.Work &&
+      name === StudioProfile.Work &&
       models.some(
         (model) =>
           model === undefined ||
@@ -402,7 +402,7 @@ export default function dailyDriver(
       (ctx.model?.provider !== lead.provider || ctx.model.id !== lead.id)
     ) {
       ctx.ui.notify(
-        "The driver profile no longer matches the current model. Select /driver-profile again to enable delegation.",
+        "The driver profile no longer matches the current model. Select /studio-profile again to enable delegation.",
         "warning",
       );
       return;
@@ -421,13 +421,13 @@ export default function dailyDriver(
     selectedProfile = name;
     delegation.activate();
   }
-  pi.registerCommand("driver-profile", {
+  pi.registerCommand("studio-profile", {
     description: "Explicitly select the work or personal lead model",
     handler: (argument, ctx) => selectProfile(argument, ctx),
   });
 
-  pi.registerCommand("driver-status", {
-    description: "Inspect the daily-driver capability boundary",
+  pi.registerCommand("studio-status", {
+    description: "Inspect the Studio capability boundary",
     handler: async (_argument, ctx) => {
       const integrations = await inspectIntegrations(await loadConfig());
       const summary = Object.entries(integrations)

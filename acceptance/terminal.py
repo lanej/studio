@@ -29,7 +29,7 @@ palette = json.loads((root / "resources/colors.json").read_text())
 output = Path(args.output)
 output.mkdir(parents=True, exist_ok=True)
 
-with tempfile.TemporaryDirectory(prefix="pi-driver-terminal-") as directory:
+with tempfile.TemporaryDirectory(prefix="studio-terminal-") as directory:
     home = Path(directory).resolve()
     agent = home / ".pi/agent"
     agent.mkdir(parents=True)
@@ -56,7 +56,7 @@ import json, sys
 if '--readonly' not in sys.argv: raise SystemExit(31)
 if 'sql' in sys.argv: print(json.dumps([{'branch':'main'}]))
 elif 'list' in sys.argv: print(json.dumps([
-    {'id':'daily-1','title':'Pi daily driver','status':'in_progress'},
+    {'id':'daily-1','title':'Studio','status':'in_progress'},
     {'id':'daily-1.1','title':'Idle compaction','status':'open','parent':'daily-1'},
     {'id':'daily-1.1.1','title':'Check idle guard','status':'closed','parent':'daily-1.1'},
     {'id':'daily-1.2','title':'Deliver through Octo','status':'open','parent':'daily-1'},
@@ -65,7 +65,7 @@ elif 'show' in sys.argv: print(json.dumps([{'id':sys.argv[-1],'title':'Idle comp
 ''')
     boundary.chmod(0o755)
     (home / "config.json").write_text(json.dumps({"beads": {"workspace": str(workspace), "database": "fixture", "branch": "main", "executable": str(boundary)}}))
-    env = {**os.environ, "HOME": str(home), "PI_CODING_AGENT_DIR": str(agent), "PI_DRIVER_CONFIG": str(home / "config.json"), "TERM": "xterm-256color", "COLORTERM": "truecolor", "PI_TELEMETRY": "0", "PI_SKIP_VERSION_CHECK": "1"}
+    env = {**os.environ, "HOME": str(home), "PI_CODING_AGENT_DIR": str(agent), "STUDIO_CONFIG": str(home / "config.json"), "TERM": "xterm-256color", "COLORTERM": "truecolor", "PI_TELEMETRY": "0", "PI_SKIP_VERSION_CHECK": "1"}
     subprocess.run([sys.executable, str(root / "scripts/configure.py"), str(root), str(agent)], env=env, check=True, stdout=subprocess.DEVNULL)
     (home / "design").mkdir()
     project = home / "development/dotfiles"

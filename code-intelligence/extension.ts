@@ -15,12 +15,12 @@ import { z } from "zod";
 import {
   defaultMinSplitColumns,
   loadConfig,
-  type DriverConfig,
+  type StudioConfig,
 } from "../config.ts";
 import { CodeIntelligence, Lookup } from "./service.ts";
 
-export const lspTool = "driver_lsp";
-export const renameTool = "driver_lsp_rename";
+export const lspTool = "studio_lsp";
+export const renameTool = "studio_lsp_rename";
 const location = {
   path: Type.String({
     description:
@@ -52,7 +52,7 @@ const message = (error: unknown) =>
 
 export function registerCodeIntelligence(pi: ExtensionAPI): CodeIntelligence {
   const intelligence = new CodeIntelligence();
-  let diffDisplay: DriverConfig["display"] = {
+  let diffDisplay: StudioConfig["display"] = {
     min_split_columns: defaultMinSplitColumns,
     inline_diagnostics: true,
   };
@@ -132,7 +132,7 @@ export function registerCodeIntelligence(pi: ExtensionAPI): CodeIntelligence {
     await intelligence.stop();
   });
   pi.on("before_agent_start", (event) => ({
-    systemPrompt: `${event.systemPrompt}\nWhen LSP is available, prefer driver_lsp for definitions, references, implementations and types of known symbols. Use text search for discovery and textual dependencies. Diagnostics marked pending or unversioned do not establish a clean file. Preview semantic renames with driver_lsp_rename, inspect the proposed changes, then apply the preview token.`,
+    systemPrompt: `${event.systemPrompt}\nWhen LSP is available, prefer studio_lsp for definitions, references, implementations and types of known symbols. Use text search for discovery and textual dependencies. Diagnostics marked pending or unversioned do not establish a clean file. Preview semantic renames with studio_lsp_rename, inspect the proposed changes, then apply the preview token.`,
   }));
   pi.registerTool({
     name: lspTool,
@@ -199,7 +199,7 @@ export function registerCodeIntelligence(pi: ExtensionAPI): CodeIntelligence {
               ),
             );
           const preview = await intelligence.consume(ctx.cwd, args.token);
-          pi.appendEntry("pi-driver:rename-recovery", preview);
+          pi.appendEntry("studio:rename-recovery", preview);
           const applied: string[] = [];
           const diagnostics: unknown[] = [];
           renameCalls.add(_id);
@@ -215,7 +215,7 @@ export function registerCodeIntelligence(pi: ExtensionAPI): CodeIntelligence {
                     applied,
                     recoveryEntry: preview.token,
                     recovery:
-                      "Original and proposed contents are retained in the pi-driver:rename-recovery session entry",
+                      "Original and proposed contents are retained in the studio:rename-recovery session entry",
                   },
                   true,
                 );
@@ -232,7 +232,7 @@ export function registerCodeIntelligence(pi: ExtensionAPI): CodeIntelligence {
                     applied,
                     recoveryEntry: preview.token,
                     recovery:
-                      "Original and proposed contents are retained in the pi-driver:rename-recovery session entry",
+                      "Original and proposed contents are retained in the studio:rename-recovery session entry",
                     writeResult: outcome.result.content,
                   },
                   true,
@@ -298,7 +298,7 @@ export function registerCodeIntelligence(pi: ExtensionAPI): CodeIntelligence {
       content: [...event.content, ...result({ lsp: diagnostics }).content],
       details: {
         ...(native.success ? native.data : {}),
-        piDriverDiagnostics: {
+        studioDiagnostics: {
           contentIndex: event.content.length,
           snapshot: diagnostics,
         },

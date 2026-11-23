@@ -22,23 +22,23 @@ import {
   type ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
 import { registerDirectory } from "../directory.ts";
-import dailyDriver from "../extension.ts";
+import studioExtension from "../extension.ts";
 import { delegateTool } from "../delegation.ts";
 import { AgentRole } from "../config.ts";
 import { PiMode } from "../runtime.ts";
 
 await test("/cd carries the active conversation and tree into rebuilt native Pi tools and project context", async (t) => {
-  const root = await realpath(await mkdtemp(join(tmpdir(), "pi-driver-cd-")));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "studio-cd-")));
   const oldAgentDir = process.env["PI_CODING_AGENT_DIR"];
-  const oldAttempt = process.env["PI_DRIVER_ATTEMPT"];
-  const oldConfig = process.env["PI_DRIVER_CONFIG"];
+  const oldAttempt = process.env["STUDIO_ATTEMPT"];
+  const oldConfig = process.env["STUDIO_CONFIG"];
   t.after(async () => {
     if (oldAgentDir === undefined) delete process.env["PI_CODING_AGENT_DIR"];
     else process.env["PI_CODING_AGENT_DIR"] = oldAgentDir;
-    if (oldAttempt === undefined) delete process.env["PI_DRIVER_ATTEMPT"];
-    else process.env["PI_DRIVER_ATTEMPT"] = oldAttempt;
-    if (oldConfig === undefined) delete process.env["PI_DRIVER_CONFIG"];
-    else process.env["PI_DRIVER_CONFIG"] = oldConfig;
+    if (oldAttempt === undefined) delete process.env["STUDIO_ATTEMPT"];
+    else process.env["STUDIO_ATTEMPT"] = oldAttempt;
+    if (oldConfig === undefined) delete process.env["STUDIO_CONFIG"];
+    else process.env["STUDIO_CONFIG"] = oldConfig;
     await rm(root, { recursive: true, force: true });
   });
   const source = join(root, "source");
@@ -48,7 +48,7 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
     await mkdir(directory, { recursive: true });
   process.env["PI_CODING_AGENT_DIR"] = agentDir;
   const configFile = join(root, "config.json");
-  process.env["PI_DRIVER_CONFIG"] = configFile;
+  process.env["STUDIO_CONFIG"] = configFile;
   const managerExecutable = join(root, "worktree-fixture");
   await writeFile(managerExecutable, "#!/bin/sh\nexit 97\n", { mode: 0o755 });
   const config = {
@@ -67,7 +67,7 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
     },
   };
   await writeFile(configFile, JSON.stringify(config));
-  delete process.env["PI_DRIVER_ATTEMPT"];
+  delete process.env["STUDIO_ATTEMPT"];
   await writeFile(join(source, "AGENTS.md"), "SOURCE_PROJECT_INSTRUCTIONS");
   await writeFile(join(target, "AGENTS.md"), "TARGET_PROJECT_INSTRUCTIONS");
   await writeFile(join(target, "marker.txt"), "destination contents");
@@ -87,7 +87,7 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
   const notifications: string[] = [];
   let children = false;
   let cancel = false;
-  let fullDriver = false;
+  let fullStudio = false;
   const factory: CreateAgentSessionRuntimeFactory = async (options) => {
     const services = await createAgentSessionServices({
       cwd: options.cwd,
@@ -107,7 +107,7 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
         noThemes: true,
         extensionFactories: [
           (pi) => {
-            if (fullDriver) dailyDriver(pi);
+            if (fullStudio) studioExtension(pi);
             else registerDirectory(pi, () => children);
             pi.on("session_before_switch", () => ({ cancel }));
           },
@@ -202,10 +202,10 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
     await cd(target);
     assert.match(notifications.at(-1) ?? "", /delegated work/u);
     children = false;
-    process.env["PI_DRIVER_ATTEMPT"] = "managed-task";
+    process.env["STUDIO_ATTEMPT"] = "managed-task";
     await cd(target);
     assert.match(notifications.at(-1) ?? "", /assigned checkout/u);
-    delete process.env["PI_DRIVER_ATTEMPT"];
+    delete process.env["STUDIO_ATTEMPT"];
     assert.equal(runtime.cwd, source);
     cancel = true;
     await cd(target);
@@ -270,10 +270,10 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
         .messages.slice(0, conversation.length),
       conversation,
     );
-    fullDriver = true;
+    fullStudio = true;
     await runtime.switchSession(originalFile);
     const driver = runtime.session.extensionRunner;
-    const profileCommand = driver.getCommand("driver-profile");
+    const profileCommand = driver.getCommand("studio-profile");
     assert.ok(profileCommand !== undefined);
     await profileCommand.handler("work", driver.createCommandContext());
     assert.ok(runtime.session.getActiveToolNames().includes(delegateTool));

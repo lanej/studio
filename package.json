@@ -1,5 +1,5 @@
 {
-  "name": "@lanej/pi-daily-driver",
+  "name": "@lanej/studio",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,7 +12,7 @@
     ]
   },
   "scripts": {
-    "driver": "bun cli.ts",
+    "studio": "bun cli.ts",
     "test": "bun test tests/",
     "test:beads-native": "bun acceptance/beads-control.ts",
     "test:pi-native": "bun acceptance/pi-resources.ts",

@@ -7,7 +7,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import { z } from "zod";
 import { Attempts, Phase, type Attempt } from "../attempts.ts";
-import { DriverProfile, ReasoningLevel } from "../config.ts";
+import { StudioProfile, ReasoningLevel } from "../config.ts";
 import { processFailure } from "../process.ts";
 import { TaskBeads } from "../task-service.ts";
 import { submitResult } from "../task-verification.ts";
@@ -88,7 +88,7 @@ export async function verificationControl(
       bead,
       revision,
       check,
-      profile: DriverProfile.Personal,
+      profile: StudioProfile.Personal,
       model: {
         provider: "openai-codex",
         model: "fixture",

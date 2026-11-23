@@ -7,7 +7,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { Database } from "bun:sqlite";
 import { z } from "zod";
-import { configSchema, driverProfileSchema, selection } from "./config.ts";
+import { configSchema, studioProfileSchema, selection } from "./config.ts";
 import { deliverySchema } from "./delivery-record.ts";
 import { specRecord } from "./socrates/spec.ts";
 import { leadPlanSchema } from "./lead-plan.ts";
@@ -35,7 +35,7 @@ export const attemptSchema = z.object({
   bead: beadSchema,
   revision: z.string().nullable(),
   check: z.array(z.string()),
-  profile: driverProfileSchema,
+  profile: studioProfileSchema,
   model: selection,
   live: z.boolean(),
   leadPlan: leadPlanSchema.optional(),
@@ -65,10 +65,10 @@ const decode = (value: unknown): Attempt =>
 
 export function stateDirectory(): string {
   return resolve(
-    process.env["PI_DRIVER_STATE_DIR"] ??
+    process.env["STUDIO_STATE_DIR"] ??
       join(
         process.env["XDG_STATE_HOME"] ?? join(homedir(), ".local", "state"),
-        "pi-driver",
+        "studio",
       ),
   );
 }

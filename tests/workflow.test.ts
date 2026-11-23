@@ -39,7 +39,7 @@ await test("task containment stays separate from blockers, including missing par
         { id: "blocker", dependency_type: "blocks" },
       ],
     },
-    { id: "root", title: "Driver", status: "in_progress" },
+    { id: "root", title: "Studio", status: "in_progress" },
     { id: "blocker", title: "Scope fence", status: "open" },
     { id: "orphan", title: "Other branch", status: "open", parent: "missing" },
     { id: "cycle-a", title: "Cycle A", status: "open", parent: "cycle-b" },
@@ -144,7 +144,7 @@ await test("inline GitHub references retain their exact destinations and line an
 });
 
 await test("CLI reads the explicitly configured source and dispatch never allocates", async () => {
-  const temporary = await mkdtemp(join(tmpdir(), "pi-driver-workflow-"));
+  const temporary = await mkdtemp(join(tmpdir(), "studio-workflow-"));
   try {
     const workspace = join(temporary, "authority with spaces");
     await mkdir(join(workspace, ".beads"), { recursive: true });
@@ -173,23 +173,24 @@ await test("CLI reads the explicitly configured source and dispatch never alloca
     );
     const env = {
       ...process.env,
-      PI_DRIVER_CONFIG: config,
+      STUDIO_CONFIG: config,
       BEADS_DIR: "/wrong-workspace",
       BEADS_DOLT_SERVER_PORT: "1",
     };
     const driver = (...args: string[]) =>
-      execute(join(root, "scripts/pi-driver"), args, {
+      execute(join(root, "scripts/studio"), args, {
         cwd: workspace,
         env,
         timeout: 10_000,
       });
+    assert.match((await driver("--help")).stdout, /^Usage: studio /);
     const compiledConfig = await driver("config", "--example");
     const sourceConfig = await execute(
-      join(root, "scripts/pi-driver"),
+      join(root, "scripts/studio"),
       ["config", "--example"],
       {
         cwd: workspace,
-        env: { ...env, PI_DRIVER_USE_SOURCE: "1" },
+        env: { ...env, STUDIO_USE_SOURCE: "1" },
         timeout: 10_000,
       },
     );
@@ -211,7 +212,7 @@ await test("CLI reads the explicitly configured source and dispatch never alloca
       "gated start must not call Beads",
     );
     await writeFile(config, "invalid config");
-    assert.match((await driver("skill")).stdout, /daily driver/);
+    assert.match((await driver("skill")).stdout, /Studio/);
     await assert.rejects(driver("tasks"), /Cannot load/);
   } finally {
     await rm(temporary, { recursive: true, force: true });
@@ -219,7 +220,9 @@ await test("CLI reads the explicitly configured source and dispatch never alloca
 });
 
 await test("opt-in registration preserves local settings and is idempotent", async () => {
-  const temporary = await mkdtemp(join(tmpdir(), "pi-driver-install-"));
+  const temporary = await realpath(
+    await mkdtemp(join(tmpdir(), "studio-install-")),
+  );
   try {
     const agent = join(temporary, "agent");
     await mkdir(agent);
@@ -276,13 +279,85 @@ await test("opt-in registration preserves local settings and is idempotent", asy
     await assert.rejects(install(), /Preserving the existing dotfiles.json/);
     assert.equal(await readlink(theme), linked);
     assert.equal(await readFile(join(agent, "settings.json"), "utf8"), saved);
+
+    const upgradeAgent = join(temporary, "upgrade-agent");
+    const previous = join(temporary, "previous-release");
+    await mkdir(join(upgradeAgent, "themes"), { recursive: true });
+    await mkdir(join(previous, "resources"), { recursive: true });
+    await writeFile(join(previous, "resources/theme.json"), "{}");
+    await symlink(
+      join(previous, "resources/theme.json"),
+      join(upgradeAgent, "themes/dotfiles.json"),
+    );
+    const upgradeSettings = {
+      theme: "dotfiles",
+      defaultModel: "keep-model",
+      packages: ["keep-package", previous],
+    };
+    await writeFile(
+      join(upgradeAgent, "settings.json"),
+      JSON.stringify(upgradeSettings),
+    );
+    await chmod(join(upgradeAgent, "settings.json"), 0o600);
+    const previousRecord = join(upgradeAgent, "pi-driver-package.json");
+    const retainedRecord = JSON.stringify({ packages: [previous] });
+    await writeFile(previousRecord, retainedRecord);
+    const upgrade = () =>
+      execute(
+        "python3",
+        [join(root, "scripts/configure.py"), root, upgradeAgent],
+        { env: { ...process.env, PI_CODING_AGENT_DIR: upgradeAgent } },
+      );
+    await upgrade();
+    assert.deepEqual(
+      JSON.parse(await readFile(join(upgradeAgent, "settings.json"), "utf8")),
+      {
+        ...upgradeSettings,
+        packages: ["keep-package", root.replace(/\/$/, "")],
+        quietStartup: true,
+      },
+    );
+    assert.equal(
+      (await stat(join(upgradeAgent, "settings.json"))).mode & 0o777,
+      0o600,
+    );
+    assert.equal(
+      await readlink(join(upgradeAgent, "themes/dotfiles.json")),
+      join(root, "resources/theme.json"),
+    );
+    assert.equal(await readFile(previousRecord, "utf8"), retainedRecord);
+    const ownership = z.object({ packages: z.array(z.string()) });
+    assert.deepEqual(
+      ownership.parse(
+        JSON.parse(
+          await readFile(join(upgradeAgent, "studio-package.json"), "utf8"),
+        ),
+      ).packages,
+      [previous, root.replace(/\/$/, "")],
+    );
+    // A successful import establishes the new record as the sole future authority.
+    await writeFile(previousRecord, "invalid stale record");
+    await upgrade();
+    await rm(join(upgradeAgent, "studio-package.json"));
+    await rm(previousRecord);
+    await symlink(linked, previousRecord);
+    const upgraded = await readFile(
+      join(upgradeAgent, "settings.json"),
+      "utf8",
+    );
+    await assert.rejects(upgrade(), /Preserving linked Pi settings/);
+    assert.equal(await readFile(linked, "utf8"), saved);
+    assert.equal(
+      await readFile(join(upgradeAgent, "settings.json"), "utf8"),
+      upgraded,
+    );
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }
 });
 
 await test("optional integrations stay inactive until enabled and fail before effects when absent", async () => {
-  const temporary = await mkdtemp(join(tmpdir(), "pi-driver-optional-"));
+  const temporary = await mkdtemp(join(tmpdir(), "studio-optional-"));
   try {
     const config = join(temporary, "config.json");
     const marker = join(temporary, "unexpected-effect");
@@ -293,12 +368,12 @@ await test("optional integrations stay inactive until enabled and fail before ef
       { mode: 0o755 },
     );
     const invoke = (...args: string[]) =>
-      execute(join(root, "scripts/pi-driver"), args, {
+      execute(join(root, "scripts/studio"), args, {
         cwd: temporary,
         env: {
           ...process.env,
-          PI_DRIVER_CONFIG: config,
-          PI_DRIVER_STATE_DIR: join(temporary, "state"),
+          STUDIO_CONFIG: config,
+          STUDIO_STATE_DIR: join(temporary, "state"),
         },
       });
     await writeFile(
@@ -351,58 +426,9 @@ await test("optional integrations stay inactive until enabled and fail before ef
   }
 });
 
-await test("configuration upgrades the exact legacy dotfiles package and theme pair", async () => {
-  const temporary = await mkdtemp(join(tmpdir(), "pi-driver-legacy-config-"));
-  try {
-    const agent = join(temporary, "agent");
-    const previous = join(temporary, "dotfiles/pi/daily-driver");
-    const legacyTheme = join(
-      temporary,
-      "dotfiles/design-system/generated/pi.json",
-    );
-    await mkdir(previous, { recursive: true });
-    await mkdir(join(temporary, "dotfiles/design-system/generated"), {
-      recursive: true,
-    });
-    await mkdir(join(agent, "themes"), { recursive: true });
-    await writeFile(
-      join(previous, "package.json"),
-      JSON.stringify({ name: "@lanej/pi-daily-driver" }),
-    );
-    await writeFile(legacyTheme, "{}");
-    await symlink(legacyTheme, join(agent, "themes/dotfiles.json"));
-    await writeFile(
-      join(agent, "settings.json"),
-      JSON.stringify({
-        theme: "dotfiles",
-        packages: ["keep-package", previous],
-      }),
-    );
-    await execute(
-      "python3",
-      [join(root, "scripts/configure.py"), root, agent],
-      { env: { ...process.env, PI_CODING_AGENT_DIR: agent } },
-    );
-    const settings = z
-      .object({ packages: z.array(z.string()), theme: z.string() })
-      .parse(JSON.parse(await readFile(join(agent, "settings.json"), "utf8")));
-    assert.deepEqual(settings.packages, [
-      "keep-package",
-      root.replace(/\/$/, ""),
-    ]);
-    assert.equal(settings.theme, "dotfiles");
-    assert.equal(
-      await readlink(join(agent, "themes/dotfiles.json")),
-      join(root, "resources/theme.json"),
-    );
-  } finally {
-    await rm(temporary, { recursive: true, force: true });
-  }
-});
-
 await test("launchers ignore checkout Bun preloads and dotenv before the host entrypoint", async () => {
   const temporary = await realpath(
-    await mkdtemp(join(tmpdir(), "pi-driver-bootstrap-")),
+    await mkdtemp(join(tmpdir(), "studio-bootstrap-")),
   );
   try {
     const checkout = join(temporary, "untrusted checkout");
@@ -426,7 +452,7 @@ await test("launchers ignore checkout Bun preloads and dotenv before the host en
     const preload = join(checkout, "preload.ts");
     await writeFile(
       preload,
-      `import { appendFileSync } from "node:fs"; appendFileSync(${JSON.stringify(marker)}, "executed\\n"); process.env["PI_DRIVER_BOOTSTRAP_PRELOAD"] = "executed";`,
+      `import { appendFileSync } from "node:fs"; appendFileSync(${JSON.stringify(marker)}, "executed\\n"); process.env["STUDIO_BOOTSTRAP_PRELOAD"] = "executed";`,
     );
     await writeFile(
       join(checkout, "bunfig.toml"),
@@ -438,10 +464,10 @@ await test("launchers ignore checkout Bun preloads and dotenv before the host en
     );
     await writeFile(
       join(checkout, ".env"),
-      "PI_DRIVER_BOOTSTRAP_UNTRUSTED=dotenv\n",
+      "STUDIO_BOOTSTRAP_UNTRUSTED=dotenv\n",
     );
     await writeFile(join(bundle, "resources/bunfig.toml"), "preload = []\n");
-    const entry = `console.log(JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(2), inherited: process.env["PI_DRIVER_BOOTSTRAP_INHERITED"], dotenv: process.env["PI_DRIVER_BOOTSTRAP_UNTRUSTED"] ?? null, preload: process.env["PI_DRIVER_BOOTSTRAP_PRELOAD"] ?? null }));`;
+    const entry = `console.log(JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(2), inherited: process.env["STUDIO_BOOTSTRAP_INHERITED"], dotenv: process.env["STUDIO_BOOTSTRAP_UNTRUSTED"] ?? null, preload: process.env["STUDIO_BOOTSTRAP_PRELOAD"] ?? null }));`;
     await writeFile(join(hostDirectory, "cli.js"), entry);
     await writeFile(join(bundle, "cli.ts"), entry);
     await symlink(process.execPath, join(bundle, "runtime/bun"));
@@ -449,7 +475,7 @@ await test("launchers ignore checkout Bun preloads and dotenv before the host en
     const args = ["argument with spaces", "--no-extensions", "--resume"];
     for (const mode of ["embedded", "path"]) {
       if (mode === "path") await rm(join(bundle, "runtime/bun"));
-      for (const name of ["pi", "pi-driver"]) {
+      for (const name of ["pi", "studio"]) {
         const launcher = join(bundle, "scripts", name);
         await copyFile(join(root, "scripts", name), launcher);
         await chmod(launcher, 0o755);
@@ -460,8 +486,8 @@ await test("launchers ignore checkout Bun preloads and dotenv before the host en
             HOME: home,
             XDG_CONFIG_HOME: join(home, ".config"),
             PATH: `${join(temporary, "bin")}:${process.env["PATH"] ?? ""}`,
-            PI_DRIVER_USE_SOURCE: "1",
-            PI_DRIVER_BOOTSTRAP_INHERITED: "preserve",
+            STUDIO_USE_SOURCE: "1",
+            STUDIO_BOOTSTRAP_INHERITED: "preserve",
           },
           timeout: 10_000,
         });

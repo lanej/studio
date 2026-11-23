@@ -23,7 +23,7 @@ import { z } from "zod";
 import {
   AgentRole,
   DefaultProvider,
-  DriverProfile,
+  StudioProfile,
   ReasoningLevel,
 } from "../config.ts";
 import { run } from "../process.ts";
@@ -107,7 +107,7 @@ function fixtureProvider(scenario: Scenario) {
       ? undefined
       : request.model === AgentRole.Lead
         ? {
-            name: "driver_delegate",
+            name: "studio_delegate",
             arguments: JSON.stringify({
               role: AgentRole.Explorer,
               brief: "Read fixture.txt",
@@ -179,7 +179,7 @@ async function exercise(scenario: Scenario, fixture: string) {
       {
         HOME: fixture,
         PI_CODING_AGENT_DIR: agent,
-        PI_DRIVER_CONFIG: config,
+        STUDIO_CONFIG: config,
         PI_TELEMETRY: "0",
         PI_SKIP_VERSION_CHECK: "1",
         XDG_STATE_HOME: state,
@@ -259,7 +259,7 @@ process.exit(lose ? 1 : (result.status ?? 1));
         delegation: { enabled: true },
         integrations: { worktrees: { enabled: true } },
         profiles: {
-          [DriverProfile.Personal]: Object.fromEntries(
+          [StudioProfile.Personal]: Object.fromEntries(
             Object.values(AgentRole).map((model) => [
               model,
               {
@@ -330,7 +330,7 @@ process.exit(lose ? 1 : (result.status ?? 1));
       assert.equal(response.success, true, JSON.stringify(response));
     };
     try {
-      await rpc("profile", RpcCommand.Prompt, "/driver-profile personal");
+      await rpc("profile", RpcCommand.Prompt, "/studio-profile personal");
       await rpc("lead", RpcCommand.Prompt, "Delegate repository inspection");
       if (scenario === Scenario.Cancel) {
         await bounded(
@@ -345,7 +345,7 @@ process.exit(lose ? 1 : (result.status ?? 1));
         );
       }
       assert.equal(provider.failure, undefined);
-      const attemptsDir = join(state, "pi-driver", "attempts");
+      const attemptsDir = join(state, "studio", "attempts");
       const [filename, extra] = (await readdir(attemptsDir)).filter((file) =>
         file.endsWith(".json"),
       );
@@ -365,7 +365,7 @@ process.exit(lose ? 1 : (result.status ?? 1));
       assert.equal(attempt.reasoning, ReasoningLevel.Low);
       const [lead] = provider.requests;
       assert.ok(lead !== undefined);
-      assert.ok(toolNames(lead).includes("driver_delegate"));
+      assert.ok(toolNames(lead).includes("studio_delegate"));
       assert.ok(
         !toolNames(lead).some((name) =>
           ["Agent", "SubagentWorkflow", "subagent"].includes(name),
@@ -443,7 +443,7 @@ process.exit(lose ? 1 : (result.status ?? 1));
 const [argument, extra] = process.argv.slice(2);
 assert.equal(extra, undefined, "Choose at most one scenario");
 const scenario = z.enum(Scenario).parse(argument ?? Scenario.Complete);
-const fixture = await mkdtemp(join(tmpdir(), "pi-driver-delegation-"));
+const fixture = await mkdtemp(join(tmpdir(), "studio-delegation-"));
 try {
   await exercise(scenario, await realpath(fixture));
 } finally {

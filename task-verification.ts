@@ -14,7 +14,7 @@ async function gitState(cwd: string, branch: string) {
     throw new Error("The managed checkout changed branches");
   const head = await git("rev-parse", "HEAD");
   // A private index fingerprints staged, unstaged and new nonignored files without changing the operator's index.
-  const temporary = await mkdtemp(join(tmpdir(), "pi-driver-index-"));
+  const temporary = await mkdtemp(join(tmpdir(), "studio-index-"));
   try {
     const env = { ...process.env, GIT_INDEX_FILE: join(temporary, "index") };
     const indexed = async (...args: string[]) =>

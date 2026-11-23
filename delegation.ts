@@ -19,14 +19,14 @@ import { z } from "zod";
 import {
   AgentRole,
   DefaultProvider,
-  DriverProfile,
+  StudioProfile,
   knownProvider,
   loadConfig,
   ReasoningLevel,
 } from "./config.ts";
 import { processFailure, run } from "./process.ts";
 
-export const delegateTool = "driver_delegate";
+export const delegateTool = "studio_delegate";
 const roles = [AgentRole.Explorer, AgentRole.Reviewer] as const;
 const roleSchema = z.enum(roles);
 const allocation = z.object({
@@ -68,7 +68,7 @@ const textResult = (text: string) => ({
 const stateHome = () =>
   join(
     process.env["XDG_STATE_HOME"] ?? join(homedir(), ".local/state"),
-    "pi-driver",
+    "studio",
   );
 const attemptRoot = () => join(stateHome(), "attempts");
 
@@ -302,7 +302,7 @@ const delegateInput = z
 
 export function registerDelegation(
   pi: ExtensionAPI,
-  profile: () => DriverProfile | undefined,
+  profile: () => StudioProfile | undefined,
   onChange: () => void,
 ) {
   const active = new Map<string, AbortController>();
@@ -383,10 +383,10 @@ export function registerDelegation(
         model?.provider !== settings.provider ||
         model.id !== settings.model ||
         !ctx.modelRegistry.hasConfiguredAuth(model) ||
-        (selected === DriverProfile.Personal &&
+        (selected === StudioProfile.Personal &&
           knownProvider(model.provider) !==
             DefaultProvider.ChatGPTSubscription) ||
-        (selected === DriverProfile.Work &&
+        (selected === StudioProfile.Work &&
           !/^https:\/\/bedrock-mantle\.[a-z0-9-]+\.api\.aws(?:\/|$)/.test(
             model.baseUrl,
           ))

@@ -3,7 +3,7 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "@lanej/pi-daily-driver",
+      "name": "@lanej/studio",
       "dependencies": {
         "@bufbuild/protobuf": "2.16.0",
         "@lanej/pi-components": "file:./vendor/pi-components",

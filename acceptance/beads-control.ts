@@ -82,7 +82,7 @@ await withBeadsHttp(
     const childId = taskSchema.parse(JSON.parse(child.stdout)).id;
     const reader = new BeadsReader({
       workspace,
-      database: "pi_driver_trial",
+      database: "studio_trial",
       branch: "main",
       executable: options.bd,
     });

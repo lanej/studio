@@ -5,11 +5,11 @@ import { homedir } from "node:os";
 import { extname, isAbsolute, join } from "node:path";
 import { z } from "zod";
 
-export enum DriverProfile {
+export enum StudioProfile {
   Work = "work",
   Personal = "personal",
 }
-export const driverProfileSchema = z.enum(DriverProfile);
+export const studioProfileSchema = z.enum(StudioProfile);
 
 export enum AgentRole {
   Lead = "lead",
@@ -149,28 +149,28 @@ export const configSchema = z
       .optional(),
     profiles: z
       .object({
-        [DriverProfile.Work]: profile.optional(),
-        [DriverProfile.Personal]: profile.optional(),
+        [StudioProfile.Work]: profile.optional(),
+        [StudioProfile.Personal]: profile.optional(),
       })
       .strict()
       .default({}),
   })
   .strict();
-export type DriverConfig = z.infer<typeof configSchema>;
+export type StudioConfig = z.infer<typeof configSchema>;
 
 export function configPath(): string {
-  const explicit = process.env["PI_DRIVER_CONFIG"];
+  const explicit = process.env["STUDIO_CONFIG"];
   if (explicit !== undefined) return explicit;
   const directory = join(
     process.env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config"),
-    "pi-driver",
+    "studio",
   );
   const toml = join(directory, "config.toml");
   const json = join(directory, "config.json");
   return existsSync(toml) || !existsSync(json) ? toml : json;
 }
 
-export async function loadConfig(path = configPath()): Promise<DriverConfig> {
+export async function loadConfig(path = configPath()): Promise<StudioConfig> {
   try {
     const contents = await readFile(path, "utf8");
     return configSchema.parse(
@@ -180,12 +180,12 @@ export async function loadConfig(path = configPath()): Promise<DriverConfig> {
     if (
       z.object({ code: z.literal("ENOENT") }).safeParse(error).success &&
       path === configPath() &&
-      process.env["PI_DRIVER_CONFIG"] === undefined
+      process.env["STUDIO_CONFIG"] === undefined
     ) {
       return configSchema.parse({});
     }
     throw new Error(
-      `Cannot load Pi driver configuration ${path}: ${error instanceof Error ? error.message : String(error)}`,
+      `Cannot load Studio configuration ${path}: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }
@@ -231,7 +231,7 @@ export const exampleConfig = {
     projectId: "11111111-1111-4111-8111-111111111111",
   },
   profiles: {
-    [DriverProfile.Work]: roles(DefaultProvider.BedrockMantle, "openai."),
-    [DriverProfile.Personal]: roles(DefaultProvider.ChatGPTSubscription, ""),
+    [StudioProfile.Work]: roles(DefaultProvider.BedrockMantle, "openai."),
+    [StudioProfile.Personal]: roles(DefaultProvider.ChatGPTSubscription, ""),
   },
 };

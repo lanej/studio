@@ -7,12 +7,12 @@ import { realpath } from "node:fs/promises";
 import { Type } from "typebox";
 import { z } from "zod";
 import { Attempts, Phase, stateDirectory, type Attempt } from "./attempts.ts";
-import dailyDriver from "./extension.ts";
+import studioExtension from "./extension.ts";
 import { registerLeadControls } from "./lead-extension.ts";
 import { socratesGuidance } from "./socrates/guidance.ts";
 import { SpecStatus, specText } from "./socrates/spec.ts";
 import { LeadMode } from "./lead-plan.ts";
-import { DriverProfile } from "./config.ts";
+import { StudioProfile } from "./config.ts";
 import { processStart } from "./process.ts";
 import { TaskBeads } from "./task-service.ts";
 import { submitResult } from "./task-verification.ts";
@@ -50,7 +50,7 @@ async function matchWorker(
 }
 
 export default function managedWorker(pi: ExtensionAPI): void {
-  const id = process.env["PI_DRIVER_ATTEMPT"];
+  const id = process.env["STUDIO_ATTEMPT"];
   if (id === undefined) return;
   z.uuid().parse(id);
   registerTranscriptEvents(pi);
@@ -76,7 +76,7 @@ export default function managedWorker(pi: ExtensionAPI): void {
   let approvalPending = false;
   let applyLeadTools: ((ctx: ExtensionContext) => void) | undefined;
   if (lead.leadPlan !== undefined) {
-    dailyDriver(pi, {
+    studioExtension(pi, {
       profile: lead.profile,
       approvalPending: () => approvalPending,
       trackedPullRequest: () => {
@@ -117,7 +117,7 @@ export default function managedWorker(pi: ExtensionAPI): void {
       if (record.revision === null)
         throw new Error("Missing admitted Beads revision");
       if (
-        record.profile === DriverProfile.Work &&
+        record.profile === StudioProfile.Work &&
         !/^https:\/\/bedrock-mantle\.[a-z0-9-]+\.api\.aws(?:\/|$)/u.test(
           model?.baseUrl ?? "",
         )

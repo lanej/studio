@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import {
   AgentRole,
-  DriverProfile,
+  StudioProfile,
   exampleConfig,
   ReasoningLevel,
 } from "../config.ts";
@@ -17,7 +17,7 @@ import { run } from "../process.ts";
 import { piExecutable } from "../task-run.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const temporary = await mkdtemp(join(tmpdir(), "pi-driver-resources-"));
+const temporary = await mkdtemp(join(tmpdir(), "studio-resources-"));
 const agent = join(temporary, ".pi/agent");
 await mkdir(agent, { recursive: true });
 const registry = await ModelRuntime.create({
@@ -42,7 +42,7 @@ await writeFile(
   join(temporary, "config.json"),
   JSON.stringify({
     profiles: {
-      [DriverProfile.Work]: Object.fromEntries(
+      [StudioProfile.Work]: Object.fromEntries(
         Object.values(AgentRole).map((role) => [role, workModel]),
       ),
     },
@@ -55,7 +55,7 @@ await writeFile(
       [workModel.provider]: {
         baseUrl: "https://bedrock-mantle.us-east-1.api.aws/v1",
         api: "openai-completions",
-        apiKey: "$PI_DRIVER_FIXTURE_NO_MANTLE_AUTH",
+        apiKey: "$STUDIO_FIXTURE_NO_MANTLE_AUTH",
         models: [{ id: workModel.model }],
       },
       fixture: {
@@ -84,10 +84,10 @@ const pi = spawn(
       ...process.env,
       HOME: temporary,
       PI_CODING_AGENT_DIR: agent,
-      PI_DRIVER_CONFIG: join(temporary, "config.json"),
+      STUDIO_CONFIG: join(temporary, "config.json"),
       PI_SKIP_VERSION_CHECK: "1",
       PI_TELEMETRY: "0",
-      PI_DRIVER_FIXTURE_NO_MANTLE_AUTH: "",
+      STUDIO_FIXTURE_NO_MANTLE_AUTH: "",
     },
     stdio: ["pipe", "pipe", "pipe"],
   },
@@ -120,8 +120,8 @@ try {
       for (const name of [
         "tasks",
         "archives",
-        "driver-profile",
-        "driver-status",
+        "studio-profile",
+        "studio-status",
       ])
         assert.ok(
           event.data.commands.some(
@@ -131,7 +131,7 @@ try {
         );
       found = true;
       pi.stdin.write(
-        '{"id":"profile","type":"prompt","message":"/driver-profile work"}\n',
+        '{"id":"profile","type":"prompt","message":"/studio-profile work"}\n',
       );
     }
     if (
@@ -171,7 +171,7 @@ try {
     /Failed to load|Error loading|Cannot load|Warning: Extension package/,
   );
   console.log(
-    "Pi 1.4.0 discovered the daily-driver commands and kept the current model after a rejected profile switch.",
+    "Pi 1.4.0 discovered the Studio commands and kept the current model after a rejected profile switch.",
   );
 } finally {
   clearTimeout(timeout);
