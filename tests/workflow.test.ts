@@ -205,6 +205,10 @@ await test(
       );
       await writeFile(config, "invalid config");
       assert.match((await driver("skill")).stdout, /Studio/);
+      await assert.rejects(
+        driver("config", "--example", "--pi-models"),
+        /cannot be used with option/,
+      );
       await assert.rejects(driver("tasks"), /Cannot load/);
     } finally {
       await rm(temporary, { recursive: true, force: true });

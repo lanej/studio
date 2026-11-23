@@ -221,28 +221,63 @@ export async function loadConfig(path = configPath()): Promise<StudioConfig> {
   }
 }
 
-const roles = (provider: string, prefix: string) => ({
+const roles = (provider: string, model: string) => ({
   [AgentRole.Lead]: {
     provider,
-    model: `${prefix}gpt-6.1-sol`,
+    model,
     reasoning: ReasoningLevel.High,
   },
   [AgentRole.Worker]: {
     provider,
-    model: `${prefix}gpt-6.1-sol`,
+    model,
     reasoning: ReasoningLevel.Medium,
   },
   [AgentRole.Reviewer]: {
     provider,
-    model: `${prefix}gpt-6.1-sol`,
+    model,
     reasoning: ReasoningLevel.Medium,
   },
   [AgentRole.Explorer]: {
     provider,
-    model: `${prefix}gpt-6.1-sol`,
+    model,
     reasoning: ReasoningLevel.Low,
   },
 });
+
+export const piModelsExample = {
+  providers: {
+    [DefaultProvider.BedrockMantle]: {
+      api: "openai-responses",
+      baseUrl: "https://bedrock-mantle.us-east-1.api.aws/openai/v1",
+      apiKey: "$AWS_BEARER_TOKEN_BEDROCK",
+      models: [
+        {
+          id: "openai.gpt-6.2-sol",
+          name: "GPT-6.2 Sol (Bedrock Mantle)",
+          reasoning: true,
+          input: ["text", "image"],
+          contextWindow: 1_050_000,
+          maxTokens: 128_000,
+          cost: {
+            input: 2.2,
+            output: 11,
+            cacheRead: 0.11,
+            cacheWrite: 2.75,
+            tiers: [
+              {
+                inputTokensAbove: 272_000,
+                input: 4.4,
+                output: 16.5,
+                cacheRead: 0.22,
+                cacheWrite: 5.5,
+              },
+            ],
+          },
+        },
+      ],
+    },
+  },
+};
 
 export const exampleConfig = {
   runtime: { enabled: false, concurrency: 2, pollMs: 5000, projects: [] },
@@ -263,7 +298,13 @@ export const exampleConfig = {
     projectId: "11111111-1111-4111-8111-111111111111",
   },
   profiles: {
-    [StudioProfile.Work]: roles(DefaultProvider.BedrockMantle, "openai."),
-    [StudioProfile.Personal]: roles(DefaultProvider.ChatGPTSubscription, ""),
+    [StudioProfile.Work]: roles(
+      DefaultProvider.BedrockMantle,
+      "openai.gpt-6.2-sol",
+    ),
+    [StudioProfile.Personal]: roles(
+      DefaultProvider.ChatGPTSubscription,
+      "gpt-6.1-sol",
+    ),
   },
 };

@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { inspectIntegrations } from "./integrations.ts";
 import { inspectPackageResources } from "./package-resources.ts";
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
@@ -20,6 +20,7 @@ import {
   configPath,
   studioProfileSchema,
   exampleConfig,
+  piModelsExample,
   loadConfig,
 } from "./config.ts";
 
@@ -55,7 +56,17 @@ program
   .command("config")
   .description("Inspect configuration without changing settings or credentials")
   .option("--example", "Print a configuration example")
-  .action(async (options: { example?: boolean }) => {
+  .addOption(
+    new Option(
+      "--pi-models",
+      "Print the Bedrock Mantle provider example for Pi models.json",
+    ).conflicts("example"),
+  )
+  .action(async (options: { example?: boolean; piModels?: boolean }) => {
+    if (options.piModels === true) {
+      output(piModelsExample);
+      return;
+    }
     output(
       options.example === true
         ? exampleConfig
@@ -291,7 +302,7 @@ program
       [HelpTopic.Compaction]:
         "Load the Pi package to enable idle compaction. Defaults: five settled minutes AND 60% context use. Active work, drafts, dialogs, queued input, unknown usage, and active child work prevent compaction. Failed attempts do not loop. Pi near-limit compaction remains independent.",
       [HelpTopic.Profiles]:
-        "Configure work/personal roles using studio config --example. /studio-profile explicitly selects the lead model in Pi after registry validation. Work requires a configured Bedrock Mantle endpoint; personal uses Pi openai-codex authentication. No credential copies or automatic cross-profile fallback.",
+        "Configure work/personal roles using studio config --example. studio config --pi-models prints the work provider entry to merge into Pi models.json. /studio-profile explicitly selects the lead model in Pi after registry validation. Work uses Bedrock Mantle's /openai/v1 Responses API; personal uses Pi openai-codex authentication. No credential copies or automatic cross-profile fallback.",
       [HelpTopic.Dispatch]:
         "From the repository in Zellij: studio start BEAD_ID --profile work -- make test. Supply a check that covers the accepted criteria; omit it for human review. Repeat the command to focus the registered worker. Use /task-submit SUMMARY in its Pi pane. Inspect studio tasks BEAD_ID --json for the result.",
     } satisfies Record<HelpTopic, string>;
