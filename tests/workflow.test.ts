@@ -219,6 +219,80 @@ await test("CLI reads the explicitly configured source and dispatch never alloca
   }
 });
 
+await test("compiled daily-driver entrypoints preserve directory, Pi arguments and exit status", async () => {
+  const temporary = await realpath(
+    await mkdtemp(join(tmpdir(), "studio-session-")),
+  );
+  try {
+    const bundle = join(temporary, "bundle");
+    const checkout = join(temporary, "project with spaces");
+    const host = join(
+      bundle,
+      "node_modules/@earendil-works/pi-coding-agent/dist/bundle",
+    );
+    for (const path of [
+      host,
+      checkout,
+      join(bundle, ".aot"),
+      join(bundle, "scripts"),
+      join(bundle, "resources"),
+      join(bundle, "runtime"),
+    ])
+      await mkdir(path, { recursive: true });
+    await execute(process.execPath, ["scripts/prepare-delegation.mjs"], {
+      cwd: root,
+      timeout: 10_000,
+    });
+    await execute(
+      process.execPath,
+      [
+        "build",
+        "--compile",
+        "cli.ts",
+        "--outfile",
+        join(bundle, ".aot/studio"),
+      ],
+      { cwd: root, timeout: 30_000 },
+    );
+    await copyFile(join(root, "scripts/pi"), join(bundle, "scripts/pi"));
+    await chmod(join(bundle, "scripts/pi"), 0o755);
+    await copyFile(
+      join(root, "resources/bunfig.toml"),
+      join(bundle, "resources/bunfig.toml"),
+    );
+    await symlink(process.execPath, join(bundle, "runtime/bun"));
+    await writeFile(
+      join(host, "cli.js"),
+      'console.log(JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2)})); process.exit(Number(process.env["STUDIO_FIXTURE_EXIT"] ?? 0));',
+    );
+    const launch = (args: string[], exit = "0") =>
+      execute(join(bundle, ".aot/studio"), args, {
+        cwd: checkout,
+        env: { ...process.env, STUDIO_FIXTURE_EXIT: exit },
+        timeout: 10_000,
+      });
+    for (const [args, forwarded] of [
+      [[], []],
+      [["lead"], []],
+      [
+        ["lead", "--", "--resume", "session with spaces"],
+        ["--resume", "session with spaces"],
+      ],
+    ] satisfies [string[], string[]][]) {
+      const result = await launch(args);
+      const observed: unknown = JSON.parse(result.stdout);
+      assert.deepEqual(observed, {
+        cwd: checkout,
+        args: ["--extension", join(bundle, "extension.ts"), ...forwarded],
+      });
+    }
+    await assert.rejects(launch(["lead"], "23"), { code: 23 });
+    await assert.rejects(launch(["start", "fixture"]), /required option/);
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
+
 await test("opt-in registration preserves local settings and is idempotent", async () => {
   const temporary = await realpath(
     await mkdtemp(join(tmpdir(), "studio-install-")),

@@ -87,11 +87,13 @@ with tempfile.TemporaryDirectory(prefix="studio-standalone-") as temporary:
     for mode in ("0", "1"):
         env["STUDIO_USE_SOURCE"] = mode
         assert json.loads(run([str(launcher), "config", "--example"], cwd=hostile)) == json.loads(source_config)
+        assert "1.4.0" in run([str(launcher), "lead", "--", "--version"], cwd=hostile)
         assert not bootstrap_marker.exists()
     env.pop("STUDIO_USE_SOURCE", None)
     deny("bun")
     env["STUDIO_USE_SOURCE"] = "1"
     assert json.loads(run([str(launcher), "config", "--example"])) == json.loads(source_config)
+    assert "1.4.0" in run([str(launcher), "lead", "--", "--version"])
     env.pop("STUDIO_USE_SOURCE", None)
     (guard / "bun").unlink()
     settings = json.loads((home / "agent/settings.json").read_text())

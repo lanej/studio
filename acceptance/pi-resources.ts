@@ -13,8 +13,6 @@ import {
   exampleConfig,
   ReasoningLevel,
 } from "../config.ts";
-import { run } from "../process.ts";
-import { piExecutable } from "../task-run.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const temporary = await mkdtemp(join(tmpdir(), "studio-resources-"));
@@ -30,9 +28,6 @@ for (const [role, selection] of Object.entries(exampleConfig.profiles.personal))
     `The personal example's ${role} model is unavailable: ${selection.model}`,
   );
 
-await run("python3", [join(root, "scripts/configure.py"), root, agent], {
-  env: { ...process.env, PI_CODING_AGENT_DIR: agent },
-});
 const workModel = {
   provider: "fixture-mantle",
   model: "work-model",
@@ -68,8 +63,10 @@ await writeFile(
   }),
 );
 const pi = spawn(
-  await piExecutable(),
+  join(root, "scripts/studio"),
   [
+    "lead",
+    "--",
     "--mode",
     "rpc",
     "--offline",
@@ -85,6 +82,7 @@ const pi = spawn(
       HOME: temporary,
       PI_CODING_AGENT_DIR: agent,
       STUDIO_CONFIG: join(temporary, "config.json"),
+      STUDIO_USE_SOURCE: "1",
       PI_SKIP_VERSION_CHECK: "1",
       PI_TELEMETRY: "0",
       STUDIO_FIXTURE_NO_MANTLE_AUTH: "",

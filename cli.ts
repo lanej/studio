@@ -5,6 +5,7 @@ import { Command } from "commander";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
+import { startSession } from "./session.ts";
 import {
   BeadsReader,
   taskDetails,
@@ -31,9 +32,20 @@ enum HelpTopic {
 const program = new Command()
   .name("studio")
   .description(
-    "Run a local Pi worker on an existing bead and inspect task state",
+    "Start a daily-driver Pi session or run and inspect an existing bead",
   )
-  .version("0.1.0");
+  .version("0.1.0")
+  .action(async () => {
+    await startSession();
+  });
+program
+  .command("lead [args...]")
+  .description("Open Pi here without a bead; pass native Pi options after --")
+  .allowUnknownOption()
+  .allowExcessArguments()
+  .action(async (_args: string[], _options: unknown, command: Command) => {
+    await startSession(command.args);
+  });
 const output = (value: unknown): void => {
   console.log(JSON.stringify(value, null, 2));
 };
@@ -185,7 +197,7 @@ program
 program
   .command("start <bead-id> [verifier...]")
   .description(
-    "Start or focus a lead Pi session. Pass the agreed check as argv after --",
+    "Start or focus a bead lead. Pass the agreed check as argv after --",
   )
   .requiredOption("--profile <name>", "work or personal")
   .option("--worker", "Start a direct worker without a lead plan")
@@ -288,7 +300,7 @@ program
     console.log(
       topic !== undefined
         ? topics[topic]
-        : `# Studio\n\nStart one bead locally in Pi or inspect its result from the CLI.\n\nCommands: config, doctor, tasks, start, resume.\nTopics: ${Object.keys(topics).join(", ")}. Read one with studio skill --topic NAME.\n\n${topics[HelpTopic.Dispatch]}`,
+        : `# Studio\n\nRun studio or studio lead for a daily-driver Pi session in the current directory. No bead or integrations are required. Use studio lead -- PI_OPTIONS for native Pi options, including --continue and --resume. Select a profile inside Pi with /studio-profile work or personal.\n\nCommands: lead, config, doctor, tasks, start, resume.\nTopics: ${Object.keys(topics).join(", ")}. Read one with studio skill --topic NAME.\n\n${topics[HelpTopic.Dispatch]}`,
     );
   });
 
