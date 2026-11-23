@@ -28,7 +28,7 @@ export async function withBeads<T>(
   dolt: string,
   use: (fixture: NativeBeads) => Promise<T>,
 ): Promise<T> {
-  const directory = await mkdtemp(join(tmpdir(), "pi-driver-native-"));
+  const directory = await mkdtemp(join(tmpdir(), "studio-native-"));
   const workspace = join(directory, "workspace");
   const data = join(directory, "dolt");
   await mkdir(workspace);
@@ -140,7 +140,7 @@ export async function withBeads<T>(
       "--server-port",
       String(port),
       "--database",
-      "pi_driver_trial",
+      "studio_trial",
       "--prefix",
       "trial",
       "--skip-agents",

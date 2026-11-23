@@ -3,7 +3,7 @@ import {
   highlightCode,
   type Theme,
 } from "@earendil-works/pi-coding-agent";
-import { defaultMinSplitColumns, type DriverConfig } from "../config.ts";
+import { defaultMinSplitColumns, type StudioConfig } from "../config.ts";
 import { diagnosticGlyph, type DiagnosticSnapshot } from "./diagnostics.ts";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
@@ -121,7 +121,7 @@ export function syntaxDiffRows(
   width: number,
   cwd: string,
   highlight: Highlighter = highlightCode,
-  display: DriverConfig["display"] = {
+  display: StudioConfig["display"] = {
     min_split_columns: defaultMinSplitColumns,
     inline_diagnostics: true,
   },

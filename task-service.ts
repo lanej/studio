@@ -6,7 +6,7 @@ import {
 import { readFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
-import type { DriverConfig } from "./config.ts";
+import type { StudioConfig } from "./config.ts";
 import { orderedTasks, type LeadDraft } from "./lead-plan.ts";
 
 export const beadSchema = z.looseObject({
@@ -47,7 +47,7 @@ export function sameBrief(left: NativeBead, right: NativeBead): boolean {
 
 export class TaskBeads extends BeadsHttp {
   private readonly reviewOnly: boolean;
-  constructor(settings: NonNullable<DriverConfig["beadsService"]>) {
+  constructor(settings: NonNullable<StudioConfig["beadsService"]>) {
     super(
       settings.url,
       settings.projectId,

@@ -1,4 +1,4 @@
-import type { DriverConfig } from "../config.ts";
+import type { StudioConfig } from "../config.ts";
 import { inlineDiagnosticLines, syntaxDiffRows } from "./diff.ts";
 import type {
   ExtensionAPI,
@@ -13,7 +13,7 @@ import {
 import type { CodeIntelligence } from "./service.ts";
 
 const detailsSchema = z.object({
-  piDriverDiagnostics: z.object({
+  studioDiagnostics: z.object({
     contentIndex: z.number().int().nonnegative(),
     snapshot: diagnosticSnapshot,
   }),
@@ -26,7 +26,7 @@ interface View {
 export function registerDiagnosticRendering(
   pi: ExtensionAPI,
   intelligence: CodeIntelligence,
-  diffDisplay: () => DriverConfig["display"],
+  diffDisplay: () => StudioConfig["display"],
 ) {
   const views = new Map<string, View>();
   const latest = new Map<string, string>();
@@ -42,7 +42,7 @@ export function registerDiagnosticRendering(
       const parsed = z
         .object({
           type: z.literal("custom_message"),
-          customType: z.literal("pi-driver:diagnostics"),
+          customType: z.literal("studio:diagnostics"),
           details: z.object({
             toolCallId: z.string(),
             snapshot: diagnosticSnapshot,
@@ -73,7 +73,7 @@ export function registerDiagnosticRendering(
     if (view.settled)
       pi.sendMessage(
         {
-          customType: "pi-driver:diagnostics",
+          customType: "studio:diagnostics",
           content: JSON.stringify({ lsp: snapshot }),
           display: false,
           details: { toolCallId: id, snapshot },
@@ -134,7 +134,7 @@ export function registerDiagnosticRendering(
         const parsed = detailsSchema.safeParse(result.details);
         if (!parsed.success || options.isPartial)
           return render(result, options, theme, context);
-        const annotation = parsed.data.piDriverDiagnostics;
+        const annotation = parsed.data.studioDiagnostics;
         let view = views.get(context.toolCallId);
         if (view === undefined) {
           view = { snapshot: annotation.snapshot, settled: true };

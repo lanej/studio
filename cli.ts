@@ -16,7 +16,7 @@ import { TaskBeads } from "./task-service.ts";
 import { dispatchGate } from "./capabilities.ts";
 import {
   configPath,
-  driverProfileSchema,
+  studioProfileSchema,
   exampleConfig,
   loadConfig,
 } from "./config.ts";
@@ -29,7 +29,7 @@ enum HelpTopic {
 }
 
 const program = new Command()
-  .name("pi-driver")
+  .name("studio")
   .description(
     "Run a local Pi worker on an existing bead and inspect task state",
   )
@@ -203,7 +203,7 @@ program
       output(
         await startTask(
           id,
-          driverProfileSchema.parse(options.profile),
+          studioProfileSchema.parse(options.profile),
           verifier,
           options.tabId === undefined ? undefined : tabId(options.tabId),
           options.worker !== true,
@@ -273,13 +273,13 @@ program
   .action((options: { topic?: string }) => {
     const topics = {
       [HelpTopic.Tasks]:
-        "Use pi-driver tasks [FULL_ID] [--json]. Use beadsService.url and projectId for the HTTP workflow. Existing workspace/database/branch settings still support read-only inspection. Containment and blockers remain separate. Observed descriptions are not accepted execution scope.",
+        "Use studio tasks [FULL_ID] [--json]. Use beadsService.url and projectId for the HTTP workflow. Existing workspace/database/branch settings still support read-only inspection. Containment and blockers remain separate. Observed descriptions are not accepted execution scope.",
       [HelpTopic.Compaction]:
         "Load the Pi package to enable idle compaction. Defaults: five settled minutes AND 60% context use. Active work, drafts, dialogs, queued input, unknown usage, and active child work prevent compaction. Failed attempts do not loop. Pi near-limit compaction remains independent.",
       [HelpTopic.Profiles]:
-        "Configure work/personal roles using pi-driver config --example. /driver-profile explicitly selects the lead model in Pi after registry validation. Work requires a configured Bedrock Mantle endpoint; personal uses Pi openai-codex authentication. No credential copies or automatic cross-profile fallback.",
+        "Configure work/personal roles using studio config --example. /studio-profile explicitly selects the lead model in Pi after registry validation. Work requires a configured Bedrock Mantle endpoint; personal uses Pi openai-codex authentication. No credential copies or automatic cross-profile fallback.",
       [HelpTopic.Dispatch]:
-        "From the repository in Zellij: pi-driver start BEAD_ID --profile work -- make test. Supply a check that covers the accepted criteria; omit it for human review. Repeat the command to focus the registered worker. Use /task-submit SUMMARY in its Pi pane. Inspect pi-driver tasks BEAD_ID --json for the result.",
+        "From the repository in Zellij: studio start BEAD_ID --profile work -- make test. Supply a check that covers the accepted criteria; omit it for human review. Repeat the command to focus the registered worker. Use /task-submit SUMMARY in its Pi pane. Inspect studio tasks BEAD_ID --json for the result.",
     } satisfies Record<HelpTopic, string>;
     const topic =
       options.topic === undefined
@@ -288,7 +288,7 @@ program
     console.log(
       topic !== undefined
         ? topics[topic]
-        : `# Pi daily driver\n\nStart one bead locally in Pi or inspect its result from the CLI.\n\nCommands: config, doctor, tasks, start, resume.\nTopics: ${Object.keys(topics).join(", ")}. Read one with pi-driver skill --topic NAME.\n\n${topics[HelpTopic.Dispatch]}`,
+        : `# Studio\n\nStart one bead locally in Pi or inspect its result from the CLI.\n\nCommands: config, doctor, tasks, start, resume.\nTopics: ${Object.keys(topics).join(", ")}. Read one with studio skill --topic NAME.\n\n${topics[HelpTopic.Dispatch]}`,
     );
   });
 

@@ -8,7 +8,7 @@ import { prUrl } from "./delivery-record.ts";
 import { githubLink, renderReferences } from "./github-links.ts";
 import { isEntry, PiEntryType } from "./runtime.ts";
 
-const entryType = "pi-driver:transcript-event";
+const entryType = "studio:transcript-event";
 const controlFree = (value: string) => value.replace(/\p{Cc}/gu, " ").trim();
 
 export enum VerificationOutcome {

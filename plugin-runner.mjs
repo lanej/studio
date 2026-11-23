@@ -1,5 +1,5 @@
 // Load only the pinned child runner. The full extension installs additional launch paths.
-import { runAgent } from "@tintinweb/pi-subagents/src/driver-runner.ts";
+import { runAgent } from "@tintinweb/pi-subagents/src/studio-runner.ts";
 import { registerAgents } from "@tintinweb/pi-subagents/src/agent-types.ts";
 
 const definition = (role) => ({

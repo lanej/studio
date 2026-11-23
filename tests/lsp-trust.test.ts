@@ -27,7 +27,7 @@ import {
 await test("native Pi trust gates automatic diagnostics, LSP queries and rename before server startup", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "pi-lsp-trust-")));
   const previousPath = process.env["PATH"];
-  const previousConfig = process.env["PI_DRIVER_CONFIG"];
+  const previousConfig = process.env["STUDIO_CONFIG"];
   const previousAgentDir = process.env["PI_CODING_AGENT_DIR"];
   const marker = join(root, "server-executed");
   const agentDir = join(root, "agent");
@@ -46,7 +46,7 @@ await test("native Pi trust gates automatic diagnostics, LSP queries and rename 
   );
   process.env["PATH"] =
     `${executableDirectory}${delimiter}${previousPath ?? ""}`;
-  process.env["PI_DRIVER_CONFIG"] = join(root, "config.json");
+  process.env["STUDIO_CONFIG"] = join(root, "config.json");
   process.env["PI_CODING_AGENT_DIR"] = agentDir;
   const settings = SettingsManager.inMemory({}, { projectTrusted: false });
   try {
@@ -231,8 +231,8 @@ await test("native Pi trust gates automatic diagnostics, LSP queries and rename 
   } finally {
     if (previousPath === undefined) delete process.env["PATH"];
     else process.env["PATH"] = previousPath;
-    if (previousConfig === undefined) delete process.env["PI_DRIVER_CONFIG"];
-    else process.env["PI_DRIVER_CONFIG"] = previousConfig;
+    if (previousConfig === undefined) delete process.env["STUDIO_CONFIG"];
+    else process.env["STUDIO_CONFIG"] = previousConfig;
     if (previousAgentDir === undefined)
       delete process.env["PI_CODING_AGENT_DIR"];
     else process.env["PI_CODING_AGENT_DIR"] = previousAgentDir;

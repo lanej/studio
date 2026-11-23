@@ -178,10 +178,10 @@ export async function archiveLead(bead: string): Promise<Attempt> {
       (await run("git", args, { cwd: primary, timeout: 90_000 })).trim();
     const base = `refs/heads/${pr.observation.targetBase.ref}`;
     await git("check-ref-format", base);
-    const observed = `refs/pi-driver/archive-bases/${record.id}`;
+    const observed = `refs/studio/archive-bases/${record.id}`;
     await git("fetch", "--no-tags", "origin", `+${base}:${observed}`);
     await git("merge-base", "--is-ancestor", entry.mergeCommit, observed);
-    const retained = `refs/pi-driver/archives/${record.id}`;
+    const retained = `refs/studio/archives/${record.id}`;
     await git("update-ref", retained, entry.mergeCommit);
     if (
       (await git(

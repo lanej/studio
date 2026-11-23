@@ -11,12 +11,12 @@ while [ -L "$launcher" ]; do
     esac
 done
 if ! package=$(CDPATH='' cd -P -- "${launcher%/*}/.." && pwd); then
-    printf '%s\n' 'Could not locate the Pi driver package.' >&2
+    printf '%s\n' 'Could not locate the Studio package.' >&2
     exit 1
 fi
 
-compiled=$package/.aot/pi-driver
-if [ "${PI_DRIVER_USE_SOURCE:-0}" != 1 ] && [ -x "$compiled" ]; then
+compiled=$package/.aot/studio
+if [ "${STUDIO_USE_SOURCE:-0}" != 1 ] && [ -x "$compiled" ]; then
     exec "$compiled" "$@"
 fi
 

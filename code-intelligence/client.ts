@@ -121,7 +121,7 @@ export class LspClient {
     );
     this.connection.onRequest("workspace/applyEdit", () => ({
       applied: false,
-      failureReason: "Use driver_lsp_rename",
+      failureReason: "Use studio_lsp_rename",
     }));
     this.connection.listen();
     this.ready = this.initialize();

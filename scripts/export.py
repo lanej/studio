@@ -23,7 +23,7 @@ def export(destination):
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
     (destination / MANIFEST).write_text(json.dumps(sorted(set([*names, MANIFEST])), indent=2) + "\n")
-    print(f"Exported standalone Pi driver source to {destination}")
+    print(f"Exported standalone Studio source to {destination}")
 
 
 if __name__ == "__main__":

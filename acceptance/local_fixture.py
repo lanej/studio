@@ -94,7 +94,7 @@ class FixturePaths:
             **{key: os.environ[key] for key in (
                 "LANG", "LC_ALL", "LC_CTYPE", "TZ", "DOLT_ROOT_PATH",
                 "DOLT_CLI_NO_UPDATE_CHECK", "BD_DISABLE_METRICS", "GIT_CONFIG_GLOBAL",
-                "GIT_CONFIG_NOSYSTEM", "PI_DRIVER_USE_SOURCE",
+                "GIT_CONFIG_NOSYSTEM", "STUDIO_USE_SOURCE",
             ) if key in os.environ},
             "HOME": str(self.home),
             "SHELL": "/bin/sh",
@@ -110,8 +110,8 @@ class FixturePaths:
             "TMPDIR": str(self.temporary),
             "PATH": str(self.guard) + os.pathsep + os.environ["PATH"],
             "PI_CODING_AGENT_DIR": str(self.agent),
-            "PI_DRIVER_CONFIG": str(self.work / "driver.json"),
-            "PI_DRIVER_STATE_DIR": str(self.work / "journal"),
+            "STUDIO_CONFIG": str(self.work / "driver.json"),
+            "STUDIO_STATE_DIR": str(self.work / "journal"),
             "PI_SKIP_VERSION_CHECK": "1",
             "PI_TELEMETRY": "0",
             "PASEO_HOME": str(self.work / "paseo-unavailable"),
@@ -185,7 +185,7 @@ class Fixture:
 
     @property
     def driver(self) -> str:
-        return str(self.options.root / "scripts/pi-driver")
+        return str(self.options.root / "scripts/studio")
 
     def execute(
         self, args: Sequence[str | Path], *, cwd: str | Path | None = None, check: bool = True,

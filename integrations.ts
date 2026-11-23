@@ -1,12 +1,12 @@
 import { constants } from "node:fs";
 import { access, stat } from "node:fs/promises";
 import { delimiter, isAbsolute, join } from "node:path";
-import { configPath, type DriverConfig } from "./config.ts";
+import { configPath, type StudioConfig } from "./config.ts";
 
-export type Integration = keyof DriverConfig["integrations"];
+export type Integration = keyof StudioConfig["integrations"];
 
 export async function integrationStatus(
-  config: DriverConfig,
+  config: StudioConfig,
   name: Integration,
 ) {
   const { enabled, executable } = config.integrations[name];
@@ -41,7 +41,7 @@ export async function integrationStatus(
   };
 }
 
-export async function inspectIntegrations(config: DriverConfig) {
+export async function inspectIntegrations(config: StudioConfig) {
   const [zellij, worktrees, octo] = await Promise.all([
     integrationStatus(config, "zellij"),
     integrationStatus(config, "worktrees"),
@@ -51,7 +51,7 @@ export async function inspectIntegrations(config: DriverConfig) {
 }
 
 export async function requireIntegration(
-  config: DriverConfig,
+  config: StudioConfig,
   name: Integration,
 ): Promise<string> {
   const status = await integrationStatus(config, name);

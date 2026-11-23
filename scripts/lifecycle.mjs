@@ -7,9 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const prefix = resolve(process.env.PI_DRIVER_PREFIX ?? join(homedir(), '.local'));
-const store = join(prefix, 'share/pi-driver');
-const launcher = join(prefix, 'bin/pi-driver');
+const prefix = resolve(process.env.STUDIO_PREFIX ?? join(homedir(), '.local'));
+const store = join(prefix, 'share/studio');
+const launcher = join(prefix, 'bin/studio');
 const version = readFileSync(join(root, '.bun-version'), 'utf8').trim();
 const action = process.argv[2];
 function run(argv, cwd = root, capture = false) {
@@ -100,10 +100,10 @@ try {
     mkdirSync(dirname(launcher), { recursive: true });
     const link = `${launcher}.stage-${process.pid}`;
     try {
-      symlinkSync(join(destination, 'scripts/pi-driver'), link);
+      symlinkSync(join(destination, 'scripts/studio'), link);
       renameSync(link, launcher);
     } finally { rmSync(link, { force: true }); }
-    console.error(`Installed pi-driver at ${launcher}. Reload or relaunch Pi when ready.`);
+    console.error(`Installed studio at ${launcher}. Reload or relaunch Pi when ready.`);
   } finally {
     if (stage !== undefined) rmSync(stage, { recursive: true, force: true });
     rmSync(lock, { recursive: true });

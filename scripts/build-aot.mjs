@@ -9,11 +9,11 @@ let observed;
 try {
   observed = execFileSync(process.execPath, ["--version"], { encoding: "utf8" }).trim();
 } catch {
-  console.error(`Building pi-driver requires Bun ${version} on PATH.`);
+  console.error(`Building studio requires Bun ${version} on PATH.`);
   process.exit(1);
 }
 if (observed !== version) {
-  console.error(`Building pi-driver requires Bun ${version}. Found ${observed}.`);
+  console.error(`Building studio requires Bun ${version}. Found ${observed}.`);
   process.exit(1);
 }
 
@@ -21,13 +21,13 @@ const destination = join(root, ".aot");
 await mkdir(destination, { recursive: true });
 const staging = await mkdtemp(join(destination, "build-"));
 try {
-  const output = join(staging, "pi-driver");
+  const output = join(staging, "studio");
   execFileSync(process.execPath, [
     "build", "--compile", "--aot",
     "--no-compile-autoload-dotenv", "--no-compile-autoload-bunfig",
     "cli.ts", "--outfile", output,
   ], { cwd: root, stdio: "inherit" });
-  await rename(output, join(destination, "pi-driver"));
+  await rename(output, join(destination, "studio"));
 } finally {
   await rm(staging, { recursive: true, force: true });
 }

@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import type { DriverConfig } from "./config.ts";
+import type { StudioConfig } from "./config.ts";
 import { run } from "./process.ts";
 
 export enum TaskStatus {
@@ -200,7 +200,7 @@ export function taskDetails(
 }
 
 export class BeadsReader {
-  constructor(private readonly settings: NonNullable<DriverConfig["beads"]>) {}
+  constructor(private readonly settings: NonNullable<StudioConfig["beads"]>) {}
 
   async verify(): Promise<void> {
     const metadata = z

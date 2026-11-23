@@ -520,7 +520,7 @@ def deliver_and_archive(case: Case, plan: ApprovedPlan) -> None:
     assert manifest.is_file() and transcript.is_file()
     entries = [json.loads(line) for line in transcript.read_text().splitlines()]
     events = [entry["data"] for entry in entries if entry["type"] == "custom" and
-              entry.get("customType") == "pi-driver:transcript-event"]
+              entry.get("customType") == "studio:transcript-event"]
     assert len(events) == 3, events
     assert [(event["kind"], event.get("notice")) for event in events] == [
         ("verification", None), ("octo", None), ("octo", receipt_id),
@@ -591,9 +591,9 @@ def check_worker_reuse(case: Case, report: Report) -> None:
     assert any(p["id"] == pane and p["is_focused"] for p in terminal.terminals()), terminal.terminals()
     inventory = json.loads(execute([manager, "status", "--json"]).stdout)
     assert len(inventory["result"]["tasks"]) == 1, inventory
-    terminal.send_to_pane(pane, "/driver-profile personal\r")
+    terminal.send_to_pane(pane, "/studio-profile personal\r")
     terminal.until("managed Pi refuses the lead profile command", lambda:
-                   "Set the profile on pi-driver start." in pane_text(pane))
+                   "Set the profile on studio start." in pane_text(pane))
     terminal.send_to_pane(pane, "/model alternate-fixture/different-model\r")
     terminal.until("managed Pi refuses the alternate route", lambda:
                    "Managed Pi requires its admitted model" in pane_text(pane))

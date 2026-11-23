@@ -13,4 +13,4 @@ replace("    tools: sessionTools,\n    customTools: [...nestedTools, ...structur
   "    tools: options.driverTools?.map(tool => tool.name) ?? sessionTools,\n    customTools: options.driverTools ?? [...nestedTools, ...structuredTools],");
 replace("resolveConfiguredSessionDir(agentConfig?.sessionDir, effectiveCwd)",
   "options.sessionDir ?? resolveConfiguredSessionDir(agentConfig?.sessionDir, effectiveCwd)");
-writeFileSync(new URL("src/driver-runner.ts", root), source);
+writeFileSync(new URL("src/studio-runner.ts", root), source);

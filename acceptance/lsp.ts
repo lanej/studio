@@ -33,9 +33,9 @@ initTheme("dark", false);
 const root = await realpath(await mkdtemp(join(tmpdir(), "pi-lsp-native-")));
 const previousConfigHome = process.env["XDG_CONFIG_HOME"];
 process.env["XDG_CONFIG_HOME"] = join(root, "config");
-await mkdir(join(root, "config/pi-driver"), { recursive: true });
+await mkdir(join(root, "config/studio"), { recursive: true });
 await writeFile(
-  join(root, "config/pi-driver/config.toml"),
+  join(root, "config/studio/config.toml"),
   '[display]\nmin_split_columns = 50\nadded_background = "#304639"\nremoved_background = "#47343f"\n',
 );
 const agentDir = join(root, "agent");
@@ -291,7 +291,7 @@ try {
       .some(
         (entry) =>
           entry.type === "custom" &&
-          entry.customType === "pi-driver:rename-recovery",
+          entry.customType === "studio:rename-recovery",
       ),
   );
   blockWrites = false;
@@ -328,7 +328,7 @@ try {
     { timeout: 15_000 },
   );
   session.sessionManager.appendCustomMessageEntry(
-    "pi-driver:diagnostics",
+    "studio:diagnostics",
     "Late diagnostic",
     false,
     {
@@ -353,7 +353,7 @@ try {
     },
   );
   await writeFile(
-    join(root, "config/pi-driver/config.toml"),
+    join(root, "config/studio/config.toml"),
     "[display]\ninline_diagnostics = false\n",
   );
   await session.extensionRunner.emit({
