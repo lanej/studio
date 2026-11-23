@@ -1,6 +1,6 @@
 # Local worker acceptance
 
-Build with `bun run build:aot` first to exercise the compiled driver through the same `scripts/studio` entry point. In a checkout with a build, `STUDIO_USE_SOURCE=1` selects the source path.
+Provide Bun satisfying `package.json`'s `engines.bun` minimum on `PATH`. The harness exercises the same `scripts/studio` source entrypoint used by installed releases.
 
 From the package root, run `bun run test:local` after installing package dependencies and the native `zellij` and `worktree` commands. The harness reads pinned Beads and Dolt binaries from `~/.local/share/beads-service/runtime.json`; set both `STUDIO_NATIVE_BD` and `STUDIO_NATIVE_DOLT` to use explicit binaries instead. `STUDIO_NATIVE_PYTHON` selects the Python interpreter when `python3` is unsuitable.
 

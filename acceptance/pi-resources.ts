@@ -83,7 +83,6 @@ const pi = spawn(
       HOME: temporary,
       PI_CODING_AGENT_DIR: agent,
       STUDIO_CONFIG: join(temporary, "config.json"),
-      STUDIO_USE_SOURCE: "1",
       PI_SKIP_VERSION_CHECK: "1",
       PI_TELEMETRY: "0",
       STUDIO_FIXTURE_NO_MANTLE_AUTH: "",

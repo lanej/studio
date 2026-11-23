@@ -6,16 +6,25 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            bun: minimum
+          - os: macos-latest
+            bun: minimum
+          - os: ubuntu-latest
+            bun: latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Read the Bun minimum
+        id: runtime
+        run: python3 -c 'import json; print("bun=" + json.load(open("package.json"))["engines"]["bun"].removeprefix(">="))' >> "$GITHUB_OUTPUT"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ matrix.bun == 'latest' && 'latest' || steps.runtime.outputs.bun }}
       - run: bun install --frozen-lockfile --ignore-scripts
       - run: bun install --cwd .typescript-quality --frozen-lockfile --ignore-scripts
       - name: Check shell entrypoints
@@ -51,9 +60,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Read the Bun minimum
+        id: runtime
+        run: python3 -c 'import json; print("bun=" + json.load(open("package.json"))["engines"]["bun"].removeprefix(">="))' >> "$GITHUB_OUTPUT"
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version-file: .bun-version
+          bun-version: ${{ steps.runtime.outputs.bun }}
       - run: bun install --frozen-lockfile --ignore-scripts
       - name: Install the acceptance language server
         run: |
@@ -75,9 +87,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Read the Bun minimum
+        id: runtime
+        run: python3 -c 'import json; print("bun=" + json.load(open("package.json"))["engines"]["bun"].removeprefix(">="))' >> "$GITHUB_OUTPUT"
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version-file: .bun-version
+          bun-version: ${{ steps.runtime.outputs.bun }}
       - run: bun install --frozen-lockfile --ignore-scripts
       - name: Install verification isolation
         if: runner.os == 'Linux'

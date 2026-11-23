@@ -3,6 +3,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -10,6 +11,12 @@ package = Path(sys.argv[1]).resolve()
 agent = Path(os.environ.get("PI_CODING_AGENT_DIR", sys.argv[2] if len(sys.argv) > 2 else str(Path.home() / ".pi/agent")))
 if not (package / "node_modules/@earendil-works/pi-coding-agent/package.json").is_file():
     raise SystemExit("Install dependencies with bun install --frozen-lockfile --ignore-scripts first.")
+# Reject an unavailable or incompatible environment before creating settings.
+runtime = shutil.which("bun")
+if runtime is None:
+    raise SystemExit("Studio requires Bun on PATH; install a version satisfying package.json engines.bun.")
+bun_command = [runtime, "--no-env-file", f"--config={package / 'resources/bunfig.toml'}"]
+subprocess.run([*bun_command, str(package / "scripts/runtime.mjs")], check=True)
 agent.mkdir(parents=True, exist_ok=True)
 
 
@@ -52,8 +59,7 @@ with (agent / ".studio-configure.lock").open("a") as lock:
             raise SystemExit("Preserving the existing dotfiles.json theme link; configure its source explicitly.")
     elif theme_link.exists():
         raise SystemExit("Preserving the local dotfiles.json theme; configure its source explicitly.")
-    runtime = str(package / "runtime/bun") if (package / "runtime/bun").is_file() else "bun"
-    subprocess.run([runtime, str(package / "scripts/prepare-delegation.mjs")], check=True)
+    subprocess.run([*bun_command, str(package / "scripts/prepare-delegation.mjs")], check=True)
     # Retain both sides of an interrupted settings update so retry/upgrade can remove only owned registrations.
     atomic_json(registration, {"packages": list(dict.fromkeys([*managed, str(package)]))})
     theme_link.parent.mkdir(parents=True, exist_ok=True)

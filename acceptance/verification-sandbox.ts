@@ -13,7 +13,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { run, processStart } from "../process.ts";
 import { alive } from "../execution/supervisor.ts";
-import { verificationSandbox } from "../execution/sandbox.ts";
+import {
+  assertVerificationIsolation,
+  verificationSandbox,
+} from "../execution/sandbox.ts";
 import { safeGit } from "../execution/git.ts";
 import { gitState, runCheck } from "../task-verification.ts";
 import { createServer } from "node:net";
@@ -72,6 +75,7 @@ try {
     join(project, ".git", "config"),
     "utf8",
   );
+  await assertVerificationIsolation(checkout);
   const before = await gitState(checkout, "worker", git);
   const snapshot = {
     projectRoot: project,

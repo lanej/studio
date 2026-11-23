@@ -2,11 +2,7 @@ import { access } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const modulePath = fileURLToPath(import.meta.url);
-// Compiled commands resolve host-loaded extensions from the installed bundle.
-export const packageRoot = modulePath.startsWith("/$bunfs/")
-  ? dirname(dirname(process.execPath))
-  : dirname(modulePath);
+export const packageRoot = dirname(fileURLToPath(import.meta.url));
 
 export function diffExtension(): string {
   // The pinned 0.1.1 package exposes this TypeScript entrypoint to the external Pi host.

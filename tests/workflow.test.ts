@@ -143,154 +143,170 @@ await test("inline GitHub references retain their exact destinations and line an
   );
 });
 
-await test("CLI reads the explicitly configured source and dispatch never allocates", async () => {
-  const temporary = await mkdtemp(join(tmpdir(), "studio-workflow-"));
-  try {
-    const workspace = join(temporary, "authority with spaces");
-    await mkdir(join(workspace, ".beads"), { recursive: true });
-    await writeFile(
-      join(workspace, ".beads/metadata.json"),
-      JSON.stringify({ dolt_mode: "server", dolt_database: "fixture" }),
+await test(
+  "CLI reads the explicitly configured source and dispatch never allocates",
+  { timeout: 30_000 },
+  async () => {
+    const temporary = await mkdtemp(join(tmpdir(), "studio-workflow-"));
+    try {
+      const workspace = join(temporary, "authority with spaces");
+      await mkdir(join(workspace, ".beads"), { recursive: true });
+      await writeFile(
+        join(workspace, ".beads/metadata.json"),
+        JSON.stringify({ dolt_mode: "server", dolt_database: "fixture" }),
+      );
+      const capture = join(temporary, "calls.jsonl");
+      const boundary = join(temporary, "native-bd");
+      await writeFile(
+        boundary,
+        `#!/usr/bin/env bun\nimport fs from 'node:fs';\nconst args=process.argv.slice(2); fs.appendFileSync(${JSON.stringify(capture)},JSON.stringify(args)+'\\n');\nif (!args.includes('--readonly') || !args.includes('--sandbox')) process.exit(31);\nif(process.env.BEADS_DIR || process.env.BEADS_DOLT_SERVER_PORT) process.exit(32);\nif(args.includes('sql')) console.log(JSON.stringify([{branch:'main'}]));\nelse if(args.includes('list')) console.log(JSON.stringify([{id:'fixture-1',title:'Task tree',status:'open'}]));\nelse if(args.includes('show')) console.log(JSON.stringify([{id:'fixture-1',title:'Task tree',status:'open',description:'Keep state'}]));\nelse process.exit(33);\n`,
+        { mode: 0o755 },
+      );
+      const config = join(temporary, "config.json");
+      await writeFile(
+        config,
+        JSON.stringify({
+          beads: {
+            workspace,
+            database: "fixture",
+            branch: "main",
+            executable: boundary,
+          },
+        }),
+      );
+      const env = {
+        ...process.env,
+        STUDIO_CONFIG: config,
+        BEADS_DIR: "/wrong-workspace",
+        BEADS_DOLT_SERVER_PORT: "1",
+      };
+      const driver = (...args: string[]) =>
+        execute(join(root, "scripts/studio"), args, {
+          cwd: workspace,
+          env,
+          timeout: 10_000,
+        });
+      assert.match((await driver("--help")).stdout, /^Usage: studio /);
+      const listing = z
+        .object({ workspace: z.string(), tasks: z.array(taskSchema) })
+        .parse(JSON.parse((await driver("tasks", "--json")).stdout));
+      assert.equal(listing.workspace, workspace);
+      assert.equal(listing.tasks[0]?.id, "fixture-1");
+      assert.match((await driver("tasks", "fixture-1")).stdout, /Keep state/);
+      const before = await readFile(capture, "utf8");
+      await assert.rejects(
+        driver("start", "--profile", "personal"),
+        /missing required argument/,
+      );
+      assert.equal(
+        await readFile(capture, "utf8"),
+        before,
+        "gated start must not call Beads",
+      );
+      await writeFile(config, "invalid config");
+      assert.match((await driver("skill")).stdout, /Studio/);
+      await assert.rejects(driver("tasks"), /Cannot load/);
+    } finally {
+      await rm(temporary, { recursive: true, force: true });
+    }
+  },
+);
+
+await test(
+  "environment-backed entrypoints preserve directory, Pi arguments and exit status",
+  { timeout: 60_000 },
+  async () => {
+    const temporary = await realpath(
+      await mkdtemp(join(tmpdir(), "studio-session-")),
     );
-    const capture = join(temporary, "calls.jsonl");
-    const boundary = join(temporary, "native-bd");
-    await writeFile(
-      boundary,
-      `#!/usr/bin/env bun\nimport fs from 'node:fs';\nconst args=process.argv.slice(2); fs.appendFileSync(${JSON.stringify(capture)},JSON.stringify(args)+'\\n');\nif (!args.includes('--readonly') || !args.includes('--sandbox')) process.exit(31);\nif(process.env.BEADS_DIR || process.env.BEADS_DOLT_SERVER_PORT) process.exit(32);\nif(args.includes('sql')) console.log(JSON.stringify([{branch:'main'}]));\nelse if(args.includes('list')) console.log(JSON.stringify([{id:'fixture-1',title:'Task tree',status:'open'}]));\nelse if(args.includes('show')) console.log(JSON.stringify([{id:'fixture-1',title:'Task tree',status:'open',description:'Keep state'}]));\nelse process.exit(33);\n`,
-      { mode: 0o755 },
-    );
-    const config = join(temporary, "config.json");
-    await writeFile(
-      config,
-      JSON.stringify({
-        beads: {
-          workspace,
-          database: "fixture",
-          branch: "main",
-          executable: boundary,
-        },
-      }),
-    );
-    const env = {
-      ...process.env,
-      STUDIO_CONFIG: config,
-      BEADS_DIR: "/wrong-workspace",
-      BEADS_DOLT_SERVER_PORT: "1",
-    };
-    const driver = (...args: string[]) =>
-      execute(join(root, "scripts/studio"), args, {
-        cwd: workspace,
-        env,
+    try {
+      const bundle = join(temporary, "bundle");
+      const checkout = join(temporary, "project with spaces");
+      const host = join(
+        bundle,
+        "node_modules/@earendil-works/pi-coding-agent/dist/bundle",
+      );
+      for (const path of [
+        host,
+        checkout,
+        join(bundle, "scripts"),
+        join(bundle, "resources"),
+      ])
+        await mkdir(path, { recursive: true });
+      await execute(process.execPath, ["scripts/prepare-delegation.mjs"], {
+        cwd: root,
         timeout: 10_000,
       });
-    assert.match((await driver("--help")).stdout, /^Usage: studio /);
-    const compiledConfig = await driver("config", "--example");
-    const sourceConfig = await execute(
-      join(root, "scripts/studio"),
-      ["config", "--example"],
-      {
-        cwd: workspace,
-        env: { ...env, STUDIO_USE_SOURCE: "1" },
-        timeout: 10_000,
-      },
-    );
-    assert.equal(compiledConfig.stdout, sourceConfig.stdout);
-    const listing = z
-      .object({ workspace: z.string(), tasks: z.array(taskSchema) })
-      .parse(JSON.parse((await driver("tasks", "--json")).stdout));
-    assert.equal(listing.workspace, workspace);
-    assert.equal(listing.tasks[0]?.id, "fixture-1");
-    assert.match((await driver("tasks", "fixture-1")).stdout, /Keep state/);
-    const before = await readFile(capture, "utf8");
-    await assert.rejects(
-      driver("start", "--profile", "personal"),
-      /missing required argument/,
-    );
-    assert.equal(
-      await readFile(capture, "utf8"),
-      before,
-      "gated start must not call Beads",
-    );
-    await writeFile(config, "invalid config");
-    assert.match((await driver("skill")).stdout, /Studio/);
-    await assert.rejects(driver("tasks"), /Cannot load/);
-  } finally {
-    await rm(temporary, { recursive: true, force: true });
-  }
-});
+      await execute(
+        process.execPath,
+        [
+          "build",
+          "--target=bun",
+          "cli.ts",
+          "--outfile",
+          join(bundle, "cli.ts"),
+        ],
+        { cwd: root, timeout: 30_000 },
+      );
+      for (const name of ["pi", "studio", "runtime.mjs"]) {
+        await copyFile(
+          join(root, "scripts", name),
+          join(bundle, "scripts", name),
+        );
+        await chmod(join(bundle, "scripts", name), 0o755);
+      }
+      await copyFile(join(root, "package.json"), join(bundle, "package.json"));
+      await copyFile(
+        join(root, "resources/bunfig.toml"),
+        join(bundle, "resources/bunfig.toml"),
+      );
+      await writeFile(
+        join(host, "cli.js"),
+        'console.log(JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2)})); process.exit(Number(process.env["STUDIO_FIXTURE_EXIT"] ?? 0));',
+      );
+      const launch = (args: string[], exit = "0") =>
+        execute(join(bundle, "scripts/studio"), args, {
+          cwd: checkout,
+          env: { ...process.env, STUDIO_FIXTURE_EXIT: exit },
+          timeout: 10_000,
+        });
+      for (const [args, forwarded] of [
+        [[], []],
+        [["lead"], []],
+        [
+          ["lead", "--", "--resume", "session with spaces"],
+          ["--resume", "session with spaces"],
+        ],
+      ] satisfies [string[], string[]][]) {
+        const result = await launch(args);
+        const observed: unknown = JSON.parse(result.stdout);
+        assert.deepEqual(observed, {
+          cwd: checkout,
+          args: ["--extension", join(bundle, "extension.ts"), ...forwarded],
+        });
+      }
+      await assert.rejects(launch(["lead"], "23"), { code: 23 });
+      await assert.rejects(launch(["start", "fixture"]), /required option/);
+    } finally {
+      await rm(temporary, { recursive: true, force: true });
+    }
+  },
+);
 
-await test("compiled daily-driver entrypoints preserve directory, Pi arguments and exit status", async () => {
-  const temporary = await realpath(
-    await mkdtemp(join(tmpdir(), "studio-session-")),
-  );
-  try {
-    const bundle = join(temporary, "bundle");
-    const checkout = join(temporary, "project with spaces");
-    const host = join(
-      bundle,
-      "node_modules/@earendil-works/pi-coding-agent/dist/bundle",
-    );
-    for (const path of [
-      host,
-      checkout,
-      join(bundle, ".aot"),
-      join(bundle, "scripts"),
-      join(bundle, "resources"),
-      join(bundle, "runtime"),
-    ])
-      await mkdir(path, { recursive: true });
-    await execute(process.execPath, ["scripts/prepare-delegation.mjs"], {
-      cwd: root,
-      timeout: 10_000,
-    });
-    await execute(
+await test("the shared Bun gate accepts newer stable runtimes and rejects old or prerelease runtimes", async () => {
+  const validate = (version: string) =>
+    execute(
       process.execPath,
       [
-        "build",
-        "--compile",
-        "cli.ts",
-        "--outfile",
-        join(bundle, ".aot/studio"),
+        "--eval",
+        `Object.defineProperty(process.versions, "bun", {value: ${JSON.stringify(version)}}); await import(${JSON.stringify(join(root, "scripts/runtime.mjs"))});`,
       ],
-      { cwd: root, timeout: 30_000 },
+      { cwd: root },
     );
-    await copyFile(join(root, "scripts/pi"), join(bundle, "scripts/pi"));
-    await chmod(join(bundle, "scripts/pi"), 0o755);
-    await copyFile(
-      join(root, "resources/bunfig.toml"),
-      join(bundle, "resources/bunfig.toml"),
-    );
-    await symlink(process.execPath, join(bundle, "runtime/bun"));
-    await writeFile(
-      join(host, "cli.js"),
-      'console.log(JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2)})); process.exit(Number(process.env["STUDIO_FIXTURE_EXIT"] ?? 0));',
-    );
-    const launch = (args: string[], exit = "0") =>
-      execute(join(bundle, ".aot/studio"), args, {
-        cwd: checkout,
-        env: { ...process.env, STUDIO_FIXTURE_EXIT: exit },
-        timeout: 10_000,
-      });
-    for (const [args, forwarded] of [
-      [[], []],
-      [["lead"], []],
-      [
-        ["lead", "--", "--resume", "session with spaces"],
-        ["--resume", "session with spaces"],
-      ],
-    ] satisfies [string[], string[]][]) {
-      const result = await launch(args);
-      const observed: unknown = JSON.parse(result.stdout);
-      assert.deepEqual(observed, {
-        cwd: checkout,
-        args: ["--extension", join(bundle, "extension.ts"), ...forwarded],
-      });
-    }
-    await assert.rejects(launch(["lead"], "23"), { code: 23 });
-    await assert.rejects(launch(["start", "fixture"]), /required option/);
-  } finally {
-    await rm(temporary, { recursive: true, force: true });
-  }
+  await validate("1.4.5");
+  await validate("1.5.0");
+  await assert.rejects(validate("1.4.4"), /requires Bun/);
+  await assert.rejects(validate("1.4.5-canary"), /requires Bun/);
 });
 
 await test("opt-in registration preserves local settings and is idempotent", async () => {
@@ -514,7 +530,6 @@ await test("launchers ignore checkout Bun preloads and dotenv before the host en
       hostDirectory,
       join(bundle, "scripts"),
       join(bundle, "resources"),
-      join(bundle, "runtime"),
       join(temporary, "bin"),
     ])
       await mkdir(path, { recursive: true });
@@ -539,49 +554,46 @@ await test("launchers ignore checkout Bun preloads and dotenv before the host en
     const entry = `console.log(JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(2), inherited: process.env["STUDIO_BOOTSTRAP_INHERITED"], dotenv: process.env["STUDIO_BOOTSTRAP_UNTRUSTED"] ?? null, preload: process.env["STUDIO_BOOTSTRAP_PRELOAD"] ?? null }));`;
     await writeFile(join(hostDirectory, "cli.js"), entry);
     await writeFile(join(bundle, "cli.ts"), entry);
-    await symlink(process.execPath, join(bundle, "runtime/bun"));
     await symlink(process.execPath, join(temporary, "bin/bun"));
     const args = ["argument with spaces", "--no-extensions", "--resume"];
-    for (const mode of ["embedded", "path"]) {
-      if (mode === "path") await rm(join(bundle, "runtime/bun"));
-      for (const name of ["pi", "studio"]) {
-        const launcher = join(bundle, "scripts", name);
-        await copyFile(join(root, "scripts", name), launcher);
-        await chmod(launcher, 0o755);
-        const result = await execute(launcher, args, {
-          cwd: checkout,
-          env: {
-            ...process.env,
-            HOME: home,
-            XDG_CONFIG_HOME: join(home, ".config"),
-            PATH: `${join(temporary, "bin")}:${process.env["PATH"] ?? ""}`,
-            STUDIO_USE_SOURCE: "1",
-            STUDIO_BOOTSTRAP_INHERITED: "preserve",
-          },
-          timeout: 10_000,
-        });
-        assert.ok(
-          result.stdout.length > 0,
-          `${mode}/${name}: ${result.stderr}`,
-        );
-        const observed = z
-          .object({
-            cwd: z.string(),
-            args: z.array(z.string()),
-            inherited: z.string(),
-            dotenv: z.string().nullable(),
-            preload: z.string().nullable(),
-          })
-          .parse(JSON.parse(result.stdout));
-        assert.deepEqual(observed, {
-          cwd: checkout,
-          args,
-          inherited: "preserve",
-          dotenv: null,
-          preload: null,
-        });
-        await assert.rejects(readFile(marker), /ENOENT/);
-      }
+    await copyFile(join(root, "package.json"), join(bundle, "package.json"));
+    await copyFile(
+      join(root, "scripts/runtime.mjs"),
+      join(bundle, "scripts/runtime.mjs"),
+    );
+    for (const name of ["pi", "studio"]) {
+      const launcher = join(bundle, "scripts", name);
+      await copyFile(join(root, "scripts", name), launcher);
+      await chmod(launcher, 0o755);
+      const result = await execute(launcher, args, {
+        cwd: checkout,
+        env: {
+          ...process.env,
+          HOME: home,
+          XDG_CONFIG_HOME: join(home, ".config"),
+          PATH: `${join(temporary, "bin")}:${process.env["PATH"] ?? ""}`,
+          STUDIO_BOOTSTRAP_INHERITED: "preserve",
+        },
+        timeout: 10_000,
+      });
+      assert.ok(result.stdout.length > 0, `${name}: ${result.stderr}`);
+      const observed = z
+        .object({
+          cwd: z.string(),
+          args: z.array(z.string()),
+          inherited: z.string(),
+          dotenv: z.string().nullable(),
+          preload: z.string().nullable(),
+        })
+        .parse(JSON.parse(result.stdout));
+      assert.deepEqual(observed, {
+        cwd: checkout,
+        args,
+        inherited: "preserve",
+        dotenv: null,
+        preload: null,
+      });
+      await assert.rejects(readFile(marker), /ENOENT/);
     }
   } finally {
     await rm(temporary, { recursive: true, force: true });

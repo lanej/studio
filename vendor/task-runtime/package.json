@@ -28,6 +28,6 @@
     "openapi-typescript": "^7.13.0"
   },
   "engines": {
-    "bun": "1.4.5"
+    "bun": ">=1.4.5"
   }
 }
