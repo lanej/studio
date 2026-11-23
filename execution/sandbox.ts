@@ -390,14 +390,25 @@ export async function verificationSandbox(
     for (const path of allowed.filter((path) => path !== temporary))
       args.push("--ro-bind", path, path);
     args.push("--bind", temporary, temporary);
+    const maskedFile = join(temporary, "masked-file");
+    await writeFile(maskedFile, "");
     // Mask protected state even when a broad system read mount contains it.
-    for (const path of [...protectedPaths, ...metadataPaths]) {
+    const maskedPaths = [
+      ...new Set([...protectedPaths, ...metadataPaths]),
+    ].filter(
+      (path, index, paths) =>
+        !paths.some(
+          (parent, parentIndex) =>
+            parentIndex !== index && beneath(path, parent),
+        ),
+    );
+    for (const path of maskedPaths) {
       const metadata = await stat(path).catch(() => undefined);
       if (metadata !== undefined)
         args.push(
           ...(metadata.isDirectory()
-            ? ["--tmpfs", path]
-            : ["--ro-bind", "/dev/null", path]),
+            ? ["--tmpfs", path, "--remount-ro", path]
+            : ["--ro-bind", maskedFile, path]),
         );
     }
     for (const binding of objectBindings)

@@ -4,6 +4,7 @@ jobs:
   check:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     timeout-minutes: 15
@@ -38,6 +39,7 @@ jobs:
   lsp-native:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     timeout-minutes: 5
@@ -62,6 +64,7 @@ jobs:
   beads-native:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os:
           - ubuntu-latest

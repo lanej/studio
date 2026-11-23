@@ -65,6 +65,7 @@ export function registerRuntimeCommands(program: Command): void {
           JSON.stringify(
             {
               supervisor: supervisor ?? null,
+              allocationOwner: store.allocationOwner() ?? null,
               live:
                 supervisor !== undefined &&
                 (await alive(supervisor.pid, supervisor.started)),

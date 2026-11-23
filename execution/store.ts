@@ -109,6 +109,13 @@ const supervisorSchema = z.object({
   stop: z.boolean().default(false),
 });
 export type Supervisor = z.infer<typeof supervisorSchema>;
+const allocationOwnerSchema = z.object({
+  id: z.uuid(),
+  attempt: z.uuid(),
+  pid: z.number().int().positive(),
+  started: z.string(),
+});
+export type AllocationOwner = z.infer<typeof allocationOwnerSchema>;
 
 /** Durable intents and receipts only. Beads owns task state and dependency readiness. */
 export class ExecutionStore {
@@ -254,6 +261,29 @@ export class ExecutionStore {
   }
   setSupervisor(record: Supervisor): void {
     this.save("supervisor", "owner", supervisorSchema.parse(record));
+  }
+  allocationOwner(): AllocationOwner | undefined {
+    return allocationOwnerSchema
+      .optional()
+      .parse(this.read("allocation", "owner"));
+  }
+  reserveAllocation(
+    owner: AllocationOwner,
+    expected: string | undefined,
+  ): boolean {
+    return this.transaction(() => {
+      if (this.allocationOwner()?.id !== expected) return false;
+      this.save("allocation", "owner", allocationOwnerSchema.parse(owner));
+      return true;
+    });
+  }
+  releaseAllocation(id: string): void {
+    this.transaction(() => {
+      if (this.allocationOwner()?.id === id)
+        this.db
+          .query("DELETE FROM records WHERE kind='allocation' AND id='owner'")
+          .run();
+    });
   }
   override(project: string): MergeOverride | undefined {
     return mergeOverrideSchema.optional().parse(this.read("merge", project));

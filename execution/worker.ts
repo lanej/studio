@@ -29,6 +29,7 @@ import { writableTools } from "./tools.ts";
 import { safeGit, networkGit } from "./git.ts";
 import { deliverAssignment } from "./delivery.ts";
 import { octo } from "../delivery.ts";
+import { withAllocation } from "./allocation.ts";
 
 const workerResult = z.object({
   summary: z.string().min(1).max(8000),
@@ -162,7 +163,9 @@ export async function executeAssignment(
         });
     }, 15000);
     await check();
-    attempt = await prepareCheckout(store, attempt, project);
+    attempt = await withAllocation(store, attempt.id, check, () =>
+      prepareCheckout(store, attempt, project),
+    );
     const checkout = attempt.checkout;
     if (checkout === undefined) throw new Error("Missing worker checkout");
     const git = (args: string[], env?: NodeJS.ProcessEnv) =>
