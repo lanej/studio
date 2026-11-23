@@ -77,6 +77,7 @@ const pi = spawn(
   ],
   {
     cwd: temporary,
+    detached: true,
     env: {
       ...process.env,
       HOME: temporary,
@@ -94,7 +95,27 @@ let errors = "";
 pi.stderr.on("data", (chunk: Buffer) => {
   errors += chunk.toString();
 });
-const timeout = setTimeout(() => pi.kill("SIGKILL"), 20_000);
+let closed = false;
+pi.once("close", () => {
+  closed = true;
+});
+const stop = (signal: NodeJS.Signals): void => {
+  if (pi.pid === undefined) return;
+  try {
+    process.kill(-pi.pid, signal);
+  } catch (cause) {
+    if (
+      !(cause instanceof Error) ||
+      !("code" in cause) ||
+      cause.code !== "ESRCH"
+    )
+      throw cause;
+  }
+};
+const timeout = setTimeout(() => {
+  pi.stdin.end();
+  stop("SIGKILL");
+}, 20_000);
 try {
   pi.stdin.write('{"id":"resources","type":"get_commands"}\n');
   let found = false;
@@ -173,13 +194,21 @@ try {
   );
 } finally {
   clearTimeout(timeout);
-  if (pi.exitCode === null) {
-    pi.kill("SIGTERM");
-    await new Promise<void>((resolve) => {
-      pi.once("close", () => {
-        resolve();
+  if (!closed) {
+    pi.stdin.end();
+    stop("SIGTERM");
+    const force = setTimeout(() => {
+      stop("SIGKILL");
+    }, 2_000);
+    try {
+      await new Promise<void>((resolve) => {
+        pi.once("close", () => {
+          resolve();
+        });
       });
-    });
+    } finally {
+      clearTimeout(force);
+    }
   }
   await rm(temporary, { recursive: true, force: true });
 }
