@@ -1,6 +1,6 @@
 # Studio
 
-Run an existing Beads task in an interactive Pi lead session, guide it in Zellij, and inspect the result from another terminal. Beads owns the task. The native worktree manager allocates its checkout. This workflow runs with Paseo offline and supports both the work and personal model profiles.
+Start Studio as your daily-driver Pi session in any directory, with no Beads task required. For task-bound work, Studio can also run an existing Beads task in an interactive Pi lead session, guide it in Zellij, and inspect the result from another terminal. Beads owns the task and the native worktree manager allocates its checkout. Both work and personal model profiles are supported.
 
 Studio also provides the dotfiles theme, task browser and idle compaction. The [runtime plan](RUNTIME.md) covers subagent delegation, Pi-owned Octo delivery and worktree archival.
 
@@ -47,13 +47,29 @@ The theme comes from a bundled snapshot of the shared semantic adapter, with Nor
 
 Run `studio config --example` to see a full JSON configuration example. Studio reads `${XDG_CONFIG_HOME:-~/.config}/studio/config.toml` first and falls back to `config.json` when TOML is absent. Set `STUDIO_CONFIG` to select an explicit TOML or JSON file. If you already use JSON and switch to TOML, carry your existing settings over to the TOML file; Studio reads one file. Without a default configuration file, Studio uses its built-in defaults; a missing explicitly selected file is an error. Configuration inspection and `studio skill` need no services or credentials.
 
+## Start a daily-driver session
+
+Run `studio` or `studio lead` from the directory where you want to work. Studio opens its bundled Pi host in the current terminal and loads the Studio extension. A bead, Zellij, and the worktree manager are not required. Pi retains its normal session persistence, project trust checks, provider authentication, and model selection. Use `/studio-profile work` or `/studio-profile personal` inside the session to select a configured lead profile.
+
+Use `studio lead` to pass native Pi options or an initial prompt. Place Pi options after `--` so they reach Pi, including its own help:
+
+```sh
+studio
+studio lead -- --continue
+studio lead -- --resume
+studio lead -- "Help me understand this project"
+studio lead -- --help
+```
+
+`studio resume BEAD_ID` resumes a managed Beads lead; `studio lead -- --resume` opens Pi's session picker for ordinary conversations. Daily-driver sessions use the current checkout. Starting a bead with `studio start BEAD_ID --profile work` retains the managed checkout workflow below.
+
 ## Working directory
 
 Use `/cd /path/to/project` to change directories while continuing the current conversation. Relative paths, `~`, and paths containing spaces are supported; `/cd` alone opens your home directory. Conversation history, compaction summaries, the session tree and selected branch carry over, along with the model and thinking level. An explicitly selected Studio profile is revalidated for the destination before delegation is re-enabled. Pi rebuilds its tools, project instructions, settings and resources for the destination, including its normal project trust checks. A directory-change message records the new location in the conversation. Pi saves the continuation under the destination with a link to the original session; the original file remains intact. Switching requires settled conversation and delegated work; managed Beads sessions stay in their assigned checkout. `/cd` is unavailable with `--no-session`, so switching never saves a deliberately private conversation.
 
 ## Optional integrations
 
-Zellij, worktree manager, Octo, and Beads are optional. With no Studio configuration, the extension still supplies directory switching, idle compaction, search rendering, and archive browsing; the CLI can inspect configuration and report integration status. Installation does not start or require these services.
+Zellij, worktree manager, Octo, and Beads are optional. With no Studio configuration, `studio` starts a daily-driver session and the extension supplies directory switching, idle compaction, search rendering, and archive browsing; the CLI can also inspect configuration and report integration status. Installation does not start or require these services.
 
 Set `integrations.zellij.enabled`, `integrations.worktrees.enabled`, or `integrations.octo.enabled` to opt in. Each accepts an `executable` name or absolute path. These integrations default to disabled and become available only when the configured executable is present. Configure Beads separately with `beadsService` or a read-only `beads` source. A configured service must be reachable to perform its operations. Missing or disabled integrations fail only the commands that need them, before task claims or checkout allocation.
 

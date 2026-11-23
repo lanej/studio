@@ -13,8 +13,6 @@ import {
   exampleConfig,
   ReasoningLevel,
 } from "../config.ts";
-import { run } from "../process.ts";
-import { piExecutable } from "../task-run.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const temporary = await mkdtemp(join(tmpdir(), "studio-resources-"));
@@ -30,9 +28,6 @@ for (const [role, selection] of Object.entries(exampleConfig.profiles.personal))
     `The personal example's ${role} model is unavailable: ${selection.model}`,
   );
 
-await run("python3", [join(root, "scripts/configure.py"), root, agent], {
-  env: { ...process.env, PI_CODING_AGENT_DIR: agent },
-});
 const workModel = {
   provider: "fixture-mantle",
   model: "work-model",
@@ -68,8 +63,10 @@ await writeFile(
   }),
 );
 const pi = spawn(
-  await piExecutable(),
+  join(root, "scripts/studio"),
   [
+    "lead",
+    "--",
     "--mode",
     "rpc",
     "--offline",
@@ -80,11 +77,13 @@ const pi = spawn(
   ],
   {
     cwd: temporary,
+    detached: true,
     env: {
       ...process.env,
       HOME: temporary,
       PI_CODING_AGENT_DIR: agent,
       STUDIO_CONFIG: join(temporary, "config.json"),
+      STUDIO_USE_SOURCE: "1",
       PI_SKIP_VERSION_CHECK: "1",
       PI_TELEMETRY: "0",
       STUDIO_FIXTURE_NO_MANTLE_AUTH: "",
@@ -96,7 +95,27 @@ let errors = "";
 pi.stderr.on("data", (chunk: Buffer) => {
   errors += chunk.toString();
 });
-const timeout = setTimeout(() => pi.kill("SIGKILL"), 20_000);
+const lifecycle = { closed: false };
+pi.once("close", () => {
+  lifecycle.closed = true;
+});
+const stop = (signal: NodeJS.Signals): void => {
+  if (pi.pid === undefined) return;
+  try {
+    process.kill(-pi.pid, signal);
+  } catch (cause) {
+    if (
+      !(cause instanceof Error) ||
+      !("code" in cause) ||
+      cause.code !== "ESRCH"
+    )
+      throw cause;
+  }
+};
+const timeout = setTimeout(() => {
+  pi.stdin.end();
+  stop("SIGKILL");
+}, 20_000);
 try {
   pi.stdin.write('{"id":"resources","type":"get_commands"}\n');
   let found = false;
@@ -175,13 +194,21 @@ try {
   );
 } finally {
   clearTimeout(timeout);
-  if (pi.exitCode === null) {
-    pi.kill("SIGTERM");
-    await new Promise<void>((resolve) => {
-      pi.once("close", () => {
-        resolve();
+  if (!lifecycle.closed) {
+    pi.stdin.end();
+    stop("SIGTERM");
+    const force = setTimeout(() => {
+      stop("SIGKILL");
+    }, 2_000);
+    try {
+      await new Promise<void>((resolve) => {
+        pi.once("close", () => {
+          resolve();
+        });
       });
-    });
+    } finally {
+      clearTimeout(force);
+    }
   }
   await rm(temporary, { recursive: true, force: true });
 }

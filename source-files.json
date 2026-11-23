@@ -104,6 +104,7 @@
   "scripts/studio",
   "scripts/test-standalone.py",
   "search-renderer.ts",
+  "session.ts",
   "smart-plan-graph.ts",
   "socrates/controls.ts",
   "socrates/evidence.ts",
