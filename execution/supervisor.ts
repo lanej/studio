@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { closeSync, mkdirSync, openSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig } from "../config.ts";
+import { requireIntegration } from "../integrations.ts";
 import { packageRoot } from "../package-resources.ts";
 import { processFailure, processStart } from "../process.ts";
 import { owner } from "../task-service.ts";
@@ -140,6 +141,7 @@ export async function serveRuntime(signal?: AbortSignal): Promise<void> {
               });
             }
           }
+          await requireIntegration(config, "worktrees");
           const attempts = store.attempts();
           const live = [];
           for (const attempt of attempts)

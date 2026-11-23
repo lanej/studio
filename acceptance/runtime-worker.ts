@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -264,7 +264,13 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
   const crashed = new Promise<void>((resolve) => {
     crashDone = resolve;
   });
+  let claimRequests = 0;
   const proxy = createServer((incoming, response) => {
+    if (
+      incoming.method === "POST" &&
+      incoming.url?.startsWith("/v0/beads/issues:claimNext") === true
+    )
+      claimRequests++;
     void (async () => {
       let body = "";
       for await (const chunk of incoming) body += String(chunk);
@@ -337,29 +343,33 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     beadsExecutable: options.bd,
     beadsDatabase: context.database,
   };
-  await writeFile(
-    configFile,
-    JSON.stringify({
-      runtime: {
-        enabled: true,
-        pollMs: 1000,
-        projects: [{ ...project, id: undefined }],
-      },
-      integrations: { worktrees: { enabled: true } },
-      profiles: {
-        personal: Object.fromEntries(
-          Object.values(AgentRole).map((role) => [
-            role,
-            {
-              provider: "openai-codex",
-              model: role,
-              reasoning: ReasoningLevel.Low,
-            },
-          ]),
-        ),
-      },
-    }),
-  );
+  const runtimeConfig = {
+    runtime: {
+      enabled: true,
+      pollMs: 1000,
+      projects: [{ ...project, id: undefined }],
+    },
+    integrations: { worktrees: { enabled: true, executable: "worktree" } },
+    profiles: {
+      personal: Object.fromEntries(
+        Object.values(AgentRole).map((role) => [
+          role,
+          {
+            provider: "openai-codex",
+            model: role,
+            reasoning: ReasoningLevel.Low,
+          },
+        ]),
+      ),
+    },
+  };
+  runtimeConfig.integrations.worktrees.enabled = false;
+  const saveConfig = async () => {
+    const temporary = `${configFile}.next`;
+    await writeFile(temporary, JSON.stringify(runtimeConfig));
+    await rename(temporary, configFile);
+  };
+  await saveConfig();
   await run(process.execPath, [join(root, "scripts/prepare-delegation.mjs")], {
     cwd: root,
     env,
@@ -536,6 +546,41 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
   }, 30000);
   let startupTimer: ReturnType<typeof setTimeout> | undefined;
   try {
+    const rejectedAdmission = async (reason: string) => {
+      const deadline = Date.now() + 10000;
+      while (!diagnostics.includes(reason)) {
+        if (Date.now() > deadline)
+          throw new Error(
+            `Runtime did not reject unavailable integration: ${diagnostics}`,
+          );
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 50);
+        });
+      }
+      assert.equal(
+        claimRequests,
+        0,
+        "An unavailable worktree integration must not claim Beads work",
+      );
+      assert.equal(
+        store.attempts().length,
+        0,
+        "Admission preflight must precede durable claim intent",
+      );
+      assert.equal((await service.get(`${parent}.first`)).status, "open");
+    };
+    await rejectedAdmission("Enable integrations.worktrees.enabled");
+    runtimeConfig.integrations.worktrees.enabled = true;
+    runtimeConfig.integrations.worktrees.executable = join(
+      fixture.directory,
+      "missing-runtime-worktree",
+    );
+    await saveConfig();
+    await rejectedAdmission(
+      `Install ${runtimeConfig.integrations.worktrees.executable}`,
+    );
+    runtimeConfig.integrations.worktrees.executable = "worktree";
+    await saveConfig();
     await Promise.race([
       workerStarted,
       new Promise<never>((_resolve, reject) => {
