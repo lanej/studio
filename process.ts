@@ -4,7 +4,8 @@ import { z } from "zod";
 
 const execute = promisify(execFile);
 const failureSchema = z.object({
-  code: z.union([z.string(), z.number()]).optional(),
+  code: z.union([z.string(), z.number(), z.null()]).optional(),
+  signal: z.string().nullable().optional(),
   stdout: z.string().optional(),
   stderr: z.string().optional(),
   message: z.string(),
@@ -45,7 +46,7 @@ export async function run(
     const failure = processFailure(error);
     const stderr = failure.stderr?.trim();
     throw new CommandError(
-      `${executable} failed (${String(failure.code ?? "unknown")}): ${stderr !== undefined && stderr.length > 0 ? stderr : failure.message}`,
+      `${executable} failed (${String(failure.code ?? failure.signal ?? "unknown")}): ${stderr !== undefined && stderr.length > 0 ? stderr : failure.message}`,
       failure,
     );
   }

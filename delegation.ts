@@ -201,11 +201,13 @@ async function allocate(
   return receipt;
 }
 
-async function snapshotTools(
+export async function snapshotTools(
   cwd: string,
   sha: string,
+  execute: (args: string[]) => Promise<string> = (args) =>
+    run("git", args, { cwd }),
 ): Promise<ToolDefinition[]> {
-  const output = await run("git", ["ls-tree", "-rz", sha], { cwd });
+  const output = await execute(["ls-tree", "-rz", sha]);
   const blobs = new Map<string, string>();
   for (const entry of output.split("\0")) {
     const match = /^(100644|100755) blob ([a-f0-9]+)\t([\s\S]+)$/.exec(entry);
@@ -216,12 +218,10 @@ async function snapshotTools(
     const oid = blobs.get(path);
     if (oid === undefined)
       throw new Error("Choose a regular file from the committed snapshot");
-    const size = Number(
-      (await run("git", ["cat-file", "-s", oid], { cwd })).trim(),
-    );
+    const size = Number((await execute(["cat-file", "-s", oid])).trim());
     if (!Number.isSafeInteger(size) || size > 256 * 1024)
       throw new Error("File exceeds the 256 KiB inspection limit");
-    const content = await run("git", ["cat-file", "blob", oid], { cwd });
+    const content = await execute(["cat-file", "blob", oid]);
     if (content.includes("\0")) throw new Error("Choose a text file");
     return content;
   };

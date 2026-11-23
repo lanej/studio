@@ -7,9 +7,16 @@ import { LeadMode } from "./lead-plan.ts";
 import { run } from "./process.ts";
 import { BeadChanged, TaskBeads, type Verification } from "./task-service.ts";
 
-async function gitState(cwd: string, branch: string) {
-  const git = async (...args: string[]) =>
-    (await run("git", args, { cwd })).trim();
+export async function gitState(
+  cwd: string,
+  branch: string,
+  execute?: (args: string[], env?: NodeJS.ProcessEnv) => Promise<string>,
+) {
+  const command =
+    execute ??
+    ((args: string[], env?: NodeJS.ProcessEnv) =>
+      run("git", args, { cwd, ...(env === undefined ? {} : { env }) }));
+  const git = async (...args: string[]) => (await command(args)).trim();
   if ((await git("symbolic-ref", "--short", "HEAD")) !== branch)
     throw new Error("The managed checkout changed branches");
   const head = await git("rev-parse", "HEAD");
@@ -18,7 +25,7 @@ async function gitState(cwd: string, branch: string) {
   try {
     const env = { ...process.env, GIT_INDEX_FILE: join(temporary, "index") };
     const indexed = async (...args: string[]) =>
-      (await run("git", args, { cwd, env })).trim();
+      (await command(args, env)).trim();
     await indexed("read-tree", head);
     await indexed("add", "-A", "--", ".");
     return { gitHead: head, gitState: await indexed("write-tree") };
@@ -27,10 +34,12 @@ async function gitState(cwd: string, branch: string) {
   }
 }
 
-async function runCheck(
+export async function runCheck(
   argv: string[],
   cwd: string,
   signal?: AbortSignal,
+  onSpawn?: (pid: number) => Promise<void>,
+  environment?: NodeJS.ProcessEnv,
 ): Promise<{ exitCode: number | null; output: string }> {
   const [program, ...args] = argv;
   if (program === undefined || program.length === 0)
@@ -39,6 +48,7 @@ async function runCheck(
   return new Promise((resolve, reject) => {
     const child = spawn(program, args, {
       cwd,
+      ...(environment === undefined ? {} : { env: environment }),
       stdio: ["ignore", "pipe", "pipe"],
       shell: false,
       detached: true,
@@ -68,26 +78,55 @@ async function runCheck(
       }, 1000);
       escalation.unref();
     };
+    let receiptError: unknown;
+    const receipt =
+      child.pid === undefined || onSpawn === undefined
+        ? Promise.resolve()
+        : onSpawn(child.pid).catch((error: unknown) => {
+            receiptError = error;
+            cancel();
+          });
     signal?.addEventListener("abort", cancel, { once: true });
+    child.once("exit", () => {
+      terminate("SIGKILL");
+    });
     child.once("error", reject);
     child.once("close", (code, termination) => {
-      signal?.removeEventListener("abort", cancel);
-      if (escalation !== undefined) {
-        clearTimeout(escalation);
-        terminate("SIGKILL");
-      }
-      if (signal?.aborted === true) {
-        reject(new Error("Verification cancelled. The bead remains open"));
-        return;
-      }
-      const output = tail.toString("utf8");
-      resolve({
-        exitCode: code,
-        output:
-          termination === null
-            ? output
-            : `${output}\nTerminated by ${termination}`,
-      });
+      void receipt
+        .then(() => {
+          signal?.removeEventListener("abort", cancel);
+          if (escalation !== undefined) {
+            clearTimeout(escalation);
+          }
+          terminate("SIGKILL");
+          if (receiptError !== undefined) {
+            reject(
+              receiptError instanceof Error
+                ? receiptError
+                : new Error(
+                    typeof receiptError === "string"
+                      ? receiptError
+                      : "Verification process receipt could not be persisted",
+                  ),
+            );
+            return;
+          }
+          if (signal?.aborted === true) {
+            reject(new Error("Verification cancelled. The bead remains open"));
+            return;
+          }
+          const output = tail.toString("utf8");
+          resolve({
+            exitCode: code,
+            output:
+              termination === null
+                ? output
+                : `${output}\nTerminated by ${termination}`,
+          });
+        })
+        .catch((error: unknown) => {
+          reject(error instanceof Error ? error : new Error(String(error)));
+        });
     });
   });
 }
