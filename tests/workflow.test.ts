@@ -224,7 +224,7 @@ await test(
       const checkout = join(temporary, "project with spaces");
       const host = join(
         bundle,
-        "node_modules/@earendil-works/pi-coding-agent/dist/bundle",
+        "node_modules/@earendil-works/pi-coding-agent/dist",
       );
       for (const path of [
         host,
@@ -522,7 +522,7 @@ await test("launchers ignore checkout Bun preloads and dotenv before the host en
     const marker = join(temporary, "preload-executed");
     const hostDirectory = join(
       bundle,
-      "node_modules/@earendil-works/pi-coding-agent/dist/bundle",
+      "node_modules/@earendil-works/pi-coding-agent/dist",
     );
     for (const path of [
       checkout,

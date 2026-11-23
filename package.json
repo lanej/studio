@@ -36,7 +36,8 @@
     "test:runtime-beads-native": "bun acceptance/runtime-beads.ts",
     "test:runtime-worker-native": "bun acceptance/runtime-worker.ts",
     "test:verification-native": "bun acceptance/verification-sandbox.ts",
-    "test:git-boundary-native": "bun acceptance/git-boundary.ts"
+    "test:git-boundary-native": "bun acceptance/git-boundary.ts",
+    "test:activation-native": "bun acceptance/activation.ts"
   },
   "dependencies": {
     "@bufbuild/protobuf": "2.16.0",

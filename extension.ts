@@ -1,5 +1,9 @@
 import { registerProjectPolicy } from "./execution/policy.ts";
 import { registerDiscovery } from "./discovery/extension.ts";
+import {
+  registerActivation,
+  registerActivationAdmission,
+} from "./activation.ts";
 import { registerCodeIntelligence } from "./code-intelligence/extension.ts";
 import { inspectIntegrations } from "./integrations.ts";
 import { registerSearchRendering } from "./search-renderer.ts";
@@ -56,9 +60,11 @@ export default function studioExtension(
   managed?: {
     profile: StudioProfile;
     approvalPending: () => boolean;
+    activationBlocked?: () => boolean;
     trackedPullRequest: () => string | undefined;
   },
 ): void {
+  registerActivationAdmission(pi);
   const intelligence = registerCodeIntelligence(pi);
   const idle = new IdleSession();
   let removeInputListener: (() => void) | undefined;
@@ -76,6 +82,14 @@ export default function studioExtension(
     () => {
       idle.terminalInput();
     },
+  );
+  registerActivation(
+    pi,
+    (ctx) =>
+      discovery?.pending() === true ||
+      managed?.approvalPending() === true ||
+      managed?.activationBlocked?.() === true ||
+      delegation.blocks(ctx.sessionManager.getSessionId()),
   );
   registerArchives(pi);
   registerDirectory(

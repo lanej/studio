@@ -20,7 +20,7 @@ export async function inspectPackageResources() {
       join(packageRoot, "resources/socrates/references/dialogue.txt"),
       join(
         packageRoot,
-        "node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js",
+        "node_modules/@earendil-works/pi-coding-agent/dist/cli.js",
       ),
     ];
     await Promise.all(paths.map((path) => access(path)));
