@@ -94,7 +94,7 @@ class FixturePaths:
             **{key: os.environ[key] for key in (
                 "LANG", "LC_ALL", "LC_CTYPE", "TZ", "DOLT_ROOT_PATH",
                 "DOLT_CLI_NO_UPDATE_CHECK", "BD_DISABLE_METRICS", "GIT_CONFIG_GLOBAL",
-                "GIT_CONFIG_NOSYSTEM", "STUDIO_USE_SOURCE",
+                "GIT_CONFIG_NOSYSTEM",
             ) if key in os.environ},
             "HOME": str(self.home),
             "SHELL": "/bin/sh",

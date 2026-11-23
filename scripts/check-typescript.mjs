@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 // One entrypoint locally and in CI. Installation and source rewriting are explicit.
+import "./runtime.mjs";
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import {

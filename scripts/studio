@@ -1,5 +1,5 @@
 #!/bin/sh
-# Run the compiled driver when this checkout has one.
+# Run Studio with the environment's shared Bun runtime.
 set -eu
 
 launcher=$0
@@ -15,18 +15,9 @@ if ! package=$(CDPATH='' cd -P -- "${launcher%/*}/.." && pwd); then
     exit 1
 fi
 
-compiled=$package/.aot/studio
-if [ "${STUDIO_USE_SOURCE:-0}" != 1 ] && [ -x "$compiled" ]; then
-    exec "$compiled" "$@"
-fi
-
-runtime=$package/runtime/bun
-if [ -x "$runtime" ]; then
-    exec "$runtime" --no-env-file "--config=$package/resources/bunfig.toml" "$package/cli.ts" "$@"
-fi
-
 if ! command -v bun >/dev/null 2>&1; then
-    printf '%s\n' 'Install the Bun version in the driver .bun-version file.' >&2
+    printf '%s\n' "Studio requires Bun on PATH; install a version satisfying engines.bun in $package/package.json." >&2
     exit 1
 fi
+bun --no-env-file "--config=$package/resources/bunfig.toml" "$package/scripts/runtime.mjs"
 exec bun --no-env-file "--config=$package/resources/bunfig.toml" "$package/cli.ts" "$@"

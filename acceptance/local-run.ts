@@ -37,7 +37,6 @@ await withBeadsHttp(bd, dolt, async (fixture, source) => {
           ),
       ),
     ),
-    STUDIO_USE_SOURCE: process.env["STUDIO_USE_SOURCE"],
     HOME: fixture.directory,
     DOLT_ROOT_PATH: join(fixture.directory, "dolt-home"),
     DOLT_CLI_NO_UPDATE_CHECK: "1",

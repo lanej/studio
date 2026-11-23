@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "bun": "1.4.5"
+    "bun": ">=1.4.5"
   },
   "pi": {
     "extensions": [
@@ -12,7 +12,7 @@
     ]
   },
   "scripts": {
-    "studio": "bun cli.ts",
+    "studio": "scripts/studio",
     "test": "bun test tests/",
     "test:beads-native": "bun acceptance/beads-control.ts",
     "test:pi-native": "bun acceptance/pi-resources.ts",
@@ -25,7 +25,7 @@
     "test:delegation-native": "bun acceptance/delegation.ts",
     "generate:zellij": "bun scripts/generate-zellij.mjs",
     "check:zellij": "bun scripts/generate-zellij.mjs --check",
-    "build:aot": "bun scripts/build-aot.mjs",
+    "check:build": "bun scripts/check-build.mjs",
     "install:local": "bun scripts/lifecycle.mjs build",
     "test:local": "bun acceptance/local-run.ts",
     "configure": "python3 scripts/configure.py .",
@@ -66,6 +66,5 @@
   "overrides": {
     "minimatch": "11.0.3",
     "undici": "8.12.3"
-  },
-  "packageManager": "bun@1.4.5"
+  }
 }

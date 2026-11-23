@@ -5,12 +5,13 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import './runtime.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const prefix = resolve(process.env.STUDIO_PREFIX ?? join(homedir(), '.local'));
 const store = join(prefix, 'share/studio');
 const launcher = join(prefix, 'bin/studio');
-const version = readFileSync(join(root, '.bun-version'), 'utf8').trim();
+const bun = process.execPath;
 const action = process.argv[2];
 function run(argv, cwd = root, capture = false) {
   const result = spawnSync(argv[0], argv.slice(1), { cwd, encoding: 'utf8', stdio: capture ? 'pipe' : ['inherit', 'inherit', 'inherit'] });
@@ -51,7 +52,6 @@ function status() {
 try {
   if (action === 'status') { console.log(JSON.stringify(status())); process.exit(0); }
   if (!['build', 'restart'].includes(action)) throw new Error('Usage: bun scripts/lifecycle.mjs build|restart|status');
-  if (process.versions.bun !== version) throw new Error(`Use Bun ${version}, found ${process.versions.bun}`);
   const names = files();
   const fingerprint = digest(root, names);
   if (action === 'restart') {
@@ -75,13 +75,9 @@ try {
       cpSync(join(root, name), join(stage, name));
     }
     writeFileSync(join(stage, "source-files.json"), JSON.stringify([...new Set([...names, "source-files.json"])].sort()) + "\n");
-    // Pin the host runtime alongside the extension so PATH cannot select Node or a different Bun.
-    mkdirSync(join(stage, 'runtime'));
-    cpSync(process.execPath, join(stage, 'runtime/bun'));
-    const bun = join(stage, 'runtime/bun');
     run([bun, 'install', '--frozen-lockfile', '--ignore-scripts'], stage);
     run([bun, 'scripts/prepare-delegation.mjs'], stage);
-    run([bun, 'scripts/build-aot.mjs'], stage);
+    run([bun, 'scripts/check-build.mjs'], stage);
     let revision = null;
     try {
       if (run(['git', 'status', '--porcelain', '--untracked-files=all', '--', '.'], root, true) === '')

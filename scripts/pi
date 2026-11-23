@@ -1,6 +1,9 @@
 #!/bin/sh
 set -eu
 package=$(CDPATH='' cd -P -- "${0%/*}/.." && pwd)
-runtime=$package/runtime/bun
-if [ ! -x "$runtime" ]; then runtime=bun; fi
-exec "$runtime" --no-env-file "--config=$package/resources/bunfig.toml" "$package/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js" "$@"
+if ! command -v bun >/dev/null 2>&1; then
+    printf '%s\n' "Studio requires Bun on PATH; install a version satisfying engines.bun in $package/package.json." >&2
+    exit 1
+fi
+bun --no-env-file "--config=$package/resources/bunfig.toml" "$package/scripts/runtime.mjs"
+exec bun --no-env-file "--config=$package/resources/bunfig.toml" "$package/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js" "$@"

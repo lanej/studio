@@ -184,17 +184,6 @@ await test("CLI reads the explicitly configured source and dispatch never alloca
         timeout: 10_000,
       });
     assert.match((await driver("--help")).stdout, /^Usage: studio /);
-    const compiledConfig = await driver("config", "--example");
-    const sourceConfig = await execute(
-      join(root, "scripts/studio"),
-      ["config", "--example"],
-      {
-        cwd: workspace,
-        env: { ...env, STUDIO_USE_SOURCE: "1" },
-        timeout: 10_000,
-      },
-    );
-    assert.equal(compiledConfig.stdout, sourceConfig.stdout);
     const listing = z
       .object({ workspace: z.string(), tasks: z.array(taskSchema) })
       .parse(JSON.parse((await driver("tasks", "--json")).stdout));
@@ -219,7 +208,7 @@ await test("CLI reads the explicitly configured source and dispatch never alloca
   }
 });
 
-await test("compiled daily-driver entrypoints preserve directory, Pi arguments and exit status", async () => {
+await test("environment-backed entrypoints preserve directory, Pi arguments and exit status", async () => {
   const temporary = await realpath(
     await mkdtemp(join(tmpdir(), "studio-session-")),
   );
@@ -233,10 +222,8 @@ await test("compiled daily-driver entrypoints preserve directory, Pi arguments a
     for (const path of [
       host,
       checkout,
-      join(bundle, ".aot"),
       join(bundle, "scripts"),
       join(bundle, "resources"),
-      join(bundle, "runtime"),
     ])
       await mkdir(path, { recursive: true });
     await execute(process.execPath, ["scripts/prepare-delegation.mjs"], {
@@ -245,28 +232,27 @@ await test("compiled daily-driver entrypoints preserve directory, Pi arguments a
     });
     await execute(
       process.execPath,
-      [
-        "build",
-        "--compile",
-        "cli.ts",
-        "--outfile",
-        join(bundle, ".aot/studio"),
-      ],
+      ["build", "--target=bun", "cli.ts", "--outfile", join(bundle, "cli.ts")],
       { cwd: root, timeout: 30_000 },
     );
-    await copyFile(join(root, "scripts/pi"), join(bundle, "scripts/pi"));
-    await chmod(join(bundle, "scripts/pi"), 0o755);
+    for (const name of ["pi", "studio", "runtime.mjs"]) {
+      await copyFile(
+        join(root, "scripts", name),
+        join(bundle, "scripts", name),
+      );
+      await chmod(join(bundle, "scripts", name), 0o755);
+    }
+    await copyFile(join(root, "package.json"), join(bundle, "package.json"));
     await copyFile(
       join(root, "resources/bunfig.toml"),
       join(bundle, "resources/bunfig.toml"),
     );
-    await symlink(process.execPath, join(bundle, "runtime/bun"));
     await writeFile(
       join(host, "cli.js"),
       'console.log(JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2)})); process.exit(Number(process.env["STUDIO_FIXTURE_EXIT"] ?? 0));',
     );
     const launch = (args: string[], exit = "0") =>
-      execute(join(bundle, ".aot/studio"), args, {
+      execute(join(bundle, "scripts/studio"), args, {
         cwd: checkout,
         env: { ...process.env, STUDIO_FIXTURE_EXIT: exit },
         timeout: 10_000,
@@ -519,7 +505,6 @@ await test("launchers ignore checkout Bun preloads and dotenv before the host en
       hostDirectory,
       join(bundle, "scripts"),
       join(bundle, "resources"),
-      join(bundle, "runtime"),
       join(temporary, "bin"),
     ])
       await mkdir(path, { recursive: true });
@@ -544,49 +529,46 @@ await test("launchers ignore checkout Bun preloads and dotenv before the host en
     const entry = `console.log(JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(2), inherited: process.env["STUDIO_BOOTSTRAP_INHERITED"], dotenv: process.env["STUDIO_BOOTSTRAP_UNTRUSTED"] ?? null, preload: process.env["STUDIO_BOOTSTRAP_PRELOAD"] ?? null }));`;
     await writeFile(join(hostDirectory, "cli.js"), entry);
     await writeFile(join(bundle, "cli.ts"), entry);
-    await symlink(process.execPath, join(bundle, "runtime/bun"));
     await symlink(process.execPath, join(temporary, "bin/bun"));
     const args = ["argument with spaces", "--no-extensions", "--resume"];
-    for (const mode of ["embedded", "path"]) {
-      if (mode === "path") await rm(join(bundle, "runtime/bun"));
-      for (const name of ["pi", "studio"]) {
-        const launcher = join(bundle, "scripts", name);
-        await copyFile(join(root, "scripts", name), launcher);
-        await chmod(launcher, 0o755);
-        const result = await execute(launcher, args, {
-          cwd: checkout,
-          env: {
-            ...process.env,
-            HOME: home,
-            XDG_CONFIG_HOME: join(home, ".config"),
-            PATH: `${join(temporary, "bin")}:${process.env["PATH"] ?? ""}`,
-            STUDIO_USE_SOURCE: "1",
-            STUDIO_BOOTSTRAP_INHERITED: "preserve",
-          },
-          timeout: 10_000,
-        });
-        assert.ok(
-          result.stdout.length > 0,
-          `${mode}/${name}: ${result.stderr}`,
-        );
-        const observed = z
-          .object({
-            cwd: z.string(),
-            args: z.array(z.string()),
-            inherited: z.string(),
-            dotenv: z.string().nullable(),
-            preload: z.string().nullable(),
-          })
-          .parse(JSON.parse(result.stdout));
-        assert.deepEqual(observed, {
-          cwd: checkout,
-          args,
-          inherited: "preserve",
-          dotenv: null,
-          preload: null,
-        });
-        await assert.rejects(readFile(marker), /ENOENT/);
-      }
+    await copyFile(join(root, "package.json"), join(bundle, "package.json"));
+    await copyFile(
+      join(root, "scripts/runtime.mjs"),
+      join(bundle, "scripts/runtime.mjs"),
+    );
+    for (const name of ["pi", "studio"]) {
+      const launcher = join(bundle, "scripts", name);
+      await copyFile(join(root, "scripts", name), launcher);
+      await chmod(launcher, 0o755);
+      const result = await execute(launcher, args, {
+        cwd: checkout,
+        env: {
+          ...process.env,
+          HOME: home,
+          XDG_CONFIG_HOME: join(home, ".config"),
+          PATH: `${join(temporary, "bin")}:${process.env["PATH"] ?? ""}`,
+          STUDIO_BOOTSTRAP_INHERITED: "preserve",
+        },
+        timeout: 10_000,
+      });
+      assert.ok(result.stdout.length > 0, `${name}: ${result.stderr}`);
+      const observed = z
+        .object({
+          cwd: z.string(),
+          args: z.array(z.string()),
+          inherited: z.string(),
+          dotenv: z.string().nullable(),
+          preload: z.string().nullable(),
+        })
+        .parse(JSON.parse(result.stdout));
+      assert.deepEqual(observed, {
+        cwd: checkout,
+        args,
+        inherited: "preserve",
+        dotenv: null,
+        preload: null,
+      });
+      await assert.rejects(readFile(marker), /ENOENT/);
     }
   } finally {
     await rm(temporary, { recursive: true, force: true });
