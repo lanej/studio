@@ -220,7 +220,9 @@ await test("CLI reads the explicitly configured source and dispatch never alloca
 });
 
 await test("opt-in registration preserves local settings and is idempotent", async () => {
-  const temporary = await mkdtemp(join(tmpdir(), "studio-install-"));
+  const temporary = await realpath(
+    await mkdtemp(join(tmpdir(), "studio-install-")),
+  );
   try {
     const agent = join(temporary, "agent");
     await mkdir(agent);
@@ -277,6 +279,78 @@ await test("opt-in registration preserves local settings and is idempotent", asy
     await assert.rejects(install(), /Preserving the existing dotfiles.json/);
     assert.equal(await readlink(theme), linked);
     assert.equal(await readFile(join(agent, "settings.json"), "utf8"), saved);
+
+    const upgradeAgent = join(temporary, "upgrade-agent");
+    const previous = join(temporary, "previous-release");
+    await mkdir(join(upgradeAgent, "themes"), { recursive: true });
+    await mkdir(join(previous, "resources"), { recursive: true });
+    await writeFile(join(previous, "resources/theme.json"), "{}");
+    await symlink(
+      join(previous, "resources/theme.json"),
+      join(upgradeAgent, "themes/dotfiles.json"),
+    );
+    const upgradeSettings = {
+      theme: "dotfiles",
+      defaultModel: "keep-model",
+      packages: ["keep-package", previous],
+    };
+    await writeFile(
+      join(upgradeAgent, "settings.json"),
+      JSON.stringify(upgradeSettings),
+    );
+    await chmod(join(upgradeAgent, "settings.json"), 0o600);
+    const previousRecord = join(upgradeAgent, "pi-driver-package.json");
+    const retainedRecord = JSON.stringify({ packages: [previous] });
+    await writeFile(previousRecord, retainedRecord);
+    const upgrade = () =>
+      execute(
+        "python3",
+        [join(root, "scripts/configure.py"), root, upgradeAgent],
+        { env: { ...process.env, PI_CODING_AGENT_DIR: upgradeAgent } },
+      );
+    await upgrade();
+    assert.deepEqual(
+      JSON.parse(await readFile(join(upgradeAgent, "settings.json"), "utf8")),
+      {
+        ...upgradeSettings,
+        packages: ["keep-package", root.replace(/\/$/, "")],
+        quietStartup: true,
+      },
+    );
+    assert.equal(
+      (await stat(join(upgradeAgent, "settings.json"))).mode & 0o777,
+      0o600,
+    );
+    assert.equal(
+      await readlink(join(upgradeAgent, "themes/dotfiles.json")),
+      join(root, "resources/theme.json"),
+    );
+    assert.equal(await readFile(previousRecord, "utf8"), retainedRecord);
+    const ownership = z.object({ packages: z.array(z.string()) });
+    assert.deepEqual(
+      ownership.parse(
+        JSON.parse(
+          await readFile(join(upgradeAgent, "studio-package.json"), "utf8"),
+        ),
+      ).packages,
+      [previous, root.replace(/\/$/, "")],
+    );
+    // A successful import establishes the new record as the sole future authority.
+    await writeFile(previousRecord, "invalid stale record");
+    await upgrade();
+    await rm(join(upgradeAgent, "studio-package.json"));
+    await rm(previousRecord);
+    await symlink(linked, previousRecord);
+    const upgraded = await readFile(
+      join(upgradeAgent, "settings.json"),
+      "utf8",
+    );
+    await assert.rejects(upgrade(), /Preserving linked Pi settings/);
+    assert.equal(await readFile(linked, "utf8"), saved);
+    assert.equal(
+      await readFile(join(upgradeAgent, "settings.json"), "utf8"),
+      upgraded,
+    );
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }

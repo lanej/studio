@@ -30,7 +30,9 @@ with (agent / ".studio-configure.lock").open("a") as lock:
     fcntl.flock(lock, fcntl.LOCK_EX)
     settings = agent / "settings.json"
     registration = agent / "studio-package.json"
-    if settings.is_symlink() or registration.is_symlink():
+    # Import the prior installer's ownership once; subsequent updates use Studio's record.
+    ownership = registration if registration.exists() else agent / "pi-driver-package.json"
+    if settings.is_symlink() or registration.is_symlink() or ownership.is_symlink():
         raise SystemExit("Preserving linked Pi settings or registration; configure its source explicitly.")
     value = json.loads(settings.read_text()) if settings.exists() else {}
     if not isinstance(value, dict):
@@ -38,7 +40,7 @@ with (agent / ".studio-configure.lock").open("a") as lock:
     packages = value.get("packages", [])
     if not isinstance(packages, list):
         raise SystemExit("Pi packages must be an array; existing file preserved.")
-    record = json.loads(registration.read_text()) if registration.exists() else {}
+    record = json.loads(ownership.read_text()) if ownership.exists() else {}
     managed = record.get("packages", [record["package"]] if "package" in record else [])
     if not isinstance(managed, list) or not all(isinstance(item, str) for item in managed):
         raise SystemExit("Invalid Studio registration; existing settings preserved.")
