@@ -1,0 +1,81 @@
+name: Studio
+on: [push, pull_request]
+jobs:
+  check:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun install --cwd .typescript-quality --frozen-lockfile --ignore-scripts
+      - name: Check shell entrypoints
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y shellcheck
+          shellcheck scripts/pi scripts/pi-driver acceptance/install-worktree-manager
+      - run: bun run check
+      - run: bun run test:pi-native
+      - run: bun run check:beads-api
+      - run: bun run check:zellij
+      - name: Install acceptance worktree manager
+        run: |
+          HOME="$RUNNER_TEMP/manager" sh acceptance/install-worktree-manager 0.2.0
+          echo "$RUNNER_TEMP/manager/.local/bin" >> "$GITHUB_PATH"
+      - run: bun run test:standalone --with-integrations
+
+  lsp-native:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Install the acceptance language server
+        run: |
+          npm --prefix "$RUNNER_TEMP/pi-lsp" install --ignore-scripts typescript-language-server@4.3.3
+          echo "$RUNNER_TEMP/pi-lsp/node_modules/.bin" >> "$GITHUB_PATH"
+      - run: bun run test:lsp-native
+
+  beads-native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Install the pinned external Beads fixture
+        run: |
+          git clone --no-checkout https://github.com/lanej/dotfiles.git "$RUNNER_TEMP/dotfiles"
+          git -C "$RUNNER_TEMP/dotfiles" checkout 9b4ea91344ec854c1463569e84b37ce12b1248ea -- bootstrap/tools.toml tools/beads config/beads
+          python3 "$RUNNER_TEMP/dotfiles/tools/beads/beads-service.py" install --no-start
+      - name: Verify native admission and completion
+        run: |
+          manifest="$HOME/.local/share/beads-service/runtime.json"
+          bun run test:beads-native -- \
+            --bd "$(jq -er .bd "$manifest")" --dolt "$(jq -er .dolt "$manifest")"
