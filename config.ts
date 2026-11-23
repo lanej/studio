@@ -68,8 +68,39 @@ const optionalIntegration = (executable: string) =>
     .prefault({});
 export const defaultMinSplitColumns = 40;
 
+export const serviceSchema = z
+  .object({
+    url: z.url(),
+    projectId: z.uuid(),
+    reviewOnly: z.boolean().optional(),
+    tokenFile: z.string().refine(isAbsolute).optional(),
+  })
+  .strict();
+export const runtimeProjectSchema = z
+  .object({
+    root: z.string().refine(isAbsolute),
+    source: serviceSchema,
+    profile: studioProfileSchema,
+    base: z.string().min(1),
+    merge: z.boolean().default(false),
+    beadsWorkspace: z.string().refine(isAbsolute),
+    beadsExecutable: z.string().min(1).default("bd"),
+    beadsDatabase: z.string().min(1),
+    verificationReadPaths: z.array(z.string().refine(isAbsolute)).default([]),
+  })
+  .strict();
+
 export const configSchema = z
   .object({
+    runtime: z
+      .object({
+        enabled: z.boolean().default(false),
+        concurrency: z.number().int().min(1).max(2).default(2),
+        pollMs: z.number().int().min(1000).max(60000).default(5000),
+        projects: z.array(runtimeProjectSchema).default([]),
+      })
+      .strict()
+      .default({ enabled: false, concurrency: 2, pollMs: 5000, projects: [] }),
     integrations: z
       .object({
         zellij: optionalIntegration("zellij"),
@@ -214,6 +245,7 @@ const roles = (provider: string, prefix: string) => ({
 });
 
 export const exampleConfig = {
+  runtime: { enabled: false, concurrency: 2, pollMs: 5000, projects: [] },
   display: {
     min_split_columns: defaultMinSplitColumns,
     inline_diagnostics: true,

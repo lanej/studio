@@ -6,3 +6,23 @@ min_split_columns = 40
 # Optional RGB backgrounds for changed rows or split cells.
 # added_background = "#304639"
 # removed_background = "#47343f"
+
+# Unattended execution is disabled until explicitly configured and enrolled.
+[runtime]
+enabled = false
+concurrency = 2
+pollMs = 5000
+
+# [[runtime.projects]]
+# root = "/absolute/path/to/project"
+# profile = "personal"
+# base = "origin/main"
+# merge = false
+# beadsWorkspace = "/absolute/path/to/beads-workspace"
+# beadsExecutable = "/absolute/path/to/bd"
+# beadsDatabase = "project_database"
+# verificationReadPaths = []
+# [runtime.projects.source]
+# url = "http://127.0.0.1:8080"
+# projectId = "00000000-0000-4000-8000-000000000001"
+# tokenFile = "/absolute/path/to/token"

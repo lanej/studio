@@ -5,6 +5,7 @@ import { Command } from "commander";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
+import { registerRuntimeCommands } from "./execution/cli.ts";
 import { startSession } from "./session.ts";
 import {
   BeadsReader,
@@ -46,6 +47,7 @@ program
   .action(async (_args: string[], _options: unknown, command: Command) => {
     await startSession(command.args);
   });
+registerRuntimeCommands(program);
 const output = (value: unknown): void => {
   console.log(JSON.stringify(value, null, 2));
 };

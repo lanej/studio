@@ -1,3 +1,5 @@
+import { registerProjectPolicy } from "./execution/policy.ts";
+import { registerDiscovery } from "./discovery/extension.ts";
 import { registerCodeIntelligence } from "./code-intelligence/extension.ts";
 import { inspectIntegrations } from "./integrations.ts";
 import { registerSearchRendering } from "./search-renderer.ts";
@@ -63,6 +65,11 @@ export default function studioExtension(
   let lifecycle = 0;
   let selectedProfile = managed?.profile;
 
+  if (managed === undefined) registerProjectPolicy(pi);
+  const discovery =
+    managed === undefined
+      ? registerDiscovery(pi, () => selectedProfile)
+      : undefined;
   const delegation = registerDelegation(
     pi,
     () => selectedProfile,
@@ -73,7 +80,8 @@ export default function studioExtension(
   registerArchives(pi);
   registerDirectory(
     pi,
-    (sessionId) => delegation.blocks(sessionId),
+    (sessionId) =>
+      delegation.blocks(sessionId) || discovery?.pending() === true,
     () => selectedProfile,
   );
   registerSearchRendering(pi);
@@ -119,6 +127,7 @@ export default function studioExtension(
           pendingInput:
             ctx.hasPendingMessages() ||
             managed?.approvalPending() === true ||
+            discovery?.pending() === true ||
             delegation.blocks(ctx.sessionManager.getSessionId()),
           editorText: ctx.ui.getEditorText(),
           percent: ctx.getContextUsage()?.percent ?? null,

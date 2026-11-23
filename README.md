@@ -2,7 +2,7 @@
 
 Start Studio as your daily-driver Pi session in any directory, with no Beads task required. For task-bound work, Studio can also run an existing Beads task in an interactive Pi lead session, guide it in Zellij, and inspect the result from another terminal. Beads owns the task and the native worktree manager allocates its checkout. Both work and personal model profiles are supported.
 
-Studio also provides the dotfiles theme, task browser and idle compaction. The [runtime plan](RUNTIME.md) covers subagent delegation, Pi-owned Octo delivery and worktree archival.
+Studio also provides the dotfiles theme, task browser and idle compaction. The [runtime guide](RUNTIME.md) covers independent discovery, approved background work, Pi-owned Octo delivery, and recovery.
 
 ## Package layout
 
@@ -63,6 +63,29 @@ studio lead -- --help
 
 `studio resume BEAD_ID` resumes a managed Beads lead; `studio lead -- --resume` opens Pi's session picker for ordinary conversations. Daily-driver sessions use the current checkout. Starting a bead with `studio start BEAD_ID --profile work` retains the managed checkout workflow below.
 
+## Discovery and approved work
+
+The lead stays available for research and conversation. Use `/socrates` to start discovery, `/socrates new TITLE` for another topic, and `/discoveries` to list saved discoveries for this project. Resume one with `/socrates UUID`. Discovery, questions, recorded answers, specification versions, and proposed breakdowns are private Studio state; they require no Beads service. Pi retains the conversation separately. `/spec-freeze` reviews the specification; `/spec-reopen` preserves the prior version before reopening it.
+
+At the end of Socrates, review the proposed work breakdown with `/plan`. For an explicit work request without Socrates, use `/plan-draft DESCRIPTION`. Neither creates tasks. `/plan-approve` shows the exact project, profile, task scopes, dependencies, hold intent, delivery obligations, and verification commands before creating the approved Beads graph. Approval also authorizes eligible implementation in separate workers. The lead stays free and can close while work continues.
+
+Unattended execution is opt-in per configured project. Beads owns readiness: held tasks use its deferred status, and blocked tasks wait for prerequisites. Studio atomically claims eligible work, including existing ready tasks in enrolled projects, with no conversation-provenance filter. Each task needs bounded scope and acceptance criteria. An agreed verification command runs in isolation when provided; otherwise the independent reviewer must establish the criteria from the result. Missing authority or unresolved criteria park the assignment with retained evidence.
+
+Configure `[runtime]` and `[[runtime.projects]]` as shown in [config.example.toml](config.example.toml), enable the native worktree integration, and configure the selected profile's lead, worker, and reviewer models through Pi. The pinned Beads HTTP service provides guarded task mutations and atomic claims; an explicitly configured native `bd` workspace supplies heartbeats and must match the HTTP project's identity and database. Approval preflights these authorities and verification isolation before creating tasks. An enabled runtime still requires project enrollment through an approved handoff.
+
+```sh
+studio runtime start
+studio runtime status
+studio runtime stop
+studio runtime retry ATTEMPT_UUID
+```
+
+`start` requests a detached supervisor; `status` reports confirmed ownership, retained attempts, sessions, and effective merge policy. `stop` stops admission while existing task hosts continue. A process restart reconciles the same claims, allocations, and launch receipts. Unknown launch outcomes keep their writer fences; `retry` refuses a possibly live writer. Inspect `runtime.log` and the attempt's native host/session files under `${STUDIO_STATE_DIR:-~/.local/state/studio}` before resolving uncertain work. No automatic worktree removal discards these receipts.
+
+PR tasks use Octo when explicitly enabled. Automatic merging defaults off for each project. The lead's `studio_project_merge_policy` tool can inspect, enable, disable, or restore that project's default, with an audit reason. Both directions are supported. Workers cannot change policy. Independent exact-head review, assessed feedback, passing current-head checks, and Octo's current-base merge gate remain required. With merging disabled, delivery remains pending while unrelated work continues. Local-only tasks integrate into a retained project integration ref before guarded Beads completion; dependent tasks receive that accepted result. PR-required tasks keep dependents blocked until confirmed merge and acceptance.
+
+![Reviewed discovery breakdown in a 60-column native Pi lead, reconstructed from a terminal capture](docs/assets/discovery-breakdown-60.png)
+
 ## Working directory
 
 Use `/cd /path/to/project` to change directories while continuing the current conversation. Relative paths, `~`, and paths containing spaces are supported; `/cd` alone opens your home directory. Conversation history, compaction summaries, the session tree and selected branch carry over, along with the model and thinking level. An explicitly selected Studio profile is revalidated for the destination before delegation is re-enabled. Pi rebuilds its tools, project instructions, settings and resources for the destination, including its normal project trust checks. A directory-change message records the new location in the conversation. Pi saves the continuation under the destination with a link to the original session; the original file remains intact. Switching requires settled conversation and delegated work; managed Beads sessions stay in their assigned checkout. `/cd` is unavailable with `--no-session`, so switching never saves a deliberately private conversation.
@@ -78,7 +101,8 @@ Set `integrations.zellij.enabled`, `integrations.worktrees.enabled`, or `integra
 | Task inspection | Configured Beads source |
 | Managed launch, focus, resume | Beads service, Zellij, worktree manager; launch/focus also need a live Zellij session |
 | Explorer/Reviewer delegation | Explicit delegation/profile configuration and worktree manager |
-| Publish, PR feedback, merge | Bound task/Beads workflow and Octo |
+| Unattended workers | Enabled runtime, enrolled project, matching Beads HTTP/native CLI, worktree manager, role models, verification isolation |
+| Publish, PR feedback, merge | Bound task/Beads workflow and enabled Octo; runtime PR tasks use an independent controller |
 | Finalize managed checkout | Bound task/Beads workflow, Octo, worktree manager |
 
 `studio doctor` and `/studio-status` report enabled, present, and available states. Doctor also checks the package resources needed by the compiled CLI and native host. Doctor succeeds with no optional integrations configured; enabled integrations that are missing or configured Beads sources that fail verification make it fail. The full configuration example enables the managed workflow integrations; remove or disable the ones you do not use.
