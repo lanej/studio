@@ -284,13 +284,8 @@ export function registerDiscovery(
   pi.registerCommand("plan", {
     description: "Inspect the selected work breakdown",
     async handler(_arg, ctx) {
-      const record = await requireBinding(ctx);
-      await showTask(
-        ctx,
-        record.leadPlan.draft === null
-          ? "No breakdown drafted."
-          : describePlan(record.leadPlan.draft),
-      );
+      await requireBinding(ctx);
+      await socrates.inspect(ctx, "implementation");
     },
   });
   pi.registerCommand("plan-approve", {
@@ -350,6 +345,7 @@ export function registerDiscovery(
         );
       } finally {
         pending = false;
+        socrates.refresh(ctx);
       }
     },
   });

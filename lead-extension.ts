@@ -80,7 +80,13 @@ export function registerLeadControls(
   approvalPending: (active: boolean) => void,
 ) {
   const mode = () => db.get(id).leadPlan?.mode;
-  registerSocrates(pi, db, id, requireBinding, approvalPending);
+  const socrates = registerSocrates(
+    pi,
+    db,
+    id,
+    requireBinding,
+    approvalPending,
+  );
   const permits = (tool: string) => {
     const spec = db.get(id).specification;
     if (tool === specTool || tool === askTool) {
@@ -153,6 +159,7 @@ export function registerLeadControls(
           };
         });
         applyTools(ctx);
+        socrates.refresh(ctx);
       }
       return {
         block: true,
@@ -273,13 +280,8 @@ export function registerLeadControls(
   pi.registerCommand("plan", {
     description: "Show the proposed plan and Beads breakdown",
     async handler(_argument, ctx) {
-      const { leadPlan } = await requireBinding(ctx);
-      ctx.ui.notify(
-        leadPlan?.draft != null
-          ? describePlan(leadPlan.draft)
-          : "No plan drafted yet",
-        "info",
-      );
+      await requireBinding(ctx);
+      await socrates.inspect(ctx, "implementation");
     },
   });
   pi.registerCommand("plan-refresh", {
@@ -429,16 +431,28 @@ export function registerLeadControls(
             throw new Error(
               "The pending plan changed before Beads confirmed it",
             );
+          const sameFrozenBrief =
+            result.revision !== revision &&
+            row.revision === revision &&
+            specification?.status === SpecStatus.Frozen &&
+            specification.acceptedRevision === revision &&
+            JSON.stringify(row.specification) === JSON.stringify(specification);
           row.revision = result.revision;
           row.leadPlan = {
             mode: LeadMode.Implementing,
             draft,
             digest,
             specificationVersion,
+            ...(sameFrozenBrief
+              ? {
+                  briefRevisionAdvance: { from: revision, to: result.revision },
+                }
+              : {}),
             children: { ...row.leadPlan.children, ...result.children },
           };
         });
         applyTools(ctx);
+        socrates.refresh(ctx);
         ctx.ui.notify("Plan approved. The lead can implement it.", "info");
       } finally {
         approvalPending(false);

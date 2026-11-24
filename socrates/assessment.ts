@@ -6,6 +6,7 @@ export const coverageDomains = ["engineering", "research", "writing"] as const;
 export const coverageStatuses = [
   "unknown",
   "satisfied",
+  "partial",
   "open",
   "not-applicable",
 ] as const;

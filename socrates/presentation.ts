@@ -7,10 +7,10 @@ import { truncateToWidth } from "@earendil-works/pi-tui";
 import {
   ActivityState,
   ConditionState,
-  activityIndicator,
   conditionCounts,
-  createConditionsPanel,
-  selectorText,
+  createStatusBoard,
+  renderStatusDock,
+  type StatusColumn,
   type Activity,
   type Condition,
   type StatusTheme,
@@ -21,13 +21,19 @@ import {
   draftCoverage,
   type CoverageStatus,
 } from "./assessment.ts";
-import { SpecStatus, type LeadSpecification } from "./spec.ts";
+import { SpecStatus } from "./spec.ts";
+import { implementationColumn, specificationColumn } from "./columns.ts";
+import {
+  assessmentRevision,
+  implementationPresentation,
+  type ImplementationObservation,
+  type ImplementationSource,
+} from "./implementation.ts";
+import { createImplementationWatch } from "./implementation-watch.ts";
 
-export interface SocratesObservation {
+export interface SocratesObservation extends ImplementationSource {
   id: string;
   label: string;
-  revision: string | null;
-  specification: LeadSpecification;
 }
 
 export interface SocratesActivity {
@@ -42,11 +48,14 @@ export interface SocratesPresentation {
   conditions: Condition[];
   activity: Activity;
   summary: string;
+  columns: StatusColumn[];
+  dockColumns: StatusColumn[];
 }
 
 const conditionStates = {
   unknown: ConditionState.Unknown,
   satisfied: ConditionState.Satisfied,
+  partial: ConditionState.Partial,
   open: ConditionState.Open,
   "not-applicable": ConditionState.NotApplicable,
 } satisfies Record<CoverageStatus, ConditionState>;
@@ -55,8 +64,27 @@ const conditionStates = {
 export function socratesPresentation(
   observation: SocratesObservation,
   live: SocratesActivity,
+  beadObservation?: ImplementationObservation,
 ): SocratesPresentation {
-  const { specification: spec, revision, label } = observation;
+  const { specification: spec, label } = observation;
+  const revision = assessmentRevision(observation);
+  const implementation = implementationPresentation(
+    observation,
+    beadObservation,
+  );
+  if (spec === undefined) {
+    const activity = { state: ActivityState.Idle, label: "No specification" };
+    const column = specificationColumn(undefined, [], activity, implementation);
+    return {
+      id: observation.id,
+      title: label,
+      conditions: [],
+      activity,
+      summary: "",
+      columns: [column, implementationColumn(implementation)],
+      dockColumns: [column, implementationColumn(implementation, true)],
+    };
+  }
   const fresh = coverageFresh(spec, revision);
   const properties = coverageProperties(spec.draft);
   const conditions = properties.map(
@@ -65,19 +93,13 @@ export function socratesPresentation(
       label: property.label,
       state: conditionStates[property.status],
       stale: property.status !== "unknown" && !fresh,
-      summary:
-        property.status === "unknown"
-          ? "No assessment recorded."
-          : fresh
-            ? "Saved assessment for this draft."
-            : "Saved assessment needs review.",
-      details:
-        property.reason ?? "Socrates has not assessed this property yet.",
+      details: property.reason ?? "No assessment recorded for this property.",
     }),
   );
   const counts = conditionCounts(conditions);
   const summary = [
     `${String(counts.satisfied)} satisfied`,
+    ...(counts.partial > 0 ? [`${String(counts.partial)} partial`] : []),
     ...(counts.open > 0 ? [`${String(counts.open)} open`] : []),
     ...(counts.unknown > 0 ? [`${String(counts.unknown)} not assessed`] : []),
     ...(counts.stale > 0 ? [`${String(counts.stale)} recheck`] : []),
@@ -144,12 +166,27 @@ export function socratesPresentation(
         : {}),
     };
   };
+  const currentActivity = activity();
+  const column = specificationColumn(
+    spec,
+    conditions,
+    currentActivity,
+    implementation,
+  );
   return {
     id: observation.id,
-    title: `Socrates · ${label}`,
+    title: label,
     conditions,
-    activity: activity(),
+    activity: currentActivity,
     summary,
+    columns: [column, implementationColumn(implementation)],
+    dockColumns: [
+      {
+        ...column,
+        groups: column.groups.filter((group) => group.id !== "requirements"),
+      },
+      implementationColumn(implementation, true),
+    ],
   };
 }
 
@@ -165,6 +202,18 @@ function statusTheme(theme: Theme): StatusTheme {
   };
 }
 
+// Nested selected rows and terminal truncation reset the background. Restore the panel surface after either reset.
+function surface(theme: Theme, line: string, width: number): string {
+  const background = theme.getBgAnsi("userMessageBg");
+  const padded = truncateToWidth(line, width, "", true);
+  return theme.bg(
+    "userMessageBg",
+    padded
+      .replaceAll("\x1b[0m", `\x1b[0m${background}`)
+      .replaceAll("\x1b[49m", background),
+  );
+}
+
 const widgetKey = "studio:socrates";
 
 /** UI state is session-local; no timer or saved focus can establish agent activity. */
@@ -175,34 +224,26 @@ export function registerSocratesPresentation(
   const live: SocratesActivity = { working: false, paused: false };
   const tools = new Map<string, string>();
   const renders = new Set<() => void>();
-  const reducedMotion = process.env["STUDIO_REDUCED_MOTION"] === "1";
   let snapshot: SocratesPresentation | undefined;
+  let binding: SocratesObservation | undefined;
   let mounted = false;
-  let frame = 0;
-  let timer: ReturnType<typeof setInterval> | undefined;
-
-  const stopAnimation = () => {
-    if (timer !== undefined) clearInterval(timer);
-    timer = undefined;
-  };
+  let expanded = false;
+  let inspecting = false;
   const render = () => {
     for (const request of renders) request();
   };
-  const animate = () => {
-    if (snapshot?.activity.state !== ActivityState.Working || reducedMotion) {
-      stopAnimation();
-      return;
-    }
-    if (timer !== undefined) return;
-    timer = setInterval(() => {
-      frame++;
-      render();
-    }, 160);
-    timer.unref();
-  };
+  function project() {
+    snapshot =
+      binding === undefined
+        ? undefined
+        : socratesPresentation(binding, live, watch.observation());
+    render();
+  }
+  const watch = createImplementationWatch({ changed: project });
   const clear = (ctx: ExtensionContext) => {
-    stopAnimation();
+    binding = undefined;
     snapshot = undefined;
+    watch.setSource(undefined);
     if (mounted) ctx.ui.setWidget(widgetKey, undefined);
     mounted = false;
     render();
@@ -213,7 +254,6 @@ export function registerSocratesPresentation(
     try {
       observation = read(ctx);
     } catch {
-      // A missing or unreadable binding must never leave another topic visible.
       clear(ctx);
       return;
     }
@@ -222,10 +262,14 @@ export function registerSocratesPresentation(
       return;
     }
     live.tool = [...tools.values()].at(-1);
-    snapshot = socratesPresentation(observation, live);
-    if (!mounted) {
-      mounted = true;
-      ctx.ui.setWidget(widgetKey, (tui, theme) => {
+    binding = observation;
+    watch.setSource(observation);
+    project();
+    if (mounted) return;
+    mounted = true;
+    ctx.ui.setWidget(
+      widgetKey,
+      (tui, theme) => {
         const repaint = () => {
           tui.requestRender();
         };
@@ -235,31 +279,39 @@ export function registerSocratesPresentation(
           dispose() {
             renders.delete(repaint);
           },
+          handleMouse(event) {
+            if (
+              event.type !== "press" ||
+              event.button !== "left" ||
+              event.y !== 0
+            )
+              return undefined;
+            expanded = !expanded;
+            render();
+            return { handled: true };
+          },
           render(width) {
-            if (snapshot === undefined || width <= 0) return [];
-            const activity = activityIndicator(
-              snapshot.activity,
-              statusTheme(theme),
-              {
-                frame,
-                reducedMotion,
-              },
+            if (snapshot === undefined || inspecting) return [];
+            const maxRows = Math.max(
+              1,
+              Math.min(expanded ? 8 : 3, Math.floor(tui.terminal.rows / 3)),
             );
-            const detail = snapshot.activity.detail;
-            return [
-              `${theme.bold(theme.fg("accent", "Socrates"))} · ${activity}`,
-              theme.fg("muted", snapshot.summary),
-              theme.fg(
-                "dim",
-                `${detail === undefined ? "" : `${selectorText(detail)} · `}/socrates-status · evidence`,
-              ),
-            ].map((line) => truncateToWidth(line, width));
+            return renderStatusDock({
+              columns: snapshot.dockColumns,
+              theme: statusTheme(theme),
+              width: Math.max(0, width - 3),
+              expanded,
+              maxRows,
+            }).map((line, index) => {
+              const edge =
+                index === 0 ? theme.fg("accent", expanded ? "▾ " : "▸ ") : "  ";
+              return surface(theme, edge + line, width);
+            });
           },
         };
-      });
-    }
-    animate();
-    render();
+      },
+      { placement: "aboveEditor" },
+    );
   };
   const reset = (ctx: ExtensionContext) => {
     live.working = false;
@@ -300,23 +352,32 @@ export function registerSocratesPresentation(
   pi.on("session_compact", (_event, ctx) => {
     refresh(ctx);
   });
-  pi.registerCommand("socrates-status", {
-    description:
-      "Inspect Socrates properties, saved assessments, and current activity",
-    async handler(_argument, ctx) {
-      refresh(ctx);
-      const initial = snapshot;
-      if (initial === undefined)
-        throw new Error("Start or select a discovery with /socrates first");
+  async function inspect(ctx: ExtensionContext, column?: "implementation") {
+    refresh(ctx);
+    const initial = snapshot;
+    if (initial === undefined) {
+      ctx.ui.notify(
+        "No specification or implementation breakdown selected.",
+        "info",
+      );
+      return;
+    }
+    if (inspecting) return;
+    inspecting = true;
+    render();
+    try {
       await ctx.ui.custom<undefined>(
         (tui, theme, _keys, done) => {
-          const panel = createConditionsPanel({
+          const panel = createStatusBoard({
             title: initial.title,
-            conditions: initial.conditions,
-            activity: initial.activity,
-            presentation: { reducedMotion },
+            columns: initial.columns,
+            initialColumnId:
+              column ??
+              (binding?.specification === undefined
+                ? "implementation"
+                : "specification"),
             theme: statusTheme(theme),
-            height: () => Math.max(1, tui.terminal.rows - 2),
+            height: () => Math.max(1, Math.floor(tui.terminal.rows * 0.7)),
             requestRender: () => {
               tui.requestRender();
             },
@@ -333,20 +394,20 @@ export function registerSocratesPresentation(
             ) {
               renders.delete(repaint);
               done(undefined);
-              return;
-            }
-            if (snapshot !== shown) {
+            } else if (snapshot !== shown) {
               shown = snapshot;
-              panel.setConditions(snapshot.conditions);
-              panel.setActivity(snapshot.activity);
+              panel.setColumns(snapshot.columns);
             }
-            panel.setFrame(reducedMotion ? 0 : frame);
-            tui.requestRender();
           };
           renders.add(repaint);
-          repaint();
           return {
             ...panel,
+            render(width) {
+              const inner = Math.max(1, width - 2);
+              return panel
+                .render(inner)
+                .map((line) => surface(theme, ` ${line}`, width));
+            },
             dispose() {
               renders.delete(repaint);
             },
@@ -355,13 +416,48 @@ export function registerSocratesPresentation(
         {
           overlay: true,
           overlayOptions: {
-            anchor: "center",
+            anchor: "top-right",
             width: "100%",
+            maxHeight: "70%",
             margin: { top: 1, bottom: 1 },
           },
         },
       );
+    } finally {
+      inspecting = false;
+      render();
+    }
+  }
+  const toggle = (ctx: ExtensionContext) => {
+    if (!ctx.hasUI) return;
+    refresh(ctx);
+    if (snapshot === undefined) return;
+    expanded = !expanded;
+    render();
+  };
+  pi.registerShortcut("alt+s", {
+    description: "Expand or minimize the lead status dock",
+    handler: toggle,
+  });
+  pi.registerCommand("socrates-status", {
+    description:
+      "Toggle the lead status dock; min, max, or inspect the specification and beads",
+    async handler(argument, ctx) {
+      const action = argument.trim();
+      if (action === "inspect") {
+        await inspect(ctx);
+        return;
+      }
+      if (action.length === 0) {
+        toggle(ctx);
+        return;
+      }
+      if (action !== "min" && action !== "max")
+        throw new Error("Use /socrates-status min, max, or inspect");
+      refresh(ctx);
+      expanded = action === "max";
+      render();
     },
   });
-  return { refresh };
+  return { refresh, inspect };
 }

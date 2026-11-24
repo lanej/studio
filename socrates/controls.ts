@@ -84,13 +84,13 @@ export function registerSocratesControls<T extends SocratesState>(
   const presentation = registerSocratesPresentation(pi, (ctx) => {
     const record =
       scope.snapshot === undefined ? db.get(id) : scope.snapshot(ctx);
-    return record?.specification === undefined
+    return record === undefined ||
+      (record.specification === undefined && record.leadPlan?.draft == null)
       ? undefined
       : {
+          ...record,
           id: scope.identity(record),
           label: scope.label(record),
-          revision: record.revision,
-          specification: record.specification,
         };
   });
   const checkCurrent = async (
@@ -368,7 +368,7 @@ export function registerSocratesControls<T extends SocratesState>(
                 reason: Type.Optional(
                   Type.String({
                     description:
-                      "Evidence or concrete rationale for every assessed property, including open and not-applicable. Reference decisions, requirements, or observed sources where relevant.",
+                      "Evidence or concrete rationale for every assessed property. For partial, name what holds and what is missing. Reference requirements, decisions, or sources where relevant.",
                   }),
                 ),
               }),
