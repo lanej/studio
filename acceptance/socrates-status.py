@@ -166,7 +166,8 @@ class Terminal:
     def select_row(self, label):
         """Move to the named entry in the focused column, including foldable headings."""
         def selected():
-            return any("›" in line and label in line.split("›", 1)[1] for line in self.screen.display)
+            return any(cell.lstrip().startswith("› ") and label in cell for line in self.screen.display
+                       for cell in line.split("│"))
         if selected():
             return
         self.send("\x1b[H")
@@ -175,6 +176,14 @@ class Terminal:
                 return
             self.send("j")
         raise AssertionError(f"Could not focus {label!r}\n{self.text()}")
+
+    def close_detail(self):
+        # A standalone escape is parsed asynchronously. Wait for the board
+        # before sending another key, which could otherwise become an Alt chord.
+        self.contains("Esc back")
+        self.send("\x1b")
+        self.wait(lambda: any(line.strip() == "? keys" for line in self.screen.display),
+                  "Escape did not return from the evidence detail to the board")
 
     def rail_start(self):
         """Find both stacked section titles on the right, ignoring chat and inspector text."""
@@ -403,12 +412,13 @@ def run(output):
             terminal.contains("Problem First")
             terminal.assert_mark("Problem First", "●", "status.success")
             terminal.send("\r")
+            terminal.contains("▸ Satisfied 2")
             terminal.select_row("Verification")
             terminal.assert_mark("Verification", "◐", "status.warning")
             terminal.assert_mark("Harmony", "○", "status.warning")
             terminal.send("\r")
             terminal.contains("Question and resume are covered.")
-            terminal.send("\x1b")
+            terminal.close_detail()
             terminal.send("\t")
             terminal.select_row("Keep the lead available")
             terminal.capture("status-board-wide")
@@ -420,12 +430,12 @@ def run(output):
             terminal.contains("Requirements · R1")
             terminal.contains("Depends on · assess")
             terminal.capture("status-board-task-detail")
-            terminal.send("\x1b")
+            terminal.close_detail()
             terminal.send("\t")
             terminal.send("\r")
             terminal.contains("Question and resume are covered.")
             terminal.capture("status-board-property-detail")
-            terminal.send("\x1b")
+            terminal.close_detail()
             terminal.resize(wide_columns, wide_rows)
             terminal.send("?")
             terminal.contains("Enter")
@@ -454,8 +464,9 @@ def run(output):
             terminal.send("\r")
             terminal.contains("Previous assessment: Satisfied")
             terminal.capture("status-board-recheck")
+            terminal.close_detail()
             terminal.send("\x1b")
-            terminal.send("\x1b")
+            terminal.wait_for_rail()
 
             with sqlite3.connect(home / "state/discoveries.sqlite") as db:
                 saved = json.loads(db.execute("SELECT record FROM discoveries WHERE id=?", (records["question"],)).fetchone()[0])
