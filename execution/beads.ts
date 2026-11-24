@@ -337,43 +337,26 @@ export async function verifyHeartbeatAuthority(
   const service = new ExecutionBeads(project.source);
   await service.verifyAuthority();
 }
-/** Returns false when this attempt already closed the bead and has no lease to renew. */
 export async function heartbeat(
   project: RuntimeProject,
   attempt: string,
   bead: string,
-): Promise<boolean> {
+): Promise<void> {
   if (project.source.reviewOnly === true)
     throw new Error(
       "This Beads authority is review-only; heartbeats are disabled",
     );
   await verifyHeartbeatAuthority(project);
-  try {
-    await run(
-      project.beadsExecutable,
-      [
-        "-C",
-        project.beadsWorkspace,
-        "--actor",
-        owner(attempt),
-        "heartbeat",
-        bead,
-      ],
-      { timeout: 15000 },
-    );
-    return true;
-  } catch (error) {
-    // A scheduled heartbeat can reach Beads after finishAccepted closed the task.
-    const current = await new ExecutionBeads(project.source)
-      .get(bead)
-      .catch(() => undefined);
-    if (
-      current?.status === "closed" &&
-      current.assignee === owner(attempt) &&
-      current.metadata["pi.attempt"] === attempt &&
-      current.metadata["studio.completed"] === attempt
-    )
-      return false;
-    throw error instanceof Error ? error : new Error(String(error));
-  }
+  await run(
+    project.beadsExecutable,
+    [
+      "-C",
+      project.beadsWorkspace,
+      "--actor",
+      owner(attempt),
+      "heartbeat",
+      bead,
+    ],
+    { timeout: 15000 },
+  );
 }

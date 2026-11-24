@@ -6,15 +6,21 @@ import { test } from "node:test";
 import { randomUUID } from "node:crypto";
 import { Discoveries, HandoffPhase } from "../discovery/store.ts";
 import { draftSchema } from "../lead-plan.ts";
-import { runtimeProjectSchema, StudioProfile } from "../config.ts";
+import {
+  configSchema,
+  runtimeProjectSchema,
+  StudioProfile,
+} from "../config.ts";
 import {
   ExecutionStore,
+  activeTaskReviews,
   executionSchema,
   ExecutionPhase,
 } from "../execution/store.ts";
 import { writerFence } from "../execution/recovery.ts";
 import { ExecutionBeads } from "../execution/beads.ts";
-import { beadSchema } from "../task-service.ts";
+import { beadSchema, owner } from "../task-service.ts";
+import { taskDetails } from "../beads.ts";
 
 await test("discovery approval freezes the displayed version before effects and prevents cross-lead stale approval", async () => {
   const directory = await mkdtemp(join(tmpdir(), "studio-discovery-"));
@@ -186,6 +192,70 @@ await test("unknown native launches retain writer fences and project merge overr
   }
 });
 
+await test("task review details follow the current project, bead and attempt owner", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "studio-task-review-"));
+  const id = randomUUID();
+  const project = randomUUID();
+  const bead = beadSchema.parse({
+    id: "fixture-1",
+    title: "Inline diffs",
+    revision: "fixture",
+    status: "in_progress",
+    assignee: owner(id),
+  });
+  const attempt = executionSchema.parse({
+    id,
+    project,
+    bead,
+    profile: StudioProfile.Personal,
+    phase: ExecutionPhase.Reviewing,
+    message: "Reviewing current revision",
+  });
+  const reviews = () => activeTaskReviews(project, [bead], directory);
+  assert.equal(reviews().size, 0);
+  const store = new ExecutionStore(directory);
+  try {
+    store.saveAttempt(attempt);
+    const details = () =>
+      taskDetails(bead, project, undefined, reviews().get(bead.id));
+    assert.match(details(), /in_progress · Reviewing/u);
+    const finding =
+      "Which width wins? diff.ts and view.ts compute separate thresholds.";
+    store.change(id, (row) => {
+      row.phase = ExecutionPhase.Running;
+      row.reviewFinding = finding;
+    });
+    assert.ok(details().includes(`Changes requested\n${finding}`));
+    assert.equal(activeTaskReviews(randomUUID(), [bead], directory).size, 0);
+    for (const other of [
+      { ...bead, id: "different" },
+      { ...bead, assignee: owner(randomUUID()) },
+      { ...bead, status: "closed" },
+    ]) {
+      assert.equal(activeTaskReviews(project, [other], directory).size, 0);
+    }
+    store.change(id, (row) => {
+      row.phase = ExecutionPhase.Reviewing;
+      row.reviewFinding = undefined;
+    });
+    assert.match(details(), /in_progress · Reviewing/u);
+    assert.ok(!details().includes(finding));
+    store.change(id, (row) => {
+      row.review = "Candidate approved";
+      row.phase = ExecutionPhase.Integrating;
+    });
+    assert.equal(reviews().size, 0);
+    store.change(id, (row) => {
+      row.reviewFinding = finding;
+      row.phase = ExecutionPhase.Parked;
+    });
+    assert.ok(details().includes(finding));
+  } finally {
+    store.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 await test("review-only execution authority refuses mutation before contacting a service", async () => {
   const service = new ExecutionBeads({
     url: "http://127.0.0.1:9",
@@ -270,6 +340,58 @@ await test("independent schedulers and delivery corrections share atomic inferen
     peer.close();
     store.close();
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+await test("configured two and three host limits retain shared admission and release guards", async () => {
+  assert.equal(configSchema.parse({}).runtime.concurrency, 2);
+  assert.equal(configSchema.parse({ runtime: {} }).runtime.concurrency, 2);
+  assert.equal(
+    configSchema.safeParse({ runtime: { concurrency: 4 } }).success,
+    false,
+  );
+  for (const concurrency of [2, 3]) {
+    const limit = configSchema.parse({ runtime: { concurrency } }).runtime
+      .concurrency;
+    const directory = await mkdtemp(join(tmpdir(), "studio-capacity-"));
+    const store = new ExecutionStore(directory);
+    const peer = new ExecutionStore(directory);
+    try {
+      const attempts = Array.from({ length: limit + 1 }, () =>
+        executionSchema.parse({
+          id: randomUUID(),
+          project: randomUUID(),
+          profile: StudioProfile.Personal,
+          phase: ExecutionPhase.Queued,
+          message: "queued",
+        }),
+      );
+      for (const attempt of attempts) store.saveAttempt(attempt);
+      const reserve = (id: string) =>
+        peer.reserveInference(id, limit, (row) => {
+          row.phase = ExecutionPhase.Running;
+          row.launchToken = randomUUID();
+        });
+      for (const attempt of attempts.slice(0, limit))
+        assert.equal(reserve(attempt.id), true);
+      const first = attempts[0];
+      const waiting = attempts[limit];
+      assert.ok(first !== undefined);
+      assert.ok(waiting !== undefined);
+      assert.equal(reserve(waiting.id), false);
+      store.change(first.id, (row) => {
+        row.phase = ExecutionPhase.Reviewing;
+      });
+      assert.equal(reserve(waiting.id), false);
+      store.change(first.id, (row) => {
+        row.phase = ExecutionPhase.Delivery;
+      });
+      assert.equal(reserve(waiting.id), true);
+    } finally {
+      peer.close();
+      store.close();
+      await rm(directory, { recursive: true, force: true });
+    }
   }
 });
 

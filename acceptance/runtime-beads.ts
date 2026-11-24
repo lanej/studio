@@ -15,6 +15,7 @@ import {
   ExecutionPhase,
 } from "../execution/store.ts";
 import { reconcileAttempt } from "../execution/recovery.ts";
+import { maintainAttempt } from "../execution/supervisor.ts";
 import { writeFile } from "node:fs/promises";
 import { draftSchema, planDigest } from "../lead-plan.ts";
 import { beadSchema, owner } from "../task-service.ts";
@@ -197,6 +198,28 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     assert(
       recovered.worker !== undefined && recovered.controller !== undefined,
     );
+    await heartbeat(project, firstAttempt, bound.id);
+
+    // Close the task after the supervisor selects it but before the real CLI renews it.
+    let lateRenewal: Promise<void> | undefined;
+    await maintainAttempt(store, project, firstAttempt, {
+      reconcile: reconcileAttempt,
+      heartbeat: async (...args) => {
+        await service.finishAccepted(
+          bound,
+          firstAttempt,
+          "Verified fixture result",
+        );
+        store.change(firstAttempt, (row) => {
+          row.phase = ExecutionPhase.Complete;
+        });
+        lateRenewal = heartbeat(...args);
+        await lateRenewal;
+      },
+    });
+    assert(lateRenewal !== undefined);
+    await assert.rejects(lateRenewal, /closed/u);
+    assert.equal(store.attempt(firstAttempt).phase, ExecutionPhase.Complete);
   } finally {
     store.close();
     if (previousConfig === undefined) delete process.env["STUDIO_CONFIG"];
@@ -212,10 +235,6 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       ),
     /review-only/u,
   );
-  assert.equal(await heartbeat(project, firstAttempt, bound.id), true);
-  await service.finishAccepted(bound, firstAttempt, "Verified fixture result");
-  // A supervisor can renew after the worker's guarded completion reaches Beads.
-  assert.equal(await heartbeat(project, firstAttempt, bound.id), false);
   await assert.rejects(
     heartbeat(project, randomUUID(), bound.id),
     /claimed by/u,

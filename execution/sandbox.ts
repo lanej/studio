@@ -115,7 +115,11 @@ export async function verificationSandbox(
           if (ignored) {
             const dependency = await realpath(source);
             dependencies.push(dependency);
-            await symlink(dependency, destination);
+            // A directory-only ignore such as node_modules/ does not ignore a symlink.
+            // Retain the directory shape while sharing its read-only dependency entries.
+            await mkdir(destination);
+            for (const entry of await readdir(dependency))
+              await symlink(join(dependency, entry), join(destination, entry));
           }
         }
         for (const entry of await readdir(directory, { withFileTypes: true }))
@@ -258,10 +262,12 @@ export async function verificationSandbox(
             .split(delimiter)
             .map((directory) => join(directory, requested));
     let requestedRoot: string | undefined;
+    let requestedExecutable: string | undefined;
     for (const candidate of executableCandidates) {
       try {
         await access(candidate, constants.X_OK);
-        requestedRoot = dirname(await realpath(candidate));
+        requestedExecutable = await realpath(candidate);
+        requestedRoot = dirname(requestedExecutable);
         break;
       } catch {
         /* continue resolution */
@@ -269,6 +275,18 @@ export async function verificationSandbox(
     }
     if (requestedRoot === undefined)
       throw new Error("The agreed verification executable is unavailable");
+    const interpreterLibraries: string[] = [];
+    if (
+      requestedExecutable !== undefined &&
+      /^python\d+\.\d+t?$/u.test(basename(requestedExecutable))
+    ) {
+      // Resolve CPython's sibling stdlib without running worker-influenced executables outside isolation.
+      const library = await realpath(
+        join(requestedRoot, "..", "lib", basename(requestedExecutable)),
+      ).catch(() => undefined);
+      if (library !== undefined && (await stat(library)).isDirectory())
+        interpreterLibraries.push(library);
+    }
     let developer: { directory: string; root: string } | undefined;
     if (process.platform === "darwin") {
       const selection =
@@ -299,6 +317,7 @@ export async function verificationSandbox(
       await realpath(packageRoot),
       executableRoot,
       requestedRoot,
+      ...interpreterLibraries,
       ...(developer === undefined ? [] : [developer.root]),
       ...objectBindings.map((binding) => binding.source),
       ...explicitReadPaths,

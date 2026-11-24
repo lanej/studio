@@ -339,7 +339,12 @@ export function registerDelegation(
           Type.Literal(AgentRole.Explorer),
           Type.Literal(AgentRole.Reviewer),
         ]),
-        brief: Type.String({ minLength: 1, maxLength: 8000 }),
+        brief: Type.String({
+          description:
+            "For a Reviewer, give the capability, acceptance criteria, relevant project guidance, intended base, and available verification evidence. Leave the author's implementation explanation out so the reviewer can trace the code independently.",
+          minLength: 1,
+          maxLength: 8000,
+        }),
       },
       { additionalProperties: false },
     ),
