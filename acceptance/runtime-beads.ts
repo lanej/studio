@@ -15,9 +15,10 @@ import {
   ExecutionPhase,
 } from "../execution/store.ts";
 import { reconcileAttempt } from "../execution/recovery.ts";
+import { maintainAttempt } from "../execution/supervisor.ts";
 import { writeFile } from "node:fs/promises";
 import { draftSchema, planDigest } from "../lead-plan.ts";
-import { beadSchema } from "../task-service.ts";
+import { beadSchema, owner } from "../task-service.ts";
 import { randomUUID } from "node:crypto";
 
 const program = new Command()
@@ -197,6 +198,28 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     assert(
       recovered.worker !== undefined && recovered.controller !== undefined,
     );
+    await heartbeat(project, firstAttempt, bound.id);
+
+    // Close the task after the supervisor selects it but before the real CLI renews it.
+    let lateRenewal: Promise<void> | undefined;
+    await maintainAttempt(store, project, firstAttempt, {
+      reconcile: reconcileAttempt,
+      heartbeat: async (...args) => {
+        await service.finishAccepted(
+          bound,
+          firstAttempt,
+          "Verified fixture result",
+        );
+        store.change(firstAttempt, (row) => {
+          row.phase = ExecutionPhase.Complete;
+        });
+        lateRenewal = heartbeat(...args);
+        await lateRenewal;
+      },
+    });
+    assert(lateRenewal !== undefined);
+    await assert.rejects(lateRenewal, /closed/u);
+    assert.equal(store.attempt(firstAttempt).phase, ExecutionPhase.Complete);
   } finally {
     store.close();
     if (previousConfig === undefined) delete process.env["STUDIO_CONFIG"];
@@ -212,10 +235,23 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       ),
     /review-only/u,
   );
-  await heartbeat(project, firstAttempt, bound.id);
-  await service.finishAccepted(bound, firstAttempt, "Verified fixture result");
-  const next = await service.claimNext(randomUUID());
+  await assert.rejects(
+    heartbeat(project, randomUUID(), bound.id),
+    /claimed by/u,
+  );
+  const secondAttempt = randomUUID();
+  const next = await service.claimNext(secondAttempt);
   assert.equal(next?.id, ids.second);
+  await service.bind(beadSchema.parse(next), secondAttempt);
+  const externalClosure = await fixture.command(
+    ["close", ids.second],
+    owner(secondAttempt),
+  );
+  assert.equal(externalClosure.code, 0, externalClosure.stderr);
+  await assert.rejects(
+    heartbeat(project, secondAttempt, ids.second),
+    /closed/u,
+  );
   const release = await fixture.command([
     "update",
     ids.held,

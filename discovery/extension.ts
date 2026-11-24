@@ -1,3 +1,4 @@
+import { renderPlanCall } from "../plan-renderer.ts";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -133,7 +134,7 @@ export function registerDiscovery(
       ].join("\n\n"),
     };
   });
-  registerSocratesControls(
+  const socrates = registerSocratesControls(
     pi,
     {
       get: () => get(),
@@ -146,7 +147,12 @@ export function registerDiscovery(
     },
     {
       subject: "this discovery; Beads is not required",
+      identity: (record) => record.id,
       label: (record) => record.title,
+      snapshot: (ctx) => {
+        const id = locate(ctx);
+        return id === undefined ? undefined : storage((db) => db.get(id));
+      },
       select: async (argument, ctx) => {
         if (argument.trim() === "list")
           throw new Error("Use /discoveries to list saved discoveries");
@@ -187,6 +193,7 @@ export function registerDiscovery(
           row.handoff = undefined;
         }),
       );
+      socrates.refresh(ctx);
       pi.sendUserMessage(
         "Resume discovery. Preserve settled decisions and explain any changed scope before drafting a new specification.",
       );
@@ -209,6 +216,7 @@ export function registerDiscovery(
   });
   pi.registerTool({
     name: "draft_implementation_plan",
+    renderCall: renderPlanCall,
     label: "Draft work breakdown",
     description:
       "Persist a proposed work breakdown. No Beads tasks are created until the operator approves the exact proposal.",
@@ -268,7 +276,7 @@ export function registerDiscovery(
         content: [
           {
             type: "text",
-            text: "Breakdown saved. Await /plan-approve; no tasks have been created.",
+            text: "Draft saved. /plan to inspect · /plan-approve to review",
           },
         ],
         details: {},
@@ -278,13 +286,8 @@ export function registerDiscovery(
   pi.registerCommand("plan", {
     description: "Inspect the selected work breakdown",
     async handler(_arg, ctx) {
-      const record = await requireBinding(ctx);
-      await showTask(
-        ctx,
-        record.leadPlan.draft === null
-          ? "No breakdown drafted."
-          : describePlan(record.leadPlan.draft),
-      );
+      await requireBinding(ctx);
+      await socrates.inspect(ctx, "implementation");
     },
   });
   pi.registerCommand("plan-approve", {
@@ -344,6 +347,7 @@ export function registerDiscovery(
         );
       } finally {
         pending = false;
+        socrates.refresh(ctx);
       }
     },
   });
@@ -351,5 +355,18 @@ export function registerDiscovery(
     pending ? { cancel: true } : undefined,
   );
   pi.on("session_before_fork", () => (pending ? { cancel: true } : undefined));
-  return { pending: () => pending };
+  return {
+    pending: () => pending,
+    hasSelectedDraft(ctx: ExtensionContext): boolean {
+      const id = locate(ctx);
+      if (id === undefined) return false;
+      const record = storage((db) => db.find(id));
+      return (
+        record !== undefined &&
+        record.project === realpathSync(ctx.cwd) &&
+        record.approved === undefined &&
+        record.leadPlan.draft !== null
+      );
+    },
+  };
 }

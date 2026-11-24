@@ -8,6 +8,12 @@ import { promisify } from "node:util";
 import { processFailure } from "../process.ts";
 
 const execute = promisify(execFile);
+export const fixtureMetricsEnv = {
+  DO_NOT_TRACK: "1",
+  BD_DISABLE_METRICS: "1",
+  BD_DISABLE_EVENT_FLUSH: "1",
+  DOLT_DISABLE_EVENT_FLUSH: "1",
+};
 export interface CommandResult {
   code: number;
   stdout: string;
@@ -28,6 +34,8 @@ export async function withBeads<T>(
   dolt: string,
   use: (fixture: NativeBeads) => Promise<T>,
 ): Promise<T> {
+  // The acceptance process also calls Studio APIs that spawn the CLI directly.
+  Object.assign(process.env, fixtureMetricsEnv);
   const directory = await mkdtemp(join(tmpdir(), "studio-native-"));
   const workspace = join(directory, "workspace");
   const data = join(directory, "dolt");
@@ -38,7 +46,7 @@ export async function withBeads<T>(
       ([key]) => !/^(BEADS_|BD_|DOLT_|GIT_)/.test(key),
     ),
   );
-  Object.assign(env, {
+  Object.assign(env, fixtureMetricsEnv, {
     HOME: directory,
     DOLT_ROOT_PATH: join(directory, "dolt-home"),
     DOLT_CLI_NO_UPDATE_CHECK: "1",

@@ -1,16 +1,16 @@
 import assert from "node:assert/strict";
 import {
   access,
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
   rm,
   writeFile,
   realpath,
-  symlink,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { run, processStart } from "../process.ts";
 import { alive } from "../execution/supervisor.ts";
 import {
@@ -21,6 +21,26 @@ import { safeGit } from "../execution/git.ts";
 import { gitState, runCheck } from "../task-verification.ts";
 import { createServer } from "node:net";
 import { once } from "node:events";
+
+async function boundaryCheck(
+  stage: string,
+  ...args: Parameters<typeof runCheck>
+) {
+  const started = performance.now();
+  console.info(`[verification] ${stage}: start`);
+  try {
+    const result = await runCheck(...args);
+    console.info(
+      `[verification] ${stage}: end after ${String(Math.round(performance.now() - started))}ms (exit ${String(result.exitCode)})`,
+    );
+    return result;
+  } catch (error) {
+    console.error(
+      `[verification] ${stage}: error after ${String(Math.round(performance.now() - started))}ms`,
+    );
+    throw error;
+  }
+}
 
 const fixture = await realpath(
   await mkdtemp(join(tmpdir(), "studio-verifier-boundary-")),
@@ -41,7 +61,7 @@ try {
   await writeFile(join(project, "source.txt"), "reviewed source");
   await writeFile(
     join(project, ".gitignore"),
-    "build-output/\nnode_modules\n.worktrees/\n",
+    "build-output/\nnode_modules/\n.worktrees/\n",
   );
   await ordinary(["add", "."]);
   await ordinary(["-c", "commit.gpgsign=false", "commit", "-qm", "Fixture"]);
@@ -52,13 +72,12 @@ try {
         ? {}
         : { indexFile: env["GIT_INDEX_FILE"] }),
     });
-  const dependency = join(fixture, "dependencies", "fixture");
+  const dependency = join(checkout, "node_modules", "fixture");
   await mkdir(dependency, { recursive: true });
   await writeFile(
     join(dependency, "index.js"),
     'module.exports="verified dependency";',
   );
-  await symlink(join(fixture, "dependencies"), join(checkout, "node_modules"));
   await ordinary([
     "config",
     "http.https://fixture.invalid/.extraheader",
@@ -84,6 +103,46 @@ try {
   };
   const sentinel = join(privateState, "controller-policy.json");
   await writeFile(sentinel, "private-policy");
+  const python = await realpath(
+    (
+      await run("python3", [
+        "-I",
+        "-S",
+        "-c",
+        "import sys; print(sys.executable)",
+      ])
+    ).trim(),
+  );
+  const pythonSandbox = await verificationSandbox(
+    checkout,
+    [
+      python,
+      "-I",
+      "-S",
+      "-c",
+      `import encodings, json\ntry:\n open(${JSON.stringify(sentinel)}).read()\nexcept OSError:\n print(json.dumps({"stdlib": True, "private_state": "denied"}))\nelse:\n raise RuntimeError("controller state was readable")`,
+    ],
+    [],
+    snapshot,
+  );
+  try {
+    const result = await boundaryCheck(
+      "Python standard library",
+      pythonSandbox.argv,
+      pythonSandbox.cwd,
+      AbortSignal.timeout(10000),
+      undefined,
+      pythonSandbox.environment,
+    );
+    assert.equal(result.exitCode, 0, result.output);
+    assert.deepEqual(JSON.parse(result.output.trim()), {
+      stdlib: true,
+      private_state: "denied",
+    });
+    await pythonSandbox.assertSourceUnchanged();
+  } finally {
+    await pythonSandbox.close();
+  }
   const listener = createServer((socket) => {
     socket.end();
   });
@@ -104,7 +163,9 @@ try {
     snapshot,
   );
   try {
-    const result = await runCheck(
+    assert((await lstat(join(sanitized.cwd, "node_modules"))).isDirectory());
+    const result = await boundaryCheck(
+      "sanitized Git metadata",
       sanitized.argv,
       sanitized.cwd,
       AbortSignal.timeout(10000),
@@ -132,7 +193,8 @@ try {
     snapshot,
   );
   try {
-    const result = await runCheck(
+    const result = await boundaryCheck(
+      "isolation fences and network",
       sandbox.argv,
       sandbox.cwd,
       AbortSignal.timeout(10000),
@@ -167,6 +229,42 @@ try {
     await readFile(join(checkout, "source.txt"), "utf8"),
     "reviewed source",
   );
+  const privateTools = join(fixture, "private-tools");
+  await mkdir(privateTools);
+  await writeFile(
+    join(privateTools, "git"),
+    '#!/bin/sh\nprintf "%s\\n" "Unexpected private Git wrapper" >&2\nexit 93\n',
+    { mode: 0o755 },
+  );
+  const nestedGitScript = `const fs=require("node:fs"),cp=require("node:child_process"),path=require("node:path");const git=(...args)=>cp.execFileSync("git",args,{encoding:"utf8"});if(git("--version")!==cp.execFileSync("/usr/bin/git",["--version"],{encoding:"utf8"}))process.exit(51);const base=path.resolve("build-output","git-fixture"),remote=path.join(base,"remote.git"),source=path.join(base,"source"),clone=path.join(base,"clone");fs.mkdirSync(base,{recursive:true});git("init","--bare",remote);git("init","--initial-branch=main",source);git("-C",source,"config","user.name","Fixture");git("-C",source,"config","user.email","fixture@example.invalid");fs.writeFileSync(path.join(source,"result.txt"),"nested Git result");git("-C",source,"add","result.txt");git("-C",source,"commit","-qm","Fixture");git("-C",source,"push",remote,"main");git("clone","--branch","main",remote,clone);if(fs.readFileSync(path.join(clone,"result.txt"),"utf8")!=="nested Git result")process.exit(52);`;
+  const previousPath = process.env["PATH"];
+  process.env["PATH"] = `${privateTools}${delimiter}${previousPath ?? ""}`;
+  try {
+    const nested = await verificationSandbox(
+      checkout,
+      [process.execPath, "-e", nestedGitScript],
+      [],
+      snapshot,
+    );
+    try {
+      assert.equal(nested.environment["GIT_DIR"], undefined);
+      assert.equal(nested.environment["GIT_WORK_TREE"], undefined);
+      const result = await runCheck(
+        nested.argv,
+        nested.cwd,
+        AbortSignal.timeout(10000),
+        undefined,
+        nested.environment,
+      );
+      assert.equal(result.exitCode, 0, result.output);
+      await nested.assertSourceUnchanged();
+    } finally {
+      await nested.close();
+    }
+  } finally {
+    if (previousPath === undefined) delete process.env["PATH"];
+    else process.env["PATH"] = previousPath;
+  }
   await assert.rejects(
     verificationSandbox(checkout, [process.execPath, "--version"], [sentinel]),
     /credentials/u,
@@ -186,7 +284,8 @@ try {
       snapshot,
     );
     try {
-      const result = await runCheck(
+      const result = await boundaryCheck(
+        "protected configured file",
         masked.argv,
         masked.cwd,
         AbortSignal.timeout(10000),
@@ -212,7 +311,8 @@ try {
     snapshot,
   );
   try {
-    const result = await runCheck(
+    const result = await boundaryCheck(
+      "source snapshot mutation",
       mutate.argv,
       mutate.cwd,
       AbortSignal.timeout(10000),
@@ -239,7 +339,8 @@ try {
     );
     let detached: { pid: number; started: string } | undefined;
     try {
-      const result = await runCheck(
+      const result = await boundaryCheck(
+        "detached descendant",
         lingering.argv,
         lingering.cwd,
         AbortSignal.timeout(10000),

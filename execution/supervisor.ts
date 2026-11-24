@@ -77,6 +77,50 @@ function overlaps(left: Execution, right: Execution): boolean {
       ))
   );
 }
+export async function maintainAttempt(
+  store: ExecutionStore,
+  project: RuntimeProject,
+  id: string,
+  adapters = { reconcile: reconcileAttempt, heartbeat },
+): Promise<void> {
+  let observed = store.attempt(id);
+  try {
+    await adapters.reconcile(store, project, id);
+    observed = store.attempt(id);
+    // A possibly running control host owns its lease until its launch is reconciled.
+    if (
+      observed.bead === undefined ||
+      observed.phase === ExecutionPhase.Complete ||
+      (observed.launchToken !== undefined && !observed.launchSettled) ||
+      Date.now() - observed.heartbeatAt <= 15000
+    )
+      return;
+    await adapters.heartbeat(project, observed.id, observed.bead.id);
+    store.change(id, (row) => {
+      if (
+        row.phase !== ExecutionPhase.Complete &&
+        row.launchToken === observed.launchToken &&
+        row.pid === observed.pid &&
+        row.started === observed.started
+      )
+        row.heartbeatAt = Date.now();
+    });
+  } catch (error) {
+    store.change(id, (row) => {
+      if (
+        row.phase === ExecutionPhase.Complete ||
+        row.phase !== observed.phase ||
+        row.launchSettled !== observed.launchSettled ||
+        row.launchToken !== observed.launchToken ||
+        row.pid !== observed.pid ||
+        row.started !== observed.started
+      )
+        return;
+      row.phase = ExecutionPhase.Uncertain;
+      row.message = `This attempt needs reconciliation: ${processFailure(error).message}`;
+    });
+  }
+}
 export async function serveRuntime(signal?: AbortSignal): Promise<void> {
   const store = new ExecutionStore();
   const id = randomUUID();
@@ -121,25 +165,7 @@ export async function serveRuntime(signal?: AbortSignal): Promise<void> {
             .filter(
               (record) => record.project === project.id && unsettled(record),
             )) {
-            try {
-              await reconcileAttempt(store, project, attempt.id);
-              const current = store.attempt(attempt.id);
-              if (
-                current.bead !== undefined &&
-                current.phase !== ExecutionPhase.Complete &&
-                Date.now() - current.heartbeatAt > 15000
-              ) {
-                await heartbeat(project, current.id, current.bead.id);
-                store.change(current.id, (row) => {
-                  row.heartbeatAt = Date.now();
-                });
-              }
-            } catch (error) {
-              store.change(attempt.id, (row) => {
-                row.phase = ExecutionPhase.Uncertain;
-                row.message = `This attempt needs reconciliation: ${processFailure(error).message}`;
-              });
-            }
+            await maintainAttempt(store, project, attempt.id);
           }
           await requireIntegration(config, "worktrees");
           const attempts = store.attempts();

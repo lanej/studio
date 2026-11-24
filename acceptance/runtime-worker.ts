@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
+import { fixtureMetricsEnv } from "./beads-fixture.ts";
 import { withBeadsHttp } from "./beads-http-fixture.ts";
 import { AgentRole, StudioProfile, ReasoningLevel } from "../config.ts";
 import { ExecutionBeads } from "../execution/beads.ts";
@@ -34,6 +35,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
         ([key]) => !/^(GIT_|PI_|WORKTREE_|BEADS_|BD_|DOLT_|STUDIO_)/u.test(key),
       ),
     ),
+    ...fixtureMetricsEnv,
     HOME: fixture.directory,
     PI_CODING_AGENT_DIR: agent,
     STUDIO_CONFIG: configFile,
@@ -59,9 +61,15 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
   await git("commit", "-qm", "Fixture");
   const base = (await git("rev-parse", "HEAD")).trim();
   const requests: string[] = [];
+  // Hosted runners may still be verifying accepted work after the local one-minute budget.
+  const completionMs = process.env["CI"] === "true" ? 180000 : 60000;
+  let deadline: number | undefined;
   let release: (() => void) | undefined;
   const waitForLeadExit = new Promise<void>((resolve) => {
-    release = resolve;
+    release = () => {
+      deadline ??= Date.now() + completionMs;
+      resolve();
+    };
   });
   let sawWorker: (() => void) | undefined;
   const workerStarted = new Promise<void>((resolve) => {
@@ -76,8 +84,22 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
   const successorStarted = new Promise<void>((resolve) => {
     releaseOverlap = resolve;
   });
+  let releaseSecond: (() => void) | undefined;
+  const overlapIntegrated = new Promise<void>((resolve) => {
+    releaseSecond = resolve;
+  });
   let sawConcurrentReview = false;
   let sawOverlapAfterCompletion = false;
+  const readabilityFinding =
+    "consume.ts:1 — flag hides which state permits consumption. A caller changing the acceptance rule has to guess what true means.";
+  const integrationFinding =
+    "consume.ts:2 — the integrated prerequisite can span lines. Clarify whether the prefix belongs to the whole prerequisite or each line.";
+  const workerNarrative = "fixture-author-walkthrough";
+  let unrelatedWrites = 0;
+  let rejectedSecondHead: string | undefined;
+  let approvedSecondHead: string | undefined;
+  let rejectedIntegration: string | undefined;
+  let correctedIntegration: string | undefined;
   let providerError: unknown;
   const server = createServer((incoming, response) => {
     void (async () => {
@@ -106,18 +128,16 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
             : "first";
       const path =
         kind === "second"
-          ? "second.txt"
+          ? "consume.ts"
           : kind === "third"
             ? "third.txt"
             : "first.txt";
       const content =
-        kind === "second"
-          ? "consumed verified prerequisite\n"
-          : kind === "third"
-            ? "unrelated verified progress\n"
-            : kind === "overlap"
-              ? "verified prerequisite\noverlap completed\n"
-              : "verified prerequisite\n";
+        kind === "third"
+          ? "unrelated verified progress\n"
+          : kind === "overlap"
+            ? "verified prerequisite\noverlap completed\n"
+            : "verified prerequisite\n";
       const toolMessages = request.messages.filter(
         (message) => message.role === "tool",
       );
@@ -127,7 +147,10 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
         if (kind === "first") sawWorker?.();
         await waitForLeadExit;
         if (kind === "first") await unrelatedReviewed;
-        if (kind === "second") releaseOverlap?.();
+        if (kind === "second") {
+          releaseOverlap?.();
+          await overlapIntegrated;
+        }
         if (kind === "overlap") {
           const first = store
             .attempts()
@@ -149,30 +172,106 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
           (kind !== "second" && toolMessages.length === 0) ||
           (kind === "second" && toolMessages.length === 1)
         ) {
-          if (kind === "second")
+          let updatedContent = content;
+          if (kind === "third") unrelatedWrites++;
+          if (kind === "second") {
             assert.match(
               JSON.stringify(toolMessages),
               /verified prerequisite/u,
               "Successor did not receive predecessor code",
             );
+            const finding = [readabilityFinding, integrationFinding].find(
+              (item) => conversation.includes(item),
+            );
+            if (finding !== undefined) {
+              const attempt = store
+                .attempts()
+                .find((row) => row.bead?.id === `${parent}.second`);
+              assert(attempt !== undefined);
+              assert.deepEqual(
+                attempt.reviewFeedback,
+                [finding],
+                "The correction must retain the original finding on the same attempt",
+              );
+              assert.equal(
+                attempt.reviewFinding,
+                finding,
+                "The task panel must be able to show the actionable repair",
+              );
+            }
+            const flag = finding === undefined ? "flag" : "accepted";
+            updatedContent = `export function consume(prerequisite: string, ${flag}: boolean) {\n  return ${flag} ? "consumed " + prerequisite : prerequisite;\n}\n`;
+            if (finding === integrationFinding)
+              updatedContent =
+                "// Prefix the whole prerequisite once, even when it spans lines.\n" +
+                updatedContent;
+          }
           call = {
             name: "write",
-            arguments: JSON.stringify({ path, content }),
+            arguments: JSON.stringify({ path, content: updatedContent }),
           };
         } else
           text = JSON.stringify({
-            summary: `Completed ${kind} accepted assignment`,
+            summary: `${workerNarrative}-summary`,
+            // Unused publication fields must not block local verification and review.
+            title: "",
+            body: null,
           });
       } else if (request.model === AgentRole.Reviewer) {
+        const inspectIntegratedInput =
+          kind === "second" && approvedSecondHead !== undefined;
+        const readCount = inspectIntegratedInput ? 2 : 1;
+        if (toolMessages.length <= readCount) {
+          assert(
+            !conversation.includes(workerNarrative),
+            "The cold read included the author's walkthrough",
+          );
+          assert(
+            !conversation.includes(readabilityFinding) &&
+              !conversation.includes(integrationFinding),
+            "Earlier feedback leaked into a fresh cold read",
+          );
+          if (kind === "second")
+            assert(
+              conversation.includes("behavior verified in both states"),
+              "The reviewer did not receive the actual verifier output",
+            );
+        }
         if (toolMessages.length === 0)
           call = { name: "read", arguments: JSON.stringify({ path }) };
-        else {
+        else if (inspectIntegratedInput && toolMessages.length === 1)
+          call = {
+            name: "read",
+            arguments: JSON.stringify({ path: "first.txt" }),
+          };
+        else if (toolMessages.length === readCount) {
+          if (inspectIntegratedInput)
+            assert.match(
+              JSON.stringify(toolMessages[1]?.content),
+              /overlap completed/u,
+            );
           assert.match(
             JSON.stringify(toolMessages),
-            kind === "third"
-              ? /unrelated verified progress/u
-              : /verified prerequisite/u,
+            kind === "second"
+              ? /function consume/u
+              : kind === "third"
+                ? /unrelated verified progress/u
+                : /verified prerequisite/u,
           );
+          call = {
+            name: "review_context",
+            arguments: JSON.stringify({
+              behavior:
+                kind === "second"
+                  ? "consume.ts:1 prefixes the prerequisite when the second argument is true."
+                  : `${path}:1 contains the expected prerequisite or progress record.`,
+              changeSite:
+                kind === "second"
+                  ? "consume.ts:2 selects which state consumes the prerequisite."
+                  : `Change the record in ${path}:1.`,
+            }),
+          };
+        } else {
           if (kind === "third") {
             const first = store
               .attempts()
@@ -204,6 +303,71 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
             summary:
               "Independent fixture review read the exact committed task result",
           });
+          if (kind === "second" && approvedSecondHead === undefined) {
+            assert(
+              conversation.includes(workerNarrative),
+              "The review context did not reveal the worker report after the cold read",
+            );
+            const candidate = store
+              .attempts()
+              .find((row) => row.bead?.id === `${parent}.second`);
+            assert(candidate?.head !== undefined);
+            assert(
+              conversation.includes(candidate.head),
+              "The worker revision is missing from the review",
+            );
+            const implementation = JSON.stringify(toolMessages[0]?.content);
+            if (implementation.includes("flag: boolean")) {
+              assert.equal(
+                rejectedSecondHead,
+                undefined,
+                "A rejected candidate was reviewed again without being repaired",
+              );
+              rejectedSecondHead = candidate.head;
+              text = JSON.stringify({
+                approved: false,
+                summary: readabilityFinding,
+              });
+            } else {
+              assert.match(implementation, /accepted: boolean/u);
+              assert(rejectedSecondHead !== undefined);
+              assert(
+                conversation.includes(readabilityFinding),
+                "The correction review did not receive the original feedback for disposition",
+              );
+              approvedSecondHead = candidate.head;
+              assert.notEqual(approvedSecondHead, rejectedSecondHead);
+            }
+          } else if (inspectIntegratedInput) {
+            const candidate = store
+              .attempts()
+              .find((row) => row.bead?.id === `${parent}.second`);
+            assert(candidate?.checkout !== undefined);
+            const revision = (
+              await run("git", ["rev-parse", "HEAD"], {
+                cwd: candidate.checkout.path,
+                env,
+              })
+            ).trim();
+            assert(conversation.includes(revision));
+            if (rejectedIntegration === undefined) {
+              assert.notEqual(revision, approvedSecondHead);
+              rejectedIntegration = revision;
+              text = JSON.stringify({
+                approved: false,
+                repairableInScope: true,
+                summary: integrationFinding,
+              });
+            } else {
+              assert.match(
+                JSON.stringify(toolMessages[0]?.content),
+                /Prefix the whole prerequisite once/u,
+              );
+              assert(conversation.includes(integrationFinding));
+              assert.notEqual(revision, rejectedIntegration);
+              correctedIntegration = revision;
+            }
+          }
         }
       } else
         throw new Error(
@@ -264,6 +428,16 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     crashDone = resolve;
   });
   let claimRequests = 0;
+  let interruptedActor: string | undefined;
+  const claimActors = new Map<string, number>();
+  let noteInterruptedClaim: (() => void) | undefined;
+  const interruptedClaimReady = new Promise<void>((resolve) => {
+    noteInterruptedClaim = resolve;
+  });
+  let releaseInterruptedClaim: (() => void) | undefined;
+  const interruptedClaimResponse = new Promise<void>((resolve) => {
+    releaseInterruptedClaim = resolve;
+  });
   const proxy = createServer((incoming, response) => {
     if (
       incoming.method === "POST" &&
@@ -273,11 +447,25 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     void (async () => {
       let body = "";
       for await (const chunk of incoming) body += String(chunk);
+      const claimActor =
+        incoming.method === "POST" &&
+        incoming.url?.startsWith("/v0/beads/issues:claimNext") === true
+          ? z.object({ actor: z.string() }).parse(JSON.parse(body)).actor
+          : undefined;
+      if (claimActor !== undefined)
+        claimActors.set(claimActor, (claimActors.get(claimActor) ?? 0) + 1);
       const completion =
         incoming.method === "PATCH" &&
         incoming.url?.endsWith(".first") === true &&
         body.includes('"status":"closed"');
       if (completion && crashedAttempt === undefined) {
+        await interruptedClaimReady;
+        assert(interruptedActor !== undefined);
+        assert.equal(
+          store.attempt(interruptedActor.slice(3)).phase,
+          ExecutionPhase.Claiming,
+          "Fault boundary must interrupt the observed unbound claim intent",
+        );
         const attempt = store
           .attempts()
           .find((row) => row.bead?.id === `${parent}.first`);
@@ -295,10 +483,13 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
         crashedSession = attempt.controllerSession;
         assert(crashedSession !== undefined);
         const stopped = once(supervisor, "close");
-        process.kill(-supervisor.pid, "SIGKILL");
+        const schedulerPid = supervisor.pid;
+        // Leave the observed empty claim in flight to exercise uncertain-intent recovery.
+        process.kill(-schedulerPid, "SIGKILL");
         process.kill(-attempt.pid, "SIGKILL");
         await stopped;
         response.destroy();
+        releaseInterruptedClaim?.();
         crashDone?.();
         return;
       }
@@ -316,10 +507,29 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
         headers,
         ...(body.length === 0 ? {} : { body }),
       });
+      const payload = await forwarded.text();
+      if (
+        claimActor !== undefined &&
+        interruptedActor === undefined &&
+        forwarded.ok &&
+        z.object({ claimed: z.unknown().optional() }).parse(JSON.parse(payload))
+          .claimed === undefined
+      ) {
+        interruptedActor = claimActor;
+        noteInterruptedClaim?.();
+        await interruptedClaimResponse;
+      }
+      if (
+        forwarded.ok &&
+        incoming.method === "PATCH" &&
+        incoming.url?.endsWith(".overlap") === true &&
+        body.includes('"status":"closed"')
+      )
+        releaseSecond?.();
       response.writeHead(forwarded.status, {
         "Content-Type": "application/json",
       });
-      response.end(await forwarded.text());
+      response.end(payload);
     })().catch((error: unknown) => {
       crashError = error;
       response.writeHead(500).end();
@@ -396,13 +606,14 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
         key: "second",
         title: "Consume prerequisite",
         description: "Consume prerequisite",
-        acceptance: "Read first.txt and create second.txt",
-        owns: ["second.txt"],
+        acceptance:
+          "Read first.txt. Export consume(prerequisite, accepted) from consume.ts. Prefix accepted inputs with 'consumed ' and return other inputs unchanged.",
+        owns: ["consume.ts"],
         blockedBy: ["first"],
         check: [
           process.execPath,
           "-e",
-          'if(await Bun.file("second.txt").text()!=="consumed verified prerequisite\\n")process.exit(1)',
+          'const {consume}=await import("./consume.ts"); const input=await Bun.file("first.txt").text(); if(consume(input,true)!=="consumed "+input || consume(input,false)!==input)process.exit(1); console.log(["behavior verified","in both states"].join(" "))',
         ],
       },
       {
@@ -695,11 +906,13 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     if (lead.pid !== undefined) process.kill(-lead.pid, "SIGTERM");
     await once(lead, "close");
     release?.();
-    // Hosted runners may still be verifying accepted work after the local one-minute budget.
-    const completionMs = process.env["CI"] === "true" ? 180000 : 60000;
-    const deadline = Date.now() + completionMs;
+    assert(deadline !== undefined);
     let restarted = false;
     for (;;) {
+      if (providerError !== undefined)
+        throw providerError instanceof Error
+          ? providerError
+          : new Error("Fixture provider failed", { cause: providerError });
       if (crashedAttempt !== undefined && !restarted) {
         await crashed;
         assert.equal(crashError, undefined);
@@ -718,11 +931,12 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       const completed = attempts.filter(
         (attempt) => attempt.phase === ExecutionPhase.Complete,
       );
-      if (completed.length === 4) break;
-      const failed = attempts.find((attempt) =>
-        [ExecutionPhase.Parked, ExecutionPhase.Uncertain].includes(
-          attempt.phase,
-        ),
+      const failed = attempts.find(
+        (attempt) =>
+          attempt.bead !== undefined &&
+          [ExecutionPhase.Parked, ExecutionPhase.Uncertain].includes(
+            attempt.phase,
+          ),
       );
       if (failed !== undefined || Date.now() >= deadline) {
         const logs = await Promise.all(
@@ -737,14 +951,54 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
           `Unattended fixture ${failed === undefined ? `timed out after ${String(completionMs)} ms` : "failed"}: ${JSON.stringify(attempts)}\n${diagnostics}\n${logs.join("\n")}\nLead: ${leadErrors}`,
         );
       }
+      if (completed.length >= 4) break;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    const first = store
+    // Let the final queue poll record its claim receipt before checking admission history.
+    assert(supervisor !== undefined);
+    const stopped = once(supervisor, "close", {
+      signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+    });
+    assert(supervisor.kill("SIGTERM"));
+    const exit: unknown[] = await stopped;
+    assert.equal(exit[0], 0, diagnostics);
+    const admitted = store
       .attempts()
-      .find((attempt) => attempt.bead?.id === `${parent}.first`);
-    const second = store
-      .attempts()
-      .find((attempt) => attempt.bead?.id === `${parent}.second`);
+      .filter((attempt) => attempt.bead !== undefined);
+    assert.equal(
+      admitted.length,
+      4,
+      "Competing supervisors must not duplicate admission",
+    );
+    assert.deepEqual(
+      admitted.map((row) => row.bead?.id).sort(),
+      ["first", "overlap", "second", "third"].map((key) => `${parent}.${key}`),
+      "Each eligible bead must have exactly one admitted attempt",
+    );
+    assert(admitted.every((row) => row.phase === ExecutionPhase.Complete));
+    assert(interruptedActor !== undefined);
+    assert.equal(
+      claimActors.get(interruptedActor),
+      1,
+      "Interrupted actor must never issue a second claim",
+    );
+    const interrupted = store.attempt(interruptedActor.slice(3));
+    assert.equal(interrupted.phase, ExecutionPhase.Uncertain);
+    assert.equal(interrupted.bead, undefined);
+    for (const count of claimActors.values()) assert.equal(count, 1);
+    console.log(
+      JSON.stringify({
+        interruptedClaimRetained: true,
+        interruptedActorRequests: claimActors.get(interruptedActor),
+        completedFixtureTasks: 4,
+      }),
+    );
+    const first = admitted.find(
+      (attempt) => attempt.bead?.id === `${parent}.first`,
+    );
+    const second = admitted.find(
+      (attempt) => attempt.bead?.id === `${parent}.second`,
+    );
     assert(first?.integration !== undefined && second?.checkout !== undefined);
     assert.equal(
       first.id,
@@ -757,6 +1011,30 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       "Known-dead control host must resume the same accepted attempt",
     );
     assert.equal(second.base, first.integration);
+    assert(
+      rejectedSecondHead !== undefined && approvedSecondHead !== undefined,
+    );
+    assert(
+      rejectedIntegration !== undefined && correctedIntegration !== undefined,
+    );
+    assert.equal(
+      second.integration,
+      correctedIntegration,
+      "The accepted integration must be the reviewed repair",
+    );
+    await git(
+      "merge-base",
+      "--is-ancestor",
+      rejectedIntegration,
+      correctedIntegration,
+    );
+    assert.equal(second.reviewFeedback, undefined);
+    assert.equal(second.reviewFinding, undefined);
+    assert.equal(
+      unrelatedWrites,
+      1,
+      "A clear assignment should pass review without a repair",
+    );
     assert.match(
       await readFile(join(second.checkout.path, "first.txt"), "utf8"),
       /^verified prerequisite\n/u,
@@ -773,21 +1051,14 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       "Unrelated assignment must progress despite an overlapping queued task",
     );
     assert(sawOverlapAfterCompletion);
-    assert.equal(
-      new Set(store.attempts().map((row) => row.bead?.id)).size,
-      4,
-      "Competing supervisors must not duplicate admission",
-    );
     assert(
       requests.includes(AgentRole.Worker) &&
         requests.includes(AgentRole.Reviewer),
     );
     assert(!requests.includes(AgentRole.Lead));
-    assert(
-      store.attempts().every((attempt) => new Set(attempt.sessions).size >= 2),
-    );
+    assert(admitted.every((attempt) => new Set(attempt.sessions).size >= 2));
     console.log(
-      "Unattended native Pi workers, separate exact-revision reviews, held work, responsive free-lead input, exclusive scheduling, overlapping-path serialization, unrelated concurrent progress, and predecessor-code propagation passed after closing the lead and crashing/restarting the host and supervisor between integration and completion.",
+      "Unattended native Pi workers, exact-revision cold reads and verified readability corrections, held work, responsive free-lead input, exclusive scheduling, overlapping-path serialization, unrelated concurrent progress, and predecessor-code propagation passed after closing the lead and crashing/restarting the host and supervisor between integration and completion.",
     );
   } finally {
     clearTimeout(timeout);
@@ -795,6 +1066,8 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     release?.();
     releaseFirst?.();
     releaseOverlap?.();
+    releaseInterruptedClaim?.();
+    releaseSecond?.();
     if (lead.pid !== undefined && lead.exitCode === null) {
       try {
         process.kill(-lead.pid, "SIGKILL");

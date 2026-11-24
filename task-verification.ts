@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Attempts, Phase } from "./attempts.ts";
 import { LeadMode } from "./lead-plan.ts";
-import { run } from "./process.ts";
+import { run, signalProcessGroup } from "./process.ts";
 import { BeadChanged, TaskBeads, type Verification } from "./task-service.ts";
 
 export async function gitState(
@@ -60,15 +60,14 @@ export async function runCheck(
     child.stdout.on("data", collect);
     child.stderr.on("data", collect);
     let escalation: NodeJS.Timeout | undefined;
+    let groupKilled = false;
     const terminate = (name: NodeJS.Signals) => {
-      if (child.pid === undefined) return;
+      if (child.pid === undefined || groupKilled) return;
       try {
-        process.kill(-child.pid, name);
+        signalProcessGroup(child.pid, name);
+        if (name === "SIGKILL") groupKilled = true;
       } catch (error) {
-        if (
-          !(error instanceof Error && "code" in error && error.code === "ESRCH")
-        )
-          reject(error instanceof Error ? error : new Error(String(error)));
+        reject(error instanceof Error ? error : new Error(String(error)));
       }
     };
     const cancel = () => {

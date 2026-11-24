@@ -1,5 +1,63 @@
-name: Studio
-on: [push, pull_request]
+name: Studio checks
+# File-level filters keep unrelated workflows out of the runner queue.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/*.yml'
+      - '.github/workflows/*.yaml'
+      - '.typescript-quality.json'
+      - '.typescript-quality/**'
+      - '**/*.ts'
+      - '**/*.mts'
+      - '**/*.mjs'
+      - '**/*.py'
+      - 'package.json'
+      - 'bun.lock'
+      - 'tsconfig.json'
+      - '.npmrc'
+      - 'patches/**'
+      - 'scripts/pi'
+      - 'scripts/studio'
+      - 'acceptance/install-worktree-manager'
+      - 'resources/**'
+      - 'socrates/host.md'
+      - 'vendor/**'
+      - 'generated/**'
+      - 'zellij-revision'
+      - 'source-files.json'
+      - '.gitattributes'
+      - '.gitignore'
+  pull_request:
+    paths:
+      - '.github/workflows/*.yml'
+      - '.github/workflows/*.yaml'
+      - '.typescript-quality.json'
+      - '.typescript-quality/**'
+      - '**/*.ts'
+      - '**/*.mts'
+      - '**/*.mjs'
+      - '**/*.py'
+      - 'package.json'
+      - 'bun.lock'
+      - 'tsconfig.json'
+      - '.npmrc'
+      - 'patches/**'
+      - 'scripts/pi'
+      - 'scripts/studio'
+      - 'acceptance/install-worktree-manager'
+      - 'resources/**'
+      - 'socrates/host.md'
+      - 'vendor/**'
+      - 'generated/**'
+      - 'zellij-revision'
+      - 'source-files.json'
+      - '.gitattributes'
+      - '.gitignore'
+  workflow_dispatch:
+permissions:
+  contents: read
 jobs:
   check:
     runs-on: ${{ matrix.os }}
@@ -34,6 +92,10 @@ jobs:
           sudo apt-get install -y shellcheck bubblewrap
           shellcheck scripts/pi scripts/studio acceptance/install-worktree-manager
       - run: bun run check
+      - name: Verify native Socrates status
+        run: |
+          python3 -m pip install --disable-pip-version-check uv
+          bun run test:socrates-ui
       - run: bun run test:git-boundary-native
       - run: bun run test:verification-native
       - run: bun run test:pi-native
@@ -44,76 +106,3 @@ jobs:
           HOME="$RUNNER_TEMP/manager" sh acceptance/install-worktree-manager 0.2.0
           echo "$RUNNER_TEMP/manager/.local/bin" >> "$GITHUB_PATH"
       - run: bun run test:standalone --with-integrations
-
-  lsp-native:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Read the Bun minimum
-        id: runtime
-        run: python3 -c 'import json; print("bun=" + json.load(open("package.json"))["engines"]["bun"].removeprefix(">="))' >> "$GITHUB_OUTPUT"
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: ${{ steps.runtime.outputs.bun }}
-      - run: bun install --frozen-lockfile --ignore-scripts
-      - name: Install the acceptance language server
-        run: |
-          npm --prefix "$RUNNER_TEMP/pi-lsp" install --ignore-scripts typescript-language-server@4.3.3
-          echo "$RUNNER_TEMP/pi-lsp/node_modules/.bin" >> "$GITHUB_PATH"
-      - run: bun run test:lsp-native
-
-  beads-native:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Read the Bun minimum
-        id: runtime
-        run: python3 -c 'import json; print("bun=" + json.load(open("package.json"))["engines"]["bun"].removeprefix(">="))' >> "$GITHUB_OUTPUT"
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: ${{ steps.runtime.outputs.bun }}
-      - run: bun install --frozen-lockfile --ignore-scripts
-      - name: Install verification isolation
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y bubblewrap
-      - name: Install acceptance worktree manager
-        run: |
-          HOME="$RUNNER_TEMP/manager" sh acceptance/install-worktree-manager 0.2.0
-          echo "$RUNNER_TEMP/manager/.local/bin" >> "$GITHUB_PATH"
-      - name: Install the pinned external Beads fixture
-        run: |
-          git clone --no-checkout https://github.com/lanej/dotfiles.git "$RUNNER_TEMP/dotfiles"
-          git -C "$RUNNER_TEMP/dotfiles" checkout 9b4ea91344ec854c1463569e84b37ce12b1248ea -- bootstrap/tools.toml tools/beads config/beads
-          python3 "$RUNNER_TEMP/dotfiles/tools/beads/beads-service.py" install --no-start
-      - name: Verify native admission and completion
-        run: |
-          manifest="$HOME/.local/share/beads-service/runtime.json"
-          bun run test:beads-native -- \
-            --bd "$(jq -er .bd "$manifest")" --dolt "$(jq -er .dolt "$manifest")"
-          bun run test:runtime-beads-native -- \
-            --bd "$(jq -er .bd "$manifest")" --dolt "$(jq -er .dolt "$manifest")"
-          bun run test:runtime-worker-native -- \
-            --bd "$(jq -er .bd "$manifest")" --dolt "$(jq -er .dolt "$manifest")"

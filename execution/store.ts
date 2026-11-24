@@ -1,15 +1,21 @@
 import { Database } from "bun:sqlite";
 import { isDeepStrictEqual } from "node:util";
-import { mkdirSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
+import {
+  knownTaskStatus,
+  TaskStatus,
+  type Task,
+  type TaskReview,
+} from "../beads.ts";
 import { stateDirectory } from "../attempts.ts";
 import {
   runtimeProjectSchema,
   studioProfileSchema,
   selection,
 } from "../config.ts";
-import { verificationSchema, beadSchema } from "../task-service.ts";
+import { verificationSchema, beadSchema, owner } from "../task-service.ts";
 import {
   worktreeReservation,
   worktreeAllocation,
@@ -56,6 +62,7 @@ export const executionSchema = z.object({
     .regex(/^refs\/studio\/(?:graphs|results|projects)\/[a-zA-Z0-9-]+$/u)
     .optional(),
   integration: z.string().optional(),
+  integrationReview: z.string().optional(),
   integrationExpected: z.string().optional(),
   base: z.string().optional(),
   head: z.string().optional(),
@@ -84,6 +91,8 @@ export const executionSchema = z.object({
   verification: verificationSchema.optional(),
   summary: z.string().default(""),
   review: z.string().optional(),
+  reviewFinding: z.string().optional(),
+  reviewFeedback: z.array(z.string()).optional(),
   publication: z.string().optional(),
   pr: z.string().optional(),
   agent: z.string().optional(),
@@ -116,6 +125,52 @@ const allocationOwnerSchema = z.object({
   started: z.string(),
 });
 export type AllocationOwner = z.infer<typeof allocationOwnerSchema>;
+
+/** Match the local review to the task's current Beads owner on each inspection. */
+export function activeTaskReviews(
+  project: string | undefined,
+  tasks: readonly Task[],
+  directory = stateDirectory(),
+): Map<string, TaskReview> {
+  const result = new Map<string, TaskReview>();
+  const path = join(directory, "runtime.sqlite");
+  if (project === undefined || !existsSync(path)) return result;
+  const db = new Database(path, { readonly: true });
+  try {
+    const attempt = db.query(
+      "SELECT record FROM records WHERE kind='attempt' AND id=?",
+    );
+    const ownerPrefix = owner("");
+    for (const task of tasks) {
+      const assignee = task.assignee;
+      if (
+        knownTaskStatus(task.status) !== TaskStatus.InProgress ||
+        assignee === undefined ||
+        !assignee.startsWith(ownerPrefix)
+      )
+        continue;
+      const row = attempt.get(assignee.slice(ownerPrefix.length));
+      if (row === null) continue;
+      const { record } = z.object({ record: z.string() }).parse(row);
+      const current = executionSchema.parse(JSON.parse(record));
+      if (current.project !== project || current.bead?.id !== task.id) continue;
+      const inReview = current.phase === ExecutionPhase.Reviewing;
+      if (
+        inReview ||
+        (current.reviewFinding !== undefined &&
+          [
+            ExecutionPhase.Running,
+            ExecutionPhase.Parked,
+            ExecutionPhase.Waiting,
+          ].includes(current.phase))
+      )
+        result.set(task.id, { finding: current.reviewFinding });
+    }
+    return result;
+  } finally {
+    db.close();
+  }
+}
 
 /** Durable intents and receipts only. Beads owns task state and dependency readiness. */
 export class ExecutionStore {

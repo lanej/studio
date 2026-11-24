@@ -16,6 +16,7 @@
   ],
   "extends": "./.typescript-quality/tsconfig.strict.json",
   "files": [
-    "node_modules/bun-types/sqlite.d.ts"
+    "node_modules/bun-types/sqlite.d.ts",
+    "node_modules/bun-types/test.d.ts"
   ]
 }
