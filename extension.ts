@@ -1,3 +1,4 @@
+import { activeTaskReviews } from "./execution/store.ts";
 import { registerProjectPolicy } from "./execution/policy.ts";
 import { registerDiscovery } from "./discovery/extension.ts";
 import {
@@ -20,6 +21,7 @@ import {
   knownTaskStatus,
   taskDetails,
   taskOverlayLabel,
+  taskReviewLabel,
   taskSchema,
   taskTree,
   TaskStatus,
@@ -295,12 +297,13 @@ export default function studioExtension(
             ? undefined
             : new BeadsReader(config.beads);
       if (reader === undefined) return;
-      const label =
-        config.beadsService?.projectId ?? config.beads?.database ?? "";
+      const project = config.beadsService?.projectId;
+      const label = project ?? config.beads?.database ?? "";
       let id = argument.trim();
       if (id.length === 0) {
         const tasks = await reader.list();
         const rows = taskTree(tasks);
+        const reviews = activeTaskReviews(project, tasks);
         const live =
           config.beadsService === undefined
             ? new Set<string>()
@@ -311,7 +314,16 @@ export default function studioExtension(
             value: row.task.id,
             label: taskOverlayLabel(
               row,
-              (status) => taskStatusGlyph(status, ctx.ui.theme),
+              (status) => {
+                const glyph = taskStatusGlyph(status, ctx.ui.theme);
+                const review = reviews.get(row.task.id);
+                return review === undefined
+                  ? glyph
+                  : `${glyph} ${ctx.ui.theme.fg(
+                      review.finding === undefined ? "accent" : "warning",
+                      taskReviewLabel(review),
+                    )}`;
+              },
               (branch) => ctx.ui.theme.fg("muted", branch),
             ),
             canFocus:
@@ -334,8 +346,11 @@ export default function studioExtension(
       const task = await reader.show(id);
       await showTask(
         ctx,
-        taskDetails(task, label, (status) =>
-          taskStatusLabel(status, ctx.ui.theme),
+        taskDetails(
+          task,
+          label,
+          (status) => taskStatusLabel(status, ctx.ui.theme),
+          activeTaskReviews(project, [task]).get(task.id),
         ),
       );
     },

@@ -61,6 +61,14 @@ export const taskSchema = z
   })
   .loose();
 export type Task = z.infer<typeof taskSchema>;
+export interface TaskReview {
+  finding: string | undefined;
+}
+
+export function taskReviewLabel(review: TaskReview): string {
+  return review.finding === undefined ? "Reviewing" : "Changes requested";
+}
+
 export interface TreeRow {
   task: Task;
   depth: number;
@@ -173,6 +181,7 @@ export function taskDetails(
   task: Task,
   workspace: string,
   renderStatus: (status: string) => string = (status) => status,
+  review?: TaskReview,
 ): string {
   const blockers =
     task.dependencies
@@ -185,6 +194,7 @@ export function taskDetails(
   const lines = [
     `${workspace} / ${task.id} · ${task.title}`,
     `Status: ${task.status}`,
+    review?.finding,
     parent !== undefined ? `Parent: ${parent}` : undefined,
     blockers.length > 0 ? `Blocked by: ${blockers.join(", ")}` : undefined,
     "",
@@ -196,6 +206,7 @@ export function taskDetails(
     .filter((line) => line !== undefined)
     .map((line) => line.replace(/(?!\n)\p{Cc}/gu, ""));
   lines[1] = `Status: ${renderStatus(inlineText(task.status))}`;
+  if (review !== undefined) lines[1] += ` · ${taskReviewLabel(review)}`;
   return lines.join("\n");
 }
 
