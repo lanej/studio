@@ -97,19 +97,23 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
         .parse(JSON.parse(body));
       requests.push(request.model);
       const conversation = JSON.stringify(request.messages);
-      const kind = conversation.includes("Consume prerequisite")
-        ? "second"
-        : conversation.includes("Overlap ownership")
-          ? "overlap"
-          : conversation.includes("Progress unrelated")
-            ? "third"
-            : "first";
+      const kind = conversation.includes("Deliberate verifier rejection")
+        ? "rejected"
+        : conversation.includes("Consume prerequisite")
+          ? "second"
+          : conversation.includes("Overlap ownership")
+            ? "overlap"
+            : conversation.includes("Progress unrelated")
+              ? "third"
+              : "first";
       const path =
-        kind === "second"
-          ? "second.txt"
-          : kind === "third"
-            ? "third.txt"
-            : "first.txt";
+        kind === "rejected"
+          ? "rejected.txt"
+          : kind === "second"
+            ? "second.txt"
+            : kind === "third"
+              ? "third.txt"
+              : "first.txt";
       const content =
         kind === "second"
           ? "consumed verified prerequisite\n"
@@ -786,6 +790,66 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     assert(
       store.attempts().every((attempt) => new Set(attempt.sessions).size >= 2),
     );
+    const rejectedGraph = randomUUID();
+    const rejectedRoot = `${prefix}-${rejectedGraph.replaceAll("-", "")}`;
+    const rejectedDraft = draftSchema.parse({
+      summary: "Negative verification receipt",
+      tasks: [
+        {
+          key: "rejected",
+          title: "Deliberate verifier rejection",
+          description:
+            "Create rejected.txt with verified prerequisite followed by a newline",
+          acceptance: "Retain deliberate exit 42 and do not accept the result",
+          owns: ["rejected.txt"],
+          check: [
+            process.execPath,
+            "-e",
+            'console.error("EXPECTED_REJECTION");process.exit(42)',
+          ],
+        },
+        {
+          key: "blocked",
+          title: "Blocked by rejected verification",
+          description: "Must not run before acceptance",
+          acceptance: "Remains unclaimed",
+          owns: ["blocked.txt"],
+          blockedBy: ["rejected"],
+        },
+      ],
+    });
+    const rejectedId = `${rejectedRoot}.rejected`;
+    const blockedId = `${rejectedRoot}.blocked`;
+    await service.createGraph(
+      rejectedGraph,
+      planDigest(rejectedDraft),
+      "Negative verification receipt",
+      rejectedDraft,
+      { root: rejectedRoot, rejected: rejectedId, blocked: blockedId },
+    );
+    const rejectionDeadline = Date.now() + 30000;
+    for (;;) {
+      const rejected = store
+        .attempts()
+        .find((row) => row.bead?.id === rejectedId);
+      assert.equal(
+        store.attempts().some((row) => row.bead?.id === blockedId),
+        false,
+      );
+      if (rejected?.phase === ExecutionPhase.Parked) {
+        assert.equal(rejected.verification?.exitCode, 42);
+        assert.match(rejected.verification.output, /EXPECTED_REJECTION/u);
+        assert.match(rejected.message, /Agreed verification failed/u);
+        assert.equal((await service.get(rejectedId)).status, "in_progress");
+        assert.equal((await service.get(blockedId)).status, "open");
+        break;
+      }
+      assert(
+        Date.now() < rejectionDeadline,
+        "Negative verification did not settle",
+      );
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
     console.log(
       "Unattended native Pi workers, separate exact-revision reviews, held work, responsive free-lead input, exclusive scheduling, overlapping-path serialization, unrelated concurrent progress, and predecessor-code propagation passed after closing the lead and crashing/restarting the host and supervisor between integration and completion.",
     );
