@@ -177,18 +177,54 @@ class Terminal:
         for key in keys:
             self.send(key)
 
+    def board_rows(self):
+        rows = []
+        for line in self.screen.display:
+            if line.strip() == "? keys":
+                return rows
+            rows.append(line.split("│"))
+        return []
+
+    @staticmethod
+    def row_label(cell):
+        mark, _, text = cell.strip().removeprefix("› ").partition(" ")
+        if len(mark) == 1 and not mark.isalnum():
+            # Properties, tasks and foldable groups start with one status or disclosure glyph.
+            return text.partition("  ")[0].strip().removesuffix(" ◆")
+        return None
+
+    def board_selection(self):
+        rows = self.board_rows()
+        for y, cells in enumerate(rows):
+            for column, cell in enumerate(cells):
+                if cell.lstrip().startswith("› ") and (label := self.row_label(cell)) is not None:
+                    return y, column, label
+        return None
+
+    def wait_for_selection(self, label):
+        self.wait(lambda: (selected := self.board_selection()) is not None and label == selected[2],
+                  f"The inspector did not restore its selection to {label!r}")
+
     def select_row(self, label):
-        """Move to the named entry in the focused column, including foldable headings."""
-        def selected():
-            return any(cell.lstrip().startswith("› ") and label in cell for line in self.screen.display
-                       for cell in line.split("│"))
-        if selected():
-            return
-        self.send("\x1b[H")
-        for _ in range(40):
-            if selected():
+        """Walk to a visible row, waiting for the selection to move after each key."""
+        def positions():
+            selected = self.board_selection()
+            if selected is not None:
+                y, column, _ = selected
+                for target, cells in enumerate(self.board_rows()):
+                    if column < len(cells) and self.row_label(cells[column]) == label:
+                        return y, target
+            return None
+
+        self.wait(lambda: positions() is not None, f"Missing {label!r} in the active inspector column")
+        for _ in range(self.screen.lines):
+            y, target = positions()
+            if y == target:
                 return
-            self.send("j")
+            before = self.board_selection()
+            self.send("j" if y < target else "k")
+            self.wait(lambda: positions() is not None and self.board_selection() != before,
+                      f"The selection did not move toward {label!r}")
         raise AssertionError(f"Could not focus {label!r}\n{self.text()}")
 
     def close_detail(self):
@@ -456,6 +492,7 @@ def run(output):
             terminal.capture("status-board-task-detail")
             terminal.close_detail()
             terminal.send("\t")
+            terminal.wait_for_selection("Verification")
             terminal.send("\r")
             terminal.contains("Question and resume are covered.")
             terminal.capture("status-board-property-detail")
