@@ -21,7 +21,14 @@ import { questionEvidenceParameter } from "./evidence.ts";
 import { questionLinks, renderQuestionEvidence } from "./links.ts";
 import { chooseQuestion, QuestionSelectionKind } from "./selector.ts";
 import { socratesGuidance } from "./guidance.ts";
-import { TaskBeads } from "../task-service.ts";
+import {
+  coverageDomains,
+  coveragePropertyIds,
+  coverageStatuses,
+  coverageToken,
+} from "./assessment.ts";
+import { registerSocratesPresentation } from "./presentation.ts";
+import { BeadChanged, TaskBeads } from "../task-service.ts";
 import { reviewPlan, showTask } from "../ui.ts";
 
 export const askTool = "ask_user_question";
@@ -40,9 +47,12 @@ export function registerSocrates(
   requireBinding: (ctx: ExtensionContext) => Promise<Attempt>,
   approvalPending: (active: boolean) => void,
 ) {
-  registerSocratesControls(pi, db, id, requireBinding, approvalPending, {
+  return registerSocratesControls(pi, db, id, requireBinding, approvalPending, {
     subject: "the accepted Beads task",
+    identity: (record) => record.id,
     label: (record) => record.bead.id,
+    snapshot: (ctx) =>
+      ctx.sessionManager.getSessionId() === id ? db.get(id) : undefined,
     check: async (record, revision) => {
       await new TaskBeads(record.source).requireCurrent(
         record.bead,
@@ -64,11 +74,49 @@ export function registerSocratesControls<T extends SocratesState>(
   approvalPending: (active: boolean) => void,
   scope: {
     subject: string;
+    identity(record: T): string;
     label(record: T): string;
+    snapshot?(ctx: ExtensionContext): T | undefined;
     check(record: T, revision: string): Promise<void>;
     select?(argument: string, ctx: ExtensionContext): Promise<void>;
   },
 ) {
+  const presentation = registerSocratesPresentation(pi, (ctx) => {
+    const record =
+      scope.snapshot === undefined ? db.get(id) : scope.snapshot(ctx);
+    return record?.specification === undefined
+      ? undefined
+      : {
+          id: scope.identity(record),
+          label: scope.label(record),
+          revision: record.revision,
+          specification: record.specification,
+        };
+  });
+  const checkCurrent = async (
+    record: T,
+    revision: string,
+    ctx: ExtensionContext,
+  ) => {
+    try {
+      await scope.check(record, revision);
+    } catch (error) {
+      if (error instanceof BeadChanged) {
+        db.change(id, (row) => {
+          if (
+            row.revision === revision &&
+            row.specification?.acceptedRevision === revision
+          )
+            row.specification = {
+              ...row.specification,
+              coverageRevision: undefined,
+            };
+        });
+        presentation.refresh(ctx);
+      }
+      throw error;
+    }
+  };
   async function showQuestion(
     ctx: ExtensionContext,
     spec: NonNullable<Attempt["specification"]>,
@@ -79,13 +127,13 @@ export function registerSocratesControls<T extends SocratesState>(
       throw new Error("There is no unanswered Socrates question");
     if (!ctx.hasUI) throw new Error("Open the Pi TUI to answer");
     const record = await requireBinding(ctx);
-    await scope.check(record, spec.acceptedRevision);
+    await checkCurrent(record, spec.acceptedRevision, ctx);
     approvalPending(true);
     try {
       const answer = await ask(ctx, exchange.prompt, signal);
       if (answer === undefined) return undefined;
       await requireBinding(ctx);
-      await scope.check(record, spec.acceptedRevision);
+      await checkCurrent(record, spec.acceptedRevision, ctx);
       db.change(id, (row) => {
         if (
           row.leadPlan?.mode !== LeadMode.Planning ||
@@ -97,6 +145,7 @@ export function registerSocratesControls<T extends SocratesState>(
           );
         row.specification = { ...spec, exchange: { ...exchange, answer } };
       });
+      presentation.refresh(ctx);
       return answer;
     } finally {
       approvalPending(false);
@@ -169,7 +218,7 @@ export function registerSocratesControls<T extends SocratesState>(
         throw new Error(
           "Save this exact question and its open decision in the draft first",
         );
-      await scope.check(record, spec.acceptedRevision);
+      await checkCurrent(record, spec.acceptedRevision, ctx);
       const pending = { ...spec, exchange: { prompt } };
       db.change(id, (row) => {
         if (
@@ -180,6 +229,7 @@ export function registerSocratesControls<T extends SocratesState>(
           throw new Error("The Socrates draft changed before asking");
         row.specification = pending;
       });
+      presentation.refresh(ctx);
       const answer = await showQuestion(ctx, pending, signal);
       return {
         content: [
@@ -202,12 +252,13 @@ export function registerSocratesControls<T extends SocratesState>(
       if (!ctx.isIdle()) throw new Error("Wait for the lead turn to settle");
       await scope.select?.(_argument, ctx);
       const record = await requireBinding(ctx);
+      presentation.refresh(ctx);
       const spec = record.specification;
       if (spec?.status === SpecStatus.Interrogating) {
         await socratesGuidance();
         if (record.revision !== spec.acceptedRevision)
           throw new Error("Refresh the Socrates brief before resuming");
-        await scope.check(record, spec.acceptedRevision);
+        await checkCurrent(record, spec.acceptedRevision, ctx);
         if (spec.exchange !== undefined) {
           if (
             spec.exchange.answer !== undefined ||
@@ -243,7 +294,7 @@ export function registerSocratesControls<T extends SocratesState>(
         throw new Error("Start Socrates before approving implementation");
       await socratesGuidance();
       const acceptedRevision = record.revision;
-      await scope.check(record, acceptedRevision);
+      await checkCurrent(record, acceptedRevision, ctx);
       db.change(id, (row) => {
         if (
           row.specification !== undefined ||
@@ -259,6 +310,7 @@ export function registerSocratesControls<T extends SocratesState>(
         };
         row.leadPlan = { ...row.leadPlan, draft: null };
       });
+      presentation.refresh(ctx);
       pi.sendUserMessage(
         `Begin Socrates discovery for ${scope.subject} using the shared procedure.`,
       );
@@ -268,7 +320,8 @@ export function registerSocratesControls<T extends SocratesState>(
     name: specTool,
     label: "Draft Socrates specification",
     description:
-      "Save the current Socrates specification and outstanding questions. The operator freezes it in /spec-freeze.",
+      "Save the current Socrates specification, outstanding questions, and evidence-backed property assessments. Coverage describes this exact draft; omitted assessments remain not assessed. The operator freezes it in /spec-freeze.",
+    executionMode: "sequential",
     parameters: Type.Object({
       objective: Type.String(),
       scope: Type.Array(Type.String()),
@@ -298,13 +351,48 @@ export function registerSocratesControls<T extends SocratesState>(
         }),
       ),
       blockingQuestions: Type.Array(Type.String()),
+      coverage: Type.Optional(
+        Type.Object(
+          {
+            domains: Type.Array(
+              Type.Union(coverageDomains.map((domain) => Type.Literal(domain))),
+            ),
+            assessments: Type.Array(
+              Type.Object({
+                propertyId: Type.Union(
+                  coveragePropertyIds.map((property) => Type.Literal(property)),
+                ),
+                status: Type.Union(
+                  coverageStatuses.map((status) => Type.Literal(status)),
+                ),
+                reason: Type.Optional(
+                  Type.String({
+                    description:
+                      "Evidence or concrete rationale for every assessed property, including open and not-applicable. Reference decisions, requirements, or observed sources where relevant.",
+                  }),
+                ),
+              }),
+              { maxItems: coveragePropertyIds.length },
+            ),
+            focus: Type.Optional(
+              Type.Union(
+                coveragePropertyIds.map((property) => Type.Literal(property)),
+              ),
+            ),
+          },
+          {
+            description:
+              "Saved assessments and the property to work on next; no scores or completion percentage. Replace the full coverage snapshot after revisiting affected properties.",
+          },
+        ),
+      ),
     }),
     async execute(_call, params, _signal, _update, ctx) {
       const record = await requireBinding(ctx);
       const draft = specDraft.parse(params);
       if (record.revision === null)
         throw new Error("The accepted revision is missing");
-      await scope.check(record, record.revision);
+      await checkCurrent(record, record.revision, ctx);
       db.change(id, (row) => {
         const specification = row.specification;
         if (
@@ -322,8 +410,14 @@ export function registerSocratesControls<T extends SocratesState>(
             "Resume /socrates to resolve the open question before replacing the draft",
           );
         preserveDecisions(specification.draft, draft);
-        row.specification = { ...specification, draft, exchange: undefined };
+        const next = { ...specification, draft, exchange: undefined };
+        row.specification = {
+          ...next,
+          coverageRevision:
+            draft.coverage === undefined ? undefined : coverageToken(next),
+        };
       });
+      presentation.refresh(ctx);
       return {
         content: [
           {
@@ -366,7 +460,7 @@ export function registerSocratesControls<T extends SocratesState>(
           ))
         )
           return;
-        await scope.check(record, spec.acceptedRevision);
+        await checkCurrent(record, spec.acceptedRevision, ctx);
         db.change(id, (row) => {
           if (
             !isDeepStrictEqual(row.specification, spec) ||
@@ -380,6 +474,7 @@ export function registerSocratesControls<T extends SocratesState>(
             approvalAt: new Date().toISOString(),
           };
         });
+        presentation.refresh(ctx);
       } finally {
         approvalPending(false);
       }
@@ -388,6 +483,7 @@ export function registerSocratesControls<T extends SocratesState>(
       );
     },
   });
+  return presentation;
 }
 
 async function ask(

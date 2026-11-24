@@ -34,6 +34,10 @@ jobs:
           sudo apt-get install -y shellcheck bubblewrap
           shellcheck scripts/pi scripts/studio acceptance/install-worktree-manager
       - run: bun run check
+      - name: Verify native Socrates status
+        run: |
+          python3 -m pip install --disable-pip-version-check uv
+          bun run test:socrates-ui
       - run: bun run test:git-boundary-native
       - run: bun run test:verification-native
       - run: bun run test:pi-native

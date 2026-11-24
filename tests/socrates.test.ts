@@ -6,7 +6,15 @@ import {
   preserveDecisions,
   specDraft,
   specRecord,
+  specText,
+  type LeadSpecification,
 } from "../socrates/spec.ts";
+import {
+  coverageFresh,
+  coverageProperties,
+  coverageSchema,
+  coverageToken,
+} from "../socrates/assessment.ts";
 
 const legacy = {
   objective: "Preserve the transcript",
@@ -72,4 +80,232 @@ await test("a settled decision can change through a linked successor", () => {
     ],
   });
   preserveDecisions(settled, updated);
+});
+
+const coverage = {
+  domains: ["engineering"],
+  assessments: [
+    {
+      propertyId: "problem-first",
+      status: "satisfied",
+      reason:
+        "The operator identified missing archived transcripts as the problem.",
+    },
+    {
+      propertyId: "verification",
+      status: "open",
+      reason: "R1 needs an observable check of the recovered transcript.",
+    },
+    {
+      propertyId: "stakeholders",
+      status: "not-applicable",
+      reason:
+        "This private local transcript has no additional affected stakeholders.",
+    },
+  ],
+  focus: "verification",
+};
+
+function assessedSpecification(): LeadSpecification {
+  const spec = specRecord.parse({
+    status: SpecStatus.Interrogating,
+    version: 1,
+    acceptedRevision: "brief-v1",
+    draft: { ...legacy, decisions: [], coverage },
+  });
+  return { ...spec, coverageRevision: coverageToken(spec) };
+}
+
+await test("coverage uses applicable canonical properties and leaves omissions unknown", () => {
+  const spec = assessedSpecification();
+  const rows = coverageProperties(spec.draft);
+  assert.equal(rows.length, 19);
+  assert.equal(
+    rows.find(({ id }) => id === "problem-first")?.status,
+    "satisfied",
+  );
+  assert.equal(rows.find(({ id }) => id === "harmony")?.status, "unknown");
+  assert.equal(rows.find(({ id }) => id === "modularity")?.status, "unknown");
+  assert.equal(
+    rows.some(({ id }) => id === "audience"),
+    false,
+  );
+
+  const replacement = specDraft.parse({ ...legacy, decisions: [] });
+  assert.equal(
+    coverageProperties(replacement).every(({ status }) => status === "unknown"),
+    true,
+  );
+  assert.equal(coverageProperties(replacement).length, 13);
+  const mixed = specDraft.parse({
+    ...replacement,
+    coverage: {
+      domains: ["writing", "research", "engineering"],
+      assessments: [],
+    },
+  });
+  assert.equal(coverageProperties(mixed).length, 27);
+  assert.equal(new Set(coverageProperties(mixed).map(({ id }) => id)).size, 27);
+});
+
+await test("assessments require evidence and cannot hide outside the selected property sets", () => {
+  for (const status of ["satisfied", "open", "not-applicable"]) {
+    assert.equal(
+      coverageSchema.safeParse({
+        domains: [],
+        assessments: [{ propertyId: "risk", status }],
+      }).success,
+      false,
+    );
+    assert.equal(
+      coverageSchema.safeParse({
+        domains: [],
+        assessments: [{ propertyId: "risk", status, reason: "  " }],
+      }).success,
+      false,
+    );
+  }
+  assert.equal(
+    coverageSchema.safeParse({
+      domains: [],
+      assessments: [{ propertyId: "risk", status: "unknown" }],
+    }).success,
+    true,
+  );
+  assert.equal(
+    coverageSchema.safeParse({
+      domains: [],
+      assessments: [
+        {
+          propertyId: "modularity",
+          status: "open",
+          reason: "A boundary remains unclear.",
+        },
+      ],
+    }).success,
+    false,
+  );
+  assert.equal(
+    coverageSchema.safeParse({
+      domains: [],
+      assessments: [],
+      focus: "audience",
+    }).success,
+    false,
+  );
+  assert.equal(
+    coverageSchema.safeParse({
+      ...coverage,
+      assessments: [...coverage.assessments, ...coverage.assessments],
+    }).success,
+    false,
+  );
+  assert.equal(
+    coverageSchema.safeParse({
+      ...coverage,
+      domains: ["engineering", "engineering"],
+    }).success,
+    false,
+  );
+  assert.equal(
+    coverageSchema.safeParse({
+      domains: [],
+      assessments: [{ propertyId: "made-up", status: "unknown" }],
+    }).success,
+    false,
+  );
+});
+
+await test("coverage follows the draft and brief instead of a reusable lifecycle version", () => {
+  const spec = assessedSpecification();
+  assert.equal(coverageFresh(spec, "brief-v1"), true);
+  assert.equal(coverageFresh(spec, "brief-v2"), false);
+  assert.equal(coverageFresh({ ...spec, version: 2 }, "brief-v1"), false);
+  assert.equal(
+    coverageFresh({ ...spec, acceptedRevision: "brief-v2" }, "brief-v2"),
+    false,
+  );
+  assert.equal(
+    coverageFresh({ ...spec, coverageRevision: undefined }, "brief-v1"),
+    false,
+  );
+  assert.equal(
+    coverageFresh(
+      {
+        ...spec,
+        status: SpecStatus.Frozen,
+        approvalAt: "2026-11-24T00:00:00Z",
+      },
+      "brief-v1",
+    ),
+    true,
+  );
+  assert.equal(
+    coverageFresh(
+      {
+        ...spec,
+        draft: specDraft.parse({
+          ...spec.draft,
+          objective: "Delete the transcript",
+        }),
+      },
+      "brief-v1",
+    ),
+    false,
+  );
+  assert.equal(
+    coverageFresh(
+      {
+        ...spec,
+        draft: specDraft.parse({
+          ...spec.draft,
+          requirements: [
+            {
+              id: "R1",
+              outcome: "Keep the transcript",
+              acceptance: "Find the original transcript bytes",
+            },
+          ],
+        }),
+      },
+      "brief-v1",
+    ),
+    false,
+  );
+});
+
+await test("an answer invalidates assessments until it is incorporated in a saved draft", () => {
+  const spec = assessedSpecification();
+  const exchange = {
+    prompt: {
+      decisionId: "D1",
+      question: "Which transcript must the archive preserve?",
+      options: [],
+    },
+  };
+  const waiting = specRecord.parse({ ...spec, exchange });
+  assert.equal(coverageFresh(waiting, "brief-v1"), true);
+  const answered = specRecord.parse({
+    ...waiting,
+    exchange: {
+      ...exchange,
+      answer: { text: "The original session transcript", kind: "custom" },
+    },
+  });
+  assert.equal(coverageFresh(answered, "brief-v1"), false);
+  assert.match(specText(answered), /Needs review/u);
+  assert.match(specText(answered), /R1 needs an observable check/u);
+  assert.match(specText(answered), /Not assessed ·/u);
+
+  const updated = specRecord.parse({
+    ...answered,
+    exchange: undefined,
+    draft: {
+      ...answered.draft,
+      objective: "Preserve the original session transcript",
+    },
+  });
+  assert.equal(coverageFresh(updated, "brief-v1"), false);
+  updated.coverageRevision = coverageToken(updated);
+  assert.equal(coverageFresh(updated, "brief-v1"), true);
 });

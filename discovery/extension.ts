@@ -133,7 +133,7 @@ export function registerDiscovery(
       ].join("\n\n"),
     };
   });
-  registerSocratesControls(
+  const socrates = registerSocratesControls(
     pi,
     {
       get: () => get(),
@@ -146,7 +146,12 @@ export function registerDiscovery(
     },
     {
       subject: "this discovery; Beads is not required",
+      identity: (record) => record.id,
       label: (record) => record.title,
+      snapshot: (ctx) => {
+        const id = locate(ctx);
+        return id === undefined ? undefined : storage((db) => db.get(id));
+      },
       select: async (argument, ctx) => {
         if (argument.trim() === "list")
           throw new Error("Use /discoveries to list saved discoveries");
@@ -187,6 +192,7 @@ export function registerDiscovery(
           row.handoff = undefined;
         }),
       );
+      socrates.refresh(ctx);
       pi.sendUserMessage(
         "Resume discovery. Preserve settled decisions and explain any changed scope before drafting a new specification.",
       );

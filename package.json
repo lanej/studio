@@ -30,6 +30,7 @@
     "test:local": "bun acceptance/local-run.ts",
     "configure": "python3 scripts/configure.py .",
     "test:terminal": "uv run --script acceptance/terminal.py",
+    "test:socrates-ui": "uv run --script acceptance/socrates-status.py",
     "test:standalone": "python3 scripts/test-standalone.py",
     "check:beads-api": "bun --bun node_modules/.bin/openapi-typescript vendor/task-runtime/api/beads-1.3.4.yaml -o vendor/task-runtime/generated/beads.ts --check",
     "test:lsp-native": "bun acceptance/lsp.ts",
