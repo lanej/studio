@@ -6,12 +6,13 @@ import { z } from "zod";
 import { processStart } from "../process.ts";
 import { groupExists } from "../execution/recovery.ts";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { withAllocation } from "../execution/allocation.ts";
 import { ExecutionStore } from "../execution/store.ts";
+import { WorktreeManager } from "../vendor/task-runtime/worktrees.ts";
 
 await test("independent task hosts serialize manager mutations and release on failure", async () => {
   const directory = await mkdtemp(join(tmpdir(), "studio-allocation-"));
@@ -163,6 +164,50 @@ await test("a dead allocation controller retains its lease while its manager pro
     await pending?.catch(() => {});
     reader.close();
     store.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+await test("manager allocation remains verifiable with a large incomplete global inventory", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "studio-manager-inventory-"));
+  const executable = join(directory, "manager");
+  const id = "1234567890abcdef1234567890abcdef";
+  const allocation = {
+    primary: directory,
+    root: join(directory, ".worktrees"),
+    path: join(directory, ".worktrees/pi-12345678"),
+    task_id: id,
+    owner_id: "canary-owner",
+    agent: "pi",
+    branch: "pi/canary",
+    created_at: "2026-11-24T00:00:00Z",
+    base_ref: "main",
+  };
+  const task = {
+    id,
+    path: allocation.path,
+    branch: allocation.branch,
+    owner_id: allocation.owner_id,
+    agent: allocation.agent,
+    created_at: allocation.created_at,
+    state: "active",
+  };
+  const save = async (owner: string) => {
+    await writeFile(
+      executable,
+      `#!${process.execPath}\nprocess.stdout.write(JSON.stringify({schema_version:1,command:"status",result:{complete:false,repositories:[{diagnostics:"x".repeat(3*1024*1024)}],tasks:[${JSON.stringify({ ...task, owner_id: owner })}]}}));process.exitCode=1;\n`,
+      { mode: 0o755 },
+    );
+  };
+  try {
+    await save(allocation.owner_id);
+    await new WorktreeManager(executable).requireAllocation(allocation);
+    await save("different-owner");
+    await assert.rejects(
+      new WorktreeManager(executable).requireAllocation(allocation),
+      /cannot verify this active allocation/u,
+    );
+  } finally {
     await rm(directory, { recursive: true, force: true });
   }
 });

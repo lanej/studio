@@ -148,11 +148,12 @@ export async function runVerification(
   } catch (error) {
     store.change(id, (row) => {
       if (row.launchToken === token && row.verifier?.pid === process.pid) {
-        row.verifier.phase = VerificationPhase.Complete;
         if (row.verification !== undefined) {
-          row.verification.exitCode = -1;
+          if (row.verifier.phase !== VerificationPhase.Complete)
+            row.verification.exitCode = -1;
           row.verification.reason = processFailure(error).message;
         }
+        row.verifier.phase = VerificationPhase.Complete;
       }
     });
     throw error;
