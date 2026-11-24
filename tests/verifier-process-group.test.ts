@@ -14,7 +14,7 @@ await test("verifier cleanup distinguishes exhausted groups from live descendant
 await test("exit and close signal a finished verifier group only once", async (context) => {
   let group: number | undefined;
   let kills = 0;
-  const original = process.kill;
+  const original = process.kill.bind(process);
   context.mock.method(
     process,
     "kill",
