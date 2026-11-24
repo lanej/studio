@@ -87,7 +87,12 @@ function sameSyntaxPosition(oldNode: SyntaxNode, newNode: SyntaxNode): boolean {
     if (oldParent === null || newParent === null)
       return oldParent === null && newParent === null;
     const index = childIndex(oldParent, left);
-    if (index < 0 || index !== childIndex(newParent, right)) return false;
+    if (
+      index < 0 ||
+      index !== childIndex(newParent, right) ||
+      oldParent.fieldNameForChild(index) !== newParent.fieldNameForChild(index)
+    )
+      return false;
     left = oldParent;
     right = newParent;
   }

@@ -83,7 +83,7 @@ await test("Tree-sitter compares number leaves and extracts enclosing declaratio
 });
 
 await test("syntax positions and persisted offsets support Unicode and both token boundaries", async () => {
-  const line = 'const 雨 = (emoji = "🐈") => \"ok\" + timeout;';
+  const line = 'const 雨 = (emoji = "🐈") => "ok" + timeout;';
   for (const [oldToken, newToken] of [
     ["timeout", "timeoutMs"],
     ["timeout", "time"],
@@ -163,7 +163,7 @@ await test("each numbered hunk has its own scope and inserted or deleted lines u
     undefined,
   );
   const header = "type Policy = {";
-  const original = header + "\n limit: 2;\n};";
+  const original = `${header}\n limit: 2;\n};`;
   assert.deepEqual((await change("policy.ts", original, "2", "4"))?.scopes, [
     { row: 0, label: "type Policy" },
   ]);
@@ -173,7 +173,7 @@ await test("each numbered hunk has its own scope and inserted or deleted lines u
         "policy.ts",
         original,
         original.replace("2", "4"),
-        " 1 " + header + "\n-2  limit: 2;\n+2  limit: 4;",
+        ` 1 ${header}\n-2  limit: 2;\n+2  limit: 4;`,
       )
     )?.scopes,
     [],
@@ -181,7 +181,7 @@ await test("each numbered hunk has its own scope and inserted or deleted lines u
 });
 
 await test("excessively deep syntax falls back to the full diff", async () => {
-  const before = "[".repeat(200) + "2" + "]".repeat(200);
+  const before = `${"[".repeat(200)}2${"]".repeat(200)}`;
   const result = await change("deep.json", before, "2", "4");
   assert.deepEqual(result?.replacements ?? [], []);
   assert.deepEqual(result?.scopes ?? [], []);
