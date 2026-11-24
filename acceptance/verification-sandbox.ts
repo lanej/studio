@@ -22,6 +22,26 @@ import { gitState, runCheck } from "../task-verification.ts";
 import { createServer } from "node:net";
 import { once } from "node:events";
 
+async function boundaryCheck(
+  stage: string,
+  ...args: Parameters<typeof runCheck>
+) {
+  const started = performance.now();
+  console.info(`[verification] ${stage}: start`);
+  try {
+    const result = await runCheck(...args);
+    console.info(
+      `[verification] ${stage}: end after ${String(Math.round(performance.now() - started))}ms (exit ${String(result.exitCode)})`,
+    );
+    return result;
+  } catch (error) {
+    console.error(
+      `[verification] ${stage}: error after ${String(Math.round(performance.now() - started))}ms`,
+    );
+    throw error;
+  }
+}
+
 const fixture = await realpath(
   await mkdtemp(join(tmpdir(), "studio-verifier-boundary-")),
 );
@@ -106,7 +126,8 @@ try {
     snapshot,
   );
   try {
-    const result = await runCheck(
+    const result = await boundaryCheck(
+      "Python standard library",
       pythonSandbox.argv,
       pythonSandbox.cwd,
       AbortSignal.timeout(10000),
@@ -143,7 +164,8 @@ try {
   );
   try {
     assert((await lstat(join(sanitized.cwd, "node_modules"))).isDirectory());
-    const result = await runCheck(
+    const result = await boundaryCheck(
+      "sanitized Git metadata",
       sanitized.argv,
       sanitized.cwd,
       AbortSignal.timeout(10000),
@@ -171,7 +193,8 @@ try {
     snapshot,
   );
   try {
-    const result = await runCheck(
+    const result = await boundaryCheck(
+      "isolation fences and network",
       sandbox.argv,
       sandbox.cwd,
       AbortSignal.timeout(10000),
@@ -225,7 +248,8 @@ try {
       snapshot,
     );
     try {
-      const result = await runCheck(
+      const result = await boundaryCheck(
+        "protected configured file",
         masked.argv,
         masked.cwd,
         AbortSignal.timeout(10000),
@@ -251,7 +275,8 @@ try {
     snapshot,
   );
   try {
-    const result = await runCheck(
+    const result = await boundaryCheck(
+      "source snapshot mutation",
       mutate.argv,
       mutate.cwd,
       AbortSignal.timeout(10000),
@@ -278,7 +303,8 @@ try {
     );
     let detached: { pid: number; started: string } | undefined;
     try {
-      const result = await runCheck(
+      const result = await boundaryCheck(
+        "detached descendant",
         lingering.argv,
         lingering.cwd,
         AbortSignal.timeout(10000),
