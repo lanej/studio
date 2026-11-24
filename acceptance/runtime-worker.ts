@@ -211,8 +211,9 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
         } else
           text = JSON.stringify({
             summary: `${workerNarrative}-summary`,
-            title: `${workerNarrative}-title`,
-            body: `${workerNarrative}-body`,
+            // Unused publication fields must not block local verification and review.
+            title: "",
+            body: null,
           });
       } else if (request.model === AgentRole.Reviewer) {
         const inspectIntegratedInput =
