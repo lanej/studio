@@ -1,6 +1,6 @@
 import { stringify } from "yaml";
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "bun:test";
 import {
   mkdtemp,
   writeFile,
@@ -22,12 +22,17 @@ import {
   workflowFiles,
 } from "../scripts/ci-selection.ts";
 
+// Real revision fixtures spawn many Git processes; hosted scheduling is not a latency assertion.
+const gitFixtureDeadline = process.env["CI"] === "true" ? 30_000 : 5_000;
+const gitCommandDeadline = process.env["CI"] === "true" ? 10_000 : 2_000;
+
 function fixtureGit(cwd: string) {
   const environment = Object.fromEntries(
     Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
   );
   return (...args: string[]) =>
-    execFileSync("/usr/bin/git", args, {
+    execFileSync("/usr/bin/git", ["-c", "core.hooksPath=/dev/null", ...args], {
+      timeout: gitCommandDeadline,
       cwd,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
@@ -35,6 +40,10 @@ function fixtureGit(cwd: string) {
         ...environment,
         GIT_CONFIG_GLOBAL: "/dev/null",
         GIT_CONFIG_NOSYSTEM: "1",
+        GIT_AUTHOR_NAME: "Fixture",
+        GIT_AUTHOR_EMAIL: "fixture@example.invalid",
+        GIT_COMMITTER_NAME: "Fixture",
+        GIT_COMMITTER_EMAIL: "fixture@example.invalid",
       },
     }).trim();
 }
@@ -42,7 +51,7 @@ function fixtureGit(cwd: string) {
 const selected = async (...paths: string[]) =>
   (await selectedChecks(paths)).map((item) => item.workflow);
 
-await test("workflow file filters select consumers without duplicate branch-push suites", async () => {
+test("workflow file filters select consumers without duplicate branch-push suites", async () => {
   for (const file of workflowFiles) {
     const value = await readWorkflow(file);
     assert.deepEqual(value.on.push.branches, ["main"]);
@@ -83,7 +92,7 @@ await test("workflow file filters select consumers without duplicate branch-push
   ]);
 });
 
-await test("shared runtime inputs and the full CLI integration retain their consumers", async () => {
+test("shared runtime inputs and the full CLI integration retain their consumers", async () => {
   for (const path of [
     "package.json",
     "bun.lock",
@@ -129,7 +138,7 @@ await test("shared runtime inputs and the full CLI integration retain their cons
   ]);
 });
 
-await test("selection detects a removed consumer edge and rejects unsupported filter syntax", async () => {
+test("selection detects a removed consumer edge and rejects unsupported filter syntax", async () => {
   const guidanceConsumer = await readWorkflow("check.yml");
   assert(
     matchesPaths(guidanceConsumer.on.pull_request.paths, ["socrates/host.md"]),
@@ -166,93 +175,101 @@ await test("selection detects a removed consumer edge and rejects unsupported fi
   );
 });
 
-await test("deleted and renamed paths retain both workflow owners in a real revision diff", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "studio-ci-diff-"));
-  const git = fixtureGit(directory);
-  try {
-    git("init", "-q");
-    git("config", "user.name", "Fixture");
-    git("config", "user.email", "fixture@example.invalid");
-    git("config", "core.hooksPath", "/dev/null");
-    await mkdir(join(directory, "code-intelligence"));
-    await writeFile(join(directory, "code-intelligence/old.ts"), "source\n");
-    git("add", ".");
-    git("commit", "-qm", "Before");
-    const base = git("rev-parse", "HEAD");
-    await mkdir(join(directory, "execution"));
-    git("mv", "code-intelligence/old.ts", "execution/new.ts");
-    git("commit", "-qm", "After");
-    const paths = changedPaths(base, "HEAD", directory);
-    assert.deepEqual(paths, ["code-intelligence/old.ts", "execution/new.ts"]);
-    assert.deepEqual(await selected(...paths), [...workflowFiles]);
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-});
-
-await test("revision selection retains base edges but requires only workflows and check names present at head", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "studio-ci-policy-"));
-  const git = fixtureGit(directory);
-  try {
-    git("init", "-q");
-    git("config", "user.name", "Fixture");
-    git("config", "user.email", "fixture@example.invalid");
-    git("config", "core.hooksPath", "/dev/null");
-    await mkdir(join(directory, ".github/workflows"), { recursive: true });
-    for (const file of workflowFiles) {
-      const definition = await readWorkflow(file);
-      await writeFile(
-        join(directory, ".github/workflows", file),
-        stringify(definition),
-      );
+test(
+  "deleted and renamed paths retain both workflow owners in a real revision diff",
+  async () => {
+    const directory = await mkdtemp(join(tmpdir(), "studio-ci-diff-"));
+    const git = fixtureGit(directory);
+    try {
+      git("init", "-q");
+      await mkdir(join(directory, "code-intelligence"));
+      await writeFile(join(directory, "code-intelligence/old.ts"), "source\n");
+      git("add", ".");
+      git("commit", "-qm", "Before");
+      const base = git("rev-parse", "HEAD");
+      await mkdir(join(directory, "execution"));
+      git("mv", "code-intelligence/old.ts", "execution/new.ts");
+      git("commit", "-qm", "After");
+      const paths = changedPaths(base, "HEAD", directory);
+      assert.deepEqual(paths, ["code-intelligence/old.ts", "execution/new.ts"]);
+      assert.deepEqual(await selected(...paths), [...workflowFiles]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
     }
-    await mkdir(join(directory, "code-intelligence"));
-    await writeFile(join(directory, "code-intelligence/client.ts"), "before\n");
-    git("add", ".");
-    git("commit", "-qm", "Before");
-    const base = git("rev-parse", "HEAD");
-    await rm(join(directory, ".github/workflows/lsp.yml"));
-    await writeFile(join(directory, "code-intelligence/client.ts"), "after\n");
-    git("add", "-A");
-    git("commit", "-qm", "Remove LSP workflow");
-    const checks = revisionChecks(base, "HEAD", directory);
-    assert.deepEqual(
-      checks.map((item) => item.workflow),
-      ["check.yml", "beads.yml"],
-    );
-    assert(
-      checks.every((item) =>
-        item.checks.every((name) => !name.startsWith("lsp-native")),
-      ),
-    );
-    assert.throws(() => revisionChecks(base, "missing-revision", directory));
-    await writeFile(
-      join(directory, ".github/workflows/check.yml"),
-      "invalid: [",
-    );
-    git("add", ".");
-    git("commit", "-qm", "Invalid definition");
-    assert.throws(() => revisionChecks(base, "HEAD", directory));
-    await writeFile(
-      join(directory, ".github/workflows/check.yml"),
-      stringify(await readWorkflow("check.yml")),
-    );
-    await writeFile(
-      join(directory, ".github/workflows/unmapped.yml"),
-      "name: New workflow\non: push\njobs: {}\n",
-    );
-    git("add", ".");
-    git("commit", "-qm", "Unmapped workflow");
-    assert.throws(
-      () => revisionChecks(base, "HEAD", directory),
-      /Unmapped CI workflow/u,
-    );
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-});
+  },
+  gitFixtureDeadline,
+);
 
-await test("native workflow filters cover static imports and literal process inputs", async () => {
+test(
+  "revision selection retains base edges but requires only workflows and check names present at head",
+  async () => {
+    const directory = await mkdtemp(join(tmpdir(), "studio-ci-policy-"));
+    const git = fixtureGit(directory);
+    try {
+      git("init", "-q");
+      await mkdir(join(directory, ".github/workflows"), { recursive: true });
+      for (const file of workflowFiles) {
+        const definition = await readWorkflow(file);
+        await writeFile(
+          join(directory, ".github/workflows", file),
+          stringify(definition),
+        );
+      }
+      await mkdir(join(directory, "code-intelligence"));
+      await writeFile(
+        join(directory, "code-intelligence/client.ts"),
+        "before\n",
+      );
+      git("add", ".");
+      git("commit", "-qm", "Before");
+      const base = git("rev-parse", "HEAD");
+      await rm(join(directory, ".github/workflows/lsp.yml"));
+      await writeFile(
+        join(directory, "code-intelligence/client.ts"),
+        "after\n",
+      );
+      git("add", "-A");
+      git("commit", "-qm", "Remove LSP workflow");
+      const checks = revisionChecks(base, "HEAD", directory);
+      assert.deepEqual(
+        checks.map((item) => item.workflow),
+        ["check.yml", "beads.yml"],
+      );
+      assert(
+        checks.every((item) =>
+          item.checks.every((name) => !name.startsWith("lsp-native")),
+        ),
+      );
+      assert.throws(() => revisionChecks(base, "missing-revision", directory));
+      await writeFile(
+        join(directory, ".github/workflows/check.yml"),
+        "invalid: [",
+      );
+      git("add", ".");
+      git("commit", "-qm", "Invalid definition");
+      assert.throws(() => revisionChecks(base, "HEAD", directory));
+      await writeFile(
+        join(directory, ".github/workflows/check.yml"),
+        stringify(await readWorkflow("check.yml")),
+      );
+      await writeFile(
+        join(directory, ".github/workflows/unmapped.yml"),
+        "name: New workflow\non: push\njobs: {}\n",
+      );
+      git("add", ".");
+      git("commit", "-qm", "Unmapped workflow");
+      assert.throws(
+        () => revisionChecks(base, "HEAD", directory),
+        /Unmapped CI workflow/u,
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+  gitFixtureDeadline,
+);
+
+test("native workflow filters cover static imports and literal process inputs", async () => {
   const ts = await import("typescript");
   const root = fileURLToPath(new URL("../", import.meta.url));
   const cases: { workflow: "lsp.yml" | "beads.yml"; roots: string[] }[] = [
@@ -366,53 +383,60 @@ await test("native workflow filters cover static imports and literal process inp
   }
 });
 
-await test("PR policy rejects unincorporated base CI changes without requiring unrelated base rebases", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "studio-ci-base-"));
-  const git = fixtureGit(directory);
-  try {
-    git("init", "-q");
-    git("config", "user.name", "Fixture");
-    git("config", "user.email", "fixture@example.invalid");
-    git("config", "core.hooksPath", "/dev/null");
-    await mkdir(join(directory, ".github/workflows"), { recursive: true });
-    for (const file of workflowFiles)
+test(
+  "PR policy rejects unincorporated base CI changes without requiring unrelated base rebases",
+  async () => {
+    const directory = await mkdtemp(join(tmpdir(), "studio-ci-base-"));
+    const git = fixtureGit(directory);
+    try {
+      git("init", "-q");
+      await mkdir(join(directory, ".github/workflows"), { recursive: true });
+      for (const file of workflowFiles)
+        await writeFile(
+          join(directory, ".github/workflows", file),
+          stringify(await readWorkflow(file)),
+        );
+      await mkdir(join(directory, "code-intelligence"));
       await writeFile(
-        join(directory, ".github/workflows", file),
-        stringify(await readWorkflow(file)),
+        join(directory, "code-intelligence/client.ts"),
+        "before\n",
       );
-    await mkdir(join(directory, "code-intelligence"));
-    await writeFile(join(directory, "code-intelligence/client.ts"), "before\n");
-    git("add", ".");
-    git("commit", "-qm", "Common base");
-    const common = git("rev-parse", "HEAD");
-    git("checkout", "-qb", "feature");
-    await writeFile(join(directory, "code-intelligence/client.ts"), "after\n");
-    git("add", ".");
-    git("commit", "-qm", "Feature");
-    const head = git("rev-parse", "HEAD");
-    git("checkout", "-qb", "target-ci", common);
-    git(
-      "mv",
-      ".github/workflows/lsp.yml",
-      ".github/workflows/language-server.yml",
-    );
-    git("commit", "-qm", "Base renamed workflow");
-    assert.throws(
-      () => revisionChecks("HEAD", head, directory),
-      /Sync current CI definitions/u,
-    );
-    git("checkout", "-qb", "target-docs", common);
-    await writeFile(
-      join(directory, "README.md"),
-      "Unrelated base documentation\n",
-    );
-    git("add", ".");
-    git("commit", "-qm", "Base documentation");
-    assert.deepEqual(
-      revisionChecks("HEAD", head, directory).map((item) => item.workflow),
-      [...workflowFiles],
-    );
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-});
+      git("add", ".");
+      git("commit", "-qm", "Common base");
+      const common = git("rev-parse", "HEAD");
+      git("checkout", "-qb", "feature");
+      await writeFile(
+        join(directory, "code-intelligence/client.ts"),
+        "after\n",
+      );
+      git("add", ".");
+      git("commit", "-qm", "Feature");
+      const head = git("rev-parse", "HEAD");
+      git("checkout", "-qb", "target-ci", common);
+      git(
+        "mv",
+        ".github/workflows/lsp.yml",
+        ".github/workflows/language-server.yml",
+      );
+      git("commit", "-qm", "Base renamed workflow");
+      assert.throws(
+        () => revisionChecks("HEAD", head, directory),
+        /Sync current CI definitions/u,
+      );
+      git("checkout", "-qb", "target-docs", common);
+      await writeFile(
+        join(directory, "README.md"),
+        "Unrelated base documentation\n",
+      );
+      git("add", ".");
+      git("commit", "-qm", "Base documentation");
+      assert.deepEqual(
+        revisionChecks("HEAD", head, directory).map((item) => item.workflow),
+        [...workflowFiles],
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+  gitFixtureDeadline,
+);
