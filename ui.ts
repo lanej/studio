@@ -1,43 +1,12 @@
-import {
-  type ExtensionContext,
-  type Theme,
-  type ThemeColor,
-  getSelectListTheme,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   matchesKey,
-  SelectList,
   Text,
   truncateToWidth,
-  visibleWidth,
   type OverlayOptions,
 } from "@earendil-works/pi-tui";
-import { knownTaskStatus, TaskStatus } from "./beads.ts";
-import { ArrowSequence, NavigationKey } from "./runtime.ts";
-
-const statusTones = {
-  [TaskStatus.Open]: { glyph: "○", tone: "muted" },
-  [TaskStatus.InProgress]: { glyph: "◐", tone: "accent" },
-  [TaskStatus.Blocked]: { glyph: "×", tone: "error" },
-  [TaskStatus.Deferred]: { glyph: "–", tone: "warning" },
-  [TaskStatus.Closed]: { glyph: "●", tone: "success" },
-} satisfies Record<TaskStatus, { glyph: string; tone: ThemeColor }>;
-
-export function taskStatusGlyph(status: string, theme: Theme): string {
-  const recognized = knownTaskStatus(status);
-  const { glyph, tone } =
-    recognized === undefined
-      ? { glyph: "?", tone: "muted" as const }
-      : statusTones[recognized];
-  return theme.fg(tone, glyph);
-}
-
-const taskOverlay = {
-  anchor: "top-right",
-  width: "48%",
-  minWidth: 42,
-  margin: 1,
-} satisfies OverlayOptions;
+import { createTaskDrawer, type TaskDrawerItem } from "./task-drawer.ts";
+import { NavigationKey } from "./runtime.ts";
 
 type TaskChoice = { id: string; action: TaskAction };
 export enum TaskAction {
@@ -45,81 +14,54 @@ export enum TaskAction {
   FocusPane = "focus_pane",
 }
 
-export function taskStatusLabel(status: string, theme: Theme): string {
-  return `${taskStatusGlyph(status, theme)} ${status.replaceAll("_", " ").replace(/\p{C}/gu, " ").toUpperCase()}`;
-}
-
-export async function chooseTask(
+export async function openTaskDrawer(
   ctx: ExtensionContext,
-  items: { value: string; label: string; canFocus: boolean }[],
-  limitReached: boolean,
+  items: TaskDrawerItem[],
+  project: string,
+  options: { detailOnly?: boolean; limitReached?: boolean } = {},
 ): Promise<TaskChoice | undefined> {
   if (items.length === 0) return undefined;
-  const focusable = new Set(
-    items.filter((item) => item.canFocus).map((item) => item.value),
-  );
+  let overlay: OverlayOptions = {};
   return ctx.ui.custom<TaskChoice | undefined>(
     (tui, theme, _keys, done) => {
-      const list = new SelectList(
+      // Pi keeps this object while the drawer is open. Read the live width on resize.
+      const compact = () => tui.terminal.columns < 80;
+      overlay = {
+        anchor: "top-right",
+        minWidth: 46,
+        get width() {
+          return compact() ? "100%" : "53%";
+        },
+        get margin() {
+          return compact() ? { top: 1, bottom: 1 } : 1;
+        },
+      };
+      const choose = (index: number, action: TaskAction): void => {
+        const item = items[index];
+        if (item !== undefined) done({ id: item.row.task.id, action });
+      };
+      return createTaskDrawer({
         items,
-        Math.max(3, Math.min(12, tui.terminal.rows - 8)),
-        {
-          ...getSelectListTheme(),
-          selectedText: (text) =>
-            theme.bg("selectedBg", theme.fg("text", text)),
-        },
-      );
-      list.onSelect = (item) => {
-        done({ id: item.value, action: TaskAction.Inspect });
-      };
-      list.onCancel = () => {
-        done(undefined);
-      };
-      return {
-        invalidate() {
-          list.invalidate();
-        },
-        render(width) {
-          const inner = Math.max(1, width - 2);
-          const selected = list.getSelectedItem();
-          const notes = [
-            ...(selected !== null && focusable.has(selected.value)
-              ? [theme.fg("muted", "→ Focus pane")]
-              : []),
-            ...(limitReached ? [theme.fg("muted", "First 1000 shown")] : []),
-          ];
-          return [...list.render(inner), ...notes]
-            .slice(0, Math.max(1, tui.terminal.rows - 2))
-            .map((line) => {
-              const rendered = truncateToWidth(line, inner);
-              return theme.bg(
-                "userMessageBg",
-                ` ${rendered}${" ".repeat(Math.max(0, width - 1 - visibleWidth(rendered)))}`,
-              );
-            });
-        },
-        handleInput(input) {
-          const selected = list.getSelectedItem();
-          if (
-            matchesKey(input, NavigationKey.Right) &&
-            selected !== null &&
-            focusable.has(selected.value)
-          ) {
-            done({ id: selected.value, action: TaskAction.FocusPane });
-            return;
-          }
-          list.handleInput(
-            matchesKey(input, NavigationKey.VimDown)
-              ? ArrowSequence.Down
-              : matchesKey(input, NavigationKey.VimUp)
-                ? ArrowSequence.Up
-                : input,
-          );
+        project,
+        detailOnly: options.detailOnly ?? false,
+        limitReached: options.limitReached ?? false,
+        theme,
+        height: () => Math.max(1, tui.terminal.rows - 2),
+        requestRender: () => {
           tui.requestRender();
         },
-      };
+        onInspect: (index) => {
+          choose(index, TaskAction.Inspect);
+        },
+        onFocus: (index) => {
+          choose(index, TaskAction.FocusPane);
+        },
+        onCancel: () => {
+          done(undefined);
+        },
+      });
     },
-    { overlay: true, overlayOptions: taskOverlay },
+    { overlay: true, overlayOptions: () => overlay },
   );
 }
 

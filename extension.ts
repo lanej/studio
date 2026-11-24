@@ -19,9 +19,6 @@ import { directoryProfileType, registerDirectory } from "./directory.ts";
 import {
   BeadsReader,
   knownTaskStatus,
-  taskDetails,
-  taskOverlayLabel,
-  taskReviewLabel,
   taskSchema,
   taskTree,
   TaskStatus,
@@ -46,13 +43,7 @@ import {
   piModeSchema,
 } from "./runtime.ts";
 import { focusTaskPane, taskPaneBeads } from "./task-run.ts";
-import {
-  chooseTask,
-  showTask,
-  taskStatusGlyph,
-  taskStatusLabel,
-  TaskAction,
-} from "./ui.ts";
+import { openTaskDrawer, TaskAction } from "./ui.ts";
 
 const attemptType = "studio:idle-attempt";
 const attemptSchema = z.object({ historyId: z.string() });
@@ -308,29 +299,17 @@ export default function studioExtension(
           config.beadsService === undefined
             ? new Set<string>()
             : await taskPaneBeads(config.beadsService.projectId);
-        const selection = await chooseTask(
+        const selection = await openTaskDrawer(
           ctx,
           rows.map((row) => ({
-            value: row.task.id,
-            label: taskOverlayLabel(
-              row,
-              (status) => {
-                const glyph = taskStatusGlyph(status, ctx.ui.theme);
-                const review = reviews.get(row.task.id);
-                return review === undefined
-                  ? glyph
-                  : `${glyph} ${ctx.ui.theme.fg(
-                      review.finding === undefined ? "accent" : "warning",
-                      taskReviewLabel(review),
-                    )}`;
-              },
-              (branch) => ctx.ui.theme.fg("muted", branch),
-            ),
+            row,
+            review: reviews.get(row.task.id),
             canFocus:
               live.has(row.task.id) &&
               knownTaskStatus(row.task.status) === TaskStatus.InProgress,
           })),
-          tasks.length === 1000,
+          label,
+          { limitReached: tasks.length === 1000 },
         );
         if (selection === undefined) return;
         if (
@@ -342,16 +321,18 @@ export default function studioExtension(
         }
         id = selection.id;
       }
-      if (id.length === 0) return;
       const task = await reader.show(id);
-      await showTask(
+      await openTaskDrawer(
         ctx,
-        taskDetails(
-          task,
-          label,
-          (status) => taskStatusLabel(status, ctx.ui.theme),
-          activeTaskReviews(project, [task]).get(task.id),
-        ),
+        [
+          {
+            row: { task, depth: 0 },
+            review: activeTaskReviews(project, [task]).get(task.id),
+            canFocus: false,
+          },
+        ],
+        label,
+        { detailOnly: true },
       );
     },
   });

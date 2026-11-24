@@ -167,16 +167,6 @@ export function taskLabel(row: TreeRow): string {
   );
 }
 
-export function taskOverlayLabel(
-  row: TreeRow,
-  renderStatus: (status: string) => string,
-  renderBranch: (branch: string) => string,
-): string {
-  const branch = row.branch === undefined ? "" : renderBranch(row.branch);
-  const label = inlineText(`${row.task.id} · ${row.task.title}`);
-  return `${branch}${renderStatus(inlineText(row.task.status))} ${label}${row.warning === undefined ? "" : " ⚠"}`;
-}
-
 export function taskDetails(
   task: Task,
   workspace: string,
