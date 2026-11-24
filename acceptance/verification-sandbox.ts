@@ -42,6 +42,19 @@ async function boundaryCheck(
   }
 }
 
+const gitStageTimeout = process.env["CI"] === "true" ? 30_000 : 10_000;
+const gitCommandTimeout = process.env["CI"] === "true" ? 10_000 : 2_000;
+const gitProgress = "build-output/git-probe.jsonl";
+// Scratch output survives cancellation long enough to identify a slow or blocked tool.
+const gitProbe = `const progress=${JSON.stringify(gitProgress)};fs.mkdirSync("build-output",{recursive:true});const command=(program,args)=>{const started=Date.now();const record=(event)=>fs.appendFileSync(progress,JSON.stringify({program,args,event,elapsedMs:Date.now()-started})+"\\n");record("start");try{const result=cp.execFileSync(program,args,{encoding:"utf8",timeout:${String(gitCommandTimeout)}});record("end");return result}catch(error){record("error");throw error}};`;
+async function printGitProgress(stage: string, cwd: string): Promise<void> {
+  const progress = await readFile(join(cwd, gitProgress), "utf8").catch(
+    (error: unknown) =>
+      error instanceof Error ? error.message : String(error),
+  );
+  console.info(`[verification] ${stage} command trace:\n${progress}`);
+}
+
 const fixture = await realpath(
   await mkdtemp(join(tmpdir(), "studio-verifier-boundary-")),
 );
@@ -155,7 +168,7 @@ try {
     process.platform === "darwin"
       ? await realpath((await run("/usr/bin/xcrun", ["--find", "git"])).trim())
       : undefined;
-  const inspectGit = `const fs=require("node:fs");const cp=require("node:child_process");for(const path of ${JSON.stringify([join(project, ".git", "config"), join(originalMetadata, "config.worktree"), join(checkout, ".git")])}){try{if(fs.readFileSync(path,"utf8").trim().length>0)process.exit(41)}catch{}}const head=cp.execFileSync("/usr/bin/git",["rev-parse","HEAD"],{encoding:"utf8"}).trim();if(head!==${JSON.stringify(before.gitHead)})process.exit(42);const status=cp.execFileSync("/usr/bin/git",["status","--porcelain"],{encoding:"utf8"});if(status.trim().length>0)process.exit(43);const config=cp.execFileSync("/usr/bin/git",["config","--list"],{encoding:"utf8"});${developerGit === undefined ? "" : `const developerGit=fs.realpathSync(cp.execFileSync("/usr/bin/xcrun",["--find","git"],{encoding:"utf8"}).trim());if(developerGit!==${JSON.stringify(developerGit)})process.exit(45);`}if(config.includes("owned-config-sentinel")||config.includes("owned-worktree-sentinel"))process.exit(44);`;
+  const inspectGit = `const fs=require("node:fs");const cp=require("node:child_process");${gitProbe}for(const path of ${JSON.stringify([join(project, ".git", "config"), join(originalMetadata, "config.worktree"), join(checkout, ".git")])}){try{if(fs.readFileSync(path,"utf8").trim().length>0)process.exit(41)}catch{}}const head=command("/usr/bin/git",["rev-parse","HEAD"]).trim();if(head!==${JSON.stringify(before.gitHead)})process.exit(42);const status=command("/usr/bin/git",["status","--porcelain"]);if(status.trim().length>0)process.exit(43);const config=command("/usr/bin/git",["config","--list"]);${developerGit === undefined ? "" : `const developerGit=fs.realpathSync(command("/usr/bin/xcrun",["--find","git"]).trim());if(developerGit!==${JSON.stringify(developerGit)})process.exit(45);`}if(config.includes("owned-config-sentinel")||config.includes("owned-worktree-sentinel"))process.exit(44);`;
   const sanitized = await verificationSandbox(
     checkout,
     [process.execPath, "-e", inspectGit],
@@ -168,13 +181,14 @@ try {
       "sanitized Git metadata",
       sanitized.argv,
       sanitized.cwd,
-      AbortSignal.timeout(10000),
+      AbortSignal.timeout(gitStageTimeout),
       undefined,
       sanitized.environment,
     );
     assert.equal(result.exitCode, 0, result.output);
     await sanitized.assertSourceUnchanged();
   } finally {
+    await printGitProgress("sanitized Git metadata", sanitized.cwd);
     await sanitized.close();
   }
   await assert.rejects(
@@ -236,7 +250,7 @@ try {
     '#!/bin/sh\nprintf "%s\\n" "Unexpected private Git wrapper" >&2\nexit 93\n',
     { mode: 0o755 },
   );
-  const nestedGitScript = `const fs=require("node:fs"),cp=require("node:child_process"),path=require("node:path");const git=(...args)=>cp.execFileSync("git",args,{encoding:"utf8"});if(git("--version")!==cp.execFileSync("/usr/bin/git",["--version"],{encoding:"utf8"}))process.exit(51);const base=path.resolve("build-output","git-fixture"),remote=path.join(base,"remote.git"),source=path.join(base,"source"),clone=path.join(base,"clone");fs.mkdirSync(base,{recursive:true});git("init","--bare",remote);git("init","--initial-branch=main",source);git("-C",source,"config","user.name","Fixture");git("-C",source,"config","user.email","fixture@example.invalid");fs.writeFileSync(path.join(source,"result.txt"),"nested Git result");git("-C",source,"add","result.txt");git("-C",source,"commit","-qm","Fixture");git("-C",source,"push",remote,"main");git("clone","--branch","main",remote,clone);if(fs.readFileSync(path.join(clone,"result.txt"),"utf8")!=="nested Git result")process.exit(52);`;
+  const nestedGitScript = `const fs=require("node:fs"),cp=require("node:child_process"),path=require("node:path");${gitProbe}const git=(...args)=>command("git",args);if(git("--version")!==command("/usr/bin/git",["--version"]))process.exit(51);const base=path.resolve("build-output","git-fixture"),remote=path.join(base,"remote.git"),source=path.join(base,"source"),clone=path.join(base,"clone");fs.mkdirSync(base,{recursive:true});git("init","--bare",remote);git("init","--initial-branch=main",source);git("-C",source,"config","user.name","Fixture");git("-C",source,"config","user.email","fixture@example.invalid");fs.writeFileSync(path.join(source,"result.txt"),"nested Git result");git("-C",source,"add","result.txt");git("-C",source,"commit","-qm","Fixture");git("-C",source,"push",remote,"main");git("clone","--branch","main",remote,clone);if(fs.readFileSync(path.join(clone,"result.txt"),"utf8")!=="nested Git result")process.exit(52);`;
   const previousPath = process.env["PATH"];
   process.env["PATH"] = `${privateTools}${delimiter}${previousPath ?? ""}`;
   try {
@@ -249,16 +263,18 @@ try {
     try {
       assert.equal(nested.environment["GIT_DIR"], undefined);
       assert.equal(nested.environment["GIT_WORK_TREE"], undefined);
-      const result = await runCheck(
+      const result = await boundaryCheck(
+        "nested Git repositories",
         nested.argv,
         nested.cwd,
-        AbortSignal.timeout(10000),
+        AbortSignal.timeout(gitStageTimeout),
         undefined,
         nested.environment,
       );
       assert.equal(result.exitCode, 0, result.output);
       await nested.assertSourceUnchanged();
     } finally {
+      await printGitProgress("nested Git repositories", nested.cwd);
       await nested.close();
     }
   } finally {
