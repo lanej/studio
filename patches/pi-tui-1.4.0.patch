@@ -1,0 +1,44 @@
+diff --git a/dist/components/image.d.ts b/dist/components/image.d.ts
+index 7223aa9..51dff92 100644
+--- a/dist/components/image.d.ts
++++ b/dist/components/image.d.ts
+@@ -14,7 +14,8 @@ export interface ImageTheme {
+     fallbackColor: (str: string) => string;
+ }
+ export interface ImageOptions {
+-    maxWidthCells?: number;
++    /** Auto uses the source's pixel width as a ceiling within the available terminal cells. */
++    maxWidthCells?: number | "auto";
+     maxHeightCells?: number;
+     filename?: string;
+     /** Kitty image ID. If provided, reuses this ID (for animations/updates). */
+diff --git a/dist/components/image.js b/dist/components/image.js
+index 78719cd..6afde7d 100644
+--- a/dist/components/image.js
++++ b/dist/components/image.js
+@@ -53,10 +53,6 @@ export class Image {
+         if (this.cachedLines && this.cachedWidth === width) {
+             return this.cachedLines;
+         }
+-        const maxWidth = Math.max(1, Math.min(width - 2, this.options.maxWidthCells ?? 60));
+-        const cellDimensions = getCellDimensions();
+-        const defaultMaxHeight = Math.max(1, Math.ceil((maxWidth * cellDimensions.widthPx) / cellDimensions.heightPx));
+-        const maxHeight = this.options.maxHeightCells ?? defaultMaxHeight;
+         const caps = getCapabilities();
+         let data = this.base64Data;
+         let dimensions = this.dimensions;
+@@ -69,6 +65,14 @@ export class Image {
+         }
+         let lines;
+         if (caps.images && data) {
++            const cell = getCellDimensions();
++            const availableWidth = Math.max(1, width - 2);
++            const auto = this.options.maxWidthCells === "auto";
++            const widthLimit = auto ? Math.round(dimensions.widthPx / cell.widthPx) : (this.options.maxWidthCells ?? 60);
++            const maxWidth = Math.max(1, Math.min(availableWidth, widthLimit));
++            // Bound tall previews by the pane in auto mode so small portrait images keep their natural height.
++            const heightBudgetPx = (auto ? availableWidth : maxWidth) * cell.widthPx;
++            const maxHeight = this.options.maxHeightCells ?? Math.max(1, Math.ceil(heightBudgetPx / cell.heightPx));
+             if (caps.images === "kitty" && this.imageId === undefined) {
+                 this.imageId = allocateImageId();
+             }

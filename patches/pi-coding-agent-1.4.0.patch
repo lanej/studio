@@ -1,0 +1,276 @@
+diff --git a/dist/core/settings-defaults.d.ts b/dist/core/settings-defaults.d.ts
+index c96e7ea..6ccd21f 100644
+--- a/dist/core/settings-defaults.d.ts
++++ b/dist/core/settings-defaults.d.ts
+@@ -32,7 +32,7 @@ export declare const SETTINGS_DEFAULTS: {
+     readonly enableSkillCommands: true;
+     readonly terminal: {
+         readonly showImages: true;
+-        readonly imageWidthCells: 60;
++        readonly imageWidthCells: "auto";
+         readonly clearOnShrink: false;
+         readonly showTerminalProgress: false;
+     };
+diff --git a/dist/core/settings-defaults.js b/dist/core/settings-defaults.js
+index 96989ae..0250b64 100644
+--- a/dist/core/settings-defaults.js
++++ b/dist/core/settings-defaults.js
+@@ -33,7 +33,7 @@ export const SETTINGS_DEFAULTS = {
+     enableSkillCommands: true,
+     terminal: {
+         showImages: true,
+-        imageWidthCells: 60,
++        imageWidthCells: "auto",
+         clearOnShrink: false,
+         showTerminalProgress: false,
+     },
+diff --git a/dist/core/settings-manager.d.ts b/dist/core/settings-manager.d.ts
+index a40ba7f..f314c53 100644
+--- a/dist/core/settings-manager.d.ts
++++ b/dist/core/settings-manager.d.ts
+@@ -206,8 +206,8 @@ export declare class SettingsManager {
+     getTerminalCapabilityOverrides(): Partial<TerminalCapabilities>;
+     getShowImages(): boolean;
+     setShowImages(show: boolean): void;
+-    getImageWidthCells(): number;
+-    setImageWidthCells(width: number): void;
++    getImageWidthCells(): number | "auto";
++    setImageWidthCells(width: number | "auto"): void;
+     getClearOnShrink(): boolean;
+     setClearOnShrink(enabled: boolean): void;
+     getShowTerminalProgress(): boolean;
+diff --git a/dist/core/settings-manager.js b/dist/core/settings-manager.js
+index d5ce9cd..fbadeb3 100644
+--- a/dist/core/settings-manager.js
++++ b/dist/core/settings-manager.js
+@@ -952,7 +952,7 @@ export class SettingsManager {
+         if (!this.globalSettings.terminal) {
+             this.globalSettings.terminal = {};
+         }
+-        this.globalSettings.terminal.imageWidthCells = Math.max(1, Math.floor(width));
++        this.globalSettings.terminal.imageWidthCells = width === "auto" ? width : Math.max(1, Math.floor(width));
+         this.markModified("terminal", "imageWidthCells");
+         this.save();
+     }
+diff --git a/dist/core/settings-schema.d.ts b/dist/core/settings-schema.d.ts
+index 28676b7..8576097 100644
+--- a/dist/core/settings-schema.d.ts
++++ b/dist/core/settings-schema.d.ts
+@@ -35,7 +35,7 @@ declare const RetrySettingsSchema: Type.TObject<{
+ }>;
+ declare const TerminalSettingsSchema: Type.TObject<{
+     showImages: Type.TOptional<Type.TBoolean>;
+-    imageWidthCells: Type.TOptional<Type.TNumber>;
++    imageWidthCells: Type.TOptional<Type.TUnion<[Type.TNumber, Type.TLiteral<"auto">]>>;
+     clearOnShrink: Type.TOptional<Type.TBoolean>;
+     showTerminalProgress: Type.TOptional<Type.TBoolean>;
+     hyperlinks: Type.TOptional<Type.TUnion<[Type.TBoolean, Type.TLiteral<"auto">]>>;
+@@ -140,7 +140,7 @@ export declare const SettingsSchema: Type.TObject<{
+     enableSkillCommands: Type.TOptional<Type.TBoolean>;
+     terminal: Type.TOptional<Type.TObject<{
+         showImages: Type.TOptional<Type.TBoolean>;
+-        imageWidthCells: Type.TOptional<Type.TNumber>;
++        imageWidthCells: Type.TOptional<Type.TUnion<[Type.TNumber, Type.TLiteral<"auto">]>>;
+         clearOnShrink: Type.TOptional<Type.TBoolean>;
+         showTerminalProgress: Type.TOptional<Type.TBoolean>;
+         hyperlinks: Type.TOptional<Type.TUnion<[Type.TBoolean, Type.TLiteral<"auto">]>>;
+diff --git a/dist/core/settings-schema.js b/dist/core/settings-schema.js
+index 28c00ed..aaf6fe6 100644
+--- a/dist/core/settings-schema.js
++++ b/dist/core/settings-schema.js
+@@ -56,8 +56,8 @@ const TerminalSettingsSchema = Type.Object({
+         description: "Show images when the terminal supports them.",
+         default: SETTINGS_DEFAULTS.terminal.showImages,
+     })),
+-    imageWidthCells: Type.Optional(Type.Number({
+-        description: "Preferred inline image width in terminal cells.",
++    imageWidthCells: Type.Optional(Type.Union([Type.Number(), Type.Literal("auto")], {
++        description: "Auto fits the image to its source size and the pane. A number sets the preferred width in terminal cells.",
+         default: SETTINGS_DEFAULTS.terminal.imageWidthCells,
+     })),
+     clearOnShrink: Type.Optional(Type.Boolean({
+diff --git a/dist/modes/interactive/components/assistant-message.js b/dist/modes/interactive/components/assistant-message.js
+--- a/dist/modes/interactive/components/assistant-message.js
++++ b/dist/modes/interactive/components/assistant-message.js
+@@ -1,9 +1,28 @@
+-import { Container, Markdown, MouseRegion, Spacer, Text } from "@earendil-works/pi-tui";
++import { Container, Markdown, MouseRegion, Spacer, Text, truncateToWidth } from "@earendil-works/pi-tui";
+ import { getMarkdownTheme, theme } from "../theme/theme.js";
+ import { createMarkdownTransform } from "./markdown-transform.js";
+ const OSC133_ZONE_START = "\x1b]133;A\x07";
+ const OSC133_ZONE_END = "\x1b]133;B\x07";
+ const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
++// Keep prose readable in wide lead consoles while letting Pi lay out the original Markdown.
++class ExpandedThinkingBlock extends Markdown {
++    constructor(text, outputPad, markdownTheme, transform) {
++        super(text, 0, 0, markdownTheme, { color: (value) => theme.fg("text", value) }, { transform });
++        this.outputPad = outputPad;
++    }
++    render(width) {
++        const padding = Math.min(this.outputPad, Math.max(0, Math.floor((width - 1) / 2)));
++        const available = width - 2 * padding;
++        const railWidth = available >= 4 ? 2 : 0;
++        const body = super.render(Math.max(1, Math.min(88, available - railWidth)));
++        if (body.length === 0 || available <= 0)
++            return [];
++        const margin = " ".repeat(padding);
++        const heading = theme.fg("thinkingText", theme.bold("▾ Thinking"));
++        const rail = railWidth ? theme.fg("borderMuted", "│") + " " : "";
++        return [margin + truncateToWidth(heading, available, ""), ...body.map((line) => margin + rail + line)];
++    }
++}
+ /**
+  * Component that renders a complete assistant message
+  */
+@@ -110,13 +129,9 @@
+                 const runIndex = thinkingRunIndex++;
+                 const hidden = this.thinkingVisibilityOverrides.get(runIndex) ?? this.hideThinkingBlock;
+                 const thinkingComponent = hidden
+-                    ? new Text(theme.italic(theme.fg("thinkingText", this.hiddenThinkingLabel)), this.outputPad, 0)
+-                    : new Markdown(thinkingBlocks.join("\n\n"), this.outputPad, 0, this.markdownTheme, {
+-                        color: (text) => theme.fg("thinkingText", text),
+-                        italic: true,
+-                    }, {
+-                        transform: createMarkdownTransform("assistant-thinking", this.isStreaming, this.markdownTransformers),
+-                    });
++                    ? new Text(this.hiddenThinkingLabel && theme.fg("thinkingText", "▸ " + this.hiddenThinkingLabel), this.outputPad, 0)
++                    : new ExpandedThinkingBlock(thinkingBlocks.join("\n\n"), this.outputPad, this.markdownTheme,
++                        createMarkdownTransform("assistant-thinking", this.isStreaming, this.markdownTransformers));
+                 this.contentContainer.addChild(new MouseRegion(thinkingComponent, (event) => {
+                     if (event.type !== "click" || event.button !== "left")
+                         return undefined;
+diff --git a/dist/modes/interactive/components/settings-selector.d.ts b/dist/modes/interactive/components/settings-selector.d.ts
+index 03d06fb..2c2a5f6 100644
+--- a/dist/modes/interactive/components/settings-selector.d.ts
++++ b/dist/modes/interactive/components/settings-selector.d.ts
+@@ -9,7 +9,7 @@ export interface SettingsConfig {
+     currentModel?: Model<any>;
+     availableDefaultModels: readonly Model<any>[];
+     showImages: boolean;
+-    imageWidthCells: number;
++    imageWidthCells: number | "auto";
+     autoResizeImages: boolean;
+     blockImages: boolean;
+     enableSkillCommands: boolean;
+@@ -50,7 +50,7 @@ export interface SettingsConfig {
+ export interface SettingsCallbacks {
+     onAutoCompactChange: (enabled: boolean) => void;
+     onShowImagesChange: (enabled: boolean) => void;
+-    onImageWidthCellsChange: (width: number) => void;
++    onImageWidthCellsChange: (width: number | "auto") => void;
+     onAutoResizeImagesChange: (enabled: boolean) => void;
+     onBlockImagesChange: (blocked: boolean) => void;
+     onEnableSkillCommandsChange: (enabled: boolean) => void;
+diff --git a/dist/modes/interactive/components/settings-selector.js b/dist/modes/interactive/components/settings-selector.js
+index f7929f1..76f3c71 100644
+--- a/dist/modes/interactive/components/settings-selector.js
++++ b/dist/modes/interactive/components/settings-selector.js
+@@ -545,9 +545,9 @@ export class SettingsSelectorComponent extends Container {
+             items.splice(2, 0, {
+                 id: "image-width-cells",
+                 label: "Image width",
+-                description: "Preferred inline image width in terminal cells",
++                description: "Auto fits the source image to the pane; expand the tool to magnify",
+                 currentValue: String(config.imageWidthCells),
+-                values: ["60", "80", "120"],
++                values: ["auto", "60", "80", "120"],
+             });
+         }
+         // Image auto-resize toggle (always available, affects both attached and read images)
+@@ -641,7 +641,7 @@ export class SettingsSelectorComponent extends Container {
+                     callbacks.onShowImagesChange(newValue === "true");
+                     break;
+                 case "image-width-cells":
+-                    callbacks.onImageWidthCellsChange(parseInt(newValue, 10));
++                    callbacks.onImageWidthCellsChange(newValue === "auto" ? newValue : parseInt(newValue, 10));
+                     break;
+                 case "auto-resize-images":
+                     callbacks.onAutoResizeImagesChange(newValue === "true");
+diff --git a/dist/modes/interactive/components/tool-execution.d.ts b/dist/modes/interactive/components/tool-execution.d.ts
+index 0736b6f..400d561 100644
+--- a/dist/modes/interactive/components/tool-execution.d.ts
++++ b/dist/modes/interactive/components/tool-execution.d.ts
+@@ -4,7 +4,7 @@ import type { ToolDefinition, ToolRenderers } from "../../../core/extensions/typ
+ export type { ToolRenderers };
+ export interface ToolExecutionOptions {
+     showImages?: boolean;
+-    imageWidthCells?: number;
++    imageWidthCells?: number | "auto";
+     outputPad?: number;
+ }
+ export declare class ToolExecutionComponent extends Container {
+@@ -62,7 +62,7 @@ export declare class ToolExecutionComponent extends Container {
+     setExpanded(expanded: boolean): void;
+     setOutputPad(outputPad: number): void;
+     setShowImages(show: boolean): void;
+-    setImageWidthCells(width: number): void;
++    setImageWidthCells(width: number | "auto"): void;
+     invalidate(): void;
+     render(width: number): string[];
+     handleMouse(event: TuiMouseEvent): ReturnType<Container["handleMouse"]>;
+diff --git a/dist/modes/interactive/components/tool-execution.js b/dist/modes/interactive/components/tool-execution.js
+index d447db5..0aed9bc 100644
+--- a/dist/modes/interactive/components/tool-execution.js
++++ b/dist/modes/interactive/components/tool-execution.js
+@@ -39,7 +39,7 @@ export class ToolExecutionComponent extends Container {
+         this.args = args;
+         this.toolDefinition = toolDefinition;
+         this.showImages = options.showImages ?? true;
+-        this.imageWidthCells = options.imageWidthCells ?? 60;
++        this.imageWidthCells = options.imageWidthCells ?? "auto";
+         this.outputPad = options.outputPad ?? 1;
+         this.ui = ui;
+         this.cwd = cwd;
+@@ -149,7 +149,7 @@ export class ToolExecutionComponent extends Container {
+         this.updateDisplay();
+     }
+     setImageWidthCells(width) {
+-        this.imageWidthCells = Math.max(1, Math.floor(width));
++        this.imageWidthCells = width === "auto" ? width : Math.max(1, Math.floor(width));
+         this.updateDisplay();
+     }
+     invalidate() {
+@@ -281,7 +281,9 @@ export class ToolExecutionComponent extends Container {
+                     const spacer = new Spacer(1);
+                     this.addChild(spacer);
+                     this.imageSpacers.push(spacer);
+-                    const source = { data: img.data, mimeType: img.mimeType, widthCells: this.imageWidthCells };
++                    // The expanded auto preview may grow beyond the source's native size.
++                    const widthCells = this.expanded && this.imageWidthCells === "auto" ? Infinity : this.imageWidthCells;
++                    const source = { data: img.data, mimeType: img.mimeType, widthCells };
+                     const index = this.imageComponents.length;
+                     const previous = previousSources[index];
+                     const imageComponent = previous?.data === source.data &&
+diff --git a/docs/settings.md b/docs/settings.md
+index 7e28985..366a42f 100644
+--- a/docs/settings.md
++++ b/docs/settings.md
+@@ -104,7 +104,7 @@ See [Compaction Reference](compaction.md) for trigger, summarization, and valida
+ | `autocompleteMaxVisible` | number | `5` | Visible autocomplete entries, from 3 to 20. |
+ | `showHardwareCursor` | boolean | `false` | Use the terminal cursor instead of Pi's drawn cursor. Pi still positions it for input methods. |
+ | `terminal.showImages` | boolean | `true` | Display inline images when supported. |
+-| `terminal.imageWidthCells` | number | `60` | Preferred inline image width in terminal cells. |
++| `terminal.imageWidthCells` | number or `"auto"` | `"auto"` | Auto fits inline images to their source size and the pane. Expanding a tool can magnify a small preview. A number sets a fixed preferred width in cells. |
+ | `terminal.clearOnShrink` | boolean | `false` | Clear empty rows when rendered content shrinks. |
+ | `terminal.showTerminalProgress` | boolean | `false` | Show OSC 9;4 progress in the terminal tab. |
+ | `terminal.hyperlinks` | `boolean \| "auto"` | `"auto"` | Override OSC 8 hyperlink detection. |
+diff --git a/schemas/settings.schema.json b/schemas/settings.schema.json
+index 4d6c23a..4c1a6e5 100644
+--- a/schemas/settings.schema.json
++++ b/schemas/settings.schema.json
+@@ -394,9 +394,12 @@
+           "default": true
+         },
+         "imageWidthCells": {
+-          "type": "number",
+-          "description": "Preferred inline image width in terminal cells.",
+-          "default": 60
++          "anyOf": [
++            { "type": "number" },
++            { "type": "string", "const": "auto" }
++          ],
++          "description": "Auto fits the image to its source size and the pane. A number sets the preferred width in terminal cells.",
++          "default": "auto"
+         },
+         "clearOnShrink": {
+           "type": "boolean",
