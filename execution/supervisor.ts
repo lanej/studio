@@ -65,7 +65,7 @@ export async function ensureRuntime(): Promise<void> {
     store.close();
   }
 }
-function overlaps(left: Execution, right: Execution): boolean {
+export function overlaps(left: Execution, right: Execution): boolean {
   return (
     left.project === right.project &&
     (left.owns.length === 0 ||

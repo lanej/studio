@@ -489,7 +489,14 @@ export async function executeAssignment(
           );
       }
     };
-    if (head === undefined || attempt.review === undefined) await implement();
+    // A retained approval cannot stand in for a later failed or missing verification or finding.
+    if (
+      head === undefined ||
+      attempt.review === undefined ||
+      attempt.reviewFinding !== undefined ||
+      attempt.verification?.exitCode !== 0
+    )
+      await implement();
     else {
       const saved = parseWorkerResult(
         JSON.parse(attempt.summary),

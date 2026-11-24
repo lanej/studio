@@ -9,10 +9,20 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { stripVTControlCharacters as stripAnsi } from "node:util";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { StudioProfile } from "../config.ts";
-import { ExecutionPhase, executionSchema } from "../execution/store.ts";
+import {
+  ExecutionPhase,
+  VerificationPhase,
+  executionSchema,
+} from "../execution/store.ts";
+import { retryWriterFence } from "../execution/recovery.ts";
 import { TaskBrowser } from "../tasks/browser.ts";
 import { readTaskEvidence } from "../tasks/evidence.ts";
-import { taskLinks, taskNarrative, type TaskSnapshot } from "../tasks/model.ts";
+import {
+  parkedDetails,
+  taskLinks,
+  taskNarrative,
+  type TaskSnapshot,
+} from "../tasks/model.ts";
 
 const project = randomUUID();
 const rejected = {
@@ -49,6 +59,185 @@ const snapshot: TaskSnapshot = {
   focusable: new Set(),
   limitReached: false,
 };
+
+await test("retry retains a settled host fence when its process identity is incomplete", async () => {
+  assert.equal(
+    await retryWriterFence({
+      ...attempt,
+      launchSettled: true,
+      pid: 123,
+      started: undefined,
+    }),
+    true,
+  );
+  assert.equal(
+    await retryWriterFence({
+      ...attempt,
+      launchSettled: true,
+      pid: undefined,
+      started: "unknown",
+    }),
+    true,
+  );
+  assert.equal(
+    await retryWriterFence({
+      ...attempt,
+      launchSettled: true,
+      verifier: { phase: VerificationPhase.Running },
+    }),
+    true,
+  );
+});
+
+await test("parked details use the current owner and scheduler path rules", () => {
+  assert(attempt.bead !== undefined);
+  const owned = { ...attempt, owns: ["src/core"] };
+  const first = {
+    ...attempt,
+    id: randomUUID(),
+    phase: ExecutionPhase.Queued,
+    owns: ["src/core/file.ts"],
+    bead: { ...attempt.bead, id: "first", title: "First" },
+  };
+  const second = {
+    ...first,
+    id: randomUUID(),
+    owns: [],
+    bead: { ...first.bead, id: "second", title: "Second" },
+  };
+  const foreign = {
+    ...first,
+    id: randomUUID(),
+    project: randomUUID(),
+    bead: { ...first.bead, title: "Foreign" },
+  };
+  const task = { ...rejected, assignee: `pi:${owned.id}` };
+  const view = { ...snapshot, attempts: [owned, first, second, foreign] };
+  const details = parkedDetails(task, view) ?? "";
+  assert.match(details, /Verification failed.*42/u);
+  assert.match(details, /First: src\/core \/ src\/core\/file.ts/u);
+  assert.match(details, /Second: ownership unspecified/u);
+  assert.doesNotMatch(details, /Foreign/u);
+  assert.equal(
+    parkedDetails({ ...task, assignee: "someone-else" }, view),
+    undefined,
+  );
+  assert.match(
+    parkedDetails(task, {
+      ...view,
+      attempts: [
+        { ...owned, phase: ExecutionPhase.Uncertain, verification: undefined },
+      ],
+    }) ?? "",
+    /Uncertain execution.*\nLast completed step: unknown/u,
+  );
+  assert.match(
+    parkedDetails(task, {
+      ...view,
+      attempts: [{ ...owned, reviewFinding: "Fix the API" }],
+    }) ?? "",
+    /Reviewer requested changes: Fix the API/u,
+  );
+});
+
+await test("parked task opens retained diff and requests guarded retry", async () => {
+  const task = { ...rejected, assignee: `pi:${attempt.id}` };
+  const current = {
+    ...attempt,
+    revision: "1",
+    base: "a".repeat(40),
+    checkout: {
+      primary: "/fixture",
+      root: "/fixture/.worktrees",
+      path: "/fixture/.worktrees/one",
+      task_id: "one",
+      owner_id: "owner",
+      agent: "agent",
+      branch: "task/one",
+      created_at: "now",
+      base_ref: "main",
+    },
+  };
+  const view = { ...snapshot, tasks: [task], attempts: [current] };
+  const theme: Pick<Theme, "fg" | "bg" | "bold" | "getBgAnsi"> = {
+    fg: (_color, value) => value,
+    bg: (_color, value) => value,
+    bold: (value) => value,
+    getBgAnsi: () => "",
+  };
+  let retried = "";
+  const browser = new TaskBrowser(
+    view,
+    {
+      label: "Fixture",
+      identity: project,
+      load: () => Promise.resolve(view),
+      show: () => Promise.resolve(task),
+      diff: () => Promise.resolve("retained diff evidence"),
+      retry: (id) => {
+        retried = id;
+        return Promise.resolve();
+      },
+    },
+    theme,
+    () => 24,
+    () => {},
+    () => {},
+    task.id,
+  );
+  const render = () => browser.render(80).map(stripAnsi).join("\n");
+  render();
+  browser.handleInput("\t");
+  render();
+  browser.handleInput("\r");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.match(render(), /retained diff evidence/u);
+  browser.handleInput("\t");
+  render();
+  browser.handleInput("\r");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(retried, attempt.id);
+  assert.match(render(), /Retry queued/u);
+});
+
+await test("narrow and wide inspectors explain missing evidence and block unsafe recovery", () => {
+  const task = { ...rejected, assignee: `pi:${attempt.id}` };
+  const view = {
+    ...snapshot,
+    tasks: [task],
+    attempts: [{ ...attempt, verification: undefined }],
+    retryBlocked: new Map([[attempt.id, "writer identity is uncertain"]]),
+  };
+  const theme: Pick<Theme, "fg" | "bg" | "bold" | "getBgAnsi"> = {
+    fg: (_color, value) => value,
+    bg: (_color, value) => value,
+    bold: (value) => value,
+    getBgAnsi: () => "",
+  };
+  for (const width of [60, 80]) {
+    const browser = new TaskBrowser(
+      view,
+      {
+        label: "Fixture",
+        identity: project,
+        load: () => Promise.resolve(view),
+        show: () => Promise.resolve(task),
+        retry: () => Promise.resolve(),
+      },
+      theme,
+      () => 100,
+      () => {},
+      () => {},
+      task.id,
+    );
+    const screen = browser.render(width).map(stripAnsi).join("\n");
+    assert.match(screen, /Verification evidence unavailable/u);
+    assert.match(screen, /Retained diff unavailable/u);
+    assert.match(screen, /Retry unavailable: writer identity/u);
+    assert.match(screen, /uncertain/u);
+    assert.doesNotMatch(screen, /Retry attempt \(guards checked/u);
+  }
+});
 
 await test("task narratives preserve a rejected receipt without declaring its open successor runnable", () => {
   assert.match(

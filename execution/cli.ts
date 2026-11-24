@@ -1,10 +1,71 @@
-import { writerFence } from "./recovery.ts";
+import { retryWriterFence } from "./recovery.ts";
 import { runVerification } from "./verification.ts";
 import type { Command } from "commander";
 import { ensureRuntime, serveRuntime, alive } from "./supervisor.ts";
 import { ExecutionStore, ExecutionPhase } from "./store.ts";
 import { ExecutionBeads } from "./beads.ts";
 import { mergePolicy } from "./policy.ts";
+import { isDeepStrictEqual } from "node:util";
+
+export async function retryAttempt(id: string): Promise<void> {
+  const store = new ExecutionStore();
+  try {
+    const record = store.attempt(id);
+    if (
+      ![
+        ExecutionPhase.Parked,
+        ExecutionPhase.Uncertain,
+        ExecutionPhase.Delivery,
+      ].includes(record.phase)
+    )
+      throw new Error(
+        "Only parked, uncertain, or delivery-pending work can be explicitly retried",
+      );
+    if (await retryWriterFence(record))
+      throw new Error(
+        "The prior host/verifier may still exist or lacks a complete launch receipt; retain its writer fence until positively reconciled",
+      );
+    const service = new ExecutionBeads(store.project(record.project).source);
+    if (record.bead === undefined || record.revision === undefined)
+      throw new Error(
+        "Inspect the uncertain claim by its recorded actor before retrying; no admitted task is confirmed",
+      );
+    await service.requireCurrent(record.bead, record.revision, record.id);
+    store.change(id, (row) => {
+      if (
+        row.launchToken !== record.launchToken ||
+        row.pid !== record.pid ||
+        row.started !== record.started ||
+        row.launchSettled !== record.launchSettled ||
+        row.phase !== record.phase ||
+        row.project !== record.project ||
+        row.revision !== record.revision ||
+        !isDeepStrictEqual(row.bead, record.bead) ||
+        !isDeepStrictEqual(row.verifier, record.verifier)
+      )
+        throw new Error(
+          "A prior host reported ownership during retry validation",
+        );
+      row.launchToken = undefined;
+      row.launchSettled = true;
+      row.phase = ExecutionPhase.Queued;
+      row.pid = undefined;
+      row.started = undefined;
+      row.message =
+        "Explicit retry requested after confirming the prior host is gone";
+    });
+  } finally {
+    store.close();
+  }
+  try {
+    await ensureRuntime();
+  } catch (error) {
+    throw new Error(
+      `Retry was queued, but the runtime did not start: ${error instanceof Error ? error.message : String(error)}. Start the runtime after resolving this.`,
+      { cause: error },
+    );
+  }
+}
 
 export function registerRuntimeCommands(program: Command): void {
   const runtime = program
@@ -106,51 +167,6 @@ export function registerRuntimeCommands(program: Command): void {
       "Resume one retained attempt after its prior host is confirmed gone",
     )
     .action(async (id: string) => {
-      const store = new ExecutionStore();
-      try {
-        const record = store.attempt(id);
-        if (
-          ![
-            ExecutionPhase.Parked,
-            ExecutionPhase.Uncertain,
-            ExecutionPhase.Delivery,
-          ].includes(record.phase)
-        )
-          throw new Error(
-            "Only parked, uncertain, or delivery-pending work can be explicitly retried",
-          );
-        if (await writerFence(record))
-          throw new Error(
-            "The prior host/verifier may still exist or lacks a complete launch receipt; retain its writer fence until positively reconciled",
-          );
-        const service = new ExecutionBeads(
-          store.project(record.project).source,
-        );
-        if (record.bead === undefined || record.revision === undefined)
-          throw new Error(
-            "Inspect the uncertain claim by its recorded actor before retrying; no admitted task is confirmed",
-          );
-        await service.requireCurrent(record.bead, record.revision, record.id);
-        store.change(id, (row) => {
-          if (
-            row.launchToken !== record.launchToken ||
-            row.pid !== record.pid ||
-            row.started !== record.started
-          )
-            throw new Error(
-              "A prior host reported ownership during retry validation",
-            );
-          row.launchToken = undefined;
-          row.launchSettled = true;
-          row.phase = ExecutionPhase.Queued;
-          row.pid = undefined;
-          row.started = undefined;
-          row.message =
-            "Explicit retry requested after confirming the prior host is gone";
-        });
-      } finally {
-        store.close();
-      }
-      await ensureRuntime();
+      await retryAttempt(id);
     });
 }

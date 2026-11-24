@@ -8,6 +8,7 @@ import {
   type Task,
 } from "../beads.ts";
 import { ExecutionPhase, type Execution } from "../execution/store.ts";
+import { overlaps } from "../execution/supervisor.ts";
 
 export interface TaskSnapshot {
   tasks: Task[];
@@ -16,6 +17,7 @@ export interface TaskSnapshot {
   evidenceError?: string;
   focusable: Set<string>;
   limitReached: boolean;
+  retryBlocked?: Map<string, string>;
 }
 
 export function plain(value: string): string {
@@ -35,6 +37,86 @@ export function selectedAttempt(
     attempts.find((attempt) => task.assignee === `pi:${attempt.id}`) ??
     attempts.at(-1)
   );
+}
+
+/** Only the current Beads owner can authorize actions on a retained attempt. */
+export function ownedAttempt(
+  task: Task,
+  snapshot: TaskSnapshot,
+): Execution | undefined {
+  return snapshot.attempts.find(
+    (attempt) =>
+      attempt.bead?.id === task.id &&
+      task.assignee === `pi:${attempt.id}` &&
+      knownTaskStatus(task.status) === TaskStatus.InProgress,
+  );
+}
+
+export function parkedDetails(
+  task: Task,
+  snapshot: TaskSnapshot,
+): string | undefined {
+  const attempt = ownedAttempt(task, snapshot);
+  if (
+    attempt === undefined ||
+    ![
+      ExecutionPhase.Parked,
+      ExecutionPhase.Uncertain,
+      ExecutionPhase.Waiting,
+    ].includes(attempt.phase)
+  )
+    return undefined;
+  const verification = attempt.verification;
+  const state =
+    attempt.phase === ExecutionPhase.Uncertain
+      ? "Uncertain execution: inspect the retained writer and receipts before recovery."
+      : attempt.reviewFinding !== undefined
+        ? `Reviewer requested changes: ${attempt.reviewFinding}. Correct the finding before retrying; independent review remains required.`
+        : verification !== undefined && verification.exitCode !== 0
+          ? `Verification failed or did not complete: ${verification.check.join(" ")} (exit ${String(verification.exitCode)}).`
+          : "Parked: decision evidence is unavailable; inspect the retained reason.";
+  const completed =
+    verification !== undefined && verification.exitCode === 0
+      ? "Last evidenced completed step: verification passed."
+      : attempt.summary.length > 0
+        ? "Last evidenced step: worker report recorded."
+        : "Last completed step: unknown.";
+  const waiting = snapshot.attempts.filter(
+    (other) =>
+      other.id !== attempt.id &&
+      other.phase === ExecutionPhase.Queued &&
+      attempt.bead !== undefined &&
+      overlaps(attempt, other),
+  );
+  const blocked = waiting.map((other) => {
+    const paths =
+      attempt.owns.length === 0 || other.owns.length === 0
+        ? "ownership unspecified"
+        : attempt.owns
+            .flatMap((a) =>
+              other.owns
+                .filter(
+                  (b) =>
+                    a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`),
+                )
+                .map((b) => (a === b ? a : `${a} / ${b}`)),
+            )
+            .join(", ");
+    return `${other.bead?.title ?? other.bead?.id ?? other.id}: ${paths}`;
+  });
+  return [
+    state,
+    completed,
+    attempt.message,
+    verification === undefined
+      ? "Verification evidence unavailable."
+      : verification.output.length === 0 && verification.reason === undefined
+        ? "Verifier output and reason are unavailable."
+        : "Open Execution evidence for the verifier output and reason.",
+    blocked.length === 0
+      ? "No queued path conflicts recorded."
+      : `Queued attempts with overlapping ownership: ${blocked.join("; ")}. Other admission fences may also apply.`,
+  ].join("\n");
 }
 
 export function taskLinks(
