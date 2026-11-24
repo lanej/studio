@@ -162,6 +162,9 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
         } else
           text = JSON.stringify({
             summary: `Completed ${kind} accepted assignment`,
+            // Unused publication fields must not block local verification and review.
+            title: "",
+            body: null,
           });
       } else if (request.model === AgentRole.Reviewer) {
         if (toolMessages.length === 0)
