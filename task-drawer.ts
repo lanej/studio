@@ -23,12 +23,15 @@ export interface TaskDrawerItem {
   canFocus: boolean;
 }
 
+export type EmptyTaskAction = "draft" | "review";
+
 type DrawerTheme = Pick<Theme, "fg" | "bg" | "bold">;
 
 interface DrawerOptions {
   items: readonly TaskDrawerItem[];
   project: string;
   detailOnly?: boolean;
+  emptyAction?: EmptyTaskAction | undefined;
   limitReached: boolean;
   theme: DrawerTheme;
   height: () => number;
@@ -127,9 +130,12 @@ function taskBody(
       ?.filter((edge) => edge.dependency_type === "blocks")
       .map((edge) => edge.id);
     section("Blocked by", blockers?.join(", "));
-    section("Project", project);
   }
-  if (sections.length === 0) return [id];
+  if (sections.length === 0) {
+    const empty = theme.fg("muted", "No details recorded.");
+    sections.push([view === "preview" ? columns(empty, id, width) : empty]);
+  }
+  if (view === "detail") section("Project", project);
   return sections.flatMap((rows, index) =>
     index === 0 ? rows : ["", ...rows],
   );
@@ -177,11 +183,40 @@ export function createTaskDrawer(options: DrawerOptions) {
       const edge = frame ? theme.fg("border", "│") : "";
       const selected = items[index];
       const state = states[index];
-      if (selected === undefined || state === undefined) return [];
       const lines: string[] = [];
       let highlighted = -1;
       const divider = theme.fg("border", "─".repeat(inner));
-      if (options.detailOnly === true) {
+      if (selected === undefined || state === undefined) {
+        if (height >= 3) {
+          const project = truncateToWidth(
+            oneLine(options.project),
+            Math.max(0, inner - 7),
+            "…",
+          );
+          lines.push(
+            columns(
+              theme.bold(theme.fg("toolTitle", "Tasks")),
+              theme.fg("muted", project),
+              inner,
+            ),
+          );
+        }
+        if (height >= 6) lines.push("");
+        lines.push(theme.bold(theme.fg("text", "No tasks yet")));
+        let hint = "Tasks added in Beads will appear here.";
+        if (options.emptyAction === "review")
+          hint = `Review your draft with ${theme.fg("accent", "/plan")}.`;
+        else if (options.emptyAction === "draft")
+          hint = `Draft a plan with ${theme.fg("accent", "/plan-draft <description>")}.`;
+        lines.push(...wrapTextWithAnsi(hint, inner));
+        const cancel = getKeybindings().getKeys("tui.select.cancel")[0];
+        if (cancel !== undefined && lines.length < height) {
+          if (lines.length + 1 < height) lines.push("");
+          lines.push(
+            theme.fg("muted", `${cancel === "escape" ? "Esc" : cancel} Close`),
+          );
+        }
+      } else if (options.detailOnly === true) {
         const title = theme.bold(
           theme.fg("toolTitle", oneLine(selected.row.task.title)),
         );

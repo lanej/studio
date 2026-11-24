@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ThemeBg, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { createTaskDrawer } from "../task-drawer.ts";
+import {
+  createTaskDrawer,
+  type EmptyTaskAction,
+  type TaskDrawerItem,
+} from "../task-drawer.ts";
 
 const plain = {
   fg: (_tone: ThemeColor, value: string) => value,
@@ -43,12 +47,26 @@ const related = {
   review: { finding: undefined },
 };
 
-function drawer(detailOnly = false, height = 24, first = selected) {
+function drawer(
+  items: readonly TaskDrawerItem[] = [selected, related],
+  {
+    detailOnly = false,
+    height = 24,
+    emptyAction,
+    project = "studio",
+  }: {
+    detailOnly?: boolean;
+    height?: number;
+    emptyAction?: EmptyTaskAction | undefined;
+    project?: string;
+  } = {},
+) {
   const calls: string[] = [];
   const component = createTaskDrawer({
-    items: [first, related],
+    items,
     theme: plain,
-    project: "studio",
+    project,
+    emptyAction,
     detailOnly,
     limitReached: false,
     height: () => height,
@@ -111,7 +129,10 @@ await test("a short detail view can scroll past a long title to the acceptance c
       },
     },
   };
-  const { component, calls } = drawer(true, 7, longTitle);
+  const { component, calls } = drawer([longTitle, related], {
+    detailOnly: true,
+    height: 7,
+  });
   const before = component.render(38);
   assert.doesNotMatch(before.join("\n"), /Preserve word boundaries/u);
   const seen: string[] = [];
@@ -127,4 +148,58 @@ await test("a short detail view can scroll past a long title to the acceptance c
   assert.deepEqual(component.render(38), before);
   component.handleInput("\x1b");
   assert.deepEqual(calls, ["cancel"]);
+});
+
+await test("an empty project keeps its source, shows the available next step, and dismisses without selecting a task", () => {
+  for (const emptyAction of ["draft", "review", undefined] as const) {
+    const { component, calls } = drawer([], {
+      emptyAction,
+      project: "my-project\x1b[2J",
+    });
+    for (const width of [46, 72]) {
+      const rows = component.render(width);
+      assert(rows.every((line) => visibleWidth(line) === width));
+      const text = rows.join("\n");
+      assert.match(text, /No tasks yet/u);
+      assert.match(text, /my-project/u);
+      assert.match(text, /Esc Close/u);
+      if (emptyAction === "draft") {
+        assert.match(text, /Draft a plan with \/plan-draft/u);
+        assert.match(text, /<description>/u);
+      } else if (emptyAction === "review") {
+        assert.match(text, /Review your draft with \/plan\./u);
+        assert.doesNotMatch(text, /plan-draft/u);
+      } else {
+        assert.match(text, /Tasks added in Beads will appear here/u);
+        assert.doesNotMatch(text, /plan-draft/u);
+      }
+      assert.doesNotMatch(
+        text,
+        /Review finding|Acceptance criteria|Focus pane|▌|\x1b/u,
+      );
+    }
+    for (const key of ["k", "j", "\x1b[C", "\r"]) component.handleInput(key);
+    assert.deepEqual(calls, []);
+    component.handleInput("\x1b");
+    assert.deepEqual(calls, ["cancel"]);
+  }
+  assert.match(
+    drawer([], { height: 1 }).component.render(30).join(""),
+    /No tasks yet/u,
+  );
+});
+
+await test("a title-only task is distinct from an empty project", () => {
+  const task = { id: "ui-9", title: "Resize panes", status: "open" };
+  const item = { row: { task, depth: 0 }, canFocus: false };
+  for (const detailOnly of [false, true]) {
+    const text = drawer([item], { detailOnly }).component.render(50).join("\n");
+    assert.match(text, /Resize panes/u);
+    assert.match(text, /ui-9/u);
+    assert.match(text, /No details recorded\./u);
+    assert.doesNotMatch(
+      text,
+      /No tasks yet|Review finding|Acceptance criteria/u,
+    );
+  }
 });

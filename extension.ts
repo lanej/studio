@@ -267,7 +267,7 @@ export default function studioExtension(
       const config = await loadConfig();
       if (config.beads === undefined && config.beadsService === undefined) {
         ctx.ui.notify(
-          "Configure a Beads service or read-only workspace in studio/config.json",
+          "Configure a Beads service or read-only workspace in your Studio configuration. Run studio config --example for a service example.",
           "warning",
         );
         return;
@@ -293,6 +293,29 @@ export default function studioExtension(
       let id = argument.trim();
       if (id.length === 0) {
         const tasks = await reader.list();
+        if (tasks.length === 0) {
+          const source = config.beadsService;
+          const database =
+            source === undefined
+              ? label
+              : (config.runtime.projects.find(
+                  (p) =>
+                    p.source.projectId === source.projectId &&
+                    p.source.url === source.url,
+                )?.beadsDatabase ?? "");
+          const canPlan =
+            discovery !== undefined &&
+            source !== undefined &&
+            source.reviewOnly !== true;
+          await openTaskDrawer(ctx, [], database, {
+            emptyAction: canPlan
+              ? discovery.hasSelectedDraft(ctx)
+                ? "review"
+                : "draft"
+              : undefined,
+          });
+          return;
+        }
         const rows = taskTree(tasks);
         const reviews = activeTaskReviews(project, tasks);
         const live =

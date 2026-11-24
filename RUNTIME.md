@@ -38,7 +38,7 @@ When the code obscures a consequential decision, the Reviewer identifies the que
 
 ![Studio lead conversation beside the task drawer showing the selected review finding](docs/assets/task-readability-review.png)
 
-[60-column terminal view](docs/assets/task-readability-review-60.png) · Reproduce both captures with `bun run test:terminal --task-review --output /tmp/studio-review`.
+[60-column terminal view](docs/assets/task-readability-review-60.png) · [Empty project](docs/assets/task-empty.png) · Reproduce the terminal captures with `bun run test:terminal --task-review --output /tmp/studio-review`.
 
 Local-only results integrate into a retained `refs/studio/projects/PROJECT_UUID` integration frontier and are reverified/reviewed before guarded Beads completion. Integration intent precedes ref mutation; completion follows confirmed reachability. If an integrated local result exposes a new finding that fits the task's owned paths, the Worker gets one repair attempt followed by fresh verification and review. Findings that need a change in scope or affect an already merged PR park for assessment. Successors receive accepted predecessor code. A restart between integration and task closure resumes the same result and cannot release dependencies prematurely. The interactive lead checkout is not changed.
 

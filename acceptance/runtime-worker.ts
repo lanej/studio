@@ -59,9 +59,15 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
   await git("commit", "-qm", "Fixture");
   const base = (await git("rev-parse", "HEAD")).trim();
   const requests: string[] = [];
+  // Hosted runners may still be verifying accepted work after the local one-minute budget.
+  const completionMs = process.env["CI"] === "true" ? 180000 : 60000;
+  let deadline: number | undefined;
   let release: (() => void) | undefined;
   const waitForLeadExit = new Promise<void>((resolve) => {
-    release = resolve;
+    release = () => {
+      deadline ??= Date.now() + completionMs;
+      resolve();
+    };
   });
   let sawWorker: (() => void) | undefined;
   const workerStarted = new Promise<void>((resolve) => {
@@ -450,7 +456,31 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
         crashedSession = attempt.controllerSession;
         assert(crashedSession !== undefined);
         const stopped = once(supervisor, "close");
-        process.kill(-supervisor.pid, "SIGKILL");
+        const schedulerPid = supervisor.pid;
+        // Crash before completion without also interrupting an unrelated Beads claim.
+        // The transaction fences new claim intents while the signal is delivered.
+        while (
+          !store.transaction(() => {
+            if (
+              store
+                .attempts()
+                .some(
+                  (row) =>
+                    row.project === source.projectId &&
+                    row.phase === ExecutionPhase.Claiming,
+                )
+            )
+              return false;
+            process.kill(-schedulerPid, "SIGKILL");
+            return true;
+          })
+        ) {
+          assert(
+            deadline !== undefined && Date.now() < deadline,
+            "An outstanding Beads claim did not settle before the crash",
+          );
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
         process.kill(-attempt.pid, "SIGKILL");
         await stopped;
         response.destroy();
@@ -858,9 +888,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     if (lead.pid !== undefined) process.kill(-lead.pid, "SIGTERM");
     await once(lead, "close");
     release?.();
-    // Hosted runners may still be verifying accepted work after the local one-minute budget.
-    const completionMs = process.env["CI"] === "true" ? 180000 : 60000;
-    const deadline = Date.now() + completionMs;
+    assert(deadline !== undefined);
     let restarted = false;
     for (;;) {
       if (providerError !== undefined)
@@ -885,7 +913,6 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       const completed = attempts.filter(
         (attempt) => attempt.phase === ExecutionPhase.Complete,
       );
-      if (completed.length === 4) break;
       const failed = attempts.find((attempt) =>
         [ExecutionPhase.Parked, ExecutionPhase.Uncertain].includes(
           attempt.phase,
@@ -904,14 +931,30 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
           `Unattended fixture ${failed === undefined ? `timed out after ${String(completionMs)} ms` : "failed"}: ${JSON.stringify(attempts)}\n${diagnostics}\n${logs.join("\n")}\nLead: ${leadErrors}`,
         );
       }
+      if (completed.length >= 4) break;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    const first = store
-      .attempts()
-      .find((attempt) => attempt.bead?.id === `${parent}.first`);
-    const second = store
-      .attempts()
-      .find((attempt) => attempt.bead?.id === `${parent}.second`);
+    // Let the final queue poll record its claim receipt before checking admission history.
+    assert(supervisor !== undefined);
+    const stopped = once(supervisor, "close", {
+      signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+    });
+    assert(supervisor.kill("SIGTERM"));
+    const exit: unknown[] = await stopped;
+    assert.equal(exit[0], 0, diagnostics);
+    const admitted = store.attempts();
+    assert.deepEqual(
+      admitted.map((row) => row.bead?.id).sort(),
+      ["first", "overlap", "second", "third"].map((key) => `${parent}.${key}`),
+      "Each eligible bead must have exactly one admitted attempt",
+    );
+    assert(admitted.every((row) => row.phase === ExecutionPhase.Complete));
+    const first = admitted.find(
+      (attempt) => attempt.bead?.id === `${parent}.first`,
+    );
+    const second = admitted.find(
+      (attempt) => attempt.bead?.id === `${parent}.second`,
+    );
     assert(first?.integration !== undefined && second?.checkout !== undefined);
     assert.equal(
       first.id,
@@ -964,19 +1007,12 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       "Unrelated assignment must progress despite an overlapping queued task",
     );
     assert(sawOverlapAfterCompletion);
-    assert.equal(
-      new Set(store.attempts().map((row) => row.bead?.id)).size,
-      4,
-      "Competing supervisors must not duplicate admission",
-    );
     assert(
       requests.includes(AgentRole.Worker) &&
         requests.includes(AgentRole.Reviewer),
     );
     assert(!requests.includes(AgentRole.Lead));
-    assert(
-      store.attempts().every((attempt) => new Set(attempt.sessions).size >= 2),
-    );
+    assert(admitted.every((attempt) => new Set(attempt.sessions).size >= 2));
     console.log(
       "Unattended native Pi workers, exact-revision cold reads and verified readability corrections, held work, responsive free-lead input, exclusive scheduling, overlapping-path serialization, unrelated concurrent progress, and predecessor-code propagation passed after closing the lead and crashing/restarting the host and supervisor between integration and completion.",
     );

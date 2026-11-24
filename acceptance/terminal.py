@@ -26,7 +26,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--output", required=True)
-parser.add_argument("--task-review", action="store_true", help="Capture the managed task review on wide and narrow terminals")
+parser.add_argument("--task-review", action="store_true", help="Exercise empty projects and managed task reviews on wide and narrow terminals")
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 palette = json.loads((root / "resources/colors.json").read_text())
@@ -63,14 +63,17 @@ class DiscoveryProvider(BaseHTTPRequestHandler):
         pages = {
             "/v0/beads/context": {"project_id": review_project, "backend": "dolt", "dolt_mode": "server",
                                   "capabilities": ["project.enforce", "issues.get", "issues.create", "issues.update"]},
-            "/v0/beads/issues": {"items": review_tasks, "has_more": False},
             "/v0/beads/dependencies": {"items": [], "missing": []},
             **{f"/v0/beads/issues/{task['id']}": task for task in review_tasks},
         }
-        self.send_response(200 if path in pages else 404)
+        if path == "/v0/beads/issues":
+            status, body = self.server.issue_listing
+        else:
+            status, body = (200, pages[path]) if path in pages else (404, {})
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
-        self.wfile.write(json.dumps(pages.get(path, {})).encode())
+        self.wfile.write(json.dumps(body).encode())
 
     def do_POST(self):
         request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
@@ -89,6 +92,7 @@ class DiscoveryProvider(BaseHTTPRequestHandler):
         self.wfile.write(("data: " + json.dumps(result) + "\n\ndata: [DONE]\n\n").encode())
 
 with tempfile.TemporaryDirectory(prefix="studio-terminal-") as directory, ThreadingHTTPServer(("127.0.0.1", 0), DiscoveryProvider) as provider:
+    provider.issue_listing = (200, {"items": review_tasks, "has_more": False})
     Thread(target=provider.serve_forever, daemon=True).start()
     atexit.register(provider.shutdown)
     home = Path(directory).resolve()
@@ -201,14 +205,14 @@ store.close();
         process = subprocess.Popen([str(root / "scripts/studio"), "lead", "--", "--offline", "--no-mcp", "--model", "fixture/tiny"], env=env, cwd=project, stdin=slave, stdout=slave, stderr=slave)
         os.close(slave)
         screen = pyte.Screen(columns, rows)
-        stream = pyte.Stream(screen)
+        stream = pyte.ByteStream(screen)
         def pump(seconds):
             import time
             until = time.monotonic() + seconds
             while time.monotonic() < until:
                 if select.select([master], [], [], 0.05)[0]:
                     try:
-                        stream.feed(os.read(master, 65536).decode("utf-8", errors="replace"))
+                        stream.feed(os.read(master, 65536))
                     except OSError:
                         break
         def capture(name):
@@ -240,6 +244,8 @@ store.close();
             import time
             end = time.monotonic() + timeout
             while text not in "\n".join(screen.display) and time.monotonic() < end:
+                if process.poll() is not None:
+                    raise AssertionError(f"Studio exited with {process.returncode} waiting for {text!r}: {screen.display}")
                 pump(.1)
             assert text in "\n".join(screen.display), screen.display
 
@@ -258,14 +264,30 @@ store.close();
 
         try:
             if args.task_review:
-                wait_text("tiny")
+                wait_text("tiny", timeout=45)
                 pump(.5)
                 os.write(master, (review_question + "\r").encode())
                 wait_text("unified diff.")
                 pump(.2)
                 restore_transcript()
+                provider.issue_listing = (200, {"items": [], "has_more": False})
                 os.write(master, b"/tasks\r")
-                wait_text("Diff presentation")
+                wait_text("No tasks yet")
+                empty_view = "\n".join(screen.display)
+                for label in ["Tasks", "/plan-draft <description>", "Esc Close"]:
+                    assert label in empty_view, empty_view
+                assert review_project not in empty_view, empty_view
+                assert "Review finding" not in empty_view and "Changes requested" not in empty_view, empty_view
+                assert all(task["title"] not in empty_view for task in review_tasks), empty_view
+                capture("task-empty")
+                os.write(master, b"\x1b")
+                pump(.35)
+                assert "No tasks yet" not in "\n".join(screen.display), screen.display
+
+                provider.issue_listing = (200, {"items": review_tasks, "has_more": False})
+                os.write(master, b"/tasks\r")
+                wait_text("No details recorded.")
+                assert "Diff presentation" in "\n".join(screen.display), screen.display
                 os.write(master, b"j")
                 pump(.4)
                 text = "\n".join(screen.display)
@@ -288,8 +310,27 @@ store.close();
                 os.write(master, b"\x1b")
                 pump(.35)
                 assert "Review finding" not in "\n".join(screen.display), screen.display
+                provider.issue_listing = (503, {"code": "unavailable", "reason": "Service unavailable"})
+                os.write(master, b"/tasks\r")
+                wait_text("Beads HTTP 503")
+                assert "No tasks yet" not in "\n".join(screen.display), screen.display
+
+                # Bind the existing unapproved draft. Opening the drawer must leave approval with the lead.
+                os.write(master, f"/socrates {discovery_id}\r".encode())
+                wait_text("When should work begin?")
+                os.write(master, b"\x1b")
+                pump(.35)
+                provider.issue_listing = (200, {"items": [], "has_more": False})
+                os.write(master, b"/tasks\r")
+                wait_text("No tasks yet")
+                empty_draft = "\n".join(screen.display)
+                assert "Review your draft with /plan." in empty_draft and "/plan-draft" not in empty_draft, empty_draft
+                os.write(master, b"\x1b")
+                pump(.35)
+                os.write(master, b"/plan\r")
+                wait_text("Review before creating tasks")
                 continue
-            wait_text("Δ1 +2 −1 ?1")
+            wait_text("Δ1 +2 −1 ?1", timeout=45)
             footer = next((line for line in screen.display if "tiny" in line and directory_label in line), "")
             assert footer and len(footer) == columns, screen.display
             assert "↱ main" in footer and "Δ1 +2 −1 ?1" in footer, screen.display
@@ -382,8 +423,7 @@ store.close();
             pump(.35)
             assert archive_file.read_bytes() == archive_before
             os.write(master, b"!echo remember-cobalt\r")
-            pump(.5)
-            assert "remember-cobalt" in "\n".join(screen.display), screen.display
+            wait_text("remember-cobalt")
             os.write(master, b"/cd ../../design\r")
             pump(1)
             assert any("~/design" in line and "tiny" in line for line in screen.display), screen.display
@@ -403,6 +443,6 @@ store.close();
             os.close(master)
     provider.shutdown()
 if args.task_review:
-    print("Native task review, selection, direct lookup, and return to the lead passed at both terminal widths.")
+    print("Native empty project, review selection, direct lookup, return to the lead, and service errors passed at both terminal widths.")
 else:
     print("Native Pi discovery answer/resume, breakdown review, tree selection, directory switching, and draft editing passed.")

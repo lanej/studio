@@ -5,7 +5,11 @@ import {
   truncateToWidth,
   type OverlayOptions,
 } from "@earendil-works/pi-tui";
-import { createTaskDrawer, type TaskDrawerItem } from "./task-drawer.ts";
+import {
+  createTaskDrawer,
+  type EmptyTaskAction,
+  type TaskDrawerItem,
+} from "./task-drawer.ts";
 import { NavigationKey } from "./runtime.ts";
 
 type TaskChoice = { id: string; action: TaskAction };
@@ -18,9 +22,12 @@ export async function openTaskDrawer(
   ctx: ExtensionContext,
   items: TaskDrawerItem[],
   project: string,
-  options: { detailOnly?: boolean; limitReached?: boolean } = {},
+  options: {
+    detailOnly?: boolean;
+    limitReached?: boolean;
+    emptyAction?: EmptyTaskAction | undefined;
+  } = {},
 ): Promise<TaskChoice | undefined> {
-  if (items.length === 0) return undefined;
   let overlay: OverlayOptions = {};
   return ctx.ui.custom<TaskChoice | undefined>(
     (tui, theme, _keys, done) => {
@@ -44,6 +51,7 @@ export async function openTaskDrawer(
         items,
         project,
         detailOnly: options.detailOnly ?? false,
+        emptyAction: options.emptyAction,
         limitReached: options.limitReached ?? false,
         theme,
         height: () => Math.max(1, tui.terminal.rows - 2),
