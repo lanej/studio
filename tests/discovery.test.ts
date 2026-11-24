@@ -6,7 +6,11 @@ import { test } from "node:test";
 import { randomUUID } from "node:crypto";
 import { Discoveries, HandoffPhase } from "../discovery/store.ts";
 import { draftSchema } from "../lead-plan.ts";
-import { runtimeProjectSchema, StudioProfile } from "../config.ts";
+import {
+  configSchema,
+  runtimeProjectSchema,
+  StudioProfile,
+} from "../config.ts";
 import {
   ExecutionStore,
   executionSchema,
@@ -270,6 +274,58 @@ await test("independent schedulers and delivery corrections share atomic inferen
     peer.close();
     store.close();
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+await test("configured two and three host limits retain shared admission and release guards", async () => {
+  assert.equal(configSchema.parse({}).runtime.concurrency, 2);
+  assert.equal(configSchema.parse({ runtime: {} }).runtime.concurrency, 2);
+  assert.equal(
+    configSchema.safeParse({ runtime: { concurrency: 4 } }).success,
+    false,
+  );
+  for (const concurrency of [2, 3]) {
+    const limit = configSchema.parse({ runtime: { concurrency } }).runtime
+      .concurrency;
+    const directory = await mkdtemp(join(tmpdir(), "studio-capacity-"));
+    const store = new ExecutionStore(directory);
+    const peer = new ExecutionStore(directory);
+    try {
+      const attempts = Array.from({ length: limit + 1 }, () =>
+        executionSchema.parse({
+          id: randomUUID(),
+          project: randomUUID(),
+          profile: StudioProfile.Personal,
+          phase: ExecutionPhase.Queued,
+          message: "queued",
+        }),
+      );
+      for (const attempt of attempts) store.saveAttempt(attempt);
+      const reserve = (id: string) =>
+        peer.reserveInference(id, limit, (row) => {
+          row.phase = ExecutionPhase.Running;
+          row.launchToken = randomUUID();
+        });
+      for (const attempt of attempts.slice(0, limit))
+        assert.equal(reserve(attempt.id), true);
+      const first = attempts[0];
+      const waiting = attempts[limit];
+      assert.ok(first !== undefined);
+      assert.ok(waiting !== undefined);
+      assert.equal(reserve(waiting.id), false);
+      store.change(first.id, (row) => {
+        row.phase = ExecutionPhase.Reviewing;
+      });
+      assert.equal(reserve(waiting.id), false);
+      store.change(first.id, (row) => {
+        row.phase = ExecutionPhase.Delivery;
+      });
+      assert.equal(reserve(waiting.id), true);
+    } finally {
+      peer.close();
+      store.close();
+      await rm(directory, { recursive: true, force: true });
+    }
   }
 });
 
