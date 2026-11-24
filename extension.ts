@@ -1,3 +1,6 @@
+import { basename } from "node:path";
+import { browseTasks } from "./tasks/browser.ts";
+import { readTaskEvidence } from "./tasks/evidence.ts";
 import { registerProjectPolicy } from "./execution/policy.ts";
 import { registerDiscovery } from "./discovery/extension.ts";
 import { registerCodeIntelligence } from "./code-intelligence/extension.ts";
@@ -11,15 +14,7 @@ import type {
 import { z } from "zod";
 import { registerArchives } from "./archives.ts";
 import { directoryProfileType, registerDirectory } from "./directory.ts";
-import {
-  BeadsReader,
-  knownTaskStatus,
-  taskDetails,
-  taskOverlayLabel,
-  taskSchema,
-  taskTree,
-  TaskStatus,
-} from "./beads.ts";
+import { BeadsReader, taskSchema } from "./beads.ts";
 import { delegateTool, registerDelegation } from "./delegation.ts";
 import { TaskBeads } from "./task-service.ts";
 import { dispatchGate } from "./capabilities.ts";
@@ -40,13 +35,6 @@ import {
   piModeSchema,
 } from "./runtime.ts";
 import { focusTaskPane, taskPaneBeads } from "./task-run.ts";
-import {
-  chooseTask,
-  showTask,
-  taskStatusGlyph,
-  taskStatusLabel,
-  TaskAction,
-} from "./ui.ts";
 
 const attemptType = "studio:idle-attempt";
 const attemptSchema = z.object({ historyId: z.string() });
@@ -281,49 +269,38 @@ export default function studioExtension(
             ? undefined
             : new BeadsReader(config.beads);
       if (reader === undefined) return;
-      const label =
-        config.beadsService?.projectId ?? config.beads?.database ?? "";
-      let id = argument.trim();
-      if (id.length === 0) {
-        const tasks = await reader.list();
-        const rows = taskTree(tasks);
-        const live =
-          config.beadsService === undefined
-            ? new Set<string>()
-            : await taskPaneBeads(config.beadsService.projectId);
-        const selection = await chooseTask(
-          ctx,
-          rows.map((row) => ({
-            value: row.task.id,
-            label: taskOverlayLabel(
-              row,
-              (status) => taskStatusGlyph(status, ctx.ui.theme),
-              (branch) => ctx.ui.theme.fg("muted", branch),
-            ),
-            canFocus:
-              live.has(row.task.id) &&
-              knownTaskStatus(row.task.status) === TaskStatus.InProgress,
-          })),
-          tasks.length === 1000,
-        );
-        if (selection === undefined) return;
-        if (
-          selection.action === TaskAction.FocusPane &&
-          config.beadsService !== undefined
-        ) {
-          await focusTaskPane(config.beadsService, selection.id);
-          return;
-        }
-        id = selection.id;
-      }
-      if (id.length === 0) return;
-      const task = await reader.show(id);
-      await showTask(
-        ctx,
-        taskDetails(task, label, (status) =>
-          taskStatusLabel(status, ctx.ui.theme),
-        ),
+      const projectId = config.beadsService?.projectId;
+      const project = config.runtime.projects.find(
+        (item) => item.source.projectId === projectId,
       );
+      const paneTask = await browseTasks(
+        ctx,
+        {
+          label:
+            project === undefined
+              ? basename(config.beads?.workspace ?? ctx.cwd)
+              : basename(project.root),
+          identity: projectId ?? config.beads?.database ?? "",
+          show: (id) => reader.show(id),
+          load: async () => {
+            const tasks = await reader.list();
+            const live =
+              projectId === undefined
+                ? new Set<string>()
+                : await taskPaneBeads(projectId);
+            return {
+              tasks,
+              ...readTaskEvidence(projectId),
+              observedAt: new Date().toLocaleTimeString(),
+              focusable: live,
+              limitReached: tasks.length === 1000,
+            };
+          },
+        },
+        argument.trim().length === 0 ? undefined : argument.trim(),
+      );
+      if (paneTask !== undefined && config.beadsService !== undefined)
+        await focusTaskPane(config.beadsService, paneTask);
     },
   });
 
