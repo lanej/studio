@@ -15,6 +15,13 @@ const request = z.discriminatedUnion("action", [
     ansi: z.boolean(),
   }),
   z.object({ action: z.literal("focus"), pane }),
+  z.object({
+    action: z.literal("launch"),
+    tab: pane,
+    name: z.string(),
+    cwd: z.string(),
+    args: z.array(z.string()),
+  }),
   z.object({ action: z.literal("text"), pane, text: z.string() }),
   z.object({
     action: z.literal("keys"),
@@ -34,6 +41,10 @@ async function dispatch(zellij: Zellij, input: Request): Promise<string> {
     case "focus":
       await zellij.focus(input.pane);
       return "";
+    case "launch":
+      return String(
+        await zellij.launch(input.tab, input.name, input.cwd, input.args),
+      );
     case "text":
       await zellij.writeText(input.pane, input.text);
       return "";

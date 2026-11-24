@@ -1,0 +1,138 @@
+diff --git a/dist/modes/interactive/interactive-mode.js b/dist/modes/interactive/interactive-mode.js
+--- a/dist/modes/interactive/interactive-mode.js
++++ b/dist/modes/interactive/interactive-mode.js
+@@ -376,8 +376,8 @@
+             showHardwareCursor: this.settingsManager.getShowHardwareCursor(),
+             logDirectory: getAgentDir(),
+             terminal: options.terminal,
+-            onRightClickPaste: this.onRightClickPaste,
+-            fullscreenCopyOnSelect: this.settingsManager.getFullscreenCopyOnSelect(),
++            onRightClickPaste: options.assignmentInput ? undefined : this.onRightClickPaste,
++            fullscreenCopyOnSelect: !options.assignmentInput && this.settingsManager.getFullscreenCopyOnSelect(),
+             fullscreenWheelScrollLines: this.settingsManager.getFullscreenWheelScrollLines(),
+         });
+         this.ui = createInteractiveTuiReference(() => this.renderer);
+@@ -774,11 +774,13 @@
+         // Ensure fd and rg are available after mounting the TUI (downloads if missing, adds to PATH via getBinDir)
+         // so slow downloads do not make startup appear frozen.
+         // Both are needed: fd for autocomplete, rg for grep tool and bash commands.
+-        const [fdPath] = await Promise.all([
+-            ensureTool("fd", (status) => this.showManagedToolStatus(status)),
+-            ensureTool("rg", (status) => this.showManagedToolStatus(status)),
+-        ]);
+-        this.fdPath = fdPath;
++        if (!this.assignmentInputEnabled) {
++            const [fdPath] = await Promise.all([
++                ensureTool("fd", (status) => this.showManagedToolStatus(status)),
++                ensureTool("rg", (status) => this.showManagedToolStatus(status)),
++            ]);
++            this.fdPath = fdPath;
++        }
+         // Enable the remaining input handlers only after managed-tool setup completes.
+         this.setupKeyHandlers();
+         this.setupEditorSubmitHandler();
+@@ -820,6 +822,9 @@
+         else {
+             this.ui.terminal.setTitle(`${APP_TITLE} - ${cwdBasename}`);
+         }
++    }
++    get assignmentInputEnabled() {
++        return this.options.assignmentInput === true;
+     }
+     /**
+      * Run the interactive mode. This is the main entry point.
+@@ -1678,7 +1683,7 @@
+         const cause = change.kind === "updated"
+             ? `${APP_NAME} was updated to ${change.version} while this session was running (${VERSION})`
+             : `The ${APP_NAME} installation this session runs from was removed or replaced`;
+-        const resumeCommand = formatResumeCommand(this.sessionManager);
++        const resumeCommand = this.assignmentInputEnabled ? undefined : formatResumeCommand(this.sessionManager);
+         const restart = resumeCommand
+             ? `Restart with \`${resumeCommand}\` to continue this session.`
+             : `Restart ${APP_NAME}.`;
+@@ -2386,7 +2391,7 @@
+                 this.isBashMode = false;
+                 this.updateEditorBorderColor();
+             }
+-            else if (!this.editor.getText().trim()) {
++            else if (!this.assignmentInputEnabled && !this.editor.getText().trim()) {
+                 // Double-escape with empty editor triggers /tree, /fork, or nothing based on setting
+                 const action = this.settingsManager.getDoubleEscapeAction();
+                 if (action !== "none") {
+@@ -2409,6 +2414,12 @@
+         // Register app action handlers
+         this.defaultEditor.onAction("app.clear", () => this.handleCtrlC());
+         this.defaultEditor.onCtrlD = () => this.handleCtrlD();
++        if (this.assignmentInputEnabled) {
++            this.defaultEditor.onAction("app.tools.expand", () => this.toggleToolOutputExpansion());
++            this.defaultEditor.onAction("app.message.followUp", () => this.handleFollowUp());
++            this.defaultEditor.onAction("app.message.dequeue", () => this.handleDequeue());
++            return;
++        }
+         this.defaultEditor.onAction("app.suspend", () => this.handleCtrlZ());
+         this.defaultEditor.onAction("app.thinking.cycle", () => this.cycleThinkingLevel());
+         this.defaultEditor.onAction("app.model.cycleForward", () => this.cycleModel("forward"));
+@@ -2498,10 +2509,24 @@
+         this.editor.setText(text);
+         this.showStatus("Startup is still in progress");
+     }
++    rejectAssignmentCommand(text) {
++        if (!this.assignmentInputEnabled || !/^[!/]/.test(text))
++            return false;
++        this.editor.setText("");
++        this.showWarning("Assigned worker: enter guidance or /quit.");
++        return true;
++    }
+     setupEditorSubmitHandler() {
+         this.defaultEditor.onSubmit = async (text) => {
+             text = text.trim();
+             if (!text)
++                return;
++            if (this.assignmentInputEnabled && text === "/quit") {
++                this.editor.setText("");
++                await this.shutdown();
++                return;
++            }
++            if (this.rejectAssignmentCommand(text))
+                 return;
+             // Handle commands
+             if (text === "/settings") {
+@@ -3471,7 +3496,7 @@
+         await this.ui.terminal.drainInput(1000);
+         this.stop();
+         await this.runtimeHost.dispose();
+-        const resumeCommand = formatResumeCommand(this.sessionManager);
++        const resumeCommand = this.assignmentInputEnabled ? undefined : formatResumeCommand(this.sessionManager);
+         if (resumeCommand) {
+             process.stdout.write(`${chalk.dim("To resume this session:")} ${resumeCommand}\n`);
+         }
+@@ -3614,6 +3639,8 @@
+     async handleFollowUp() {
+         const text = (this.editor.getExpandedText?.() ?? this.editor.getText()).trim();
+         if (!text)
++            return;
++        if (this.rejectAssignmentCommand(text))
+             return;
+         // Queue input during compaction (extension commands execute immediately)
+         if (this.session.isCompacting) {
+diff --git a/dist/modes/interactive/interactive-mode.d.ts b/dist/modes/interactive/interactive-mode.d.ts
+--- a/dist/modes/interactive/interactive-mode.d.ts
++++ b/dist/modes/interactive/interactive-mode.d.ts
+@@ -16,6 +16,8 @@
+  * Options for InteractiveMode initialization.
+  */
+ export interface InteractiveModeOptions {
++    /** Limit native terminal input to guidance and quitting an assigned session. The host must supply restricted tools and resources. */
++    assignmentInput?: boolean;
+     /** Providers that were migrated to auth.json (shows warning) */
+     migratedProviders?: string[];
+     /** Diagnostics collected before the interactive TUI was initialized. */
+@@ -142,6 +144,8 @@
+      * Update terminal title with session name and cwd.
+      */
+     private updateTerminalTitle;
++    get assignmentInputEnabled(): boolean;
++    private rejectAssignmentCommand;
+     /**
+      * Run the interactive mode. This is the main entry point.
+      * Initializes the UI, shows warnings, processes initial messages, and starts the interactive loop.

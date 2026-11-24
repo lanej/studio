@@ -145,7 +145,7 @@ class Provider(BaseHTTPRequestHandler):
         self.requests.append(request)
         if self.path.startswith("/alternate/"):
             self.alternate_requests.append(request)
-        delta = complete(request)
+        delta = self.respond(request)
         finish = "tool_calls" if "tool_calls" in delta else "stop"
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
@@ -156,6 +156,9 @@ class Provider(BaseHTTPRequestHandler):
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
         self.close_connection = True
+
+    def respond(self, request: CompletionRequest) -> ToolDelta | TextDelta:
+        return complete(request)
 
     def write_chunk(self, delta: object, finish: str | None) -> None:
         chunk = {
