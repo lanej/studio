@@ -179,13 +179,14 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
               const attempt = store
                 .attempts()
                 .find((row) => row.bead?.id === `${parent}.second`);
+              assert(attempt !== undefined);
               assert.deepEqual(
-                attempt?.reviewFeedback,
+                attempt.reviewFeedback,
                 [finding],
                 "The correction must retain the original finding on the same attempt",
               );
               assert.equal(
-                attempt?.reviewFinding,
+                attempt.reviewFinding,
                 finding,
                 "The task panel must be able to show the actionable repair",
               );
