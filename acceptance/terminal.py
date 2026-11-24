@@ -4,6 +4,7 @@
 # ///
 """Exercise native Pi keyboard flows in owned PTYs and retain rendered screenshots."""
 import argparse
+import codecs
 import atexit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
@@ -29,6 +30,7 @@ parser.add_argument("--output", required=True)
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 palette = json.loads((root / "resources/colors.json").read_text())
+theme = json.loads((root / "resources/theme.json").read_text())["colors"]
 output = Path(args.output)
 output.mkdir(parents=True, exist_ok=True)
 
@@ -137,13 +139,14 @@ console.log(JSON.stringify({{discovery:record.id,ready:ready.id}}));store.close(
         os.close(slave)
         screen = pyte.Screen(columns, rows)
         stream = pyte.Stream(screen)
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         def pump(seconds):
             import time
             until = time.monotonic() + seconds
             while time.monotonic() < until:
                 if select.select([master], [], [], 0.05)[0]:
                     try:
-                        stream.feed(os.read(master, 65536).decode("utf-8", errors="replace"))
+                        stream.feed(decoder.decode(os.read(master, 65536)))
                     except OSError:
                         break
         def capture(name):
@@ -225,6 +228,9 @@ console.log(JSON.stringify({{discovery:record.id,ready:ready.id}}));store.close(
             colors = {screen.buffer[y][x].fg.upper() for y in range(rows) for x in range(columns)}
             assert palette["roles"]["accent"].lstrip("#") in colors, colors
             assert "├─ ○ Idle compaction" in view and "│  └─ ● Check idle guard" in view, screen.display
+            if columns == 80:
+                selected_row = next(y for y, line in enumerate(screen.display) if "›" in line and "◐ Studio" in line)
+                assert screen.buffer[selected_row][columns-3].bg.upper() == theme["userMessageBg"].lstrip("#"), screen.display
             capture("tasks")
             os.write(master, b"j\r")
             pump(.5)

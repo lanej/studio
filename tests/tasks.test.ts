@@ -129,10 +129,11 @@ await test("evidence reads are project scoped, read only, and distinguish unavai
 });
 
 await test("compact task browser keeps titles, hides identity, follows dependencies and returns to the selected row", async () => {
-  const theme: Pick<Theme, "fg" | "bg" | "bold"> = {
+  const theme: Pick<Theme, "fg" | "bg" | "bold" | "getBgAnsi"> = {
     fg: (_color, value) => value,
     bg: (_color, value) => value,
     bold: (value) => value,
+    getBgAnsi: () => "",
   };
   const browser = new TaskBrowser(
     snapshot,
@@ -194,10 +195,11 @@ await test("compact task browser keeps titles, hides identity, follows dependenc
 });
 
 await test("failed external links and late detail replies preserve the operator's selection", async () => {
-  const theme: Pick<Theme, "fg" | "bg" | "bold"> = {
+  const theme: Pick<Theme, "fg" | "bg" | "bold" | "getBgAnsi"> = {
     fg: (_color, value) => value,
     bg: (_color, value) => value,
     bold: (value) => value,
+    getBgAnsi: () => "",
   };
   const external = {
     ...rejected,

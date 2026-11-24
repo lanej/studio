@@ -1,4 +1,8 @@
-import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionContext,
+  Theme,
+  ThemeBg,
+} from "@earendil-works/pi-coding-agent";
 import {
   matchesKey,
   Text,
@@ -50,7 +54,7 @@ export class TaskBrowser {
   constructor(
     private snapshot: TaskSnapshot,
     private readonly source: BrowserSource,
-    private readonly theme: Pick<Theme, "fg" | "bg" | "bold">,
+    private readonly theme: Pick<Theme, "fg" | "bg" | "bold" | "getBgAnsi">,
     private readonly height: () => number,
     private readonly changed: () => void,
     private readonly done: (paneTask: string | undefined) => void,
@@ -70,6 +74,17 @@ export class TaskBrowser {
   private pad(text: string, width: number): string {
     const clipped = truncateToWidth(text, Math.max(1, width));
     return clipped + " ".repeat(Math.max(0, width - visibleWidth(clipped)));
+  }
+
+  private paint(color: ThemeBg, text: string): string {
+    const background = this.theme.getBgAnsi(color);
+    // Truncation and nested fills reset ANSI colors; restore this region's fill.
+    return this.theme.bg(
+      color,
+      text
+        .replaceAll("\x1b[0m", `\x1b[0m${background}`)
+        .replaceAll("\x1b[49m", background),
+    );
   }
 
   private wrapped(text: string, width: number): string[] {
@@ -194,7 +209,7 @@ export class TaskBrowser {
         const branch = this.theme.fg("muted", row.branch ?? "");
         const label = `${selected ? "›" : " "} ${branch}${glyph} ${plain(row.task.title)}${row.warning === undefined ? "" : " ⚠"}`;
         const padded = this.pad(label, treeWidth);
-        return selected ? this.theme.bg("selectedBg", padded) : padded;
+        return selected ? this.paint("selectedBg", padded) : padded;
       });
     const details = this.details(detailWidth);
     this.actions = details.flatMap((line, index) =>
@@ -219,7 +234,7 @@ export class TaskBrowser {
         return this.focus === "inspector" &&
           actionIndex >= 0 &&
           actionIndex === this.activeAction
-          ? this.theme.bg("selectedBg", this.pad(label, detailWidth))
+          ? this.paint("selectedBg", this.pad(label, detailWidth))
           : this.pad(label, detailWidth);
       });
     const body = Array.from({ length: this.bodyHeight }, (_, index) =>
@@ -251,9 +266,7 @@ export class TaskBrowser {
       this.theme.fg("borderMuted", "─".repeat(inner)),
       this.theme.fg("muted", context),
       this.theme.fg("muted", hint),
-    ].map((line) =>
-      this.theme.bg("userMessageBg", ` ${this.pad(line, inner)} `),
-    );
+    ].map((line) => this.paint("userMessageBg", ` ${this.pad(line, inner)} `));
   }
 
   private update(snapshot: TaskSnapshot): void {
