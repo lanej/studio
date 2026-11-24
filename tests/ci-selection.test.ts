@@ -227,7 +227,7 @@ await test("revision selection retains base edges but requires only workflows an
   }
 });
 
-await test("native workflow filters cover their local static imports and full CLI entrypoints", async () => {
+await test("native workflow filters cover static imports and literal process inputs", async () => {
   const ts = await import("typescript");
   const root = fileURLToPath(new URL("../", import.meta.url));
   const cases: { workflow: "lsp.yml" | "beads.yml"; roots: string[] }[] = [
@@ -249,6 +249,7 @@ await test("native workflow filters cover their local static imports and full CL
     const definition = await readWorkflow(item.workflow);
     const pending = item.roots.map((path) => resolve(root, path));
     const visited = new Set<string>();
+    const processInputs = new Set<string>();
     while (pending.length > 0) {
       const file = pending.pop();
       assert(file !== undefined);
@@ -261,6 +262,36 @@ await test("native workflow filters cover their local static imports and full CL
         `${item.workflow} does not select consumed ${local}`,
       );
       const source = await readFile(file, "utf8");
+      const syntax = ts.createSourceFile(
+        file,
+        source,
+        ts.ScriptTarget.Latest,
+        true,
+      );
+      const processInput = (node: import("typescript").Node): void => {
+        if (
+          ts.isCallExpression(node) &&
+          ((ts.isIdentifier(node.expression) &&
+            node.expression.text === "join") ||
+            (ts.isPropertyAccessExpression(node.expression) &&
+              node.expression.name.text === "join"))
+        ) {
+          const base = node.arguments[0];
+          const parts = node.arguments.slice(1);
+          if (
+            base !== undefined &&
+            ts.isIdentifier(base) &&
+            ["root", "packageRoot"].includes(base.text) &&
+            parts.length > 0 &&
+            parts.every(ts.isStringLiteralLike)
+          ) {
+            const path = parts.map((part) => part.text).join("/");
+            if (path.startsWith("scripts/")) processInputs.add(path);
+          }
+        }
+        ts.forEachChild(node, processInput);
+      };
+      processInput(syntax);
       for (const imported of ts.preProcessFile(source, true, true)
         .importedFiles) {
         if (!imported.fileName.startsWith(".")) continue;
@@ -285,6 +316,27 @@ await test("native workflow filters cover their local static imports and full CL
           pending.push(resolved);
         }
       }
+    }
+    for (const input of processInputs) {
+      await access(resolve(root, input));
+      assert(
+        matchesPaths(definition.on.pull_request.paths, [input]),
+        `${item.workflow} does not select executed ${input}`,
+      );
+    }
+    if (item.workflow === "beads.yml") {
+      assert(
+        processInputs.has("scripts/prepare-delegation.mjs"),
+        "The real preparation invocation must be detected",
+      );
+      const missingPreparation = definition.on.pull_request.paths.filter(
+        (path) => path !== "scripts/prepare-delegation.mjs",
+      );
+      assert.equal(
+        matchesPaths(missingPreparation, ["scripts/prepare-delegation.mjs"]),
+        false,
+        "Removing the dynamic-exec dependency must lose selection",
+      );
     }
   }
 });
