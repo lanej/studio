@@ -15,7 +15,7 @@
     "studio": "scripts/studio",
     "test": "bun test tests/",
     "test:beads-native": "bun acceptance/beads-control.ts",
-    "test:pi-native": "bun acceptance/pi-resources.ts",
+    "test:pi-native": "bun acceptance/pi-models.ts && bun acceptance/pi-resources.ts",
     "format": "bun scripts/check-typescript.mjs fmt",
     "check": "bun scripts/check-typescript.mjs all",
     "lint": "bun scripts/check-typescript.mjs lint",

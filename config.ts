@@ -221,25 +221,25 @@ export async function loadConfig(path = configPath()): Promise<StudioConfig> {
   }
 }
 
-const roles = (provider: string, prefix: string) => ({
+const roles = (provider: string, model: string) => ({
   [AgentRole.Lead]: {
     provider,
-    model: `${prefix}gpt-6.1-sol`,
+    model,
     reasoning: ReasoningLevel.High,
   },
   [AgentRole.Worker]: {
     provider,
-    model: `${prefix}gpt-6.1-sol`,
+    model,
     reasoning: ReasoningLevel.Medium,
   },
   [AgentRole.Reviewer]: {
     provider,
-    model: `${prefix}gpt-6.1-sol`,
+    model,
     reasoning: ReasoningLevel.Medium,
   },
   [AgentRole.Explorer]: {
     provider,
-    model: `${prefix}gpt-6.1-sol`,
+    model,
     reasoning: ReasoningLevel.Low,
   },
 });
@@ -263,7 +263,13 @@ export const exampleConfig = {
     projectId: "11111111-1111-4111-8111-111111111111",
   },
   profiles: {
-    [StudioProfile.Work]: roles(DefaultProvider.BedrockMantle, "openai."),
-    [StudioProfile.Personal]: roles(DefaultProvider.ChatGPTSubscription, ""),
+    [StudioProfile.Work]: roles(
+      DefaultProvider.BedrockMantle,
+      "openai.gpt-6.1-sol",
+    ),
+    [StudioProfile.Personal]: roles(
+      DefaultProvider.ChatGPTSubscription,
+      "gpt-6.1-sol",
+    ),
   },
 };
