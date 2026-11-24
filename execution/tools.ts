@@ -1,3 +1,7 @@
+import {
+  editReason,
+  requireEditReason,
+} from "../code-intelligence/edit-tool.ts";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
   writeFileSync,
@@ -158,10 +162,13 @@ export function writableTools(
         "Replace one exact occurrence of text in an accepted regular file.",
       parameters: Type.Object({
         path: Type.String(),
+        reason: editReason,
         oldText: Type.String(),
         newText: Type.String(),
       }),
+      prepareArguments: requireEditReason,
       execute: async (_id, params) => {
+        requireEditReason(params);
         const parsed = input
           .extend({
             oldText: z

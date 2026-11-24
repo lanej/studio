@@ -3,7 +3,7 @@ import type {
   ExtensionContext,
   Theme,
 } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth, type TUI } from "@earendil-works/pi-tui";
 import {
   ActivityState,
   ConditionState,
@@ -29,6 +29,7 @@ import {
   type ImplementationObservation,
   type ImplementationSource,
 } from "./implementation.ts";
+import { renderStatusSidebar } from "./sidebar.ts";
 import { createImplementationWatch } from "./implementation-watch.ts";
 
 export interface SocratesObservation extends ImplementationSource {
@@ -216,6 +217,10 @@ function surface(theme: Theme, line: string, width: number): string {
 
 const widgetKey = "studio:socrates";
 
+function sidebarWidth(columns: number): number {
+  return columns >= 104 ? Math.min(48, Math.floor(columns / 3)) : 0;
+}
+
 /** UI state is session-local; no timer or saved focus can establish agent activity. */
 export function registerSocratesPresentation(
   pi: ExtensionAPI,
@@ -227,11 +232,23 @@ export function registerSocratesPresentation(
   let snapshot: SocratesPresentation | undefined;
   let binding: SocratesObservation | undefined;
   let mounted = false;
-  let expanded = false;
+  // Remember each layout independently when a terminal or Zellij pane is resized.
+  let sidebarOpen = true;
+  let dockExpanded = false;
+  let layoutTui: TUI | undefined;
+  const usesSidebar = () =>
+    layoutTui !== undefined &&
+    typeof layoutTui.setRightColumn === "function" &&
+    sidebarWidth(layoutTui.terminal.columns) > 0;
   let inspecting = false;
   const render = () => {
     for (const request of renders) request();
   };
+  function resizeStatus(open?: boolean) {
+    if (usesSidebar()) sidebarOpen = open ?? !sidebarOpen;
+    else dockExpanded = open ?? !dockExpanded;
+    render();
+  }
   function project() {
     snapshot =
       binding === undefined
@@ -274,9 +291,30 @@ export function registerSocratesPresentation(
           tui.requestRender();
         };
         renders.add(repaint);
+        layoutTui = tui;
+        tui.setRightColumn?.(
+          {
+            invalidate() {},
+            render(width) {
+              if (snapshot === undefined || inspecting) return [];
+              return renderStatusSidebar(
+                snapshot.dockColumns,
+                statusTheme(theme),
+                width,
+                tui.terminal.rows,
+              ).map((line) => surface(theme, line, width));
+            },
+          },
+          (width) =>
+            sidebarOpen && !inspecting && snapshot !== undefined
+              ? sidebarWidth(width)
+              : 0,
+        );
         return {
           invalidate() {},
           dispose() {
+            tui.setRightColumn?.(undefined);
+            layoutTui = undefined;
             renders.delete(repaint);
           },
           handleMouse(event) {
@@ -286,25 +324,27 @@ export function registerSocratesPresentation(
               event.y !== 0
             )
               return undefined;
-            expanded = !expanded;
-            render();
+            resizeStatus();
             return { handled: true };
           },
           render(width) {
-            if (snapshot === undefined || inspecting) return [];
+            if (snapshot === undefined || inspecting || usesSidebar())
+              return [];
             const maxRows = Math.max(
               1,
-              Math.min(expanded ? 8 : 3, Math.floor(tui.terminal.rows / 3)),
+              Math.min(dockExpanded ? 8 : 3, Math.floor(tui.terminal.rows / 3)),
             );
             return renderStatusDock({
               columns: snapshot.dockColumns,
               theme: statusTheme(theme),
               width: Math.max(0, width - 3),
-              expanded,
+              expanded: dockExpanded,
               maxRows,
             }).map((line, index) => {
               const edge =
-                index === 0 ? theme.fg("accent", expanded ? "▾ " : "▸ ") : "  ";
+                index === 0
+                  ? theme.fg("accent", dockExpanded ? "▾ " : "▸ ")
+                  : "  ";
               return surface(theme, edge + line, width);
             });
           },
@@ -432,16 +472,15 @@ export function registerSocratesPresentation(
     if (!ctx.hasUI) return;
     refresh(ctx);
     if (snapshot === undefined) return;
-    expanded = !expanded;
-    render();
+    resizeStatus();
   };
   pi.registerShortcut("alt+s", {
-    description: "Expand or minimize the lead status dock",
+    description: "Show or collapse lead status",
     handler: toggle,
   });
   pi.registerCommand("socrates-status", {
     description:
-      "Toggle the lead status dock; min, max, or inspect the specification and beads",
+      "Toggle lead status, or use min, max, or inspect for specification and Beads details",
     async handler(argument, ctx) {
       const action = argument.trim();
       if (action === "inspect") {
@@ -455,8 +494,7 @@ export function registerSocratesPresentation(
       if (action !== "min" && action !== "max")
         throw new Error("Use /socrates-status min, max, or inspect");
       refresh(ctx);
-      expanded = action === "max";
-      render();
+      resizeStatus(action === "max");
     },
   });
   return { refresh, inspect };
