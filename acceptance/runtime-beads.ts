@@ -14,7 +14,7 @@ import {
   executionSchema,
   ExecutionPhase,
 } from "../execution/store.ts";
-import { reconcileAttempt } from "../execution/recovery.ts";
+import { reconcileAttempt, retainClaim } from "../execution/recovery.ts";
 import { maintainAttempt } from "../execution/supervisor.ts";
 import { writeFile } from "node:fs/promises";
 import { draftSchema, planDigest } from "../lead-plan.ts";
@@ -111,6 +111,34 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
   assert.equal(mutation.code, 0, mutation.stderr);
   await replay();
   assert.equal((await service.get(ids.held)).status, "deferred");
+  const interactiveCreated = await fixture.command([
+    "create",
+    "--title",
+    "Interactive PR child",
+    "--type",
+    "task",
+    "--priority",
+    "0",
+    "--metadata",
+    JSON.stringify({
+      "pi.plan": "interactive-approval",
+      "pi.plan_parent": root,
+      "pi.plan_key": "interactive",
+      "pi.plan_task": {
+        key: "interactive",
+        title: "Interactive PR child",
+        description: "Use the interactive lead",
+        acceptance: "PR published",
+        delivery: "pull-request",
+      },
+    }),
+    "--json",
+  ]);
+  assert.equal(interactiveCreated.code, 0, interactiveCreated.stderr);
+  const interactiveId = z
+    .object({ id: z.string() })
+    .parse(JSON.parse(interactiveCreated.stdout)).id;
+  const untouchedInteractive = await service.get(interactiveId);
   const firstAttempt = randomUUID();
   const first = await service.claimNext(firstAttempt);
   assert.equal(first?.id, ids.first);
@@ -271,6 +299,40 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     ids.held,
     "Releasing a native hold makes approved queue work eligible without another lead approval",
   );
+  assert.deepEqual(
+    await service.get(interactiveId),
+    untouchedInteractive,
+    "The higher-priority interactive child remains unclaimed while unattended ready work progresses",
+  );
+  // Reconcile a claim left by an older broad dispatcher without binding or allocating it.
+  const badAttempt = randomUUID();
+  await service.claim(untouchedInteractive, badAttempt);
+  const oldClaim = await service.get(interactiveId);
+  const blockedStore = new ExecutionStore(
+    join(fixture.directory, "interactive-claim-state"),
+  );
+  try {
+    blockedStore.saveAttempt(
+      executionSchema.parse({
+        id: badAttempt,
+        project: source.projectId,
+        profile: StudioProfile.Personal,
+        phase: ExecutionPhase.Claiming,
+        message: "Old broad claim",
+      }),
+    );
+    await retainClaim(blockedStore, service, badAttempt, oldClaim);
+    assert.equal(blockedStore.attempt(badAttempt).phase, ExecutionPhase.Parked);
+    assert.equal(blockedStore.attempt(badAttempt).checkout, undefined);
+    assert.equal(blockedStore.attempt(badAttempt).launchToken, undefined);
+    assert.deepEqual(
+      await service.get(interactiveId),
+      oldClaim,
+      "Retaining an old interactive claim cannot rewrite its authority",
+    );
+  } finally {
+    blockedStore.close();
+  }
   console.log(
     `Native Beads graph, hold, atomic admission, heartbeat, and completion passed (${join(fixture.workspace, ".beads")}).`,
   );

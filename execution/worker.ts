@@ -25,7 +25,7 @@ import {
 } from "./store.ts";
 import { reviewRevision } from "./review.ts";
 import { beadSchema } from "../task-service.ts";
-import { ExecutionBeads, heartbeat } from "./beads.ts";
+import { requireUnattendedTask, ExecutionBeads, heartbeat } from "./beads.ts";
 import { packageRoot } from "../package-resources.ts";
 import { writableTools } from "./tools.ts";
 import { safeGit, networkGit } from "./git.ts";
@@ -106,6 +106,7 @@ export async function executeAssignment(
     const service = new ExecutionBeads(project.source);
     if (attempt.bead === undefined || attempt.revision === undefined)
       throw new Error("Missing admitted task identity");
+    requireUnattendedTask(attempt.bead);
     if (ctx.cwd !== project.root || !ctx.isProjectTrusted())
       throw new Error(
         "Approve Pi project trust for the enrolled repository before execution",
@@ -164,7 +165,10 @@ export async function executeAssignment(
         ].includes(current.phase)
       )
         throw new Error("The task's local execution fence was retired");
-      await service.requireCurrent(current.bead, current.revision, id);
+      requireUnattendedTask(current.bead);
+      requireUnattendedTask(
+        await service.requireCurrent(current.bead, current.revision, id),
+      );
       abort.throwIfAborted();
       const after = store.attempt(id);
       if (

@@ -216,6 +216,7 @@
   "tests/plan-delivery.test.ts",
   "tests/plan-graph.test.ts",
   "tests/question-links.test.ts",
+  "tests/runtime-admission.test.ts",
   "tests/runtime-heartbeat.test.ts",
   "tests/runtime-result.test.ts",
   "tests/socrates-implementation.test.ts",

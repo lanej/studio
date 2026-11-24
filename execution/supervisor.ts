@@ -12,6 +12,7 @@ import { processFailure, processStart } from "../process.ts";
 import { owner } from "../task-service.ts";
 import {
   ExecutionBeads,
+  interactiveTask,
   heartbeat,
   verifyHeartbeatAuthority,
 } from "./beads.ts";
@@ -280,6 +281,15 @@ async function launchHost(
   attempt: Execution,
   project: RuntimeProject,
 ): Promise<void> {
+  if (attempt.bead !== undefined && interactiveTask(attempt.bead)) {
+    await retainClaim(
+      store,
+      new ExecutionBeads(project.source),
+      attempt.id,
+      attempt.bead,
+    );
+    return;
+  }
   const selection = attempt.controller;
   if (selection === undefined)
     throw new Error("Runtime lead/control model is not configured");

@@ -7,7 +7,7 @@ import {
   type StudioConfig,
 } from "../config.ts";
 import { draftSchema } from "../lead-plan.ts";
-import { ExecutionBeads } from "./beads.ts";
+import { ExecutionBeads, interactiveTask } from "./beads.ts";
 import {
   type ExecutionStore,
   ExecutionPhase,
@@ -58,6 +58,16 @@ export async function retainClaim(
   claimed: NonNullable<Execution["bead"]>,
   configuration?: StudioConfig,
 ): Promise<void> {
+  if (interactiveTask(claimed)) {
+    store.change(id, (row) => {
+      row.bead = claimed;
+      row.revision = claimed.revision;
+      row.phase = ExecutionPhase.Parked;
+      row.message =
+        "Interactive child retained without unattended execution; inspect and reconcile its retained claim/ownership before using studio start with the approved delivery mode";
+    });
+    return;
+  }
   const bound =
     claimed.metadata["pi.attempt"] === id
       ? claimed
@@ -98,6 +108,19 @@ export async function reconcileAttempt(
 ): Promise<void> {
   const record = store.attempt(id);
   if (record.phase === ExecutionPhase.Complete) return;
+  if (
+    record.bead !== undefined &&
+    interactiveTask(record.bead) &&
+    record.launchToken === undefined
+  ) {
+    await retainClaim(
+      store,
+      new ExecutionBeads(project.source),
+      id,
+      record.bead,
+    );
+    return;
+  }
   const service = new ExecutionBeads(project.source);
   if (
     record.launchToken === undefined &&
