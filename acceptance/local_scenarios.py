@@ -745,11 +745,14 @@ def discovery_delivery_review(case: Case) -> None:
     terminal.send_to_pane(pane, "/studio-profile personal")
     terminal.write_to_pane(pane, 13)
     terminal.pty.drain(.2)
-    terminal.send_to_pane(pane, f"/socrates {seeded}")
+    terminal.send_to_pane(pane, "/discoveries")
     terminal.write_to_pane(pane, 13)
-    terminal.until("native delivery discovery selected", lambda: "Mixed delivery proposal" in terminal.capture_pane(pane))
-    terminal.write_to_pane(pane, 27)
-    terminal.send_to_pane(pane, "/plan-approve\r")
+    terminal.until("native discovery picker opens", lambda: "Select a saved discovery" in terminal.capture_pane(pane))
+    terminal.write_to_pane(pane, 13)
+    terminal.until("native delivery discovery selected", lambda:
+                   "Mixed delivery proposal" in terminal.capture_pane(pane) and "Select a saved discovery" not in terminal.capture_pane(pane))
+    terminal.send_to_pane(pane, "/plan-approve")
+    terminal.write_to_pane(pane, 13)
     terminal.until("discovery approval opens", lambda: "Approve Native delivery approval" in case.capture(pane))
     for _ in range(20):
         if "Enter create tasks and implement" in case.capture(pane): break
