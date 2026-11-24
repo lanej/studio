@@ -5,6 +5,7 @@
 """Verify Socrates status and evidence through the native Pi terminal."""
 import argparse
 import codecs
+import faulthandler
 import fcntl
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -114,6 +115,7 @@ The plan is awaiting approval.""")
 
 class Terminal:
     def __init__(self, project, env, output, session, mode="fullscreen", columns=wide_columns, rows=wide_rows):
+        print(f"Starting the {mode} lead in a {columns}×{rows} terminal", flush=True)
         self.output = output
         self.master, slave = os.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0))
@@ -122,6 +124,7 @@ class Terminal:
             env=env, cwd=project, stdin=slave, stdout=slave, stderr=slave, start_new_session=True,
         )
         os.close(slave)
+        os.set_blocking(self.master, False)
         self.screen = pyte.Screen(columns, rows)
         self.stream = pyte.Stream(self.screen)
         self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
@@ -133,6 +136,8 @@ class Terminal:
             if select.select([self.master], [], [], min(0.05, max(0, until - time.monotonic())))[0]:
                 try:
                     chunk = os.read(self.master, 65536)
+                    if not chunk:
+                        return
                     self.raw.extend(chunk)
                     self.stream.feed(self.decoder.decode(chunk))
                 except OSError:
@@ -156,7 +161,15 @@ class Terminal:
         self.wait(lambda: text in " ".join(self.text().split()), f"Missing {text!r}")
 
     def send(self, text):
-        os.write(self.master, text.encode())
+        data = text.encode()
+        deadline = time.monotonic() + 8
+        while data:
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"The lead stopped reading terminal input\n{self.text()}")
+            try:
+                data = data[os.write(self.master, data):]
+            except BlockingIOError:
+                self.pump()
         self.pump()
 
     def keys(self, keys):
@@ -264,6 +277,7 @@ class Terminal:
         (self.output / f"{name}-{self.screen.columns}.ansi").write_bytes(self.raw)
 
     def close(self):
+        print("Closing the lead terminal", flush=True)
         try:
             os.killpg(self.process.pid, signal.SIGTERM)
         except ProcessLookupError:
@@ -272,7 +286,7 @@ class Terminal:
             self.process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             os.killpg(self.process.pid, signal.SIGKILL)
-            self.process.wait()
+            self.process.wait(timeout=5)
         os.close(self.master)
 
 
@@ -336,11 +350,12 @@ function sessionFor(record) {{
 }}
 console.log(JSON.stringify({{covered,question,unknown,approved,beads,session:sessionFor(covered),planOnlySession:sessionFor(planOnly.id)}}));store.close();
 """
-    result = subprocess.run(["bun", "--no-env-file", "-e", source], env=env, cwd=root, text=True, capture_output=True, check=True)
+    result = subprocess.run(["bun", "--no-env-file", "-e", source], env=env, cwd=root, text=True, capture_output=True, check=True, timeout=30)
     return json.loads(result.stdout)
 
 
 def run(output):
+    print("Preparing the local Socrates and Beads fixtures", flush=True)
     with tempfile.TemporaryDirectory(prefix="studio-socrates-ui-") as directory, ThreadingHTTPServer(("127.0.0.1", 0), Provider) as provider:
         Thread(target=provider.serve_forever, daemon=True).start()
         home = Path(directory).resolve()
@@ -348,11 +363,11 @@ def run(output):
         agent.mkdir(parents=True)
         project = home / "project"
         project.mkdir()
-        subprocess.run(["git", "init", "--initial-branch=main", str(project)], check=True, capture_output=True)
+        subprocess.run(["git", "init", "--initial-branch=main", str(project)], check=True, capture_output=True, timeout=30)
         (home / "config.json").write_text("{}")
         (agent / "models.json").write_text(json.dumps({"providers":{"fixture":{"baseUrl":f"http://127.0.0.1:{provider.server_port}/v1","api":"openai-completions","apiKey":"fixture","models":[{"id":"tiny"}]}}}))
         env = {**os.environ, "HOME":str(home), "PI_CODING_AGENT_DIR":str(agent), "STUDIO_CONFIG":str(home / "config.json"), "STUDIO_STATE_DIR":str(home / "state"), "TERM":"xterm-256color", "COLORTERM":"truecolor", "PI_TELEMETRY":"0", "PI_SKIP_VERSION_CHECK":"1"}
-        subprocess.run([sys.executable, str(root / "scripts/configure.py"), str(root), str(agent)], env=env, check=True, stdout=subprocess.DEVNULL)
+        subprocess.run([sys.executable, str(root / "scripts/configure.py"), str(root), str(agent)], env=env, check=True, stdout=subprocess.DEVNULL, timeout=30)
         settings_path = agent / "settings.json"
         settings = json.loads(settings_path.read_text())
         settings["retry"] = {"enabled": False, "maxRetries": 0}
@@ -546,5 +561,10 @@ def run(output):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, help="Keep dark terminal screenshots and matching text")
-    run(parser.parse_args().output)
+    # A stuck native call cannot reach wait()'s assertion. Give CI its Python stacks.
+    faulthandler.dump_traceback_later(120, exit=bool(os.environ.get("CI")))
+    try:
+        run(parser.parse_args().output)
+    finally:
+        faulthandler.cancel_dump_traceback_later()
     print("Native fullscreen and regular sidebars, cursor and width restoration, narrow fallback, folding, evidence, question/resume, and plan-only inspection passed.")
