@@ -6,6 +6,7 @@ import type {
 import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { Type } from "typebox";
+import { selectorText } from "@lanej/pi-components";
 import { z } from "zod";
 import { registerSocratesControls } from "../socrates/controls.ts";
 import { SpecStatus, specText } from "../socrates/spec.ts";
@@ -18,17 +19,27 @@ import {
   planDigest,
 } from "../lead-plan.ts";
 import { isEntry, PiEntryType } from "../runtime.ts";
-import { reviewPlan, showTask } from "../ui.ts";
+import { reviewPlan } from "../ui.ts";
 import { Discoveries, type Discovery } from "./store.ts";
 
 const selectionType = "studio:discovery";
 const markerSchema = z.object({ id: z.uuid(), project: z.string() });
+
+function discoveryStatus(record: Discovery): string {
+  const spec = record.specification;
+  if (spec === undefined) return "not started";
+  if (spec.status === SpecStatus.Frozen || spec.exchange === undefined)
+    return spec.status;
+  return spec.exchange.answer === undefined ? "question open" : "answer saved";
+}
 
 export function registerDiscovery(
   pi: ExtensionAPI,
   profile: () => string | undefined,
 ) {
   let pending = false;
+  let runningDiscoveryCommand = false;
+  const discoveryBusy = () => pending || runningDiscoveryCommand;
   let selected: string | undefined;
   const storage = <T>(operation: (store: Discoveries) => T): T => {
     const db = new Discoveries();
@@ -55,15 +66,23 @@ export function registerDiscovery(
       : undefined;
   };
   const bind = (record: Discovery): void => {
-    selected = record.id;
     pi.appendEntry(selectionType, { id: record.id, project: record.project });
+    selected = record.id;
+  };
+  const create = (ctx: ExtensionContext, title: string): void => {
+    bind(
+      storage((db) =>
+        db.create(ctx.cwd, ctx.sessionManager.getSessionId(), title),
+      ),
+    );
   };
   const get = (): Discovery => {
-    if (selected === undefined)
+    const id = selected;
+    if (id === undefined)
       throw new Error(
-        "Use /socrates or /plan-draft to select a discovery first",
+        "Start with /socrates or /plan-draft, or select with /discoveries",
       );
-    return storage((db) => db.get(selected ?? ""));
+    return storage((db) => db.get(id));
   };
   const requireBinding = (ctx: ExtensionContext): Promise<Discovery> => {
     selected = locate(ctx);
@@ -71,41 +90,6 @@ export function registerDiscovery(
     if (record.project !== realpathSync(ctx.cwd))
       throw new Error("Select a discovery for this project");
     return Promise.resolve(record);
-  };
-  const select = (argument: string, ctx: ExtensionContext): Promise<void> => {
-    const text = argument.trim();
-    if (text === "list") {
-      const listing = storage((db) => db.list(ctx.cwd))
-        .map((record) => `${record.id} · ${record.title}`)
-        .join("\n");
-      return showTask(
-        ctx,
-        listing.length === 0 ? "No discoveries for this project." : listing,
-      ).then(() => {});
-    }
-    const current = locate(ctx);
-    if (
-      text.startsWith("new ") ||
-      (text.length === 0 && current === undefined)
-    ) {
-      bind(
-        storage((db) =>
-          db.create(
-            ctx.cwd,
-            ctx.sessionManager.getSessionId(),
-            text.slice(4).trim().length === 0
-              ? "Discovery"
-              : text.slice(4).trim(),
-          ),
-        ),
-      );
-    } else if (text.length > 0) {
-      const record = storage((db) => db.get(z.uuid().parse(text)));
-      if (record.project !== realpathSync(ctx.cwd))
-        throw new Error("That discovery belongs to another project");
-      bind(record);
-    } else selected = current;
-    return Promise.resolve();
   };
   pi.on("before_agent_start", async (event, ctx) => {
     selected = locate(ctx);
@@ -120,7 +104,7 @@ export function registerDiscovery(
       systemPrompt: [
         event.systemPrompt,
         base,
-        `Selected discovery · ${record.title}\n${record.id}`,
+        `Selected discovery · ${record.title}`,
         guidance,
         record.specification === undefined
           ? ""
@@ -134,8 +118,33 @@ export function registerDiscovery(
       ].join("\n\n"),
     };
   });
+  // Only the daily-driver command accepts a discovery title.
   const socrates = registerSocratesControls(
-    pi,
+    {
+      ...pi,
+      registerCommand(name, command) {
+        pi.registerCommand(
+          name,
+          name === "socrates"
+            ? {
+                ...command,
+                description:
+                  "/socrates [TITLE] — start a new discovery with TITLE; omit it to continue or start one",
+                async handler(argument, ctx) {
+                  if (discoveryBusy())
+                    throw new Error("Wait for the discovery command");
+                  runningDiscoveryCommand = true;
+                  try {
+                    await command.handler(argument, ctx);
+                  } finally {
+                    runningDiscoveryCommand = false;
+                  }
+                },
+              }
+            : command,
+        );
+      },
+    },
     {
       get: () => get(),
       change: (_id, update) => storage((db) => db.change(get().id, update)),
@@ -153,21 +162,62 @@ export function registerDiscovery(
         const id = locate(ctx);
         return id === undefined ? undefined : storage((db) => db.get(id));
       },
-      select: async (argument, ctx) => {
-        if (argument.trim() === "list")
-          throw new Error("Use /discoveries to list saved discoveries");
-        await select(argument, ctx);
+      select: (argument, ctx) => {
+        const title = argument.trim();
+        if (title !== "") create(ctx, title);
+        else if (locate(ctx) === undefined) create(ctx, "Discovery");
+        return Promise.resolve();
       },
       check: (record, revision) => {
-        if (get().id !== record.id || get().revision !== revision)
+        const current = get();
+        if (current.id !== record.id || current.revision !== revision)
           throw new Error("The selected discovery changed");
         return Promise.resolve();
       },
     },
   );
   pi.registerCommand("discoveries", {
-    description: "List this project's saved discoveries",
-    handler: (_arg, ctx) => select("list", ctx),
+    description: "Select a saved project discovery by title for /socrates",
+    async handler(_arg, ctx) {
+      if (discoveryBusy() || !ctx.isIdle())
+        throw new Error("Wait for the lead turn to settle");
+      const project = realpathSync(ctx.cwd);
+      const records = storage((db) => db.list(project));
+      if (records.length === 0) {
+        ctx.ui.notify("No saved discoveries for this project.", "info");
+        return;
+      }
+      if (!ctx.hasUI) throw new Error("Open the Pi TUI to select a discovery");
+      const session = ctx.sessionManager.getSessionId();
+      const leaf = ctx.sessionManager.getLeafId();
+      const current = locate(ctx);
+      const choices = records.map((record, index) => {
+        const title = selectorText(record.title).replace(/\s+/gu, " ");
+        const active = record.id === current ? " · selected" : "";
+        const number = records.length - index;
+        return `#${String(number)} ${title} · ${discoveryStatus(record)}${active}`;
+      });
+      runningDiscoveryCommand = true;
+      try {
+        const choice = await ctx.ui.select("Select a saved discovery", choices);
+        if (choice === undefined) return;
+        const record = records[choices.indexOf(choice)];
+        if (
+          record === undefined ||
+          project !== realpathSync(ctx.cwd) ||
+          session !== ctx.sessionManager.getSessionId() ||
+          leaf !== ctx.sessionManager.getLeafId() ||
+          !ctx.isIdle()
+        )
+          throw new Error("Open /discoveries again for this conversation");
+        if (record.id !== current) {
+          bind(record);
+          socrates.refresh(ctx);
+        }
+      } finally {
+        runningDiscoveryCommand = false;
+      }
+    },
   });
   pi.registerCommand("spec-reopen", {
     description: "Preserve the frozen specification and reopen this discovery",
@@ -203,11 +253,10 @@ export function registerDiscovery(
     description: "Request a work breakdown without requiring Socrates first",
     async handler(argument, ctx) {
       if (!ctx.isIdle()) throw new Error("Wait for the lead turn to settle");
-      if (locate(ctx) === undefined)
-        await select(
-          `new ${argument.trim().length === 0 ? "Work breakdown" : argument.trim()}`,
-          ctx,
-        );
+      if (locate(ctx) === undefined) {
+        const title = argument.trim();
+        create(ctx, title === "" ? "Work breakdown" : title);
+      }
       await requireBinding(ctx);
       pi.sendUserMessage(
         `Draft a bounded work breakdown for operator review. Do not create tasks before /plan-approve. ${argument}`,
@@ -352,11 +401,13 @@ export function registerDiscovery(
     },
   });
   pi.on("session_before_switch", () =>
-    pending ? { cancel: true } : undefined,
+    discoveryBusy() ? { cancel: true } : undefined,
   );
-  pi.on("session_before_fork", () => (pending ? { cancel: true } : undefined));
+  pi.on("session_before_fork", () =>
+    discoveryBusy() ? { cancel: true } : undefined,
+  );
   return {
-    pending: () => pending,
+    pending: discoveryBusy,
     hasSelectedDraft(ctx: ExtensionContext): boolean {
       const id = locate(ctx);
       if (id === undefined) return false;

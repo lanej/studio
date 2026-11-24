@@ -13,7 +13,6 @@ import json
 import os
 from pathlib import Path
 import select
-import shutil
 import sqlite3
 import struct
 import subprocess
@@ -25,14 +24,18 @@ import time
 import pyte
 from PIL import Image, ImageDraw, ImageFont
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--output", required=True)
-parser.add_argument("--task-review", action="store_true", help="Exercise empty projects and managed task reviews on wide and narrow terminals")
-args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
+build_output = root / ".aot"
+parser = argparse.ArgumentParser()
+parser.add_argument("--output", type=Path, default=build_output / "terminal",
+                    help="capture directory (default: .aot/terminal)")
+mode = parser.add_mutually_exclusive_group()
+mode.add_argument("--task-review", action="store_true", help="exercise empty projects and managed task reviews at both widths")
+mode.add_argument("--discovery-only", action="store_true", help="exercise discovery in fresh Pi sessions")
+args = parser.parse_args()
+output = args.output.resolve()
 palette = json.loads((root / "resources/colors.json").read_text())
 theme = json.loads((root / "resources/theme.json").read_text())["colors"]
-output = Path(args.output)
 output.mkdir(parents=True, exist_ok=True)
 
 review_project = "a93fe08d-5663-4c9b-bf6e-97a846663808"
@@ -87,8 +90,17 @@ class DiscoveryProvider(BaseHTTPRequestHandler):
             assert review_question in last_user, last_user
             answer = review_answer
         else:
-            assert "Harmony" in prompt and "Keep the lead free for research" in prompt, prompt
-            answer = "Discovery remains open."
+            assert "Harmony" in prompt and "Selected discovery · " in prompt, prompt
+            discovery_context = prompt.rsplit("Selected discovery · ", 1)[1]
+            title = discovery_context.splitlines()[0]
+            user_message = next(message for message in reversed(request["messages"]) if message["role"] == "user")
+            resumed = "Resume Socrates discovery" in str(user_message.get("content"))
+            if title == "Explore independently":
+                assert "Keep the lead free for research" in discovery_context, prompt
+                if resumed:
+                    assert "Operator answer · After review" in discovery_context, prompt
+            action = "Discovery resumed" if resumed else "Discovery remains open"
+            answer = f"{action}: {title}."
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.end_headers()
@@ -140,12 +152,15 @@ elif 'show' in sys.argv: print(json.dumps([next(task for task in tasks if task['
         config = {"beads": {"workspace": str(workspace), "database": "fixture", "branch": "main", "executable": str(boundary)}}
     (home / "config.json").write_text(json.dumps(config))
     env = {**os.environ, "HOME": str(home), "PI_CODING_AGENT_DIR": str(agent), "STUDIO_CONFIG": str(home / "config.json"), "STUDIO_STATE_DIR": str(home / "studio-state"), "TERM": "xterm-256color", "COLORTERM": "truecolor", "PI_TELEMETRY": "0", "PI_SKIP_VERSION_CHECK": "1"}
+    for kind in ("CACHE", "CONFIG", "DATA", "STATE"):
+        env[f"XDG_{kind}_HOME"] = str(home / f"xdg-{kind.lower()}")
     subprocess.run([sys.executable, str(root / "scripts/configure.py"), str(root), str(agent)], env=env, check=True, stdout=subprocess.DEVNULL)
     settings_path = agent / "settings.json"
     settings = json.loads(settings_path.read_text())
     settings["retry"] = {"enabled": False, "maxRetries": 0}
     settings_path.write_text(json.dumps(settings))
-    (home / "design").mkdir()
+    design = home / "design"
+    design.mkdir()
     project = home / ("src/studio" if args.task_review else "development/dotfiles")
     project.mkdir(parents=True)
     def git(*args):
@@ -166,7 +181,7 @@ import {{ SpecStatus }} from {json.dumps(str(root / 'socrates/spec.ts'))};
 import {{ draftSchema }} from {json.dumps(str(root / 'lead-plan.ts'))};
 const store=new Discoveries();
 const record=store.create({json.dumps(str(project))}, 'terminal-fixture', 'Explore independently');
-store.create({json.dumps(str(project))}, 'terminal-fixture', 'Separate research');
+store.create({json.dumps(str(workspace))}, 'terminal-fixture', 'Foreign discovery');
 store.change(record.id, row=>{{
  row.specification={{status:SpecStatus.Interrogating,version:1,acceptedRevision:row.revision,draft:{{objective:'Keep the lead free for research',scope:['Independent discovery'],requirements:[{{id:'R1',outcome:'Review proposed work',acceptance:'No tasks before approval'}}],decisions:[{{id:'D1',decision:'Choose work timing',basis:'observed',evidence:'Operator workflow',disposition:'open',uncertainty:'Need timing'}}],blockingQuestions:['When should work begin?']}},exchange:{{prompt:{{decisionId:'D1',question:'When should work begin?',options:[{{label:'After review',description:'Keep discovery free'}},{{label:'Keep exploring',description:'Leave work unqueued'}}]}}}}}};
  row.leadPlan.draft=draftSchema.parse({{summary:'Review before creating tasks',tasks:[
@@ -174,7 +189,7 @@ store.change(record.id, row=>{{
    {{key:'verify',title:'Check the review flow',description:'Exercise the lead during review',acceptance:'Work starts after review',requirements:['R1'],blockedBy:['first']}}
  ]}});
 }});
-const ready=store.create({json.dumps(str(project))}, 'terminal-fixture', 'Ready discovery');
+const ready=store.create({json.dumps(str(project))}, 'terminal-fixture', 'Explore independently');
 store.change(ready.id,row=>{{
  const source=store.get(record.id);
  row.specification={{...source.specification,acceptedRevision:row.revision,exchange:undefined,draft:{{...source.specification.draft,blockingQuestions:[],decisions:[{{id:'D1',decision:'Choose work timing',basis:'decided',evidence:'After review',disposition:'resolved',uncertainty:'None'}}]}}}};
@@ -184,7 +199,6 @@ console.log(JSON.stringify({{discovery:record.id,ready:ready.id}}));store.close(
     seeded = json.loads(subprocess.run(["bun", "--no-env-file", "-e", seed], env=env, cwd=root, text=True, capture_output=True, check=True).stdout)
     discovery_id = seeded["discovery"]
     ready_id = seeded["ready"]
-    directory_label = "~/dev/dotfiles" if shutil.which("shortpath") else "~/development/dotfiles"
     if args.task_review:
         seed_reviews = f"""
 import {{ExecutionStore, executionSchema}} from {json.dumps(str(root / 'execution/store.ts'))};
@@ -208,11 +222,15 @@ store.close();
         font = ImageFont.truetype("DejaVuSansMono.ttf", font_size)
         bold = ImageFont.truetype("DejaVuSansMono-Bold.ttf", font_size)
     cell_width, cell_height = (11, 23) if args.task_review else (9, 18)
-    viewports = [(80, 24), (60, 20)]
-    for columns, rows in viewports:
+    wide_viewport = (100, 26) if args.discovery_only else (80, 24)
+    viewports = [wide_viewport, (60, 20)]
+    cases = [(columns, rows, project) for columns, rows in viewports]
+    if not args.task_review:
+        cases.insert(0, (*wide_viewport, design))
+    for columns, rows, cwd in cases:
         master, slave = os.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0))
-        process = subprocess.Popen([str(root / "scripts/studio"), "lead", "--", "--offline", "--no-mcp", "--model", "fixture/tiny"], env=env, cwd=project, stdin=slave, stdout=slave, stderr=slave)
+        process = subprocess.Popen([str(root / "scripts/studio"), "lead", "--", "--offline", "--no-mcp", "--model", "fixture/tiny"], env=env, cwd=cwd, stdin=slave, stdout=slave, stderr=slave)
         os.close(slave)
         screen = pyte.Screen(columns, rows)
         stream = pyte.ByteStream(screen)
@@ -221,7 +239,10 @@ store.close();
             while time.monotonic() < until:
                 if select.select([master], [], [], 0.05)[0]:
                     try:
-                        stream.feed(os.read(master, 65536))
+                        data = os.read(master, 65536)
+                        if not data:
+                            break
+                        stream.feed(data)
                     except OSError:
                         break
         def wait_until(predicate, timeout=12):
@@ -233,9 +254,12 @@ store.close();
                 if process.poll() is not None:
                     break
             raise AssertionError("\n".join(screen.display))
-        def capture(name):
+        def capture(name, start_at=None):
             occupied = [y for y, line in enumerate(screen.display) if line.strip()]
-            first = max(0, min(occupied) - 1)
+            start = min(occupied) if start_at is None else next(
+                y for y, line in enumerate(screen.display) if start_at in line
+            )
+            first = max(0, start - 1)
             last = min(rows, max(occupied) + 2)
             if args.task_review:
                 first, last = 0, rows
@@ -257,7 +281,12 @@ store.close();
                     draw.rectangle((left, top, left + cell_width - 1, top + cell_height - 1), fill=bg)
                     draw.text((left, top), cell.data, font=bold if cell.bold else font, fill=fg)
             filename = name if args.task_review and columns == viewports[0][0] else f"{name}-{columns}"
-            image.save(output / f"{filename}.png")
+            destination = output / f"{filename}.png"
+            # Replace the capture itself, never write through an existing link.
+            with tempfile.TemporaryDirectory(prefix=".capture-", dir=output) as staging:
+                staged = Path(staging) / destination.name
+                image.save(staged)
+                staged.replace(destination)
         def wait_text(text, timeout=12):
             import time
             end = time.monotonic() + timeout
@@ -374,7 +403,13 @@ store.close();
                 assert "No tasks yet" not in "\n".join(screen.display), screen.display
 
                 # Opening tasks never approves the existing unapproved draft.
-                os.write(master, f"/socrates {discovery_id}\r".encode())
+                os.write(master, b"/discoveries\r")
+                wait_text("Select a saved discovery")
+                os.write(master, b"\x1b[B")
+                pump(.2)
+                os.write(master, b"\r")
+                pump(.3)
+                os.write(master, b"/socrates\r")
                 wait_text("When should work begin?")
                 os.write(master, b"\x1b")
                 pump(.35)
@@ -388,21 +423,86 @@ store.close();
                 os.write(master, b"/plan\r")
                 wait_text("Review before creating tasks")
                 continue
-            wait_until(lambda: any("tiny" in line and directory_label in line and "Δ1 +2 −1 ?1" in line for line in screen.display), timeout=45)
-            footer = next((line for line in screen.display if "tiny" in line and directory_label in line), "")
+            if cwd == design:
+                wait_text("▸ ~/design")
+                os.write(master, b"/discoveries\r")
+                wait_text("No saved discoveries for this project.")
+
+                def design_discoveries():
+                    with sqlite3.connect(home / "studio-state/discoveries.sqlite") as discoveries:
+                        return [json.loads(row[0]) for row in discoveries.execute(
+                            "SELECT record FROM discoveries WHERE project=? ORDER BY rowid", (str(design),)
+                        )]
+
+                assert design_discoveries() == []
+                expected_titles = []
+                for title in [None, "Fix the runtime handoff", "list", "new Another topic"]:
+                    command = "/socrates" if title is None else f"/socrates {title}"
+                    expected_titles.append("Discovery" if title is None else title)
+                    os.write(master, f"{command}\r".encode())
+                    wait_text(f"Discovery remains open: {expected_titles[-1]}.")
+                    records = design_discoveries()
+                    assert [record["title"] for record in records] == expected_titles, records
+                    assert all(record["specification"]["status"] == "interrogating" for record in records), records
+                    assert all("graph" not in record and "approved" not in record for record in records), records
+
+                # Select the oldest record from a conversation with a newer selection.
+                os.write(master, b"/discoveries\r")
+                wait_text("#1 Discovery")
+                listing = "\n".join(screen.display)
+                assert "Fix the runtime handoff" in listing, listing
+                assert all(record["id"] not in listing for record in records), listing
+                for _ in range(len(expected_titles) - 1):
+                    os.write(master, b"\x1b[B")
+                    pump(.15)
+                os.write(master, b"\r")
+                pump(.3)
+                # Reopen and escape while the newest record is highlighted again.
+                os.write(master, b"/discoveries\r")
+                wait_text("#1 Discovery · interrogating · selected")
+                capture("discovery-selected")
+                os.write(master, b"\x1b")
+                pump(.35)
+                os.write(master, b"/socrates\r")
+                wait_text("Discovery resumed: Discovery.")
+                assert design_discoveries() == records, "Selecting and resuming must not rewrite saved records"
+
+                # Even an argument matching an existing ID is just a title.
+                os.write(master, f"/socrates {discovery_id}\r".encode())
+                wait_text(f"Discovery remains open: {discovery_id}.")
+                literal = design_discoveries()
+                assert literal[:-1] == records and len(literal) == len(records) + 1, literal
+                assert literal[-1]["title"] == discovery_id and literal[-1]["id"] != discovery_id, literal
+                assert "graph" not in literal[-1] and "approved" not in literal[-1], literal
+                continue
+
+            wait_text("Δ1 +2 −1 ?1")
+            footer = next((line for line in screen.display if "tiny" in line and "dotfiles" in line), "")
             assert footer and len(footer) == columns, screen.display
-            assert "↱ main" in footer and "Δ1 +2 −1 ?1" in footer, screen.display
+            assert "↱ main" in footer, screen.display
             capture("daily-driver")
-            os.write(master, f"/socrates {discovery_id}\r".encode())
-            pump(.5)
-            if columns == 80:
-                assert "When should work begin?" in "\n".join(screen.display), screen.display
+            os.write(master, b"/discoveries\r")
+            wait_text("Select a saved discovery")
+            listing = "\n".join(screen.display)
+            assert "#2 Explore independently" in listing and "#1 Explore independently" in listing, listing
+            assert all(value not in listing for value in [discovery_id, ready_id, "Foreign discovery"]), listing
+            os.write(master, b"\x1b[B")
+            pump(.2)
+            os.write(master, b"\r")
+            pump(.3)
+            os.write(master, b"/discoveries\r")
+            wait_text("#1 Explore independently · answer saved · selected" if columns == 60 else
+                          "#1 Explore independently · question open · selected")
+            capture("discovery-picker", start_at="Select a saved discovery")
+            os.write(master, b"\x1b")
+            pump(.35)
+            os.write(master, b"/socrates\r")
+            if columns == wide_viewport[0]:
+                wait_text("When should work begin?")
                 capture("discovery-question")
                 os.write(master, b"\r")
-                pump(1)
-            else:
-                # A fresh native lead resumes the recorded answer from the previous host.
-                pump(1)
+            # The narrow lead is a separate session and must reuse the saved answer.
+            wait_text("Discovery resumed: Explore independently.")
             with sqlite3.connect(home / "studio-state/discoveries.sqlite") as discoveries:
                 record = json.loads(discoveries.execute("SELECT record FROM discoveries WHERE id=?", (discovery_id,)).fetchone()[0])
             assert record["specification"]["exchange"]["answer"]["text"] == "After review", record
@@ -419,12 +519,15 @@ store.close();
             wait_until(lambda: "Enter details" in "\n".join(screen.display))
             os.write(master, b"\x1b")
             pump(.3)
-            os.write(master, f"/socrates {ready_id}\r".encode())
-            pump(.4)
-            assert "Keep the lead free for research" in "\n".join(screen.display), screen.display
+            os.write(master, b"/discoveries\r")
+            wait_text("Select a saved discovery")
+            os.write(master, b"\r")
+            pump(.3)
+            os.write(master, b"/socrates\r")
+            wait_text("Keep the lead free for research")
             os.write(master, b"\x1b")
             pump(.2)
-            if columns == 80:
+            if columns == wide_viewport[0]:
                 os.write(master, b"/spec-freeze\r")
                 pump(.3)
                 assert "Freeze specification" in "\n".join(screen.display), screen.display
@@ -439,6 +542,8 @@ store.close();
                 ready = json.loads(discoveries.execute("SELECT record FROM discoveries WHERE id=?", (ready_id,)).fetchone()[0])
             assert ready["specification"]["status"] == "frozen", ready
             assert "graph" not in ready, ready
+            if args.discovery_only:
+                continue
             restore_transcript()
             os.write(master, b"/tasks\r")
             pump(1)
@@ -527,4 +632,6 @@ store.close();
 if args.task_review:
     print("Native passive task updates, retained lead input, deliberate focus/return, review details, close cleanup, and service recovery passed at 80x24 and 60x20.")
 else:
-    print("Native Pi discovery answer/resume, breakdown review, tree selection, directory switching, and draft editing passed.")
+    print(f"Native Pi discovery title entry, project picker, cancellation, saved-answer resume, and breakdown review passed at {wide_viewport[0]} and 60 columns.")
+    if not args.discovery_only:
+        print("Native Pi tree selection, archive browsing, directory switching, and draft editing passed.")

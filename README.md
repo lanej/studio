@@ -71,7 +71,7 @@ studio lead -- --help
 
 ## Discovery and approved work
 
-The lead stays available for research and conversation. Use `/socrates` to start discovery, `/socrates new TITLE` for another topic, and `/discoveries` to list saved discoveries for this project. Resume one with `/socrates UUID`. Discovery, questions, recorded answers, specification versions, and proposed breakdowns are private Studio state; they require no Beads service. Pi retains the conversation separately. `/spec-freeze` reviews the specification; `/spec-reopen` preserves the prior version before reopening it.
+The daily-driver lead stays available for research and conversation. Bare `/socrates` continues the selected discovery or starts one if none is selected. Use `/socrates TITLE` (for example, `/socrates Fix the runtime handoff`) to start a new discovery. Every nonblank argument is treated as a title. Open `/discoveries` and use the arrow keys and Enter to select a saved title in the current project. Run bare `/socrates` to continue with the saved specification and answers. The picker shows newest first, with a number and status to distinguish matching titles. Escape preserves the current selection; if the project has no saved discoveries, Pi says so. Discovery, questions, recorded answers, specification versions, and proposed breakdowns are private Studio state. Pi retains the conversation separately. `/spec-freeze` reviews the specification; `/spec-reopen` preserves the prior version before reopening it.
 
 At **104 terminal columns or wider**, Studio places a persistent status column to the right of the lead. The conversation and editor wrap at the divider. **Specification** sits above **Implementation**, leaving the prompt available while either updates. **Alt+S** collapses the sidebar and returns its width to the lead. Press it again to restore the sidebar with the cursor and draft in place. You can also use `/socrates-status min` or `/socrates-status max`.
 
@@ -214,7 +214,7 @@ The native Beads probe uses a disposable service to race claims, edit the accept
 The capture shows the native worker and verified Beads result in an isolated Zellij session with the installed `dotfiles` theme, `tmux` layout, and `lane-status` bar. The trial used a deterministic loopback provider.
 
 
-The separately invoked `uv run --script acceptance/terminal.py --output docs/assets` exercises tree navigation, task details, Escape recovery, directory switching, invalid-directory recovery, and draft entry through actual Pi PTYs with a controlled Beads boundary. It checks native theme colors, title-first icons, collapsed identity and evidence, dependency links, and selection preservation after returning or refreshing at 80×24 and 60×20. The retained images reconstruct native PTY cells; they do not establish desktop font rendering or live provider behavior.
+Run `uv run --script acceptance/terminal.py` to exercise discovery, task navigation and details, directory switching, and draft entry through actual Pi PTYs with controlled services. The task views check theme colors, title-first icons, collapsed identity and evidence, dependency links, and selection persistence at 80 and 60 columns. Pass `--discovery-only` for title entry, selection, Escape, and saved-answer resume at 100 and 60 columns. Captures reconstruct native PTY cells and go to the ignored `.aot/terminal` directory by default.
 
 ![Native Pi task browser at 60 columns](docs/assets/tasks-60.png)
 
