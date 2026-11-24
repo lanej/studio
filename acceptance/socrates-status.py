@@ -284,12 +284,13 @@ class Terminal:
             os.killpg(self.process.pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
+        # Darwin can hold an exiting child until the master drains or closes.
+        os.close(self.master)
         try:
             self.process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             os.killpg(self.process.pid, signal.SIGKILL)
             self.process.wait(timeout=5)
-        os.close(self.master)
 
 
 def seed(project, env, source_url):
