@@ -4,7 +4,11 @@ import { once } from "node:events";
 import { createServer } from "node:net";
 import { dirname, join } from "node:path";
 import { z } from "zod";
-import { withBeads, type NativeBeads } from "./beads-fixture.ts";
+import {
+  withBeads,
+  fixtureMetricsEnv,
+  type NativeBeads,
+} from "./beads-fixture.ts";
 
 export interface BeadsHttpSource {
   url: string;
@@ -29,7 +33,7 @@ export async function withBeadsHttp<T>(
       HOME: fixture.directory,
       DOLT_ROOT_PATH: join(fixture.directory, "dolt-home"),
       DOLT_CLI_NO_UPDATE_CHECK: "1",
-      BD_DISABLE_METRICS: "1",
+      ...fixtureMetricsEnv,
       PATH: `${dirname(dolt)}:${process.env["PATH"] ?? ""}`,
       GIT_CONFIG_GLOBAL: "/dev/null",
       GIT_CONFIG_NOSYSTEM: "1",

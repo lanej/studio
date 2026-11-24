@@ -17,7 +17,7 @@ import {
 import { reconcileAttempt } from "../execution/recovery.ts";
 import { writeFile } from "node:fs/promises";
 import { draftSchema, planDigest } from "../lead-plan.ts";
-import { beadSchema } from "../task-service.ts";
+import { beadSchema, owner } from "../task-service.ts";
 import { randomUUID } from "node:crypto";
 
 const program = new Command()
@@ -212,10 +212,27 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       ),
     /review-only/u,
   );
-  await heartbeat(project, firstAttempt, bound.id);
+  assert.equal(await heartbeat(project, firstAttempt, bound.id), true);
   await service.finishAccepted(bound, firstAttempt, "Verified fixture result");
-  const next = await service.claimNext(randomUUID());
+  // A supervisor can renew after the worker's guarded completion reaches Beads.
+  assert.equal(await heartbeat(project, firstAttempt, bound.id), false);
+  await assert.rejects(
+    heartbeat(project, randomUUID(), bound.id),
+    /claimed by/u,
+  );
+  const secondAttempt = randomUUID();
+  const next = await service.claimNext(secondAttempt);
   assert.equal(next?.id, ids.second);
+  await service.bind(beadSchema.parse(next), secondAttempt);
+  const externalClosure = await fixture.command(
+    ["close", ids.second],
+    owner(secondAttempt),
+  );
+  assert.equal(externalClosure.code, 0, externalClosure.stderr);
+  await assert.rejects(
+    heartbeat(project, secondAttempt, ids.second),
+    /closed/u,
+  );
   const release = await fixture.command([
     "update",
     ids.held,

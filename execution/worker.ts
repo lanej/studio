@@ -148,7 +148,8 @@ export async function executeAssignment(
     timer = setInterval(() => {
       if (lease.pending !== undefined) return;
       lease.pending = heartbeat(project, id, attempt.bead?.id ?? "")
-        .then(() => {
+        .then((renewed) => {
+          if (!renewed) return;
           store.change(id, (row) => {
             row.heartbeatAt = Date.now();
           });

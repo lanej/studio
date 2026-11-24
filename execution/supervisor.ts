@@ -127,9 +127,9 @@ export async function serveRuntime(signal?: AbortSignal): Promise<void> {
               if (
                 current.bead !== undefined &&
                 current.phase !== ExecutionPhase.Complete &&
-                Date.now() - current.heartbeatAt > 15000
+                Date.now() - current.heartbeatAt > 15000 &&
+                (await heartbeat(project, current.id, current.bead.id))
               ) {
-                await heartbeat(project, current.id, current.bead.id);
                 store.change(current.id, (row) => {
                   row.heartbeatAt = Date.now();
                 });

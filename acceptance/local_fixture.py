@@ -93,7 +93,8 @@ class FixturePaths:
         return {
             **{key: os.environ[key] for key in (
                 "LANG", "LC_ALL", "LC_CTYPE", "TZ", "DOLT_ROOT_PATH",
-                "DOLT_CLI_NO_UPDATE_CHECK", "BD_DISABLE_METRICS", "GIT_CONFIG_GLOBAL",
+                "DOLT_CLI_NO_UPDATE_CHECK", "DOLT_DISABLE_EVENT_FLUSH", "DO_NOT_TRACK",
+                "BD_DISABLE_METRICS", "BD_DISABLE_EVENT_FLUSH", "GIT_CONFIG_GLOBAL",
                 "GIT_CONFIG_NOSYSTEM",
             ) if key in os.environ},
             "HOME": str(self.home),
