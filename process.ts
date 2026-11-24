@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import { z } from "zod";
 
@@ -17,6 +17,41 @@ export function processFailure(error: unknown): z.infer<typeof failureSchema> {
   return parsed.success
     ? parsed.data
     : { message: error instanceof Error ? error.message : String(error) };
+}
+
+export function processGroupHasLiveMembers(
+  group: number,
+  snapshot: string,
+): boolean {
+  for (const row of snapshot.trim().split("\n")) {
+    const fields = /^(\d+)\s+(\S+)$/u.exec(row.trim());
+    if (fields === null)
+      throw new Error("Unable to read process group state from ps");
+    if (Number(fields[1]) === group && fields[2]?.[0] !== "Z") return true;
+  }
+  return false;
+}
+
+export function signalProcessGroup(
+  group: number,
+  signal: NodeJS.Signals,
+): void {
+  try {
+    process.kill(-group, signal);
+  } catch (error) {
+    const code = processFailure(error).code;
+    if (code === "ESRCH") return;
+    // Darwin reports EPERM when the last group members are zombies awaiting reaping.
+    if (process.platform === "darwin" && code === "EPERM") {
+      const snapshot = execFileSync("/bin/ps", ["-A", "-o", "pgid=,stat="], {
+        encoding: "utf8",
+        timeout: 2000,
+        maxBuffer: 4 * 1024 * 1024,
+      });
+      if (!processGroupHasLiveMembers(group, snapshot)) return;
+    }
+    throw error instanceof Error ? error : new Error(String(error));
+  }
 }
 
 class CommandError extends Error {
