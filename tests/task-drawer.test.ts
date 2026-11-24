@@ -175,8 +175,9 @@ await test("an empty project keeps its source, shows the available next step, an
       }
       assert.doesNotMatch(
         text,
-        /Review finding|Acceptance criteria|Focus pane|▌|\x1b/u,
+        /Review finding|Acceptance criteria|Focus pane|▌/u,
       );
+      assert(!text.includes("\x1b"));
     }
     for (const key of ["k", "j", "\x1b[C", "\r"]) component.handleInput(key);
     assert.deepEqual(calls, []);
