@@ -10,7 +10,7 @@ import {
   realpath,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { run, processStart } from "../process.ts";
 import { alive } from "../execution/supervisor.ts";
 import {
@@ -206,6 +206,42 @@ try {
     await readFile(join(checkout, "source.txt"), "utf8"),
     "reviewed source",
   );
+  const privateTools = join(fixture, "private-tools");
+  await mkdir(privateTools);
+  await writeFile(
+    join(privateTools, "git"),
+    '#!/bin/sh\nprintf "%s\\n" "Unexpected private Git wrapper" >&2\nexit 93\n',
+    { mode: 0o755 },
+  );
+  const nestedGitScript = `const fs=require("node:fs"),cp=require("node:child_process"),path=require("node:path");const git=(...args)=>cp.execFileSync("git",args,{encoding:"utf8"});if(git("--version")!==cp.execFileSync("/usr/bin/git",["--version"],{encoding:"utf8"}))process.exit(51);const base=path.resolve("build-output","git-fixture"),remote=path.join(base,"remote.git"),source=path.join(base,"source"),clone=path.join(base,"clone");fs.mkdirSync(base,{recursive:true});git("init","--bare",remote);git("init","--initial-branch=main",source);git("-C",source,"config","user.name","Fixture");git("-C",source,"config","user.email","fixture@example.invalid");fs.writeFileSync(path.join(source,"result.txt"),"nested Git result");git("-C",source,"add","result.txt");git("-C",source,"commit","-qm","Fixture");git("-C",source,"push",remote,"main");git("clone","--branch","main",remote,clone);if(fs.readFileSync(path.join(clone,"result.txt"),"utf8")!=="nested Git result")process.exit(52);`;
+  const previousPath = process.env["PATH"];
+  process.env["PATH"] = `${privateTools}${delimiter}${previousPath ?? ""}`;
+  try {
+    const nested = await verificationSandbox(
+      checkout,
+      [process.execPath, "-e", nestedGitScript],
+      [],
+      snapshot,
+    );
+    try {
+      assert.equal(nested.environment["GIT_DIR"], undefined);
+      assert.equal(nested.environment["GIT_WORK_TREE"], undefined);
+      const result = await runCheck(
+        nested.argv,
+        nested.cwd,
+        AbortSignal.timeout(10000),
+        undefined,
+        nested.environment,
+      );
+      assert.equal(result.exitCode, 0, result.output);
+      await nested.assertSourceUnchanged();
+    } finally {
+      await nested.close();
+    }
+  } finally {
+    if (previousPath === undefined) delete process.env["PATH"];
+    else process.env["PATH"] = previousPath;
+  }
   await assert.rejects(
     verificationSandbox(checkout, [process.execPath, "--version"], [sentinel]),
     /credentials/u,
