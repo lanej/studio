@@ -1,8 +1,4 @@
-import type {
-  ExtensionContext,
-  Theme,
-  ThemeBg,
-} from "@earendil-works/pi-coding-agent";
+import type { Theme, ThemeBg } from "@earendil-works/pi-coding-agent";
 import {
   matchesKey,
   Text,
@@ -23,12 +19,16 @@ import {
   type TaskSnapshot,
 } from "./model.ts";
 
-interface BrowserSource {
+export interface BrowserSource {
   label: string;
   identity: string;
   emptyHint?: string;
   load: () => Promise<TaskSnapshot>;
   show: (id: string) => Promise<Task>;
+}
+interface PanelControls {
+  focused: () => boolean;
+  leave: () => void;
 }
 type Action =
   | { kind: "link"; id: string }
@@ -48,11 +48,15 @@ export class TaskBrowser {
   private readonly expanded = new Set<string>();
   private actions: { action: Action; line: number }[] = [];
   private activeAction = -1;
+  private restoreAction: Action | undefined;
   private maximum = 0;
   private bodyHeight = 1;
   private busy = false;
   private notice = "";
   private closed = false;
+  private pendingInspection:
+    | { id: string; origin: string | undefined }
+    | undefined;
 
   constructor(
     private snapshot: TaskSnapshot,
@@ -62,6 +66,7 @@ export class TaskBrowser {
     private readonly changed: () => void,
     private readonly done: (paneTask: string | undefined) => void,
     initialId?: string,
+    private readonly panel?: PanelControls,
   ) {
     this.rows = taskTree(snapshot.tasks);
     this.selected = initialId ?? this.rows[0]?.task.id;
@@ -69,6 +74,45 @@ export class TaskBrowser {
   }
 
   invalidate(): void {}
+
+  dispose(): void {
+    this.closed = true;
+  }
+
+  private isOpen(): boolean {
+    return !this.closed;
+  }
+
+  private report(error: unknown): void {
+    this.notice = plain(error instanceof Error ? error.message : String(error));
+    if (this.isOpen()) this.changed();
+  }
+
+  async refresh(): Promise<void> {
+    await this.run(async () => {
+      const selected = this.selected;
+      const inspecting = this.focus === "inspector";
+      let snapshot = await this.source.load();
+      if (this.closed) return;
+      if (
+        selected !== undefined &&
+        (inspecting ||
+          (snapshot.limitReached &&
+            !snapshot.tasks.some((task) => task.id === selected)))
+      ) {
+        const task = await this.source.show(selected);
+        if (task.id !== selected)
+          throw new Error("Beads returned a different task identity");
+        snapshot = withTask(
+          snapshot,
+          task,
+          this.snapshot.tasks.find((item) => item.id === selected)
+            ?.dependencies,
+        );
+      }
+      if (this.isOpen()) this.update(snapshot);
+    });
+  }
 
   private get row(): TreeRow | undefined {
     return this.rows.find((row) => row.task.id === this.selected);
@@ -237,6 +281,19 @@ export class TaskBrowser {
     this.actions = details.flatMap((line, index) =>
       line.action === undefined ? [] : [{ action: line.action, line: index }],
     );
+    if (this.restoreAction !== undefined) {
+      const target = this.restoreAction;
+      this.activeAction = this.actions.findIndex(
+        ({ action }) =>
+          action.kind === target.kind &&
+          (action.kind === "disclosure" && target.kind === "disclosure"
+            ? action.section === target.section
+            : action.kind !== "disclosure" &&
+              target.kind !== "disclosure" &&
+              action.id === target.id),
+      );
+      this.restoreAction = undefined;
+    }
     this.maximum = Math.max(0, details.length - this.bodyHeight);
     const offset = Math.min(
       this.maximum,
@@ -267,9 +324,15 @@ export class TaskBrowser {
             : detail[index]) ?? ""),
     );
     const hint =
-      this.focus === "tree"
-        ? "j/k move  Enter inspect  r refresh  Esc close"
-        : "j/k scroll  Tab links  Enter open  Esc back";
+      this.panel !== undefined && !this.panel.focused()
+        ? "Alt+T inspect  /tasks close"
+        : this.focus === "tree"
+          ? this.panel === undefined
+            ? "j/k move  Enter inspect  r refresh  Esc close"
+            : "j/k move  Enter inspect  Esc lead  q close"
+          : this.panel === undefined
+            ? "j/k scroll  Tab links  Enter open  Esc back"
+            : "j/k scroll  Tab links  ← tree  Esc lead";
     const context =
       this.notice.length > 0
         ? this.notice
@@ -294,6 +357,8 @@ export class TaskBrowser {
   }
 
   private update(snapshot: TaskSnapshot): void {
+    const selected = this.selected;
+    this.restoreAction = this.actions[this.activeAction]?.action;
     const index = this.rows.findIndex((row) => row.task.id === this.selected);
     const rows = taskTree(snapshot.tasks);
     this.snapshot = snapshot;
@@ -301,58 +366,76 @@ export class TaskBrowser {
     if (!rows.some((row) => row.task.id === this.selected))
       this.selected =
         rows[Math.max(0, Math.min(index, rows.length - 1))]?.task.id;
-    this.activeAction = -1;
+    if (this.selected !== selected) {
+      this.activeAction = -1;
+      this.restoreAction = undefined;
+    }
   }
 
-  private run(operation: () => Promise<void>): void {
-    if (this.busy) return;
+  private async run(operation: () => Promise<void>): Promise<void> {
+    if (this.busy || this.closed) return;
     this.busy = true;
     this.notice = "";
-    operation().then(
-      () => {
-        this.busy = false;
-        if (!this.closed) this.changed();
-      },
-      (error: unknown) => {
-        this.busy = false;
-        this.notice = plain(
-          error instanceof Error ? error.message : String(error),
-        );
-        if (!this.closed) this.changed();
-      },
-    );
+    try {
+      await operation();
+    } catch (error) {
+      this.notice = plain(
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      this.busy = false;
+      if (this.isOpen()) {
+        const pending = this.pendingInspection;
+        this.pendingInspection = undefined;
+        if (
+          pending !== undefined &&
+          this.focus === "inspector" &&
+          this.selected === pending.origin
+        )
+          this.inspect(pending.id);
+        this.changed();
+      }
+    }
   }
 
   private inspect(id: string): void {
-    if (this.busy) return;
+    if (this.busy && this.panel === undefined) return;
     const origin = this.selected;
     this.focus = "inspector";
     this.activeAction = -1;
+    if (this.busy) {
+      this.pendingInspection = { id, origin };
+      return;
+    }
     this.run(async () => {
       const task = await this.source.show(id);
       if (task.id !== id)
         throw new Error("Beads returned a different task identity");
       if (this.closed) return;
-      const previous = this.snapshot.tasks.find((item) => item.id === id);
-      const merged = {
-        ...previous,
-        ...task,
-        ...(task.dependencies === undefined &&
-        previous?.dependencies !== undefined
-          ? { dependencies: previous.dependencies }
-          : {}),
-      };
-      const tasks =
-        previous === undefined
-          ? [...this.snapshot.tasks, merged]
-          : this.snapshot.tasks.map((item) => (item.id === id ? merged : item));
-      this.update({ ...this.snapshot, tasks });
+      this.update(withTask(this.snapshot, task));
       if (this.focus === "inspector" && this.selected === origin)
         this.selected = id;
+    }).catch((error: unknown) => {
+      this.report(error);
     });
   }
 
   handleInput(input: string): void {
+    if (this.closed) return;
+    if (this.panel !== undefined) {
+      if (
+        matchesKey(input, NavigationKey.Escape) ||
+        matchesKey(input, NavigationKey.Cancel) ||
+        matchesKey(input, "alt+t")
+      ) {
+        this.panel.leave();
+        return;
+      }
+      if (input === "q") {
+        this.done(undefined);
+        return;
+      }
+    }
     if (
       matchesKey(input, NavigationKey.Cancel) ||
       (matchesKey(input, NavigationKey.Escape) && this.focus === "tree")
@@ -368,8 +451,8 @@ export class TaskBrowser {
       this.focus = "tree";
       this.activeAction = -1;
     } else if (matchesKey(input, NavigationKey.Refresh)) {
-      this.run(async () => {
-        this.update(await this.source.load());
+      this.refresh().catch((error: unknown) => {
+        this.report(error);
       });
     } else if (
       matchesKey(input, NavigationKey.Tab) ||
@@ -408,7 +491,7 @@ export class TaskBrowser {
         if (this.expanded.has(key)) this.expanded.delete(key);
         else this.expanded.add(key);
       } else if (action?.kind === "pane") {
-        this.closed = true;
+        if (this.panel === undefined) this.closed = true;
         this.done(action.id);
       } else if (action?.kind === "link") {
         this.inspect(action.id);
@@ -418,7 +501,7 @@ export class TaskBrowser {
       this.selected !== undefined &&
       this.snapshot.focusable.has(this.selected)
     ) {
-      this.closed = true;
+      if (this.panel === undefined) this.closed = true;
       this.done(this.selected);
     } else {
       const direction =
@@ -454,43 +537,39 @@ export class TaskBrowser {
   }
 }
 
-export async function browseTasks(
-  ctx: ExtensionContext,
+export async function loadTaskSnapshot(
   source: BrowserSource,
   initialId?: string,
-): Promise<string | undefined> {
+): Promise<TaskSnapshot> {
   const snapshot = await source.load();
   if (initialId !== undefined) {
     const task = await source.show(initialId);
     if (task.id !== initialId)
       throw new Error("Beads returned a different task identity");
-    const previous = snapshot.tasks.find((item) => item.id === initialId);
-    const merged = {
-      ...previous,
-      ...task,
-      ...(task.dependencies === undefined &&
-      previous?.dependencies !== undefined
-        ? { dependencies: previous.dependencies }
-        : {}),
-    };
-    snapshot.tasks =
+    return withTask(snapshot, task);
+  }
+  return snapshot;
+}
+
+function withTask(
+  snapshot: TaskSnapshot,
+  task: Task,
+  knownDependencies?: Task["dependencies"],
+): TaskSnapshot {
+  const previous = snapshot.tasks.find((item) => item.id === task.id);
+  const dependencies = previous?.dependencies ?? knownDependencies;
+  const merged = {
+    ...previous,
+    ...task,
+    ...(task.dependencies === undefined && dependencies !== undefined
+      ? { dependencies }
+      : {}),
+  };
+  return {
+    ...snapshot,
+    tasks:
       previous === undefined
         ? [...snapshot.tasks, merged]
-        : snapshot.tasks.map((item) => (item.id === initialId ? merged : item));
-  }
-  return ctx.ui.custom<string | undefined>(
-    (tui, theme, _keys, done) =>
-      new TaskBrowser(
-        snapshot,
-        source,
-        theme,
-        () => tui.terminal.rows,
-        () => {
-          tui.requestRender();
-        },
-        done,
-        initialId,
-      ),
-    { overlay: true, overlayOptions: { width: 80, maxHeight: 24, margin: 0 } },
-  );
+        : snapshot.tasks.map((item) => (item.id === task.id ? merged : item)),
+  };
 }
