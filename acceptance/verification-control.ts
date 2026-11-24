@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 import { z } from "zod";
 import { Attempts, Phase, type Attempt } from "../attempts.ts";
 import { StudioProfile, ReasoningLevel } from "../config.ts";
-import { processFailure } from "../process.ts";
+import { processFailure, signalProcessGroup } from "../process.ts";
 import { TaskBeads } from "../task-service.ts";
 import { submitResult } from "../task-verification.ts";
 import type { NativeBeads } from "./beads-fixture.ts";
@@ -234,13 +234,8 @@ setInterval(()=>{},1000);
     };
   } finally {
     controller.abort();
-    if (processes !== undefined) {
-      try {
-        process.kill(-processes.parent, "SIGKILL");
-      } catch (cause) {
-        assert.equal(processFailure(cause).code, "ESRCH");
-      }
-    }
+    if (processes !== undefined)
+      signalProcessGroup(processes.parent, "SIGKILL");
     if (pending !== undefined) await pending.catch(() => undefined);
     db.close();
   }

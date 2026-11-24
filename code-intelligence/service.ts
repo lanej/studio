@@ -1,4 +1,5 @@
 import { snapshot, type DiagnosticSnapshot } from "./diagnostics.ts";
+import { resolveDiffScopes, type DiffScope } from "./scopes.ts";
 import { access, lstat, readFile, realpath, stat } from "node:fs/promises";
 import { createPatch } from "diff";
 import { randomUUID } from "node:crypto";
@@ -12,6 +13,10 @@ import {
 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import {
+  DocumentSymbol,
+  type SymbolInformation,
+} from "vscode-languageserver-protocol";
 import { LspClient, type ServerSpec } from "./client.ts";
 
 export enum Lookup {
@@ -115,6 +120,24 @@ function present(value: unknown): unknown {
       return [key, present(item)];
     }),
   );
+}
+
+// Keep the public navigation tool's flat list of file locations, even for servers
+// that now supply a symbol tree for the edit view.
+function documentSymbolLocations(value: unknown, uri: string): unknown {
+  if (!Array.isArray(value) || !value.every(DocumentSymbol.is)) return value;
+  const locations: SymbolInformation[] = [];
+  function visit(symbol: DocumentSymbol, containerName?: string): void {
+    locations.push({
+      name: symbol.name,
+      kind: symbol.kind,
+      location: { uri, range: symbol.range },
+      ...(containerName === undefined ? {} : { containerName }),
+    });
+    for (const child of symbol.children ?? []) visit(child, symbol.name);
+  }
+  for (const symbol of value) visit(symbol);
+  return locations;
 }
 
 export function offset(
@@ -295,27 +318,51 @@ export class CodeIntelligence {
     const position = { line: line - 1, character: column - 1 };
     if (action !== Lookup.DocumentSymbols && action !== Lookup.WorkspaceSymbols)
       offset(await readFile(target, "utf8"), position);
+    const response = await client.request(
+      method,
+      action === Lookup.WorkspaceSymbols
+        ? { query }
+        : {
+            textDocument: { uri },
+            position,
+            ...(action === Lookup.References
+              ? { context: { includeDeclaration: true } }
+              : {}),
+          },
+      signal,
+    );
     return present(
-      await client.request(
-        method,
-        action === Lookup.WorkspaceSymbols
-          ? { query }
-          : {
-              textDocument: { uri },
-              position,
-              ...(action === Lookup.References
-                ? { context: { includeDeclaration: true } }
-                : {}),
-            },
-        signal,
-      ),
+      action === Lookup.DocumentSymbols
+        ? documentSymbolLocations(response, uri)
+        : response,
     );
   }
 
   async diagnostics(cwd: string, path: string): Promise<DiagnosticSnapshot> {
+    return (await this.editFeedback(cwd, path)).diagnostics;
+  }
+
+  async editFeedback(
+    cwd: string,
+    path: string,
+    diff?: string,
+  ): Promise<{ diagnostics: DiagnosticSnapshot; scopes: DiffScope[] }> {
     const { client, path: target } = await this.client(cwd, path);
     const result = await client.getDiagnostics(target);
-    return snapshot(target, result);
+    const diagnostics = snapshot(target, result);
+    if (diff !== undefined && diff.length <= 65536) {
+      try {
+        const outline = await client.documentOutline(target);
+        if (outline !== undefined)
+          return {
+            diagnostics,
+            scopes: resolveDiffScopes(diff, outline.text, outline.symbols),
+          };
+      } catch {
+        // Outline support and latency vary by server; diagnostics are independently usable.
+      }
+    }
+    return { diagnostics, scopes: [] };
   }
 
   async preview(

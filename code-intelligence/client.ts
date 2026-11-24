@@ -175,7 +175,10 @@ export class LspClient {
             ],
             capabilities: {
               general: { positionEncodings: ["utf-16"] },
-              textDocument: { publishDiagnostics: { versionSupport: true } },
+              textDocument: {
+                publishDiagnostics: { versionSupport: true },
+                documentSymbol: { hierarchicalDocumentSymbolSupport: true },
+              },
               workspace: { configuration: true, workspaceFolders: true },
             },
           },
@@ -349,6 +352,26 @@ export class LspClient {
   supports(capability: keyof ServerCapabilities): boolean {
     const value: unknown = this.capabilities[capability];
     return value !== undefined && value !== false && value !== null;
+  }
+
+  async documentOutline(
+    path: string,
+  ): Promise<{ text: string; symbols: unknown } | undefined> {
+    const uri = pathToFileURL(path).href;
+    const document = this.documents.get(uri);
+    if (
+      document === undefined ||
+      document.text.length > 1024 * 1024 ||
+      !this.supports("documentSymbolProvider")
+    )
+      return undefined;
+    const symbols = await this.request(
+      "textDocument/documentSymbol",
+      { textDocument: { uri } },
+      AbortSignal.timeout(300),
+    );
+    if (this.documents.get(uri) !== document) return undefined;
+    return { text: document.text, symbols };
   }
 
   async getDiagnostics(

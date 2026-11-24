@@ -1,5 +1,15 @@
 import type { StudioConfig } from "../config.ts";
-import { inlineDiagnosticLines, syntaxDiffRows } from "./diff.ts";
+import {
+  displayEditReason,
+  inlineDiagnosticLines,
+  syntaxDiffRows,
+} from "./diff.ts";
+import { diffScope, type DiffScope } from "./scopes.ts";
+import {
+  syntaxReplacement,
+  type SyntaxReplacement,
+} from "./syntax-analysis.ts";
+import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -18,6 +28,18 @@ const detailsSchema = z.object({
     snapshot: diagnosticSnapshot,
   }),
 });
+// Older stored edits can carry only the language server's scope labels.
+const editDetails = z.object({
+  diff: z.string(),
+  studioSyntax: z
+    .object({
+      scopes: z.array(diffScope).max(32),
+      replacements: z.array(syntaxReplacement).max(2048),
+    })
+    .optional()
+    .catch(undefined),
+  studioDiffScopes: z.array(diffScope).max(32).optional().catch(undefined),
+});
 interface View {
   snapshot: DiagnosticSnapshot;
   settled: boolean;
@@ -30,7 +52,15 @@ export function registerDiagnosticRendering(
 ) {
   const views = new Map<string, View>();
   const latest = new Map<string, string>();
-  const diffs = new Map<string, { path: string; diff: string }>();
+  const diffs = new Map<
+    string,
+    {
+      path: string;
+      diff: string;
+      scopes: DiffScope[];
+      replacements: SyntaxReplacement[];
+    }
+  >();
   const clear = () => {
     views.clear();
     latest.clear();
@@ -93,42 +123,63 @@ export function registerDiagnosticRendering(
         ? {
             renderCall(args, theme, context) {
               const native = renderCall(args, theme, context);
+              const edit = z.object({ reason: z.string() }).safeParse(args);
+              const reason = edit.success
+                ? displayEditReason(edit.data.reason)
+                : "";
               return {
                 invalidate() {
                   native.invalidate();
                 },
                 render(width) {
                   const value = diffs.get(context.toolCallId);
-                  return value === undefined
-                    ? native.render(width)
-                    : syntaxDiffRows(
-                        value.diff,
-                        value.path,
-                        theme,
-                        width,
-                        context.cwd,
-                        undefined,
-                        diffDisplay(),
-                        views.get(context.toolCallId)?.snapshot.diagnostics,
-                      );
+                  if (value === undefined) {
+                    const nativeRows = native.render(width);
+                    return reason.length > 0 && width > 0
+                      ? [
+                          ...nativeRows,
+                          ...wrapTextWithAnsi(theme.fg("muted", reason), width),
+                        ]
+                      : nativeRows;
+                  }
+                  return syntaxDiffRows(
+                    value.diff,
+                    value.path,
+                    theme,
+                    width,
+                    context.cwd,
+                    undefined,
+                    diffDisplay(),
+                    views.get(context.toolCallId)?.snapshot.diagnostics,
+                    {
+                      scopes: value.scopes,
+                      replacements: value.replacements,
+                      reason,
+                    },
+                  );
                 },
               };
             },
           }
         : {}),
       renderResult(result, options, theme, context) {
-        const diff = z.object({ diff: z.string() }).safeParse(result.details);
+        const diff = editDetails.safeParse(result.details);
         const args = z.object({ path: z.string() }).safeParse(context.args);
         if (
           name === "edit" &&
           !context.isError &&
+          !options.isPartial &&
           diff.success &&
-          args.success &&
-          diffs.get(context.toolCallId)?.diff !== diff.data.diff
+          args.success
         ) {
           diffs.set(context.toolCallId, {
             path: args.data.path,
             diff: diff.data.diff,
+            scopes:
+              diff.data.studioSyntax?.scopes ??
+              diff.data.studioDiffScopes ??
+              [],
+            replacements: diff.data.studioSyntax?.replacements ?? [],
           });
         }
         const parsed = detailsSchema.safeParse(result.details);
