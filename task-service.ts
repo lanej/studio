@@ -7,7 +7,12 @@ import { readFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import type { StudioConfig } from "./config.ts";
-import { orderedTasks, type LeadDraft } from "./lead-plan.ts";
+import {
+  orderedTasks,
+  draftSchema,
+  TaskDelivery,
+  type LeadDraft,
+} from "./lead-plan.ts";
 
 export const beadSchema = z.looseObject({
   id: z.string().min(1),
@@ -68,6 +73,56 @@ export class TaskBeads extends BeadsHttp {
     if (row.id !== id)
       throw new Error("Beads returned a different task identity");
     return row;
+  }
+
+  /** Check newly approved child intent before allocating or claiming a launch. */
+  async requireDeliveryLaunch(bead: NativeBead, lead: boolean): Promise<void> {
+    if (!Object.hasOwn(bead.metadata, "pi.plan_task")) return;
+    const parsed = z
+      .object({
+        "pi.plan": z.string().min(1),
+        "pi.plan_key": z.string().min(1),
+        "pi.plan_parent": z.string().min(1),
+        "pi.plan_task": draftSchema.shape.tasks.element,
+      })
+      .safeParse(bead.metadata);
+    if (
+      !parsed.success ||
+      parsed.data["pi.plan_key"] !== parsed.data["pi.plan_task"].key ||
+      parsed.data["pi.plan_parent"] === bead.id
+    )
+      throw new Error(
+        "The approved child delivery record is malformed or mismatched; inspect its parent plan before starting",
+      );
+    const metadata = parsed.data;
+    const parent = await this.get(metadata["pi.plan_parent"]);
+    const edges = await this.result(
+      this.client.GET("/v0/beads/dependencies", {
+        params: { query: { issue_id: [bead.id] } },
+      }),
+    );
+    if (
+      parent.metadata["pi.plan"] !== metadata["pi.plan"] ||
+      edges.missing.length > 0 ||
+      !edges.items.some(
+        (edge) =>
+          edge.issue_id === bead.id &&
+          edge.depends_on_id === parent.id &&
+          edge.type === "parent-child",
+      )
+    )
+      throw new Error(
+        "The approved child delivery does not match its parent plan; inspect the retained plan before starting",
+      );
+    const delivery = metadata["pi.plan_task"].delivery ?? TaskDelivery.Local;
+    if (delivery === TaskDelivery.Local && lead)
+      throw new Error(
+        "This task was approved for local delivery; start it with --worker (no PR)",
+      );
+    if (delivery === TaskDelivery.PullRequest && !lead)
+      throw new Error(
+        "This task was approved for PR delivery; omit --worker to use the lead verification and publication path",
+      );
   }
 
   async list() {
@@ -254,7 +309,12 @@ export class TaskBeads extends BeadsHttp {
             issue_type: "task",
             ephemeral: false,
             no_history: false,
-            metadata: { "pi.plan": digest, "pi.plan_key": task.key },
+            metadata: {
+              "pi.plan": digest,
+              "pi.plan_key": task.key,
+              "pi.plan_task": task,
+              "pi.plan_parent": current.id,
+            },
           },
         },
         {

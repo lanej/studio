@@ -1,6 +1,7 @@
 import type { Theme, ThemeBg } from "@earendil-works/pi-coding-agent";
 import {
   matchesKey,
+  hyperlink,
   Text,
   truncateToWidth,
   visibleWidth,
@@ -8,6 +9,7 @@ import {
 import { taskTree, type Task, type TreeRow } from "../beads.ts";
 import { NavigationKey } from "../runtime.ts";
 import { selectorText } from "@lanej/pi-components";
+import { githubLink } from "../github-links.ts";
 import { taskStatusGlyph } from "../ui.ts";
 import {
   currentReviewFinding,
@@ -16,6 +18,7 @@ import {
   retainedEvidence,
   taskLinks,
   taskNarrative,
+  taskDelivery,
   type TaskSnapshot,
 } from "./model.ts";
 
@@ -179,13 +182,26 @@ export class TaskBrowser {
         });
       }
     };
-    const disclosure = (section: string, title: string, content: string) => {
+    const disclosure = (
+      section: string,
+      title: string,
+      content: string,
+      url?: string,
+    ) => {
       const open = this.expanded.has(`${task.id}:${section}`);
       lines.push({
         text: `${open ? "▾" : "▸"} ${title}`,
         action: { kind: "disclosure", section },
       });
-      if (open) text(content);
+      if (open && url !== undefined) {
+        const safe = selectorText(content).replace(/[^\P{Cc}\n]/gu, " ");
+        const linked = safe.replace(
+          url,
+          githubLink(url) ?? hyperlink(url, url),
+        );
+        for (const line of new Text(linked, 0, 0).render(Math.max(1, width)))
+          lines.push({ text: line });
+      } else if (open) text(content);
     };
     for (const line of this.wrapped(plain(task.title), width))
       lines.push({ text: this.theme.bold(line) });
@@ -216,6 +232,13 @@ export class TaskBrowser {
         "Acceptance",
         task.acceptance_criteria ?? "No acceptance criteria recorded.",
       ].join("\n"),
+    );
+    const delivery = taskDelivery(task, this.snapshot);
+    disclosure(
+      "delivery",
+      delivery.label,
+      delivery.details.join("\n"),
+      delivery.url,
     );
     disclosure(
       "evidence",

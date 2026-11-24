@@ -49,6 +49,15 @@ review_tasks = [
 ]
 for task in review_tasks:
     task["revision"] = "r1"
+    task["metadata"] = {"studio.approval": "native-delivery-review", "studio.task": {
+        "key": "first", "title": task["title"], "description": "Native task delivery",
+        "acceptance": "Review delivery", "delivery": "pull-request" if task["id"] == "ui-12.2" else "local"}}
+
+# The published child uses the interactive store, independently of unattended receipts.
+interactive_child = review_tasks[2]
+interactive_child["metadata"] = {"pi.plan": "native-interactive-approval", "pi.plan_parent": "ui-12",
+    "pi.plan_key": "first", "pi.plan_task": interactive_child["metadata"]["studio.task"]}
+
 review_finding = "Which function owns the width cutoff? Both `chooseLayout()` and `renderDiff()` test it. Changing one can make the same hunk switch layouts twice."
 review_question = "How should these diffs read?"
 review_answer = (
@@ -170,8 +179,8 @@ store.create({json.dumps(str(project))}, 'terminal-fixture', 'Separate research'
 store.change(record.id, row=>{{
  row.specification={{status:SpecStatus.Interrogating,version:1,acceptedRevision:row.revision,draft:{{objective:'Keep the lead free for research',scope:['Independent discovery'],requirements:[{{id:'R1',outcome:'Review proposed work',acceptance:'No tasks before approval'}}],decisions:[{{id:'D1',decision:'Choose work timing',basis:'observed',evidence:'Operator workflow',disposition:'open',uncertainty:'Need timing'}}],blockingQuestions:['When should work begin?']}},exchange:{{prompt:{{decisionId:'D1',question:'When should work begin?',options:[{{label:'After review',description:'Keep discovery free'}},{{label:'Keep exploring',description:'Leave work unqueued'}}]}}}}}};
  row.leadPlan.draft=draftSchema.parse({{summary:'Review before creating tasks',tasks:[
-   {{key:'first',title:'Keep lead available',description:'Use separate workers',acceptance:'Lead remains free',hold:false,delivery:'local',check:['bun','test'],owns:['src']}},
-   {{key:'verify',title:'Check the review flow',description:'Exercise the lead during review',acceptance:'Work starts after review',requirements:['R1'],blockedBy:['first']}}
+   {{key:'first',title:'Keep lead available',description:'Use separate workers',acceptance:'Lead remains free',hold:false,check:['bun','test'],owns:['src']}},
+   {{key:'verify',title:'Check the review flow',description:'Exercise the lead during review',acceptance:'Work starts after review',requirements:['R1'],blockedBy:['first'],delivery:'pull-request'}}
  ]}});
 }});
 const ready=store.create({json.dumps(str(project))}, 'terminal-fixture', 'Ready discovery');
@@ -188,14 +197,24 @@ console.log(JSON.stringify({{discovery:record.id,ready:ready.id}}));store.close(
     if args.task_review:
         seed_reviews = f"""
 import {{ExecutionStore, executionSchema}} from {json.dumps(str(root / 'execution/store.ts'))};
+import {{Attempts, attemptSchema}} from {json.dumps(str(root / 'attempts.ts'))};
 const store = new ExecutionStore();
 for (const bead of {json.dumps(review_tasks)}.filter(task => task.assignee)) {{
     const repairing = bead.id === "ui-12.1";
-    store.saveAttempt(executionSchema.parse({{id: bead.assignee.slice(3), project: {json.dumps(review_project)}, bead,
+    if (repairing) store.saveAttempt(executionSchema.parse({{id: bead.assignee.slice(3), project: {json.dumps(review_project)}, bead,
         profile: "personal", phase: repairing ? "running" : "reviewing", message: "",
+        ...(repairing ? {{ resultRef: "refs/studio/results/native-local" }} : {{pr: "native-pr", url: "https://github.com/example/studio/pull/7"}}),
         reviewFinding: repairing ? {json.dumps(review_finding)} : undefined}}));
 }}
 store.close();
+const interactive = new Attempts(process.env.STUDIO_STATE_DIR);
+const bead = {json.dumps(interactive_child)};
+interactive.reserve(attemptSchema.parse({{id:bead.assignee.slice(3),source:{{url:"http://127.0.0.1:{provider.server_port}",projectId:{json.dumps(review_project)}}},
+    bead,revision:"r1",check:[],profile:"personal",model:{{provider:"fixture",model:"tiny",reasoning:"off"}},live:false,
+    processStarted:null,reservation:{{primary:"/tmp/fixture",root:"/tmp/fixture-checkouts",holder:bead.assignee.slice(3),agent:"pi",branch:"task",baseRef:"main",baseCommit:"a".repeat(40),attempted:false}},
+    checkout:null,session:"native",pane:null,pid:null,transcript:null,phase:"running",verification:null,message:"",
+    delivery:{{requestId:"native-request",requestDigest:"native-digest",head:"a".repeat(40),pr:"native-pr",url:"https://github.com/example/studio/pull/7"}}}}));
+interactive.close();
 """
         subprocess.run(["bun", "--no-env-file", "-e", seed_reviews], cwd=root, env=env, check=True)
     provider.issue_reads = 0
@@ -216,12 +235,15 @@ store.close();
         os.close(slave)
         screen = pyte.Screen(columns, rows)
         stream = pyte.ByteStream(screen)
+        recorded = bytearray()
         def pump(seconds):
             until = time.monotonic() + seconds
             while time.monotonic() < until:
                 if select.select([master], [], [], 0.05)[0]:
                     try:
-                        stream.feed(os.read(master, 65536))
+                        chunk = os.read(master, 65536)
+                        recorded.extend(chunk)
+                        stream.feed(chunk)
                     except OSError:
                         break
         def wait_until(predicate, timeout=12):
@@ -338,6 +360,34 @@ store.close();
                 assert "Changes requested" not in text and "Reviewing" not in text, text
                 assert "activation.ts" not in text and "Extension \"" not in text, text
                 capture("task-readability-review")
+                os.write(master, b"\t\t\t\r")
+                for _ in range(24):
+                    if "refs/studio/results/native-local" in "\n".join(screen.display): break
+                    os.write(master, b"j")
+                    pump(.08)
+                wait_text("refs/studio/results/native-local")
+                capture("delivery-local")
+                os.write(master, b"q")
+                pump(.2)
+                os.write(master, b"/tasks ui-12.2\r")
+                wait_text("Enclosing declarations")
+                os.write(master, b"\x1bt")
+                wait_text("Esc lead")
+                os.write(master, b"\t\t\t\r")
+                for _ in range(24):
+                    if "example/studio#7" in "\n".join(screen.display): break
+                    os.write(master, b"j")
+                    pump(.08)
+                wait_text("example/studio#7")
+                assert b"\x1b]8;;https://github.com/example/studio/pull/7" in recorded
+                (output / f"delivery-link-{columns}.json").write_text(json.dumps({"target": "https://github.com/example/studio/pull/7", "nativeOSC8": True}))
+                capture("delivery-published")
+                os.write(master, b"q")
+                pump(.2)
+                os.write(master, b"/tasks ui-12.1\r")
+                wait_text("The reviewer found:")
+                os.write(master, b"\x1bt")
+                wait_text("Esc lead")
                 os.write(master, b"\x1b")
                 wait_text("Alt+T inspect")
                 os.write(master, b"preserved lead draft")
@@ -415,6 +465,8 @@ store.close();
             os.write(master, b"j\r")
             wait_until(lambda: all(text in "\n".join(screen.display) for text in
                                    ["Check the review flow", "Work starts after review", "Depends on · first"]))
+            wait_text("Opens a PR")
+            capture("delivery-plan")
             os.write(master, b"\x1b")
             wait_until(lambda: "Enter details" in "\n".join(screen.display))
             os.write(master, b"\x1b")
