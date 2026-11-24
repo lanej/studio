@@ -5,6 +5,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { defaultMinSplitColumns, type StudioConfig } from "../config.ts";
 import { diagnosticGlyph, type DiagnosticSnapshot } from "./diagnostics.ts";
+import type { DiffScope } from "./scopes.ts";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -13,12 +14,17 @@ import {
   hyperlink,
   sliceByColumn,
   stripTerminalSequences,
+  truncateToWidth,
   visibleWidth,
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 
 const clean = (text: string) =>
   text.replaceAll("\t", "   ").replace(/\p{Cc}/gu, " ");
+export function displayEditReason(reason: string): string {
+  return clean(stripTerminalSequences(reason)).trim();
+}
+
 type Highlighter = (text: string, language: string) => string[];
 type DiffTheme = Pick<Theme, "fg" | "bg" | "bold">;
 interface DiffLine {
@@ -88,7 +94,7 @@ function wordReplacement(
   return replacement;
 }
 
-function parseDiffLines(diff: string): DiffLine[] {
+export function parseDiffLines(diff: string): DiffLine[] {
   const lines: DiffLine[] = diff.split("\n").map((line) => {
     const match = /^([+\- ])(\s*\d+) (.*)$/u.exec(line);
     return {
@@ -181,6 +187,7 @@ export function syntaxDiffRows(
     inline_diagnostics: true,
   },
   diagnostics: DiagnosticSnapshot["diagnostics"] = [],
+  details: { reason?: string; scopes?: readonly DiffScope[] } = {},
 ): string[] {
   if (width < 3) return [];
   const lines = parseDiffLines(diff);
@@ -380,44 +387,49 @@ export function syntaxDiffRows(
     return pending.size === 0 ? rows : undefined;
   };
   const body: string[] = [];
+  const scopes = new Map(details.scopes?.map(({ row, label }) => [row, label]));
   const compact = hasAdditions && hasDeletions ? compactWordRows() : undefined;
-  if (compact !== undefined) {
-    for (const line of lines) {
-      if (line.prefix === "-") continue;
+  let index = 0;
+  while (index < lines.length) {
+    const line = lines[index];
+    if (line === undefined) break;
+    const scope = scopes.get(index);
+    // The scope identifies the upcoming hunk in the row normally used for Pi's omission marker.
+    if (line.raw.trim() === "..." && scopes.has(index + 1)) {
+      index++;
+      continue;
+    }
+    if (scope !== undefined)
+      body.push(
+        truncateToWidth(
+          theme.fg("dim", "╭ ") + theme.fg("accent", clean(scope)),
+          inner,
+        ),
+      );
+    if (compact !== undefined) {
       const replacement = compact.get(line);
-      if (replacement === undefined) body.push(...cell(line, "after", inner));
-      else body.push(replacement);
-    }
-  } else if (split) {
-    body.push(
-      pad(theme.fg("muted", "Original"), leftWidth) +
-        theme.fg("dim", " │ ") +
-        theme.fg("muted", "Updated"),
-    );
-    let index = 0;
-    while (index < lines.length) {
-      const line = lines[index];
-      if (line?.prefix === "-" || line?.prefix === "+") {
-        const removed: DiffLine[] = [],
-          added: DiffLine[] = [];
-        while (lines[index]?.prefix === "-") {
-          const value = lines[index++];
-          if (value !== undefined) removed.push(value);
-        }
-        while (lines[index]?.prefix === "+") {
-          const value = lines[index++];
-          if (value !== undefined) added.push(value);
-        }
-        for (let row = 0; row < Math.max(removed.length, added.length); row++)
-          body.push(...paired(removed[row], added[row]));
-      } else {
-        body.push(...paired(line, line));
-        index++;
-      }
-    }
-  } else {
-    for (const line of lines)
+      if (replacement !== undefined) body.push(replacement);
+      else if (line.prefix !== "-") body.push(...cell(line, "after", inner));
+    } else if (!split) {
       body.push(...cell(line, line.prefix === "-" ? "before" : "after", inner));
+    } else if (line.prefix === "-" || line.prefix === "+") {
+      const removed: DiffLine[] = [],
+        added: DiffLine[] = [];
+      while (lines[index]?.prefix === "-") {
+        const value = lines[index++];
+        if (value !== undefined) removed.push(value);
+      }
+      while (lines[index]?.prefix === "+") {
+        const value = lines[index++];
+        if (value !== undefined) added.push(value);
+      }
+      for (let row = 0; row < Math.max(removed.length, added.length); row++)
+        body.push(...paired(removed[row], added[row]));
+      continue;
+    } else {
+      body.push(...paired(line, line));
+    }
+    index++;
   }
   const rawPath = path.startsWith("~/")
     ? resolve(homedir(), path.slice(2))
@@ -426,13 +438,16 @@ export function syntaxDiffRows(
   const pathLabel = getCapabilities().hyperlinks
     ? hyperlink(label, pathToFileURL(rawPath).href)
     : label;
+  const reason = displayEditReason(details.reason ?? "");
   return [
     "",
     ...wrapTextWithAnsi(
       `${theme.fg("toolTitle", theme.bold("edit"))} ${pathLabel}`,
       inner,
     ),
-    "",
+    ...(reason.length > 0
+      ? wrapTextWithAnsi(theme.fg("muted", reason), inner)
+      : [""]),
     ...body,
     "",
   ].map((line) =>

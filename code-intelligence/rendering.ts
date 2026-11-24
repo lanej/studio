@@ -1,5 +1,11 @@
 import type { StudioConfig } from "../config.ts";
-import { inlineDiagnosticLines, syntaxDiffRows } from "./diff.ts";
+import {
+  displayEditReason,
+  inlineDiagnosticLines,
+  syntaxDiffRows,
+} from "./diff.ts";
+import { diffScope, type DiffScope } from "./scopes.ts";
+import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -30,7 +36,10 @@ export function registerDiagnosticRendering(
 ) {
   const views = new Map<string, View>();
   const latest = new Map<string, string>();
-  const diffs = new Map<string, { path: string; diff: string }>();
+  const diffs = new Map<
+    string,
+    { path: string; diff: string; scopes: DiffScope[] }
+  >();
   const clear = () => {
     views.clear();
     latest.clear();
@@ -93,24 +102,36 @@ export function registerDiagnosticRendering(
         ? {
             renderCall(args, theme, context) {
               const native = renderCall(args, theme, context);
+              const edit = z.object({ reason: z.string() }).safeParse(args);
+              const reason = edit.success
+                ? displayEditReason(edit.data.reason)
+                : "";
               return {
                 invalidate() {
                   native.invalidate();
                 },
                 render(width) {
                   const value = diffs.get(context.toolCallId);
-                  return value === undefined
-                    ? native.render(width)
-                    : syntaxDiffRows(
-                        value.diff,
-                        value.path,
-                        theme,
-                        width,
-                        context.cwd,
-                        undefined,
-                        diffDisplay(),
-                        views.get(context.toolCallId)?.snapshot.diagnostics,
-                      );
+                  if (value === undefined) {
+                    const nativeRows = native.render(width);
+                    return reason.length > 0 && width > 0
+                      ? [
+                          ...nativeRows,
+                          ...wrapTextWithAnsi(theme.fg("muted", reason), width),
+                        ]
+                      : nativeRows;
+                  }
+                  return syntaxDiffRows(
+                    value.diff,
+                    value.path,
+                    theme,
+                    width,
+                    context.cwd,
+                    undefined,
+                    diffDisplay(),
+                    views.get(context.toolCallId)?.snapshot.diagnostics,
+                    { scopes: value.scopes, reason },
+                  );
                 },
               };
             },
@@ -122,13 +143,17 @@ export function registerDiagnosticRendering(
         if (
           name === "edit" &&
           !context.isError &&
+          !options.isPartial &&
           diff.success &&
-          args.success &&
-          diffs.get(context.toolCallId)?.diff !== diff.data.diff
+          args.success
         ) {
           diffs.set(context.toolCallId, {
             path: args.data.path,
             diff: diff.data.diff,
+            scopes:
+              z
+                .object({ studioDiffScopes: z.array(diffScope).max(32) })
+                .safeParse(result.details).data?.studioDiffScopes ?? [],
           });
         }
         const parsed = detailsSchema.safeParse(result.details);

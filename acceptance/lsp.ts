@@ -162,10 +162,12 @@ try {
     column: 18,
   });
   assert.match(references, /b\.ts/u);
-  const introduced = await call("edit", {
+  const editArgs = {
     path: "b.ts",
+    reason: "Check the inferred type of the greeting.",
     edits: [{ oldText: "answer: string", newText: "answer: number" }],
-  });
+  };
+  const introduced = await call("edit", editArgs);
   // The real tool renderer must show diagnostics without a model-issued diagnostics query.
   assert.match(introduced, /lsp/u);
   assert.ok(lastOutcome !== undefined);
@@ -179,7 +181,7 @@ try {
   const renderOptions = { expanded: false, isPartial: false };
   const renderContext = {
     ...renderOptions,
-    args: { path: "b.ts" },
+    args: editArgs,
     toolCallId: written.toolCall.id,
     invalidate() {},
     lastComponent: undefined,
@@ -220,7 +222,11 @@ try {
     assert.ok(rows.some((row) => row.includes("\x1b[4:3m")));
   }
   // The type diagnostic needs the updated source line for its range and inlay.
-  assert.match(callComponent.render(120).join("\n"), /Original.*Updated/u);
+  const splitText = stripTerminalSequences(
+    callComponent.render(120).join("\n"),
+  );
+  assert.doesNotMatch(splitText, /Original.*Updated/u);
+  assert.match(splitText, /answer: string.*│.*answer: number/u);
   assert.doesNotMatch(
     callComponent.render(100).join("\n"),
     /Original.*Updated| │ /u,
@@ -230,10 +236,24 @@ try {
     assert.ok(output.includes("\x1b[48;2;48;70;57m"));
     assert.ok(output.includes("\x1b[48;2;71;52;63m"));
   }
-  await writeFile(join(root, "policy.txt"), "retries: 2\n");
+  const policySource = [
+    "export class Policy {",
+    "  retryDelay(attempt: number, baseMs: number): number {",
+    "    if (attempt < 0) {",
+    "      return baseMs;",
+    "    }",
+    "    const capMs = 1500;",
+    "    const exponent = Math.min(attempt, 8);",
+    "    const factor = 2;",
+    "    return Math.min(capMs, baseMs * factor ** exponent);",
+    "  }",
+    "}",
+  ].join("\n");
+  await writeFile(join(root, "policy.ts"), policySource);
   const policyArgs = {
-    path: "policy.txt",
-    edits: [{ oldText: "2", newText: "4" }],
+    path: "policy.ts",
+    reason: "Increase the retry delay for later attempts.",
+    edits: [{ oldText: "factor = 2", newText: "factor = 4" }],
   };
   const policy = await tool.executeTool("edit", policyArgs);
   assert.equal(policy.isError, false);
@@ -245,9 +265,23 @@ try {
   };
   const policyCall = rendered.renderCall(policyArgs, theme, policyContext);
   rendered.renderResult(policy.result, renderOptions, theme, policyContext);
-  const policyText = stripTerminalSequences(policyCall.render(120).join("\n"));
-  assert.match(policyText, /retries: 2 → 4/u);
-  assert.doesNotMatch(policyText, /Original|Updated| │ /u);
+  const nativeDiff = z
+    .object({ diff: z.string() })
+    .parse(policy.result.details).diff;
+  assert.doesNotMatch(nativeDiff, /retryDelay/u);
+  for (const width of [72, 120]) {
+    const policyText = stripTerminalSequences(
+      policyCall.render(width).join("\n"),
+    );
+    assert.match(policyText, /retryDelay\(attempt: number, baseMs: number\)/u);
+    assert.equal(policyText.match(/retryDelay/gu)?.length, 1);
+    assert.equal(policyText.split(policyArgs.reason).length, 2);
+    assert.ok(
+      policyText.indexOf(policyArgs.reason) < policyText.indexOf("retryDelay"),
+    );
+    assert.match(policyText, /factor = 2 → 4/u);
+    assert.doesNotMatch(policyText, /Original|Updated| │ /u);
+  }
   await eventually(
     () => call(lspTool, { action: "diagnostics", path: "b.ts" }),
     /2322/u,

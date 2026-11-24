@@ -92,14 +92,17 @@ await test("inline diagnostics distinguish pending and reported results, wrap, a
 
 await test("edit diffs switch between aligned split and unified layouts without losing changes", () => {
   const diff = [
+    "   ...",
     ' 6 const label = "漢字😀";',
     "-7 const retries = 3;",
     "-8 const removed = true;",
     '+7 const retries = "three";',
     " 9 finish();",
     "+10 added();",
+    "   ...",
   ].join("\n");
   const highlight = (text: string) => text.split("\n");
+  const scope = { row: 1, label: "applyRetry(limit: number)" };
   for (const width of [60, 92, 93, 100, 140]) {
     const rows = syntaxDiffRows(
       diff,
@@ -108,6 +111,9 @@ await test("edit diffs switch between aligned split and unified layouts without 
       width,
       "/project",
       highlight,
+      undefined,
+      [],
+      { scopes: [scope] },
     );
     const text = rows.join("\n");
     assert.ok(
@@ -119,9 +125,17 @@ await test("edit diffs switch between aligned split and unified layouts without 
     assert.match(text, /漢字😀/u);
     assert.match(text, /retries = 3/u);
     assert.match(text, /retries = "three"/u);
+    assert.equal(text.split(scope.label).length, 2);
+    assert.ok(text.indexOf(scope.label) < text.indexOf("const label"));
+    assert.doesNotMatch(text.slice(0, text.indexOf(scope.label)), /\.\.\./u);
+    assert.match(text.slice(text.indexOf("added()")), /\.\.\./u);
     assert.equal(text.includes(" │ "), width >= 93);
+    assert.doesNotMatch(text, /Original.*Updated/u);
     if (width >= 93) {
-      assert.match(text, /Original.*Updated/u);
+      assert.match(
+        text,
+        /-\s*7 const retries = 3;.*│.*\+\s*7 const retries = "three";/u,
+      );
       assert.match(text, /9 finish\(\).*│.*8 finish\(\)/u);
     }
   }
