@@ -254,13 +254,16 @@ export async function verificationSandbox(
     const requested = mapped[0];
     if (requested === undefined)
       throw new Error("A verification command is required");
+    // Git dependencies use the controller's trusted executable, never an arbitrary PATH wrapper.
+    const tools = join(temporary, "bin");
+    await mkdir(tools);
+    await symlink("/usr/bin/git", join(tools, "git"));
+    const path = `${tools}${delimiter}${process.env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"}`;
     const executableCandidates = isAbsolute(requested)
       ? [requested]
       : requested.includes("/")
         ? [join(workspace, requested)]
-        : (process.env["PATH"] ?? "")
-            .split(delimiter)
-            .map((directory) => join(directory, requested));
+        : path.split(delimiter).map((directory) => join(directory, requested));
     let requestedRoot: string | undefined;
     let requestedExecutable: string | undefined;
     for (const candidate of executableCandidates) {
@@ -333,7 +336,7 @@ export async function verificationSandbox(
         "Verification read paths may not expose controller state or credentials",
       );
     const environment: NodeJS.ProcessEnv = {
-      PATH: process.env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin",
+      PATH: path,
       HOME: temporary,
       TMPDIR: temporary,
       TMP: temporary,
@@ -350,8 +353,6 @@ export async function verificationSandbox(
       ...(snapshot === undefined
         ? {}
         : {
-            GIT_DIR: scratchGit,
-            GIT_WORK_TREE: workspace,
             GIT_OPTIONAL_LOCKS: "0",
           }),
     };
