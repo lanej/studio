@@ -1,10 +1,20 @@
+import {
+  DefaultResourceLoader,
+  ExtensionRunner,
+  ModelRegistry,
+  ModelRuntime,
+  SessionManager,
+  SettingsManager,
+} from "@earendil-works/pi-coding-agent";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { randomUUID } from "node:crypto";
+import { registerDiscovery } from "../discovery/extension.ts";
 import { Discoveries, HandoffPhase } from "../discovery/store.ts";
+import { SpecStatus } from "../socrates/spec.ts";
 import { draftSchema } from "../lead-plan.ts";
 import {
   configSchema,
@@ -21,6 +31,220 @@ import { writerFence } from "../execution/recovery.ts";
 import { ExecutionBeads } from "../execution/beads.ts";
 import { beadSchema, owner } from "../task-service.ts";
 import { taskDetails } from "../beads.ts";
+
+await test("discovery listing is scoped to the canonical project and retains duplicate titles", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "studio-discovery-"));
+  const store = new Discoveries(join(directory, "state"));
+  try {
+    const project = join(directory, "project");
+    const other = join(directory, "other");
+    const empty = join(directory, "empty");
+    const alias = join(directory, "alias");
+    await mkdir(project);
+    await mkdir(other);
+    await mkdir(empty);
+    await symlink(project, alias);
+    const title = "Fix the runtime handoff";
+    const first = store.create(project, "first", title);
+    const foreign = store.create(other, "foreign", title);
+    const second = store.create(alias, "second", title);
+    assert.notEqual(first.id, second.id);
+    assert.deepEqual(store.list(project), [second, first]);
+    assert.deepEqual(store.list(alias), [second, first]);
+    assert.deepEqual(store.list(other), [foreign]);
+    assert.deepEqual(store.list(empty), []);
+  } finally {
+    store.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+await test("daily-driver Socrates starts by title and resumes the picker selection without rewriting it", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "studio-discovery-commands-"));
+  const state = join(directory, "state");
+  const project = join(directory, "project");
+  const other = join(directory, "other");
+  const empty = join(directory, "empty");
+  const previousState = process.env["STUDIO_STATE_DIR"];
+  const store = new Discoveries(state);
+  try {
+    await mkdir(project);
+    await mkdir(other);
+    await mkdir(empty);
+    process.env["STUDIO_STATE_DIR"] = state;
+    const session = SessionManager.inMemory(project);
+    const agentDir = join(directory, "agent");
+    const loader = new DefaultResourceLoader({
+      cwd: project,
+      agentDir,
+      settingsManager: SettingsManager.inMemory(),
+      noExtensions: true,
+      noSkills: true,
+      noPromptTemplates: true,
+      noThemes: true,
+      noContextFiles: true,
+      extensionFactories: [
+        (pi) => {
+          registerDiscovery(pi, () => undefined);
+        },
+      ],
+    });
+    await loader.reload();
+    const { errors, extensions, runtime } = loader.getExtensions();
+    assert.deepEqual(errors, []);
+    const modelRuntime = await ModelRuntime.create({
+      authPath: join(agentDir, "auth.json"),
+      modelsPath: null,
+      refreshOnCreate: false,
+    });
+    const runner = new ExtensionRunner(
+      extensions,
+      runtime,
+      project,
+      session,
+      new ModelRegistry(modelRuntime),
+    );
+    const messages: unknown[] = [];
+    runtime.appendEntry = (type, data) => {
+      session.appendCustomEntry(type, data);
+    };
+    runtime.sendUserMessage = (content) => {
+      messages.push(content);
+    };
+    let options: string[] = [];
+    let pickerOpenings = 0;
+    let choice: number | undefined;
+    let switchBranch: (() => void) | undefined;
+    const notices: string[] = [];
+    runtime.getThinkingLevel = () => "off";
+    const ctx = {
+      ...runner.createCommandContext(),
+      hasUI: true,
+      ui: {
+        ...runner.getUIContext(),
+        select: (_title: string, choices: string[]) => {
+          pickerOpenings++;
+          options = choices;
+          switchBranch?.();
+          return Promise.resolve(
+            choice === undefined ? undefined : choices[choice],
+          );
+        },
+        notify: (notice: string) => {
+          notices.push(notice);
+        },
+      },
+    };
+    const socrates = runner.getCommand("socrates");
+    const picker = runner.getCommand("discoveries");
+    assert.ok(socrates !== undefined && picker !== undefined);
+
+    await socrates.handler("", ctx);
+    assert.deepEqual(
+      store.list(project).map(({ title }) => title),
+      ["Discovery"],
+    );
+    const title = "Fix the runtime handoff";
+    await socrates.handler(`  ${title}  `, ctx);
+    const first = store.list(project)[0];
+    assert.ok(first?.specification !== undefined);
+    assert.equal(first.title, title);
+    assert.equal(first.specification.status, SpecStatus.Interrogating);
+    const answered = store.change(first.id, (record) => {
+      const spec = record.specification;
+      assert.ok(spec !== undefined);
+      record.specification = {
+        ...spec,
+        exchange: {
+          prompt: {
+            decisionId: "D1",
+            question: "When should work begin?",
+            options: [],
+          },
+          answer: { kind: "custom", text: "After review" },
+        },
+      };
+    });
+    const foreign = store.create(other, "foreign", "Foreign discovery");
+    session.newSession();
+    assert.notEqual(session.getSessionId(), first.conversation);
+    for (const argument of [title, title, "list", "new Another topic"]) {
+      await socrates.handler(argument, ctx);
+      const newest = store.list(project)[0];
+      assert.ok(newest !== undefined);
+      assert.equal(newest.title, argument);
+      assert.notEqual(newest.id, first.id);
+    }
+    const records = store.list(project);
+    const turnCount = messages.length;
+    const leaf = session.getLeafId();
+
+    await picker.handler("", { ...ctx, cwd: empty });
+    assert.deepEqual(notices, ["No saved discoveries for this project."]);
+    assert.equal(pickerOpenings, 0);
+    assert.equal(session.getLeafId(), leaf);
+
+    await picker.handler("", ctx);
+    assert.equal(session.getLeafId(), leaf, "Cancel leaves binding intact");
+    assert.equal(options.length, records.length);
+    assert.ok(options.every((label) => !label.includes(foreign.title)));
+    assert.ok(records.every(({ id }) => !options.join("\n").includes(id)));
+    const duplicateLabels = options.filter((label) => label.includes(title));
+    assert.equal(new Set(duplicateLabels).size, 3);
+    for (const [index, record] of records.entries()) {
+      if (record.title !== title || record.id === first.id) continue;
+      choice = index;
+      await picker.handler("", ctx);
+      const picked = session.getLeafEntry();
+      assert.ok(picked?.type === "custom");
+      assert.deepEqual(picked.data, { id: record.id, project: record.project });
+    }
+
+    choice = options.findIndex((label) => label.includes("answer saved"));
+    assert.ok(choice >= 0);
+    assert.ok(leaf !== null);
+    switchBranch = () => {
+      session.branch(leaf);
+    };
+    await assert.rejects(
+      picker.handler("", ctx),
+      /again for this conversation/u,
+    );
+    assert.equal(session.getLeafId(), leaf);
+    switchBranch = undefined;
+    await picker.handler("", ctx);
+    const marker = session.getLeafEntry();
+    assert.ok(marker?.type === "custom");
+    assert.deepEqual(marker.data, { id: first.id, project: first.project });
+    await picker.handler("", ctx);
+    assert.equal(session.getLeafId(), marker.id, "Reselecting is a no-op");
+    choice = undefined;
+    await picker.handler("", ctx);
+    assert.equal(session.getLeafId(), marker.id);
+    assert.equal(messages.length, turnCount, "Picking should not start a turn");
+
+    await socrates.handler("  ", ctx);
+    assert.equal(messages.length, turnCount + 1);
+    assert.equal(
+      messages.at(-1),
+      "Resume Socrates discovery using the recorded operator answer.",
+    );
+    assert.equal(session.getLeafId(), marker.id);
+    assert.deepEqual(store.get(first.id), answered);
+    assert.deepEqual(store.list(project), records);
+
+    await socrates.handler(first.id, ctx);
+    const literal = store.list(project)[0];
+    assert.ok(literal !== undefined);
+    assert.equal(literal.title, first.id);
+    assert.notEqual(literal.id, first.id);
+  } finally {
+    if (previousState === undefined) delete process.env["STUDIO_STATE_DIR"];
+    else process.env["STUDIO_STATE_DIR"] = previousState;
+    store.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 await test("discovery approval freezes the displayed version before effects and prevents cross-lead stale approval", async () => {
   const directory = await mkdtemp(join(tmpdir(), "studio-discovery-"));
