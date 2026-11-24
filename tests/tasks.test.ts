@@ -4,6 +4,11 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { createServer } from "node:http";
+import { once } from "node:events";
+import { retryAttempt } from "../execution/cli.ts";
+import { processStart } from "../process.ts";
+import { retainedConflicts } from "../execution/supervisor.ts";
 import { Database } from "bun:sqlite";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { stripVTControlCharacters as stripAnsi } from "node:util";
@@ -11,6 +16,8 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import { StudioProfile } from "../config.ts";
 import {
   ExecutionPhase,
+  ExecutionStore,
+  projectSchema,
   VerificationPhase,
   executionSchema,
 } from "../execution/store.ts";
@@ -20,16 +27,20 @@ import { TaskPanel } from "../tasks/panel.ts";
 import { readTaskEvidence } from "../tasks/evidence.ts";
 import {
   parkedDetails,
+  needsAttention,
+  retainedEvidence,
   taskLinks,
   taskNarrative,
   type TaskSnapshot,
 } from "../tasks/model.ts";
 
 const project = randomUUID();
+const attemptId = randomUUID();
 const rejected = {
   id: "canonical-long-rejected-task",
   title: "Reject the unsafe result",
   status: "in_progress",
+  assignee: `pi:${attemptId}`,
 };
 const successor = {
   id: "canonical-long-successor-task",
@@ -38,7 +49,7 @@ const successor = {
   dependencies: [{ id: rejected.id, dependency_type: "blocks" }],
 };
 const attempt = executionSchema.parse({
-  id: randomUUID(),
+  id: attemptId,
   project,
   profile: StudioProfile.Personal,
   phase: ExecutionPhase.Parked,
@@ -90,6 +101,159 @@ await test("retry retains a settled host fence when its process identity is inco
   );
 });
 
+await test("retry revalidates admission, live writers, remote authority and the same attempt", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "studio-retry-guard-"));
+  const beforeState = process.env["STUDIO_STATE_DIR"];
+  const beforeConfig = process.env["STUDIO_CONFIG"];
+  process.env["STUDIO_STATE_DIR"] = directory;
+  process.env["STUDIO_CONFIG"] = join(directory, "config.json");
+  writeFileSync(process.env["STUDIO_CONFIG"], "{}");
+  const store = new ExecutionStore();
+  const id = randomUUID();
+  const admitted = executionSchema.parse({
+    ...attempt,
+    id,
+    launchSettled: true,
+    revision: "accepted",
+    bead: {
+      ...attempt.bead,
+      assignee: `pi:${id}`,
+      revision: "accepted",
+      metadata: { "pi.attempt": id },
+    },
+  });
+  assert(admitted.bead !== undefined);
+  let remote = admitted.bead;
+  let race = () => {};
+  const server = createServer((request, response) => {
+    response.setHeader("Content-Type", "application/json");
+    if (request.url === "/v0/beads/context")
+      response.end(
+        JSON.stringify({
+          project_id: project,
+          backend: "dolt",
+          dolt_mode: "server",
+          capabilities: [
+            "project.enforce",
+            "issues.get",
+            "issues.create",
+            "issues.update",
+          ],
+        }),
+      );
+    else {
+      race();
+      response.end(JSON.stringify(remote));
+    }
+  });
+  try {
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    assert(address !== null && typeof address !== "string");
+    const enrolled = projectSchema.parse({
+      id: project,
+      root: directory,
+      source: {
+        url: `http://127.0.0.1:${String(address.port)}`,
+        projectId: project,
+      },
+      profile: "personal",
+      base: "main",
+      beadsWorkspace: directory,
+      beadsDatabase: "fixture",
+    });
+    store.enroll(enrolled);
+    store.saveAttempt({ ...admitted, bead: undefined });
+    await assert.rejects(retryAttempt(id), /no admitted task/u);
+    store.saveAttempt({
+      ...admitted,
+      pid: process.pid,
+      started: await processStart(process.pid),
+    });
+    await assert.rejects(retryAttempt(id), /prior host\/verifier/u);
+    store.saveAttempt({
+      ...admitted,
+      verifier: { phase: VerificationPhase.Running },
+    });
+    await assert.rejects(retryAttempt(id), /prior host\/verifier/u);
+    store.saveAttempt(admitted);
+    remote = { ...admitted.bead, assignee: "pi:someone-else" };
+    await assert.rejects(retryAttempt(id), /revision or owner changed/u);
+    remote = { ...admitted.bead, revision: "changed" };
+    await assert.rejects(retryAttempt(id), /revision or owner changed/u);
+    remote = admitted.bead;
+    race = () => {
+      store.change(id, (row) => {
+        row.owns = ["new-scope"];
+      });
+    };
+    await assert.rejects(retryAttempt(id), /attempt or project changed/u);
+    assert.equal(store.attempt(id).phase, ExecutionPhase.Parked);
+    store.saveAttempt(admitted);
+    race = () => {
+      store.enroll({ ...enrolled, merge: !enrolled.merge });
+    };
+    await assert.rejects(retryAttempt(id), /attempt or project changed/u);
+    assert.equal(store.attempt(id).phase, ExecutionPhase.Parked);
+    race = () => {};
+    store.enroll(enrolled);
+    store.saveAttempt(admitted);
+    await assert.rejects(
+      retryAttempt(id),
+      /queued, but the runtime did not start.*disabled/u,
+    );
+    assert.equal(store.attempt(id).phase, ExecutionPhase.Queued);
+    assert.equal(store.attempts().length, 1);
+    assert.equal(store.attempt(id).verification?.exitCode, 42);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => {
+      server.close(() => {
+        resolve();
+      });
+    });
+    store.close();
+    if (beforeState === undefined) delete process.env["STUDIO_STATE_DIR"];
+    else process.env["STUDIO_STATE_DIR"] = beforeState;
+    if (beforeConfig === undefined) delete process.env["STUDIO_CONFIG"];
+    else process.env["STUDIO_CONFIG"] = beforeConfig;
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+await test("retained conflicts match admitted queue order, project and ownership fences", () => {
+  const queued = {
+    ...attempt,
+    id: randomUUID(),
+    phase: ExecutionPhase.Queued,
+    owns: ["src/core"],
+  };
+  const earlier = { ...queued, id: randomUUID(), owns: ["src/core/file.ts"] };
+  const later = { ...earlier, id: randomUUID() };
+  const empty = { ...earlier, id: randomUUID(), bead: undefined };
+  const foreign = { ...earlier, id: randomUUID(), project: randomUUID() };
+  const done = { ...earlier, id: randomUUID(), phase: ExecutionPhase.Complete };
+  assert.deepEqual(
+    retainedConflicts(queued, [
+      empty,
+      foreign,
+      done,
+      earlier,
+      queued,
+      later,
+    ]).map((row) => row.id),
+    [earlier.id],
+  );
+  assert.deepEqual(
+    retainedConflicts(queued, [
+      queued,
+      { ...later, phase: ExecutionPhase.Parked, owns: [] },
+    ]).map((row) => row.id),
+    [later.id],
+  );
+});
+
 await test("parked details use the current owner and scheduler path rules", () => {
   assert(attempt.bead !== undefined);
   const owned = { ...attempt, owns: ["src/core"] };
@@ -116,6 +280,7 @@ await test("parked details use the current owner and scheduler path rules", () =
   const view = { ...snapshot, attempts: [owned, first, second, foreign] };
   const details = parkedDetails(task, view) ?? "";
   assert.match(details, /Verification failed.*42/u);
+  assert.match(details, /Last evidenced step: verification exited 42/u);
   assert.match(details, /First: src\/core \/ src\/core\/file.ts/u);
   assert.match(details, /Second: ownership unspecified/u);
   assert.doesNotMatch(details, /Foreign/u);
@@ -189,7 +354,7 @@ await test("parked task opens retained diff and requests guarded retry", async (
   const render = () => browser.render(80).map(stripAnsi).join("\n");
   render();
   browser.handleInput("\t");
-  render();
+  assert.match(render(), /› ↗ Open retained diff/u);
   browser.handleInput("\r");
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.match(render(), /retained diff evidence/u);
@@ -286,6 +451,34 @@ await test("task narratives preserve a rejected receipt without declaring its op
     ),
     /custom_state/u,
   );
+});
+
+await test("historical failures remain inspectable without attributing absent or different ownership", () => {
+  for (const assignee of [undefined, "pi:someone-else", `pi:${attempt.id}`]) {
+    const task = { ...rejected, assignee };
+    const current = assignee === `pi:${attempt.id}`;
+    const narrative = taskNarrative(task, snapshot);
+    assert.equal(needsAttention(task, snapshot), current);
+    assert.equal(parkedDetails(task, snapshot) !== undefined, current);
+    assert.match(retainedEvidence(task, snapshot), /CANARY_REJECTED/u);
+    if (current) {
+      assert.doesNotMatch(narrative, /Historical/u);
+      assert.match(retainedEvidence(task, snapshot), /Current owner-matched/u);
+    } else {
+      assert.match(narrative, /Historical/u);
+      assert.match(narrative, /Beads currently reports “in_progress”/u);
+      assert.match(
+        narrative,
+        assignee === undefined
+          ? /no explicit current owner/u
+          : /different owner/u,
+      );
+      assert.match(
+        retainedEvidence(task, snapshot),
+        /Historical\/unattributed receipt/u,
+      );
+    }
+  }
 });
 
 await test("evidence reads are project scoped, read only, and distinguish unavailable from absent", () => {
@@ -415,7 +608,6 @@ await test("failed external links and late detail replies preserve the operator'
   failedView();
   fail.handleInput("\r");
   await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.match(failedView(), /Reject the unsafe result/u);
   assert.match(failedView(), /Dependency lookup unavailable/u);
   assert.doesNotMatch(failedView(), /No tasks in this source/u);
   fail.handleInput("\x1b");

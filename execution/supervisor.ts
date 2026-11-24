@@ -77,6 +77,21 @@ export function overlaps(left: Execution, right: Execution): boolean {
       ))
   );
 }
+/** Retained admission and queue order fence writers in the same project. */
+export function retainedConflicts(
+  attempt: Execution,
+  attempts: Execution[],
+): Execution[] {
+  const position = attempts.findIndex((row) => row.id === attempt.id);
+  return attempts.filter(
+    (other, index) =>
+      other.id !== attempt.id &&
+      other.bead !== undefined &&
+      other.phase !== ExecutionPhase.Complete &&
+      (other.phase !== ExecutionPhase.Queued || index < position) &&
+      overlaps(attempt, other),
+  );
+}
 export async function maintainAttempt(
   store: ExecutionStore,
   project: RuntimeProject,
@@ -177,15 +192,8 @@ export async function serveRuntime(signal?: AbortSignal): Promise<void> {
               record.project === project.id &&
               record.phase === ExecutionPhase.Queued,
           )) {
-            const position = attempts.findIndex((row) => row.id === attempt.id);
-            const retainedConflict = attempts.some(
-              (other, index) =>
-                other.id !== attempt.id &&
-                other.bead !== undefined &&
-                other.phase !== ExecutionPhase.Complete &&
-                (other.phase !== ExecutionPhase.Queued || index < position) &&
-                overlaps(attempt, other),
-            );
+            const retainedConflict =
+              retainedConflicts(attempt, attempts).length > 0;
             if (
               live.filter(
                 (record) =>

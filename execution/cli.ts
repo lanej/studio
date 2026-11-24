@@ -25,26 +25,22 @@ export async function retryAttempt(id: string): Promise<void> {
       throw new Error(
         "The prior host/verifier may still exist or lacks a complete launch receipt; retain its writer fence until positively reconciled",
       );
-    const service = new ExecutionBeads(store.project(record.project).source);
+    const project = store.project(record.project);
+    const service = new ExecutionBeads(project.source);
     if (record.bead === undefined || record.revision === undefined)
       throw new Error(
         "Inspect the uncertain claim by its recorded actor before retrying; no admitted task is confirmed",
       );
     await service.requireCurrent(record.bead, record.revision, record.id);
+    if (await retryWriterFence(record))
+      throw new Error("A prior writer appeared during retry validation");
     store.change(id, (row) => {
       if (
-        row.launchToken !== record.launchToken ||
-        row.pid !== record.pid ||
-        row.started !== record.started ||
-        row.launchSettled !== record.launchSettled ||
-        row.phase !== record.phase ||
-        row.project !== record.project ||
-        row.revision !== record.revision ||
-        !isDeepStrictEqual(row.bead, record.bead) ||
-        !isDeepStrictEqual(row.verifier, record.verifier)
+        !isDeepStrictEqual(row, record) ||
+        !isDeepStrictEqual(store.project(record.project), project)
       )
         throw new Error(
-          "A prior host reported ownership during retry validation",
+          "The attempt or project changed during retry validation",
         );
       row.launchToken = undefined;
       row.launchSettled = true;

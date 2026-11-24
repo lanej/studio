@@ -228,12 +228,15 @@ export class TaskBrowser {
       else if (
         this.source.retry !== undefined &&
         ["needs-review", "uncertain"].includes(owned.phase)
-      )
+      ) {
+        text(
+          "Retry starts or resumes the configured runtime scheduler, including other ready work.",
+        );
         lines.push({
           text: "↗ Retry attempt (guards checked on invocation)",
           action: { kind: "retry", id: owned.id },
         });
-      else text("Retry unavailable in this state.");
+      } else text("Retry unavailable in this state.");
     }
     const finding = currentReviewFinding(task, this.snapshot);
     if (finding !== undefined) {
@@ -357,7 +360,7 @@ export class TaskBrowser {
         return this.focus === "inspector" &&
           actionIndex >= 0 &&
           actionIndex === this.activeAction
-          ? this.paint("selectedBg", this.pad(label, detailWidth))
+          ? this.paint("selectedBg", this.pad(`› ${label}`, detailWidth))
           : this.pad(label, detailWidth);
       });
     const body = Array.from({ length: this.bodyHeight }, (_, index) =>
@@ -546,6 +549,8 @@ export class TaskBrowser {
           this.update(await this.source.load());
           this.notice =
             "Retry queued; verification and review remain required.";
+        }).catch((error: unknown) => {
+          this.report(error);
         });
       } else if (action?.kind === "diff" && this.source.diff !== undefined) {
         const attempt = this.snapshot.attempts.find(
@@ -561,6 +566,8 @@ export class TaskBrowser {
                 ? result
                 : "No retained changes in the tracked diff.",
             );
+          }).catch((error: unknown) => {
+            this.report(error);
           });
       } else if (this.actions.length > 0) this.activeAction = 0;
     } else if (
