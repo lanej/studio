@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { test } from "node:test";
+import { z } from "zod";
 import {
   createAgentSessionFromServices,
   createAgentSessionServices,
@@ -118,13 +119,52 @@ await test("native Pi trust gates automatic diagnostics, LSP queries and rename 
         "untrusted LSP must not prevent an authorized edit",
       );
       assert.match(JSON.stringify(written.result.content), /project trust/u);
+      const replacement = {
+        path: "main.rs",
+        edits: [{ oldText: "fn main() {}", newText: "fn main() { panic!() }" }],
+      };
+      for (const args of [
+        replacement,
+        ...["", " \t\n", false].map((reason) => ({ ...replacement, reason })),
+      ]) {
+        const rejected = await context.executeTool("edit", args);
+        assert.equal(rejected.isError, true);
+        assert.match(JSON.stringify(rejected.result.content), /reason/u);
+        assert.equal(
+          await readFile(join(root, "main.rs"), "utf8"),
+          "fn main() {}\n",
+        );
+      }
       const edited = await context.executeTool("edit", {
+        reason: "Exercise diagnostics for an authorized Rust edit.",
         path: "main.rs",
         oldText: "fn main() {}",
         newText: "fn main() { let _value = 1; }",
       });
       assert.equal(edited.isError, false);
+      assert.equal(
+        await readFile(join(root, "main.rs"), "utf8"),
+        "fn main() { let _value = 1; }\n",
+      );
       assert.match(JSON.stringify(edited.result.content), /project trust/u);
+      const numeric = await context.executeTool("edit", {
+        reason: "Exercise a syntax-only edit in an untrusted project.",
+        path: "main.rs",
+        edits: [{ oldText: "_value = 1", newText: "_value = 4" }],
+      });
+      assert.equal(numeric.isError, false);
+      const syntax = z
+        .object({
+          studioSyntax: z.object({
+            replacements: z.array(
+              z.object({ original: z.string(), updated: z.string() }),
+            ),
+          }),
+        })
+        .parse(numeric.result.details);
+      assert.deepEqual(syntax.studioSyntax.replacements, [
+        { original: "1", updated: "4" },
+      ]);
       for (const [name, input] of [
         [lspTool, { action: "diagnostics", path: "main.rs" }],
         [

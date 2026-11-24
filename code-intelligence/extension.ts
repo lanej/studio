@@ -1,5 +1,7 @@
+import { registerReasonedEdit } from "./edit-tool.ts";
 import { registerDiagnosticRendering } from "./rendering.ts";
 import type { DiagnosticSnapshot } from "./diagnostics.ts";
+import type { DiffScope } from "./scopes.ts";
 import { resolve } from "node:path";
 import type {
   ExtensionAPI,
@@ -51,6 +53,7 @@ const message = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
 export function registerCodeIntelligence(pi: ExtensionAPI): CodeIntelligence {
+  registerReasonedEdit(pi);
   const intelligence = new CodeIntelligence();
   let diffDisplay: StudioConfig["display"] = {
     min_split_columns: defaultMinSplitColumns,
@@ -279,11 +282,22 @@ export function registerCodeIntelligence(pi: ExtensionAPI): CodeIntelligence {
     const path = resolve(await realpath(ctx.cwd), input.data.path);
     display.watch(event.toolCallId, path);
     let diagnostics: DiagnosticSnapshot;
+    let scopes: DiffScope[] = [];
+    const native = z.record(z.string(), z.unknown()).safeParse(event.details);
+    const diff = native.success ? native.data["diff"] : undefined;
     try {
-      diagnostics = await intelligence.serial(async () => {
+      ({ diagnostics, scopes } = await intelligence.serial(async () => {
         await requireTrust(ctx);
-        return intelligence.diagnostics(ctx.cwd, input.data.path);
-      });
+        return intelligence.editFeedback(
+          ctx.cwd,
+          input.data.path,
+          event.toolName === "edit" &&
+            typeof diff === "string" &&
+            native.data?.["studioSyntax"] === undefined
+            ? diff
+            : undefined,
+        );
+      }));
     } catch (error) {
       diagnostics = {
         path,
@@ -293,11 +307,11 @@ export function registerCodeIntelligence(pi: ExtensionAPI): CodeIntelligence {
       };
     }
     display.finish(event.toolCallId, diagnostics);
-    const native = z.record(z.string(), z.unknown()).safeParse(event.details);
     return {
       content: [...event.content, ...result({ lsp: diagnostics }).content],
       details: {
         ...(native.success ? native.data : {}),
+        ...(scopes.length > 0 ? { studioDiffScopes: scopes } : {}),
         studioDiagnostics: {
           contentIndex: event.content.length,
           snapshot: diagnostics,
