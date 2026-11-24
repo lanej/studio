@@ -200,15 +200,14 @@ console.log(JSON.stringify({{discovery:record.id,ready:ready.id}}));store.close(
             assert "graph" not in record and "approved" not in record, record
             os.write(master, b"/plan\r")
             wait_until(lambda: all(text in "\n".join(screen.display) for text in
-                                   ["Specification", "Implementation", "Review before creating tasks", "Keep lead available", "Wave 2"]))
-            if columns == 100:
-                assert any("Specification" in line and "Implementation" in line for line in screen.display), screen.display
+                                   ["Enter details", "Review before creating tasks", "Keep lead available", "Check the review flow"]))
+            assert "Wave 2" not in "\n".join(screen.display), screen.display
             capture("discovery-breakdown")
             os.write(master, b"j\r")
             wait_until(lambda: all(text in "\n".join(screen.display) for text in
                                    ["Check the review flow", "Work starts after review", "Depends on · first"]))
             os.write(master, b"\x1b")
-            wait_until(lambda: "Wave 2" in "\n".join(screen.display))
+            wait_until(lambda: "Enter details" in "\n".join(screen.display))
             os.write(master, b"\x1b")
             pump(.3)
             os.write(master, f"/socrates {ready_id}\r".encode())

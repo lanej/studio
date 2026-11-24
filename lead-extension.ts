@@ -1,3 +1,4 @@
+import { renderPlanCall } from "./plan-renderer.ts";
 import { lspTool, renameTool } from "./code-intelligence/extension.ts";
 import { githubLink, renderReferences } from "./github-links.ts";
 import { FooterStatus } from "./runtime.ts";
@@ -170,6 +171,7 @@ export function registerLeadControls(
 
   pi.registerTool({
     name: planTool,
+    renderCall: renderPlanCall,
     label: "Draft implementation plan",
     description:
       "Save a proposed plan for operator approval. Optional tasks become Beads children only on approval. List blockers before their dependents.",
@@ -237,7 +239,7 @@ export function registerLeadControls(
         content: [
           {
             type: "text",
-            text: "Draft saved. Await operator approval from /plan-approve.",
+            text: "Draft saved. /plan to inspect · /plan-approve to review",
           },
         ],
         details: {},

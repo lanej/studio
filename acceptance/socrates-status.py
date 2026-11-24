@@ -288,7 +288,11 @@ store.change(question,row=>{{row.specification.exchange={{prompt:{{decisionId:'D
 const {{coverage,...legacyDraft}}=draft;
 const unknown=create('Unassessed discovery',legacyDraft);
 const planOnly=store.create({json.dumps(str(project))},'status-fixture','Standalone work breakdown');
-store.change(planOnly.id,row=>{{row.leadPlan.draft=breakdown;}});
+const graphDraft = draftSchema.parse({{...breakdown,tasks:[...breakdown.tasks,
+  {{key:'history',title:'Keep assessment history',description:'Retain previous evidence.',acceptance:'Old versions remain readable.',blockedBy:['assess']}},
+  {{key:'review',title:'Review changes in the dock',description:'Compare the current and previous assessment.',acceptance:'Both versions can be reviewed in the dock.',blockedBy:['dock','history']}}
+]}});
+store.change(planOnly.id,row=>{{row.leadPlan.draft=graphDraft;}});
 const approved=create('Specification and linked work', draft);
 const activeBreakdown=draftSchema.parse({{...breakdown,tasks:[...breakdown.tasks,{{key:'verify',title:'Verify the handoff',description:'Confirm the evidence at the live boundary.',acceptance:'The selected bead matches the reviewed work.',requirements:['R1'],blockedBy:['dock']}}]}});
 const linked=store.change(approved,row=>{{
@@ -304,6 +308,12 @@ function sessionFor(record) {{
  const manager=SessionManager.create({json.dumps(str(project))});
  manager.appendMessage({{role:'user',content:'Let me inspect this proposal while keeping our conversation open.',timestamp:Date.now()}});
  manager.appendCustomEntry('studio:discovery',{{id:record,project:{json.dumps(str(project))}}});
+ if (record === planOnly.id) {{
+   const call={{type:'toolCall',id:'draft-1',name:'draft_implementation_plan',arguments:graphDraft}};
+   const usage={{input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,cost:{{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}}}};
+   manager.appendMessage({{role:'assistant',content:[call],api:'openai-completions',provider:'fixture',model:'tiny',usage,stopReason:'toolUse',timestamp:Date.now()}});
+   manager.appendMessage({{role:'toolResult',toolCallId:call.id,toolName:call.name,content:[{{type:'text',text:'Draft saved.'}}],isError:false,timestamp:Date.now()}});
+ }}
  return manager.getSessionFile();
 }}
 console.log(JSON.stringify({{covered,question,unknown,approved,beads,session:sessionFor(covered),planOnlySession:sessionFor(planOnly.id)}}));store.close();
@@ -482,6 +492,15 @@ def run(output):
             terminal.assert_mark('Keep the lead available', '◐', 'accent')
             terminal.assert_mark('Verify the handoff', '×', 'status.error')
             terminal.capture('status-board-linked')
+            terminal.send('\x1b')
+            terminal.send('/plan\r')
+            terminal.contains('Enter details')
+            terminal.select_row('Verify the handoff')
+            terminal.assert_mark('Verify the handoff', '×', 'status.error')
+            linked_beads['bd-verify']['status'] = 'open'
+            terminal.wait(lambda: '1 open' in terminal.text() or 'Open' in next((line for line in terminal.screen.display if 'Verify the handoff' in line), ''), 'Live task status did not refresh')
+            terminal.send('\r')
+            terminal.contains('The selected bead matches the reviewed work.')
             assert set(bead_reads) == {'/v0/beads/context', *(f'/v0/beads/issues/{key}' for key in linked_beads)}, bead_reads
             assert not provider_errors, provider_errors
         finally:
@@ -490,10 +509,19 @@ def run(output):
         terminal = Terminal(project, env, output, records['planOnlySession'])
         try:
             terminal.contains("Awaiting approval")
+            terminal.contains("4 tasks")
+            terminal.contains("Keep assessment history")
+            terminal.contains("Review changes in the dock")
+            assert 'Wave 1' not in terminal.text() and 'Wave 2' not in terminal.text(), terminal.text()
+            terminal.send("\x0f")  # Expand a completed call after replaying its transcript.
+            terminal.contains("Both versions can be reviewed in the dock.")
+            terminal.send("\x0f")
             terminal.send("/plan\r")
-            terminal.contains("Not started")
-            terminal.contains("No Socrates specification for this breakdown.")
+            terminal.contains("Enter details")
             terminal.contains("Record property evidence")
+            assert 'No Socrates specification' not in terminal.text() and 'Wave 1' not in terminal.text(), terminal.text()
+            terminal.resize(60, 24)
+            terminal.contains("Review changes in the dock")
             terminal.capture("status-board-plan-only")
             terminal.send("\r")
             terminal.contains("Old assessments remain inspectable after a revision.")
