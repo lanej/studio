@@ -183,6 +183,7 @@
   "tests/idle.test.ts",
   "tests/lsp-trust.test.ts",
   "tests/lsp.test.ts",
+  "tests/octo-instructions.test.ts",
   "tests/pi-models.test.ts",
   "tests/question-links.test.ts",
   "tests/runtime-heartbeat.test.ts",
