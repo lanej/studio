@@ -126,10 +126,16 @@ export class Discoveries {
       .all(realpathSync(project))
       .map(decode);
   }
+  find(id: string): Discovery | undefined {
+    const row = this.db
+      .query("SELECT record FROM discoveries WHERE id=?")
+      .get(id);
+    return row === null ? undefined : decode(row);
+  }
   get(id: string): Discovery {
-    return decode(
-      this.db.query("SELECT record FROM discoveries WHERE id=?").get(id),
-    );
+    const record = this.find(id);
+    if (record === undefined) throw new Error(`Unknown discovery: ${id}`);
+    return record;
   }
   create(project: string, conversation: string, title: string): Discovery {
     const record: Discovery = {
