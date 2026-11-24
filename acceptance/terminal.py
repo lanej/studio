@@ -69,6 +69,7 @@ class DiscoveryProvider(BaseHTTPRequestHandler):
             **{f"/v0/beads/issues/{task['id']}": task for task in review_tasks},
         }
         if path == "/v0/beads/issues":
+            self.server.issue_reads += 1
             status, body = self.server.issue_listing
         else:
             status, body = (200, pages[path]) if path in pages else (404, {})
@@ -78,6 +79,7 @@ class DiscoveryProvider(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(body).encode())
 
     def do_POST(self):
+        self.server.responses += 1
         request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         prompt = "\n".join(str(message.get("content", "")) for message in request["messages"] if message["role"] == "system")
         if args.task_review:
@@ -196,6 +198,8 @@ for (const bead of {json.dumps(review_tasks)}.filter(task => task.assignee)) {{
 store.close();
 """
         subprocess.run(["bun", "--no-env-file", "-e", seed_reviews], cwd=root, env=env, check=True)
+    provider.issue_reads = 0
+    provider.responses = 0
     font_size = 18 if args.task_review else 14
     try:
         font = ImageFont.truetype("/System/Library/Fonts/Menlo.ttc", font_size)
@@ -288,25 +292,46 @@ store.close();
                 os.write(master, b"/tasks\r")
                 wait_text("No tasks yet")
                 empty_view = "\n".join(screen.display)
-                for label in ["Tasks", "/plan-draft <description>", "Esc close"]:
+                for label in ["Tasks", "/plan-draft <description>", "Alt+T inspect"]:
                     assert label in empty_view, empty_view
                 assert review_project not in empty_view, empty_view
                 assert "Tasks · Beads" in empty_view, empty_view
                 assert "Review finding" not in empty_view and "Changes requested" not in empty_view, empty_view
                 assert all(task["title"] not in empty_view for task in review_tasks), empty_view
                 capture("task-empty")
-                os.write(master, b"\x1b")
+                os.write(master, b"/tasks close\r")
                 pump(.35)
                 assert "No tasks yet" not in "\n".join(screen.display), screen.display
 
                 provider.issue_listing = (200, {"items": review_tasks, "has_more": False})
                 os.write(master, b"/tasks\r")
                 wait_text("Diff presentation")
-                assert "Diff presentation" in "\n".join(screen.display), screen.display
-                os.write(master, b"j")
+                os.write(master, b"jk background draft")
+                pump(.2)
+                passive = "\n".join(screen.display)
+                assert any("›" in line and "Diff presentation" in line for line in screen.display), screen.display
+                assert "jk background draft" in passive, passive
+                capture("task-status-panel")
+                completed = [dict(task, status="closed") if task["id"] == "ui-12.1" else task for task in review_tasks]
+                provider.issue_listing = (200, {"items": completed, "has_more": False})
+                wait_until(lambda: any("● Inline replacements" in line for line in screen.display), timeout=8)
+                assert "jk background draft" in "\n".join(screen.display), screen.display
+                assert "Alt+T inspect" in "\n".join(screen.display), screen.display
+                capture("task-status-updated")
+                # A provider response confirms the lead accepts submissions with the panel open.
+                os.write(master, b"\x15")
+                before_response = provider.responses
+                os.write(master, (review_question + "\r").encode())
+                wait_until(lambda: provider.responses > before_response)
+                pump(.5)
+                assert "Alt+T inspect" in "\n".join(screen.display), screen.display
+                provider.issue_listing = (200, {"items": review_tasks, "has_more": False})
+                os.write(master, b"\x1bt")
+                wait_text("Esc lead")
+                os.write(master, b"r")
                 pump(.4)
-                os.write(master, b"\r")
-                pump(.4)
+                os.write(master, b"j\r")
+                pump(.5)
                 text = "\n".join(screen.display)
                 for label in ["Inline replacements", "The reviewer found:", "chooseLayout()", "renderDiff()"]:
                     assert label in text, text
@@ -314,25 +339,41 @@ store.close();
                 assert "activation.ts" not in text and "Extension \"" not in text, text
                 capture("task-readability-review")
                 os.write(master, b"\x1b")
-                pump(.35)
+                wait_text("Alt+T inspect")
+                os.write(master, b"preserved lead draft")
+                pump(.2)
+                os.write(master, b"\x1bt")
+                wait_text("Esc lead")
+                assert "Inline replacements" in "\n".join(screen.display), screen.display
+                os.write(master, b"\x1b[D")
+                pump(.2)
                 assert any("›" in line and "Inline replacements" in line for line in screen.display), screen.display
-                os.write(master, b"\x1b")
-                pump(.35)
-                # A direct lookup uses the same inspector with the whole finding scrollable.
+                os.write(master, b"q")
+                pump(.3)
+                assert "Alt+T inspect" not in "\n".join(screen.display), screen.display
+                assert "preserved lead draft" in "\n".join(screen.display), screen.display
+                os.write(master, b"\x15")
+                # A direct lookup opens passively too; focus must still be explicit.
                 os.write(master, b"/tasks ui-12.1\r")
                 wait_text("The reviewer found:")
+                assert "Alt+T inspect" in "\n".join(screen.display), screen.display
+                provider.issue_listing = (503, {"code": "unavailable", "reason": "Service unavailable"})
+                wait_text("Beads HTTP 503", timeout=8)
                 assert "Inline replacements" in "\n".join(screen.display), screen.display
-                os.write(master, b"\x1b")
-                pump(.35)
-                os.write(master, b"\x1b")
-                pump(.35)
-                assert "The reviewer found:" not in "\n".join(screen.display), screen.display
+                capture("task-status-unavailable")
+                provider.issue_listing = (200, {"items": review_tasks, "has_more": False})
+                wait_until(lambda: "Beads HTTP 503" not in "\n".join(screen.display), timeout=8)
+                os.write(master, b"/tasks close\r")
+                pump(.3)
+                reads = provider.issue_reads
+                pump(5.3)
+                assert provider.issue_reads == reads, (reads, provider.issue_reads)
                 provider.issue_listing = (503, {"code": "unavailable", "reason": "Service unavailable"})
                 os.write(master, b"/tasks\r")
                 wait_text("Beads HTTP 503")
                 assert "No tasks yet" not in "\n".join(screen.display), screen.display
 
-                # Bind the existing unapproved draft. Opening the drawer must leave approval with the lead.
+                # Opening tasks never approves the existing unapproved draft.
                 os.write(master, f"/socrates {discovery_id}\r".encode())
                 wait_text("When should work begin?")
                 os.write(master, b"\x1b")
@@ -342,7 +383,7 @@ store.close();
                 wait_text("No tasks yet")
                 empty_draft = "\n".join(screen.display)
                 assert "Review your draft with /plan." in empty_draft and "/plan-draft" not in empty_draft, empty_draft
-                os.write(master, b"\x1b")
+                os.write(master, b"/tasks close\r")
                 pump(.35)
                 os.write(master, b"/plan\r")
                 wait_text("Review before creating tasks")
@@ -413,6 +454,8 @@ store.close();
                 selected_row = next(y for y, line in enumerate(screen.display) if "›" in line and "◐ Studio" in line)
                 assert screen.buffer[selected_row][columns-3].bg.upper() == theme["userMessageBg"].lstrip("#"), screen.display
             capture("tasks")
+            os.write(master, b"\x1bt")
+            wait_text("Esc lead")
             os.write(master, b"j\r")
             pump(.5)
             view = "\n".join(screen.display)
@@ -421,15 +464,20 @@ store.close();
             capture("task-inspector")
             os.write(master, b"\t\t\t\r")
             pump(.3)
+            if columns == 60:
+                os.write(master, b"jjj")
+                pump(.2)
             assert "Preserve drafts" in "\n".join(screen.display), screen.display
             capture("task-brief")
-            os.write(master, b"\x1b")
+            os.write(master, b"\x1b[D")
             pump(.2)
             assert any("›" in line and "Idle compaction" in line for line in screen.display), screen.display
             os.write(master, b"r")
             pump(.4)
             assert any("›" in line and "Idle compaction" in line for line in screen.display), screen.display
             os.write(master, b"\x1b")
+            pump(.2)
+            os.write(master, b"/tasks close\r")
             pump(.2)
             os.write(master, b"/archives\r")
             pump(.5)
@@ -477,6 +525,6 @@ store.close();
             except subprocess.TimeoutExpired: process.kill(); process.wait(timeout=5)
     provider.shutdown()
 if args.task_review:
-    print("Native empty project, review selection, direct lookup, return to the lead, and service errors passed at both terminal widths.")
+    print("Native passive task updates, retained lead input, deliberate focus/return, review details, close cleanup, and service recovery passed at 80x24 and 60x20.")
 else:
     print("Native Pi discovery answer/resume, breakdown review, tree selection, directory switching, and draft editing passed.")

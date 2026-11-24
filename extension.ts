@@ -1,5 +1,5 @@
 import { basename } from "node:path";
-import { browseTasks } from "./tasks/browser.ts";
+import { TaskPanel } from "./tasks/panel.ts";
 import { readTaskEvidence } from "./tasks/evidence.ts";
 import { registerProjectPolicy } from "./execution/policy.ts";
 import { registerDiscovery } from "./discovery/extension.ts";
@@ -60,6 +60,7 @@ export default function studioExtension(
   registerActivationAdmission(pi);
   const intelligence = registerCodeIntelligence(pi);
   const idle = new IdleSession();
+  const tasks = new TaskPanel();
   let removeInputListener: (() => void) | undefined;
   let lifecycle = 0;
   let selectedProfile = managed?.profile;
@@ -211,6 +212,7 @@ export default function studioExtension(
   };
 
   pi.on(PiEvent.SessionStart, async (_event, ctx) => {
+    tasks.close();
     idle.newSession();
     selectedProfile = managed?.profile;
     if (managed === undefined) {
@@ -234,6 +236,7 @@ export default function studioExtension(
     await initialize(ctx);
   });
   pi.on(PiEvent.SessionShutdown, () => {
+    tasks.close();
     release();
   });
   pi.on(PiEvent.SessionTree, async (_event, ctx) => initialize(ctx));
@@ -261,10 +264,23 @@ export default function studioExtension(
     else idle.toolStart(event.toolName);
   });
 
+  pi.registerShortcut("alt+t", {
+    description: "Focus the open task panel; Escape returns to the lead",
+    handler: () => {
+      tasks.focus();
+    },
+  });
   pi.registerCommand("tasks", {
-    description: "Inspect the authoritative Beads containment tree (read-only)",
+    description:
+      "Show live Beads tasks without taking focus; use /tasks close to dismiss",
     handler: async (argument, ctx) => {
+      if (argument.trim() === "close") {
+        tasks.close();
+        return;
+      }
+      const generation = lifecycle;
       const config = await loadConfig();
+      if (generation !== lifecycle) return;
       if (config.beads === undefined && config.beadsService === undefined) {
         ctx.ui.notify(
           "Configure a Beads service or read-only workspace in your Studio configuration. Run studio config --example for a service example.",
@@ -294,9 +310,19 @@ export default function studioExtension(
           item.source.projectId === projectId &&
           item.source.url === config.beadsService?.url,
       );
-      const paneTask = await browseTasks(
+      await tasks.open(
         ctx,
         {
+          key: JSON.stringify([
+            ctx.sessionManager.getSessionId(),
+            ctx.cwd,
+            config.beadsService,
+            config.beads,
+          ]),
+          focusPane: async (id) => {
+            if (config.beadsService !== undefined)
+              await focusTaskPane(config.beadsService, id);
+          },
           label:
             project === undefined
               ? config.beadsService === undefined
@@ -338,8 +364,6 @@ export default function studioExtension(
         },
         argument.trim().length === 0 ? undefined : argument.trim(),
       );
-      if (paneTask !== undefined && config.beadsService !== undefined)
-        await focusTaskPane(config.beadsService, paneTask);
     },
   });
 
