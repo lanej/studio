@@ -214,8 +214,11 @@ class Terminal:
             if selected is not None:
                 y, column, _ = selected
                 for target, cells in enumerate(self.board_rows()):
-                    if column < len(cells) and self.row_label(cells[column]) == label:
-                        return y, target
+                    if column < len(cells):
+                        observed = self.row_label(cells[column])
+                        # Task rows append their delivery label after the title.
+                        if observed == label or (observed is not None and observed.startswith(label + " · ")):
+                            return y, target
             return None
 
         self.wait(lambda: positions() is not None, f"Missing {label!r} in the active inspector column")
@@ -579,8 +582,16 @@ def run(output):
             terminal.contains('Make specification readiness visible')
             terminal.send("\x1b")
             terminal.wait_for_rail()
-            terminal.wait(lambda: any('Verify the handoff' in line and 'Blocked' in line for line in terminal.screen.display),
-                          "The linked Beads statuses did not load")
+            def linked_status_loaded():
+                start = terminal.rail_start()
+                if start is None:
+                    return False
+                cells = [line[start:].strip(" │") for line in terminal.screen.display]
+                # Delivery can wrap the status onto the next line in the narrow rail.
+                return any('Verify the handoff' in cell and
+                           ('Blocked' in cell or (row + 1 < len(cells) and cells[row + 1].startswith('Blocked ·')))
+                           for row, cell in enumerate(cells))
+            terminal.wait(linked_status_loaded, "The linked Beads statuses did not load")
             terminal.send('/socrates-status max\r')
             terminal.send('Explain the progress of the linked work.\r')
             terminal.wait_for_rail()
@@ -606,7 +617,8 @@ def run(output):
             terminal.send('/plan\r')
             terminal.contains('Enter details')
             def selected_task(title):
-                terminal.wait(lambda: any(line.lstrip().startswith('› ') and line.rstrip().endswith('  ' + title)
+                terminal.wait(lambda: any(line.lstrip().startswith('› ') and
+                                          (line.rstrip().endswith('  ' + title) or '  ' + title + ' · ' in line)
                                           for line in terminal.screen.display),
                               f"The plan graph did not select {title!r}")
             selected_task('Record property evidence')
