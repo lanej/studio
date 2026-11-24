@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import {
   access,
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
   rm,
   writeFile,
   realpath,
-  symlink,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -41,7 +41,7 @@ try {
   await writeFile(join(project, "source.txt"), "reviewed source");
   await writeFile(
     join(project, ".gitignore"),
-    "build-output/\nnode_modules\n.worktrees/\n",
+    "build-output/\nnode_modules/\n.worktrees/\n",
   );
   await ordinary(["add", "."]);
   await ordinary(["-c", "commit.gpgsign=false", "commit", "-qm", "Fixture"]);
@@ -52,13 +52,12 @@ try {
         ? {}
         : { indexFile: env["GIT_INDEX_FILE"] }),
     });
-  const dependency = join(fixture, "dependencies", "fixture");
+  const dependency = join(checkout, "node_modules", "fixture");
   await mkdir(dependency, { recursive: true });
   await writeFile(
     join(dependency, "index.js"),
     'module.exports="verified dependency";',
   );
-  await symlink(join(fixture, "dependencies"), join(checkout, "node_modules"));
   await ordinary([
     "config",
     "http.https://fixture.invalid/.extraheader",
@@ -84,6 +83,45 @@ try {
   };
   const sentinel = join(privateState, "controller-policy.json");
   await writeFile(sentinel, "private-policy");
+  const python = await realpath(
+    (
+      await run("python3", [
+        "-I",
+        "-S",
+        "-c",
+        "import sys; print(sys.executable)",
+      ])
+    ).trim(),
+  );
+  const pythonSandbox = await verificationSandbox(
+    checkout,
+    [
+      python,
+      "-I",
+      "-S",
+      "-c",
+      `import encodings, json\ntry:\n open(${JSON.stringify(sentinel)}).read()\nexcept OSError:\n print(json.dumps({"stdlib": True, "private_state": "denied"}))\nelse:\n raise RuntimeError("controller state was readable")`,
+    ],
+    [],
+    snapshot,
+  );
+  try {
+    const result = await runCheck(
+      pythonSandbox.argv,
+      pythonSandbox.cwd,
+      AbortSignal.timeout(10000),
+      undefined,
+      pythonSandbox.environment,
+    );
+    assert.equal(result.exitCode, 0, result.output);
+    assert.deepEqual(JSON.parse(result.output.trim()), {
+      stdlib: true,
+      private_state: "denied",
+    });
+    await pythonSandbox.assertSourceUnchanged();
+  } finally {
+    await pythonSandbox.close();
+  }
   const listener = createServer((socket) => {
     socket.end();
   });
@@ -104,6 +142,7 @@ try {
     snapshot,
   );
   try {
+    assert((await lstat(join(sanitized.cwd, "node_modules"))).isDirectory());
     const result = await runCheck(
       sanitized.argv,
       sanitized.cwd,

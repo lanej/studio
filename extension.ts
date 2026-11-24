@@ -1,3 +1,4 @@
+import { activeTaskReviews } from "./execution/store.ts";
 import { registerProjectPolicy } from "./execution/policy.ts";
 import { registerDiscovery } from "./discovery/extension.ts";
 import {
@@ -18,8 +19,6 @@ import { directoryProfileType, registerDirectory } from "./directory.ts";
 import {
   BeadsReader,
   knownTaskStatus,
-  taskDetails,
-  taskOverlayLabel,
   taskSchema,
   taskTree,
   TaskStatus,
@@ -44,13 +43,7 @@ import {
   piModeSchema,
 } from "./runtime.ts";
 import { focusTaskPane, taskPaneBeads } from "./task-run.ts";
-import {
-  chooseTask,
-  showTask,
-  taskStatusGlyph,
-  taskStatusLabel,
-  TaskAction,
-} from "./ui.ts";
+import { openTaskDrawer, TaskAction } from "./ui.ts";
 
 const attemptType = "studio:idle-attempt";
 const attemptSchema = z.object({ historyId: z.string() });
@@ -274,7 +267,7 @@ export default function studioExtension(
       const config = await loadConfig();
       if (config.beads === undefined && config.beadsService === undefined) {
         ctx.ui.notify(
-          "Configure a Beads service or read-only workspace in studio/config.json",
+          "Configure a Beads service or read-only workspace in your Studio configuration. Run studio config --example for a service example.",
           "warning",
         );
         return;
@@ -295,30 +288,51 @@ export default function studioExtension(
             ? undefined
             : new BeadsReader(config.beads);
       if (reader === undefined) return;
-      const label =
-        config.beadsService?.projectId ?? config.beads?.database ?? "";
+      const project = config.beadsService?.projectId;
+      const label = project ?? config.beads?.database ?? "";
       let id = argument.trim();
       if (id.length === 0) {
         const tasks = await reader.list();
+        if (tasks.length === 0) {
+          const source = config.beadsService;
+          const database =
+            source === undefined
+              ? label
+              : (config.runtime.projects.find(
+                  (p) =>
+                    p.source.projectId === source.projectId &&
+                    p.source.url === source.url,
+                )?.beadsDatabase ?? "");
+          const canPlan =
+            discovery !== undefined &&
+            source !== undefined &&
+            source.reviewOnly !== true;
+          await openTaskDrawer(ctx, [], database, {
+            emptyAction: canPlan
+              ? discovery.hasSelectedDraft(ctx)
+                ? "review"
+                : "draft"
+              : undefined,
+          });
+          return;
+        }
         const rows = taskTree(tasks);
+        const reviews = activeTaskReviews(project, tasks);
         const live =
           config.beadsService === undefined
             ? new Set<string>()
             : await taskPaneBeads(config.beadsService.projectId);
-        const selection = await chooseTask(
+        const selection = await openTaskDrawer(
           ctx,
           rows.map((row) => ({
-            value: row.task.id,
-            label: taskOverlayLabel(
-              row,
-              (status) => taskStatusGlyph(status, ctx.ui.theme),
-              (branch) => ctx.ui.theme.fg("muted", branch),
-            ),
+            row,
+            review: reviews.get(row.task.id),
             canFocus:
               live.has(row.task.id) &&
               knownTaskStatus(row.task.status) === TaskStatus.InProgress,
           })),
-          tasks.length === 1000,
+          label,
+          { limitReached: tasks.length === 1000 },
         );
         if (selection === undefined) return;
         if (
@@ -330,13 +344,18 @@ export default function studioExtension(
         }
         id = selection.id;
       }
-      if (id.length === 0) return;
       const task = await reader.show(id);
-      await showTask(
+      await openTaskDrawer(
         ctx,
-        taskDetails(task, label, (status) =>
-          taskStatusLabel(status, ctx.ui.theme),
-        ),
+        [
+          {
+            row: { task, depth: 0 },
+            review: activeTaskReviews(project, [task]).get(task.id),
+            canFocus: false,
+          },
+        ],
+        label,
+        { detailOnly: true },
       );
     },
   });

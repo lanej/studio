@@ -95,7 +95,7 @@ export const configSchema = z
     runtime: z
       .object({
         enabled: z.boolean().default(false),
-        concurrency: z.number().int().min(1).max(2).default(2),
+        concurrency: z.number().int().min(1).max(3).default(2),
         pollMs: z.number().int().min(1000).max(60000).default(5000),
         projects: z.array(runtimeProjectSchema).default([]),
       })
