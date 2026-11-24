@@ -107,6 +107,23 @@ export function orderedTasks(draft: LeadDraft): LeadDraft["tasks"] {
   );
 }
 
+export function taskReviewLines(task: LeadDraft["tasks"][number]): string[] {
+  return [
+    task.description,
+    `Acceptance · ${task.acceptance}`,
+    ...(task.requirements.length > 0
+      ? [`Requirements · ${task.requirements.join(", ")}`]
+      : []),
+    `Owns · ${task.owns.length === 0 ? "the entire isolated checkout" : task.owns.join(", ")}`,
+    `Admission · ${task.hold === true ? "on hold" : "when ready"}`,
+    `Delivery · ${task.delivery ?? TaskDelivery.Local}`,
+    `Verification · ${task.check === undefined || task.check.length === 0 ? "independent criterion review; no executable agreed" : JSON.stringify(task.check)}`,
+    ...(task.blockedBy.length > 0
+      ? [`Blocked by · ${task.blockedBy.join(", ")}`]
+      : []),
+  ];
+}
+
 export function describePlan(draft: LeadDraft): string {
   const waves = taskWaves(draft.tasks);
   let displayedWave = 0;
@@ -121,19 +138,7 @@ export function describePlan(draft: LeadDraft): string {
         ...heading,
         "",
         `├─ ${task.key} · ${task.title}`,
-        task.description,
-        `Acceptance · ${task.acceptance}`,
-        ...(task.requirements.length > 0
-          ? [`Requirements · ${task.requirements.join(", ")}`]
-          : []),
-        `Owns · ${task.owns.length === 0 ? "the entire isolated checkout" : task.owns.join(", ")}`,
-        `Admission · ${task.hold === true ? "on hold" : "when ready"}`,
-        `Delivery · ${task.delivery ?? TaskDelivery.Local}`,
-        `Verification · ${task.check === undefined || task.check.length === 0 ? "independent criterion review; no executable agreed" : JSON.stringify(task.check)}`,
-
-        ...(task.blockedBy.length > 0
-          ? [`Blocked by · ${task.blockedBy.join(", ")}`]
-          : []),
+        ...taskReviewLines(task),
       ];
     }),
   ].join("\n");

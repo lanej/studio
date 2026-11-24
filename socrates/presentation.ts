@@ -27,8 +27,10 @@ import {
   assessmentRevision,
   implementationPresentation,
   type ImplementationObservation,
+  type ImplementationPresentation,
   type ImplementationSource,
 } from "./implementation.ts";
+import { createPlanInspector } from "./plan-inspector.ts";
 import { renderStatusSidebar } from "./sidebar.ts";
 import { createImplementationWatch } from "./implementation-watch.ts";
 
@@ -49,6 +51,7 @@ export interface SocratesPresentation {
   conditions: Condition[];
   activity: Activity;
   summary: string;
+  implementation: ImplementationPresentation;
   columns: StatusColumn[];
   dockColumns: StatusColumn[];
 }
@@ -82,6 +85,7 @@ export function socratesPresentation(
       conditions: [],
       activity,
       summary: "",
+      implementation,
       columns: [column, implementationColumn(implementation)],
       dockColumns: [column, implementationColumn(implementation, true)],
     };
@@ -180,6 +184,7 @@ export function socratesPresentation(
     conditions,
     activity: currentActivity,
     summary,
+    implementation,
     columns: [column, implementationColumn(implementation)],
     dockColumns: [
       {
@@ -397,7 +402,9 @@ export function registerSocratesPresentation(
     const initial = snapshot;
     if (initial === undefined) {
       ctx.ui.notify(
-        "No specification or implementation breakdown selected.",
+        column === "implementation"
+          ? "No plan drafted yet."
+          : "No specification or implementation breakdown selected.",
         "info",
       );
       return;
@@ -408,14 +415,8 @@ export function registerSocratesPresentation(
     try {
       await ctx.ui.custom<undefined>(
         (tui, theme, _keys, done) => {
-          const panel = createStatusBoard({
+          const options = {
             title: initial.title,
-            columns: initial.columns,
-            initialColumnId:
-              column ??
-              (binding?.specification === undefined
-                ? "implementation"
-                : "specification"),
             theme: statusTheme(theme),
             height: () => Math.max(1, Math.floor(tui.terminal.rows * 0.7)),
             requestRender: () => {
@@ -424,7 +425,18 @@ export function registerSocratesPresentation(
             onClose: () => {
               done(undefined);
             },
-          });
+          };
+          const panel =
+            column === "implementation"
+              ? createPlanInspector(initial.implementation, theme, options)
+              : createStatusBoard({
+                  ...options,
+                  columns: initial.columns,
+                  initialColumnId:
+                    binding?.specification === undefined
+                      ? "implementation"
+                      : "specification",
+                });
           let shown = initial;
           const repaint = () => {
             if (
@@ -436,7 +448,8 @@ export function registerSocratesPresentation(
               done(undefined);
             } else if (snapshot !== shown) {
               shown = snapshot;
-              panel.setColumns(snapshot.columns);
+              if ("setPlan" in panel) panel.setPlan(snapshot.implementation);
+              else panel.setColumns(snapshot.columns);
             }
           };
           renders.add(repaint);

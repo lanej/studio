@@ -1,3 +1,4 @@
+import { renderPlanCall } from "../plan-renderer.ts";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -215,6 +216,7 @@ export function registerDiscovery(
   });
   pi.registerTool({
     name: "draft_implementation_plan",
+    renderCall: renderPlanCall,
     label: "Draft work breakdown",
     description:
       "Persist a proposed work breakdown. No Beads tasks are created until the operator approves the exact proposal.",
@@ -274,7 +276,7 @@ export function registerDiscovery(
         content: [
           {
             type: "text",
-            text: "Breakdown saved. Await /plan-approve; no tasks have been created.",
+            text: "Draft saved. /plan to inspect · /plan-approve to review",
           },
         ],
         details: {},

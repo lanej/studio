@@ -98,7 +98,7 @@ function propertyGroups(conditions: readonly Condition[]): StatusGroup[] {
     .filter((group) => group.items.length > 0);
 }
 
-const taskMarks = {
+export const taskMarks = {
   [ImplementationState.Open]: mark("Open", "○", "o", "muted"),
   [ImplementationState.InProgress]: mark("In progress", "◐", "*", "accent"),
   [ImplementationState.Blocked]: mark("Blocked", "×", "x", "error"),

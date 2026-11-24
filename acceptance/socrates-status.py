@@ -141,6 +141,8 @@ class Terminal:
                         return
                     self.raw.extend(chunk)
                     self.stream.feed(self.decoder.decode(chunk))
+                except BlockingIOError:
+                    continue
                 except OSError:
                     break
 
@@ -375,7 +377,11 @@ store.change(question,row=>{{row.specification.exchange={{prompt:{{decisionId:'D
 const {{coverage,...legacyDraft}}=draft;
 const unknown=create('Unassessed discovery',legacyDraft);
 const planOnly=store.create({json.dumps(str(project))},'status-fixture','Standalone work breakdown');
-store.change(planOnly.id,row=>{{row.leadPlan.draft=breakdown;}});
+const graphDraft = draftSchema.parse({{...breakdown,tasks:[...breakdown.tasks,
+  {{key:'history',title:'Keep assessment history',description:'Retain previous evidence.',acceptance:'Old versions remain readable.',blockedBy:['assess']}},
+  {{key:'review',title:'Review changes in the dock',description:'Compare the current and previous assessment.',acceptance:'Both versions can be reviewed in the dock.',blockedBy:['dock','history']}}
+]}});
+store.change(planOnly.id,row=>{{row.leadPlan.draft=graphDraft;}});
 const approved=create('Specification and linked work', draft);
 const activeBreakdown=draftSchema.parse({{...breakdown,tasks:[...breakdown.tasks,{{key:'verify',title:'Verify the handoff',description:'Confirm the evidence at the live boundary.',acceptance:'The selected bead matches the reviewed work.',requirements:['R1'],blockedBy:['dock']}}]}});
 const linked=store.change(approved,row=>{{
@@ -391,6 +397,12 @@ function sessionFor(record) {{
  const manager=SessionManager.create({json.dumps(str(project))});
  manager.appendMessage({{role:'user',content:{json.dumps(initial_prompt)},timestamp:Date.now()}});
  manager.appendCustomEntry('studio:discovery',{{id:record,project:{json.dumps(str(project))}}});
+ if (record === planOnly.id) {{
+   const call={{type:'toolCall',id:'draft-1',name:'draft_implementation_plan',arguments:graphDraft}};
+   const usage={{input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,cost:{{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}}}};
+   manager.appendMessage({{role:'assistant',content:[call],api:'openai-completions',provider:'fixture',model:'tiny',usage,stopReason:'toolUse',timestamp:Date.now()}});
+   manager.appendMessage({{role:'toolResult',toolCallId:call.id,toolName:call.name,content:[{{type:'text',text:'Draft saved.'}}],isError:false,timestamp:Date.now()}});
+ }}
  return manager.getSessionFile();
 }}
 console.log(JSON.stringify({{covered,question,unknown,approved,beads,session:sessionFor(covered),planOnlySession:sessionFor(planOnly.id)}}));store.close();
@@ -401,8 +413,9 @@ console.log(JSON.stringify({{covered,question,unknown,approved,beads,session:ses
 
 def run(output):
     print("Preparing the local Socrates and Beads fixtures", flush=True)
-    with tempfile.TemporaryDirectory(prefix="studio-socrates-ui-") as directory, ThreadingHTTPServer(("127.0.0.1", 0), Provider) as provider:
-        Thread(target=provider.serve_forever, daemon=True).start()
+    # A Darwin sockaddr_un path must fit in 104 bytes, including Studio's activation socket suffix.
+    temp_parent = "/private/tmp" if sys.platform == "darwin" else None
+    with tempfile.TemporaryDirectory(prefix="st-ui-", dir=temp_parent) as directory, ThreadingHTTPServer(("127.0.0.1", 0), Provider) as provider:
         home = Path(directory).resolve()
         agent = home / ".pi/agent"
         agent.mkdir(parents=True)
@@ -419,6 +432,7 @@ def run(output):
         settings_path.write_text(json.dumps(settings))
         records = seed(project, env, f'http://127.0.0.1:{provider.server_port}')
         linked_beads.update(records['beads'])
+        Thread(target=provider.serve_forever, daemon=True).start()
         terminal = Terminal(project, env, output, records['session'])
         try:
             terminal.wait(
@@ -574,6 +588,22 @@ def run(output):
             terminal.assert_mark('Keep the lead available', '◐', 'accent')
             terminal.assert_mark('Verify the handoff', '×', 'status.error')
             terminal.capture('status-board-linked')
+            terminal.send('\x1b')
+            terminal.send('/plan\r')
+            terminal.contains('Enter details')
+            def selected_task(title):
+                terminal.wait(lambda: any(line.lstrip().startswith('› ') and line.rstrip().endswith('  ' + title)
+                                          for line in terminal.screen.display),
+                              f"The plan graph did not select {title!r}")
+            selected_task('Record property evidence')
+            for title in ('Keep the lead available', 'Verify the handoff'):
+                terminal.send('j')
+                selected_task(title)
+            terminal.assert_mark('Verify the handoff', '×', 'status.error')
+            linked_beads['bd-verify']['status'] = 'open'
+            terminal.wait(lambda: '1 open' in terminal.text() or 'Open' in next((line for line in terminal.screen.display if 'Verify the handoff' in line), ''), 'Live task status did not refresh')
+            terminal.send('\r')
+            terminal.contains('The selected bead matches the reviewed work.')
             assert set(bead_reads) == {'/v0/beads/context', *(f'/v0/beads/issues/{key}' for key in linked_beads)}, bead_reads
             assert not provider_errors, provider_errors
         finally:
@@ -581,8 +611,19 @@ def run(output):
             terminal.close()
         terminal = Terminal(project, env, output, records['planOnlySession'], mode='regular')
         try:
-            terminal.wait_for_session()
+            terminal.wait_for_rail()
             terminal.contains("Awaiting approval")
+            # The status rail groups live observations by wave. The inline plan uses a graph.
+            lead_width = terminal.rail_start()
+            def transcript():
+                return "\n".join(line[:lead_width] for line in terminal.screen.display)
+            terminal.wait(lambda: all(text in transcript() for text in
+                                      ("4 tasks", "Keep assessment history", "Review changes in the dock")),
+                          "The lead did not show the replayed dependency graph")
+            assert 'Wave 1' not in transcript() and 'Wave 2' not in transcript(), transcript()
+            terminal.send("\x0f")  # Expand a completed call after replaying its transcript.
+            terminal.contains("Both versions can be reviewed in the dock.")
+            terminal.send("\x0f")
             regular_draft = "Confirm that reviewing a standalone task and its requirements preserves my unsent message in regular mode."
             terminal.send(regular_draft)
             terminal.check_lead_wrap(regular_draft)
@@ -593,9 +634,11 @@ def run(output):
             terminal.wait_for_rail()
             terminal.send("\x15")
             terminal.send("/plan\r")
-            terminal.contains("Not started")
-            terminal.contains("No Socrates specification for this breakdown.")
+            terminal.contains("Enter details")
             terminal.contains("Record property evidence")
+            assert 'No Socrates specification' not in terminal.text() and 'Wave 1' not in terminal.text(), terminal.text()
+            terminal.resize(60, 24)
+            terminal.contains("Review changes in the dock")
             terminal.capture("status-board-plan-only")
             terminal.send("\r")
             terminal.contains("Old assessments remain inspectable after a revision.")
