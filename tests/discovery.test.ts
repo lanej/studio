@@ -13,12 +13,14 @@ import {
 } from "../config.ts";
 import {
   ExecutionStore,
+  activeTaskReviews,
   executionSchema,
   ExecutionPhase,
 } from "../execution/store.ts";
 import { writerFence } from "../execution/recovery.ts";
 import { ExecutionBeads } from "../execution/beads.ts";
-import { beadSchema } from "../task-service.ts";
+import { beadSchema, owner } from "../task-service.ts";
+import { taskDetails } from "../beads.ts";
 
 await test("discovery approval freezes the displayed version before effects and prevents cross-lead stale approval", async () => {
   const directory = await mkdtemp(join(tmpdir(), "studio-discovery-"));
@@ -184,6 +186,70 @@ await test("unknown native launches retain writer fences and project merge overr
       reason: "Restore configured default",
     });
     assert.equal(store.override(first), undefined);
+  } finally {
+    store.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+await test("task review details follow the current project, bead and attempt owner", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "studio-task-review-"));
+  const id = randomUUID();
+  const project = randomUUID();
+  const bead = beadSchema.parse({
+    id: "fixture-1",
+    title: "Inline diffs",
+    revision: "fixture",
+    status: "in_progress",
+    assignee: owner(id),
+  });
+  const attempt = executionSchema.parse({
+    id,
+    project,
+    bead,
+    profile: StudioProfile.Personal,
+    phase: ExecutionPhase.Reviewing,
+    message: "Reviewing current revision",
+  });
+  const reviews = () => activeTaskReviews(project, [bead], directory);
+  assert.equal(reviews().size, 0);
+  const store = new ExecutionStore(directory);
+  try {
+    store.saveAttempt(attempt);
+    const details = () =>
+      taskDetails(bead, project, undefined, reviews().get(bead.id));
+    assert.match(details(), /in_progress · Reviewing/u);
+    const finding =
+      "Which width wins? diff.ts and view.ts compute separate thresholds.";
+    store.change(id, (row) => {
+      row.phase = ExecutionPhase.Running;
+      row.reviewFinding = finding;
+    });
+    assert.ok(details().includes(`Changes requested\n${finding}`));
+    assert.equal(activeTaskReviews(randomUUID(), [bead], directory).size, 0);
+    for (const other of [
+      { ...bead, id: "different" },
+      { ...bead, assignee: owner(randomUUID()) },
+      { ...bead, status: "closed" },
+    ]) {
+      assert.equal(activeTaskReviews(project, [other], directory).size, 0);
+    }
+    store.change(id, (row) => {
+      row.phase = ExecutionPhase.Reviewing;
+      row.reviewFinding = undefined;
+    });
+    assert.match(details(), /in_progress · Reviewing/u);
+    assert.ok(!details().includes(finding));
+    store.change(id, (row) => {
+      row.review = "Candidate approved";
+      row.phase = ExecutionPhase.Integrating;
+    });
+    assert.equal(reviews().size, 0);
+    store.change(id, (row) => {
+      row.reviewFinding = finding;
+      row.phase = ExecutionPhase.Parked;
+    });
+    assert.ok(details().includes(finding));
   } finally {
     store.close();
     await rm(directory, { recursive: true, force: true });
