@@ -1,76 +1,30 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import {
-  matchesKey,
-  Text,
-  truncateToWidth,
-  type OverlayOptions,
-} from "@earendil-works/pi-tui";
-import {
-  createTaskDrawer,
-  type EmptyTaskAction,
-  type TaskDrawerItem,
-} from "./task-drawer.ts";
+import type {
+  ExtensionContext,
+  Theme,
+  ThemeColor,
+} from "@earendil-works/pi-coding-agent";
+import { matchesKey, Text, truncateToWidth } from "@earendil-works/pi-tui";
+import { knownTaskStatus, TaskStatus } from "./beads.ts";
 import { NavigationKey } from "./runtime.ts";
 
-type TaskChoice = { id: string; action: TaskAction };
-export enum TaskAction {
-  Inspect = "inspect",
-  FocusPane = "focus_pane",
-}
+const statusTones = {
+  [TaskStatus.Open]: { glyph: "○", tone: "muted" },
+  [TaskStatus.InProgress]: { glyph: "◐", tone: "accent" },
+  [TaskStatus.Blocked]: { glyph: "×", tone: "error" },
+  [TaskStatus.Deferred]: { glyph: "–", tone: "warning" },
+  [TaskStatus.Closed]: { glyph: "●", tone: "success" },
+} satisfies Record<TaskStatus, { glyph: string; tone: ThemeColor }>;
 
-export async function openTaskDrawer(
-  ctx: ExtensionContext,
-  items: TaskDrawerItem[],
-  project: string,
-  options: {
-    detailOnly?: boolean;
-    limitReached?: boolean;
-    emptyAction?: EmptyTaskAction | undefined;
-  } = {},
-): Promise<TaskChoice | undefined> {
-  let overlay: OverlayOptions = {};
-  return ctx.ui.custom<TaskChoice | undefined>(
-    (tui, theme, _keys, done) => {
-      // Pi keeps this object while the drawer is open. Read the live width on resize.
-      const compact = () => tui.terminal.columns < 80;
-      overlay = {
-        anchor: "top-right",
-        minWidth: 46,
-        get width() {
-          return compact() ? "100%" : "53%";
-        },
-        get margin() {
-          return compact() ? { top: 1, bottom: 1 } : 1;
-        },
-      };
-      const choose = (index: number, action: TaskAction): void => {
-        const item = items[index];
-        if (item !== undefined) done({ id: item.row.task.id, action });
-      };
-      return createTaskDrawer({
-        items,
-        project,
-        detailOnly: options.detailOnly ?? false,
-        emptyAction: options.emptyAction,
-        limitReached: options.limitReached ?? false,
-        theme,
-        height: () => Math.max(1, tui.terminal.rows - 2),
-        requestRender: () => {
-          tui.requestRender();
-        },
-        onInspect: (index) => {
-          choose(index, TaskAction.Inspect);
-        },
-        onFocus: (index) => {
-          choose(index, TaskAction.FocusPane);
-        },
-        onCancel: () => {
-          done(undefined);
-        },
-      });
-    },
-    { overlay: true, overlayOptions: () => overlay },
-  );
+export function taskStatusGlyph(
+  status: string,
+  theme: Pick<Theme, "fg">,
+): string {
+  const recognized = knownTaskStatus(status);
+  const { glyph, tone } =
+    recognized === undefined
+      ? { glyph: "?", tone: "muted" as const }
+      : statusTones[recognized];
+  return theme.fg(tone, glyph);
 }
 
 export async function showTask(

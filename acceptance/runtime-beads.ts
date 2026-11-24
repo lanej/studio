@@ -173,7 +173,14 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     .parse(JSON.parse(context.stdout));
   project.beadsDatabase =
     identity.database ?? identity.dolt_database ?? "studio_native";
-  await verifyHeartbeatAuthority(project);
+  const caller = process.cwd();
+  process.chdir(fixture.directory);
+  try {
+    await verifyHeartbeatAuthority(project);
+    await heartbeat(project, firstAttempt, bound.id);
+  } finally {
+    process.chdir(caller);
+  }
   const configFile = join(fixture.directory, "reconcile-config.json");
   await writeFile(configFile, JSON.stringify(exampleConfig));
   const previousConfig = process.env["STUDIO_CONFIG"];
