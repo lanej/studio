@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { randomUUID } from "node:crypto";
 import { Discoveries, HandoffPhase } from "../discovery/store.ts";
-import { draftSchema } from "../lead-plan.ts";
+import { draftSchema, reviseDelivery } from "../lead-plan.ts";
 import {
   configSchema,
   runtimeProjectSchema,
@@ -71,7 +71,7 @@ await test("discovery approval freezes the displayed version before effects and 
       id: authorityId,
     };
     peer.change(discovery.id, (record) => {
-      record.leadPlan.draft = { ...draft, summary: "Changed by another lead" };
+      record.leadPlan.draft = reviseDelivery(draft, "first pull-request");
     });
     assert.throws(
       () => store.beginHandoff(displayed, authority),
