@@ -22,18 +22,29 @@ export interface Worktrees {
     attempting: () => void | Promise<void>,
   ): Promise<Allocation>;
 }
-const command = async (cwd: string, executable: string, args: string[]) =>
+const command = async (
+  cwd: string,
+  executable: string,
+  args: string[],
+  maxBuffer = 2 * 1024 * 1024,
+) =>
   (
     await promisify(execFile)(executable, args, {
       cwd,
       timeout: 180000,
-      maxBuffer: 2 * 1024 * 1024,
+      maxBuffer,
     })
   ).stdout.trim();
 const inspectTasks = async (cwd: string, executable: string) => {
   let output: string;
   try {
-    output = await command(cwd, executable, ["status", "--json"]);
+    // rationale: Native status includes every registered repository, including unrelated stale entries.
+    output = await command(
+      cwd,
+      executable,
+      ["status", "--json"],
+      16 * 1024 * 1024,
+    );
   } catch (error) {
     // Status exits 1 for incomplete inventory, including unrelated missing repositories.
     if (
