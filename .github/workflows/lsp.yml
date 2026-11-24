@@ -1,0 +1,60 @@
+name: Studio LSP acceptance
+# File-level filters keep unrelated workflows out of the runner queue.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/lsp.yml'
+      - 'scripts/ci-selection.ts'
+      - 'tests/ci-selection.test.ts'
+      - 'package.json'
+      - 'bun.lock'
+      - '.npmrc'
+      - 'patches/**'
+      - 'code-intelligence/**'
+      - 'config.ts'
+      - 'acceptance/lsp.ts'
+  pull_request:
+    paths:
+      - '.github/workflows/lsp.yml'
+      - 'scripts/ci-selection.ts'
+      - 'tests/ci-selection.test.ts'
+      - 'package.json'
+      - 'bun.lock'
+      - '.npmrc'
+      - 'patches/**'
+      - 'code-intelligence/**'
+      - 'config.ts'
+      - 'acceptance/lsp.ts'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  lsp-native:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Read the Bun minimum
+        id: runtime
+        run: python3 -c 'import json; print("bun=" + json.load(open("package.json"))["engines"]["bun"].removeprefix(">="))' >> "$GITHUB_OUTPUT"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ steps.runtime.outputs.bun }}
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Install the acceptance language server
+        run: |
+          npm --prefix "$RUNNER_TEMP/pi-lsp" install --ignore-scripts typescript-language-server@4.3.3
+          echo "$RUNNER_TEMP/pi-lsp/node_modules/.bin" >> "$GITHUB_PATH"
+      - run: bun run test:lsp-native
