@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { z } from "zod";
+import { fixtureMetricsEnv } from "./beads-fixture.ts";
 import { withBeadsHttp } from "./beads-http-fixture.ts";
 
 const execute = promisify(execFile);
@@ -40,7 +41,7 @@ await withBeadsHttp(bd, dolt, async (fixture, source) => {
     HOME: fixture.directory,
     DOLT_ROOT_PATH: join(fixture.directory, "dolt-home"),
     DOLT_CLI_NO_UPDATE_CHECK: "1",
-    BD_DISABLE_METRICS: "1",
+    ...fixtureMetricsEnv,
     PATH: `${dirname(dolt)}:${process.env["PATH"] ?? ""}`,
     GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_CONFIG_NOSYSTEM: "1",

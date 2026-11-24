@@ -1,5 +1,11 @@
 import { z } from "zod";
 import { questionEvidence } from "./evidence.ts";
+import {
+  coverageFresh,
+  coverageProperties,
+  coverageSchema,
+  draftCoverage,
+} from "./assessment.ts";
 
 export enum SpecStatus {
   Interrogating = "interrogating",
@@ -55,6 +61,7 @@ export const specDraft = z
   .strictObject({
     ...draftFields,
     decisions: z.array(decision),
+    coverage: coverageSchema.optional(),
   })
   .superRefine((value, ctx) => {
     const decisions = new Map(
@@ -129,12 +136,19 @@ export const specRecord = z.strictObject({
     .optional(),
   acceptedRevision: z.string(),
   approvalAt: z.string().optional(),
+  coverageRevision: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/u)
+    .optional(),
 });
 export type LeadSpecification = z.infer<typeof specRecord>;
 
 export function specText(spec: LeadSpecification): string {
   const draft = spec.draft;
   if (draft === null) return "No specification drafted yet.";
+  const coverage = draftCoverage(draft);
+  const properties = coverageProperties(draft);
+  const assessed = properties.filter(({ status }) => status !== "unknown");
   return [
     `Socrates v${String(spec.version)} · ${spec.status}`,
     "",
@@ -159,6 +173,32 @@ export function specText(spec: LeadSpecification): string {
           : ` · Supersedes ${entry.supersedes}`;
       return `${entry.id} · ${entry.disposition} · ${basis}\nUncertainty · ${entry.uncertainty}${history}`;
     }),
+    "",
+    "Property assessments",
+    ...(coverage === undefined
+      ? ["Not assessed. No property status has been recorded."]
+      : [
+          coverageFresh(spec, spec.acceptedRevision)
+            ? "Assessed against this draft; specification review and execution approval remain separate."
+            : "Needs review: these saved assessments do not cover the current specification or recorded answer.",
+          ...assessed.map(
+            ({ label, status, reason }) =>
+              `${label} · ${status} · ${reason ?? ""}`,
+          ),
+          ...(properties.some(({ status }) => status === "unknown")
+            ? [
+                `Not assessed · ${properties
+                  .filter(({ status }) => status === "unknown")
+                  .map(({ label }) => label)
+                  .join(", ")}`,
+              ]
+            : []),
+          ...(coverage.focus === undefined
+            ? []
+            : [
+                `Saved focus · ${properties.find(({ id }) => id === coverage.focus)?.label ?? coverage.focus}`,
+              ]),
+        ]),
     "",
     ...(spec.exchange === undefined
       ? []

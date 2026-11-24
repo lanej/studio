@@ -1,6 +1,6 @@
 import { stringify } from "yaml";
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "bun:test";
 import {
   mkdtemp,
   writeFile,
@@ -22,26 +22,28 @@ import {
   workflowFiles,
 } from "../scripts/ci-selection.ts";
 
-// Let a stalled Git command fail inside its fixture before the test watchdog fires.
-const gitFixtureOptions = {
-  timeout: process.env["CI"] === "true" ? 30_000 : 5_000,
-};
-const gitCommandTimeout = process.env["CI"] === "true" ? 10_000 : 2_000;
+// Real revision fixtures spawn many Git processes; hosted scheduling is not a latency assertion.
+const gitFixtureDeadline = process.env["CI"] === "true" ? 30_000 : 5_000;
+const gitCommandDeadline = process.env["CI"] === "true" ? 10_000 : 2_000;
 
 function fixtureGit(cwd: string) {
   const environment = Object.fromEntries(
     Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
   );
   return (...args: string[]) =>
-    execFileSync("/usr/bin/git", args, {
+    execFileSync("/usr/bin/git", ["-c", "core.hooksPath=/dev/null", ...args], {
+      timeout: gitCommandDeadline,
       cwd,
       encoding: "utf8",
-      timeout: gitCommandTimeout,
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...environment,
         GIT_CONFIG_GLOBAL: "/dev/null",
         GIT_CONFIG_NOSYSTEM: "1",
+        GIT_AUTHOR_NAME: "Fixture",
+        GIT_AUTHOR_EMAIL: "fixture@example.invalid",
+        GIT_COMMITTER_NAME: "Fixture",
+        GIT_COMMITTER_EMAIL: "fixture@example.invalid",
       },
     }).trim();
 }
@@ -49,7 +51,7 @@ function fixtureGit(cwd: string) {
 const selected = async (...paths: string[]) =>
   (await selectedChecks(paths)).map((item) => item.workflow);
 
-await test("workflow file filters select consumers without duplicate branch-push suites", async () => {
+test("workflow file filters select consumers without duplicate branch-push suites", async () => {
   for (const file of workflowFiles) {
     const value = await readWorkflow(file);
     assert.deepEqual(value.on.push.branches, ["main"]);
@@ -90,7 +92,7 @@ await test("workflow file filters select consumers without duplicate branch-push
   ]);
 });
 
-await test("shared runtime inputs and the full CLI integration retain their consumers", async () => {
+test("shared runtime inputs and the full CLI integration retain their consumers", async () => {
   for (const path of [
     "package.json",
     "bun.lock",
@@ -100,10 +102,21 @@ await test("shared runtime inputs and the full CLI integration retain their cons
     "tests/ci-selection.test.ts",
   ])
     assert.deepEqual(await selected(path), [...workflowFiles], path);
-  assert.deepEqual(await selected("resources/socrates/host.md"), [
+  await access(fileURLToPath(new URL("../socrates/host.md", import.meta.url)));
+  assert.deepEqual(await selected("socrates/host.md"), [
     "check.yml",
     "beads.yml",
   ]);
+  assert.deepEqual(
+    (await selectedChecks(["socrates/host.md"])).flatMap((item) => item.checks),
+    [
+      "check (ubuntu-latest, minimum)",
+      "check (macos-latest, minimum)",
+      "check (ubuntu-latest, latest)",
+      "beads-native (ubuntu-latest)",
+      "beads-native (macos-latest)",
+    ],
+  );
   assert.deepEqual(await selected("vendor/task-runtime/beads.ts"), [
     "check.yml",
     "beads.yml",
@@ -125,7 +138,21 @@ await test("shared runtime inputs and the full CLI integration retain their cons
   ]);
 });
 
-await test("selection detects a removed consumer edge and rejects unsupported filter syntax", async () => {
+test("selection detects a removed consumer edge and rejects unsupported filter syntax", async () => {
+  const guidanceConsumer = await readWorkflow("check.yml");
+  assert(
+    matchesPaths(guidanceConsumer.on.pull_request.paths, ["socrates/host.md"]),
+  );
+  assert.equal(
+    matchesPaths(
+      guidanceConsumer.on.pull_request.paths.filter(
+        (path) => path !== "socrates/host.md",
+      ),
+      ["socrates/host.md"],
+    ),
+    false,
+    "Removing the native Socrates guidance dependency must lose selection",
+  );
   const definition = await readWorkflow("lsp.yml");
   assert(
     matchesPaths(definition.on.pull_request.paths, [
@@ -148,17 +175,13 @@ await test("selection detects a removed consumer edge and rejects unsupported fi
   );
 });
 
-await test(
+test(
   "deleted and renamed paths retain both workflow owners in a real revision diff",
-  gitFixtureOptions,
   async () => {
     const directory = await mkdtemp(join(tmpdir(), "studio-ci-diff-"));
     const git = fixtureGit(directory);
     try {
       git("init", "-q");
-      git("config", "user.name", "Fixture");
-      git("config", "user.email", "fixture@example.invalid");
-      git("config", "core.hooksPath", "/dev/null");
       await mkdir(join(directory, "code-intelligence"));
       await writeFile(join(directory, "code-intelligence/old.ts"), "source\n");
       git("add", ".");
@@ -174,19 +197,16 @@ await test(
       await rm(directory, { recursive: true, force: true });
     }
   },
+  gitFixtureDeadline,
 );
 
-await test(
+test(
   "revision selection retains base edges but requires only workflows and check names present at head",
-  gitFixtureOptions,
   async () => {
     const directory = await mkdtemp(join(tmpdir(), "studio-ci-policy-"));
     const git = fixtureGit(directory);
     try {
       git("init", "-q");
-      git("config", "user.name", "Fixture");
-      git("config", "user.email", "fixture@example.invalid");
-      git("config", "core.hooksPath", "/dev/null");
       await mkdir(join(directory, ".github/workflows"), { recursive: true });
       for (const file of workflowFiles) {
         const definition = await readWorkflow(file);
@@ -246,9 +266,10 @@ await test(
       await rm(directory, { recursive: true, force: true });
     }
   },
+  gitFixtureDeadline,
 );
 
-await test("native workflow filters cover static imports and literal process inputs", async () => {
+test("native workflow filters cover static imports and literal process inputs", async () => {
   const ts = await import("typescript");
   const root = fileURLToPath(new URL("../", import.meta.url));
   const cases: { workflow: "lsp.yml" | "beads.yml"; roots: string[] }[] = [
@@ -362,17 +383,13 @@ await test("native workflow filters cover static imports and literal process inp
   }
 });
 
-await test(
+test(
   "PR policy rejects unincorporated base CI changes without requiring unrelated base rebases",
-  gitFixtureOptions,
   async () => {
     const directory = await mkdtemp(join(tmpdir(), "studio-ci-base-"));
     const git = fixtureGit(directory);
     try {
       git("init", "-q");
-      git("config", "user.name", "Fixture");
-      git("config", "user.email", "fixture@example.invalid");
-      git("config", "core.hooksPath", "/dev/null");
       await mkdir(join(directory, ".github/workflows"), { recursive: true });
       for (const file of workflowFiles)
         await writeFile(
@@ -421,4 +438,5 @@ await test(
       await rm(directory, { recursive: true, force: true });
     }
   },
+  gitFixtureDeadline,
 );

@@ -39,6 +39,9 @@
       },
     },
   },
+  "patchedDependencies": {
+    "@earendil-works/pi-tui@1.4.0": "patches/pi-tui-right-column.patch",
+  },
   "overrides": {
     "minimatch": "11.0.3",
     "undici": "8.12.3",

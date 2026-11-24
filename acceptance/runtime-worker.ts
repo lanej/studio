@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
+import { fixtureMetricsEnv } from "./beads-fixture.ts";
 import { withBeadsHttp } from "./beads-http-fixture.ts";
 import { AgentRole, StudioProfile, ReasoningLevel } from "../config.ts";
 import { ExecutionBeads } from "../execution/beads.ts";
@@ -34,6 +35,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
         ([key]) => !/^(GIT_|PI_|WORKTREE_|BEADS_|BD_|DOLT_|STUDIO_)/u.test(key),
       ),
     ),
+    ...fixtureMetricsEnv,
     HOME: fixture.directory,
     PI_CODING_AGENT_DIR: agent,
     STUDIO_CONFIG: configFile,
