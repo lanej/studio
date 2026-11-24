@@ -79,6 +79,8 @@ The implementation shows proposals by dependency wave until approval. For approv
 
 The lead shows each draft as a compact dependency graph. Read it from top to bottom. A fork shows tasks that share a prerequisite. A join shows where a task needs multiple predecessors. Open `/plan` to browse the full graph and see current task states. **j/k** selects a task, **Enter** opens its scope, dependencies, acceptance criteria and verification, and **Esc** returns. To compare specification evidence with implementation progress, use `/socrates-status inspect` and **Tab** between columns. Closing either inspector restores the previous layout.
 
+In `/socrates-status inspect`, **j/k** selects an entry, **Enter** opens evidence or toggles a group, and **?** shows available keys. Inspect a requirement to see its acceptance criteria and linked tasks, or a task to see its requirements, dependencies and review details.
+
 ![Inline plan with parallel tasks joining before upload finalization](docs/assets/plan-branches.png)
 
 ![A live lead conversation beside specification coverage and linked Beads](docs/assets/socrates-status.png)
