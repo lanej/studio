@@ -291,7 +291,9 @@ export function registerCodeIntelligence(pi: ExtensionAPI): CodeIntelligence {
         return intelligence.editFeedback(
           ctx.cwd,
           input.data.path,
-          event.toolName === "edit" && typeof diff === "string"
+          event.toolName === "edit" &&
+            typeof diff === "string" &&
+            native.data?.["studioSyntax"] === undefined
             ? diff
             : undefined,
         );

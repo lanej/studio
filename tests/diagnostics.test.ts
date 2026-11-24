@@ -1,4 +1,5 @@
 import { syntaxDiffRows } from "../code-intelligence/diff.ts";
+import type { SyntaxReplacement } from "../code-intelligence/syntax-analysis.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ThemeBg, ThemeColor } from "@earendil-works/pi-coding-agent";
@@ -152,8 +153,22 @@ await test("edit diffs switch between aligned split and unified layouts without 
   assert.match(wrapped.join("\n"), /short/u);
 });
 
-function renderDiff(diff: string, width: number): string {
-  const rows = syntaxDiffRows(diff, "retry.txt", plain, width, "/project");
+function renderDiff(
+  diff: string,
+  width: number,
+  replacements: SyntaxReplacement[] = [],
+): string {
+  const rows = syntaxDiffRows(
+    diff,
+    "retry.ts",
+    plain,
+    width,
+    "/project",
+    (text) => text.split("\n"),
+    undefined,
+    [],
+    { replacements },
+  );
   assert.ok(rows.every((row) => visibleWidth(row) <= width));
   return rows.map(stripTerminalSequences).join("\n");
 }
@@ -170,7 +185,11 @@ await test("small replacements show both tokens inline and shared code once", ()
     " 5 };",
   ].join("\n");
   for (const width of [60, 120]) {
-    const text = renderDiff(diff, width);
+    const text = renderDiff(diff, width, [
+      { row: 4, start: 11, original: "2", updated: "4" },
+      { row: 5, start: 13, original: "1500", updated: "3000" },
+      { row: 6, start: 8, original: "passive", updated: "active" },
+    ]);
     assert.doesNotMatch(text, /Original|Updated| │ /u);
     for (const label of ["const policy", "retries:", "timeoutMs:", "mode:"])
       assert.equal(text.split(label).length, 2, label);
@@ -179,9 +198,28 @@ await test("small replacements show both tokens inline and shared code once", ()
     assert.ok(text.includes("mode: passive → active,"));
   }
   assert.match(
-    renderDiff("-1 rate: 1.25\n+1 rate: 1.75", 120),
+    renderDiff("-1 rate: 1.25\n+1 rate: 1.75", 120, [
+      { row: 1, start: 6, original: "1.25", updated: "1.75" },
+    ]),
     /rate: 1\.25 → 1\.75/u,
   );
+});
+
+await test("compact rows use UTF-16 syntax offsets and require matching saved source", () => {
+  const prefix = 'log("漢😀", ';
+  const diff = `-1 ${prefix}2);\n+1 ${prefix}4);`;
+  const change = { row: 1, start: prefix.length, original: "2", updated: "4" };
+  assert.ok(renderDiff(diff, 120, [change]).includes(`${prefix}2 → 4);`));
+  for (const replacements of [
+    [],
+    [{ ...change, original: "5" }],
+    [{ ...change, start: 2 }],
+  ]) {
+    const full = renderDiff(diff, 120, replacements);
+    assert.ok(full.includes(" │ "));
+    assert.ok(full.includes(`${prefix}2);`));
+    assert.ok(full.includes(`${prefix}4);`));
+  }
 });
 
 await test("changing an operator or whitespace with a value preserves both expressions", () => {
@@ -197,7 +235,9 @@ await test("changing an operator or whitespace with a value preserves both expre
 
 await test("a replacement that cannot fit inline keeps both source lines", () => {
   const diff = "-1 mode: previousMode,\n+1 mode: proposedMode,";
-  const text = renderDiff(diff, 24);
+  const text = renderDiff(diff, 24, [
+    { row: 1, start: 6, original: "previousMode", updated: "proposedMode" },
+  ]);
   assert.match(text, /-1 mode: previousMode,/u);
   assert.match(text, /\+1 mode: proposedMode,/u);
 });

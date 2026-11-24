@@ -6,6 +6,7 @@ import {
 import { defaultMinSplitColumns, type StudioConfig } from "../config.ts";
 import { diagnosticGlyph, type DiagnosticSnapshot } from "./diagnostics.ts";
 import type { DiffScope } from "./scopes.ts";
+import type { SyntaxReplacement } from "./syntax-analysis.ts";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -37,61 +38,6 @@ interface DiffLine {
   rawCode: string;
   before: string | undefined;
   after: string | undefined;
-}
-
-const identifier = /[$_\p{ID_Start}][$\p{Join_Control}\p{ID_Continue}]*/u;
-const decimal = /(?:\d[\d_]*(?:\.\d[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?\d[\d_]*)?/u;
-const radixInteger = /0[xX][\da-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+/u;
-const numericLiteral = `[+-]?(?:${radixInteger.source}|${decimal.source})[\\p{ID_Continue}]*`;
-// Only identifiers and literals are replaceable. Compare all whitespace and punctuation exactly.
-const sourceToken = new RegExp(
-  `(${identifier.source}|${numericLiteral})|\\s+|.`,
-  "gu",
-);
-
-interface WordReplacement {
-  prefixWidth: number;
-  original: string;
-  updated: string;
-}
-
-function wordReplacement(
-  original: string,
-  updated: string,
-): WordReplacement | undefined {
-  const oldTokens = [...original.matchAll(sourceToken)];
-  const newTokens = [...updated.matchAll(sourceToken)];
-  if (oldTokens.length !== newTokens.length) return undefined;
-  let replacement: WordReplacement | undefined;
-  for (const [index, oldToken] of oldTokens.entries()) {
-    const newToken = newTokens[index];
-    if (newToken === undefined) return undefined;
-    if (oldToken[0] === newToken[0]) continue;
-    if (
-      replacement !== undefined ||
-      oldToken[1] === undefined ||
-      newToken[1] === undefined
-    )
-      return undefined;
-    const prefix = updated.slice(0, newToken.index);
-    const suffix = updated.slice(newToken.index + newToken[0].length);
-    // Punctuation alone gives too little evidence to align two unrelated lines.
-    if (!/[\p{L}\p{N}_$]/u.test(prefix + suffix)) return undefined;
-    // A sign after an operand may be a binary operator. Keep the full comparison in that case.
-    const preceding = prefix.trimEnd().at(-1);
-    if (
-      (/^[+-]/u.test(oldToken[0]) || /^[+-]/u.test(newToken[0])) &&
-      preceding !== undefined &&
-      !"=:,([{".includes(preceding)
-    )
-      return undefined;
-    replacement = {
-      prefixWidth: visibleWidth(clean(prefix)),
-      original: oldToken[0],
-      updated: newToken[0],
-    };
-  }
-  return replacement;
 }
 
 export function parseDiffLines(diff: string): DiffLine[] {
@@ -187,7 +133,11 @@ export function syntaxDiffRows(
     inline_diagnostics: true,
   },
   diagnostics: DiagnosticSnapshot["diagnostics"] = [],
-  details: { reason?: string; scopes?: readonly DiffScope[] } = {},
+  details: {
+    reason?: string;
+    scopes?: readonly DiffScope[];
+    replacements?: readonly SyntaxReplacement[];
+  } = {},
 ): string[] {
   if (width < 3) return [];
   const lines = parseDiffLines(diff);
@@ -341,9 +291,14 @@ export function syntaxDiffRows(
     );
   };
   const compactWordRows = (): Map<DiffLine, string> | undefined => {
+    if (details.replacements === undefined || details.replacements.length === 0)
+      return undefined;
+    const replacements = new Map(
+      details.replacements.map((change) => [change.row, change]),
+    );
     const pending = new Map<string, DiffLine>();
     const rows = new Map<DiffLine, string>();
-    for (const line of lines) {
+    for (const [index, line] of lines.entries()) {
       if (line.prefix === "-") {
         pending.set(line.number, line);
         continue;
@@ -366,21 +321,31 @@ export function syntaxDiffRows(
       const codeWidth = visibleWidth(line.code);
       if (gutter + Math.max(codeWidth, visibleWidth(removed.code)) >= inner)
         return undefined;
-      const change = wordReplacement(removed.rawCode, line.rawCode);
+      const change = replacements.get(index);
       if (
         change === undefined ||
-        gutter + codeWidth + visibleWidth(change.original) + 3 > inner
+        !line.rawCode.startsWith(change.updated, change.start)
       )
         return undefined;
+      const prefix = line.rawCode.slice(0, change.start);
+      const suffix = line.rawCode.slice(change.start + change.updated.length);
+      // A saved range must still explain the entire difference between this pair of lines.
+      if (removed.rawCode !== prefix + change.original + suffix)
+        return undefined;
+      const original = clean(change.original);
+      const replacement = clean(change.updated);
+      if (gutter + codeWidth + visibleWidth(original) + 3 > inner)
+        return undefined;
       const code = line.after ?? line.code;
-      const suffixStart = change.prefixWidth + visibleWidth(change.updated);
+      const prefixWidth = visibleWidth(clean(prefix));
+      const suffixStart = prefixWidth + visibleWidth(replacement);
       rows.set(
         line,
         theme.fg("toolDiffContext", `~${line.number.padStart(digits)} `) +
-          sliceByColumn(code, 0, change.prefixWidth) +
-          background(removed, theme.fg("toolDiffRemoved", change.original)) +
+          sliceByColumn(code, 0, prefixWidth) +
+          background(removed, theme.fg("toolDiffRemoved", original)) +
           theme.fg("dim", " → ") +
-          background(line, theme.fg("toolDiffAdded", change.updated)) +
+          background(line, theme.fg("toolDiffAdded", replacement)) +
           sliceByColumn(code, suffixStart, Number.POSITIVE_INFINITY),
       );
     }

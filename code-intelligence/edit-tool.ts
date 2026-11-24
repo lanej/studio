@@ -2,6 +2,10 @@ import {
   createEditToolDefinition,
   type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
+import { constants } from "node:fs";
+import { access, readFile, writeFile } from "node:fs/promises";
+import { analyzeEditSyntax } from "./syntax-analysis.ts";
+import { maxSyntaxSourceBytes, supportsSyntax } from "./tree-sitter.ts";
 import { Type } from "typebox";
 import { z } from "zod";
 
@@ -20,6 +24,11 @@ export function requireEditReason(input: unknown) {
   if (!parsed.success)
     throw new Error("Explain why this edit is needed in the reason field.");
   return parsed.data;
+}
+
+// Pi computes its numbered diff after stripping the BOM and normalizing line endings.
+function diffSource(text: string): string {
+  return text.replace(/^\uFEFF/u, "").replace(/\r\n?/gu, "\n");
 }
 
 export function registerReasonedEdit(pi: ExtensionAPI): void {
@@ -48,9 +57,57 @@ export function registerReasonedEdit(pi: ExtensionAPI): void {
               return { ...prepareArguments(args), reason: args.reason };
             },
           }),
-      execute(id, args, signal, update, context) {
+      async execute(id, args, signal, update, context) {
         requireEditReason(args);
-        return native.execute(id, args, signal, update, context);
+        if (!supportsSyntax(args.path))
+          return native.execute(id, args, signal, update, context);
+        // Capture this edit's actual read and successful write inside Pi's mutation queue.
+        // Reading the path again after execute could observe a subsequent edit.
+        let before: Buffer | undefined;
+        let after: string | undefined;
+        const tool = createEditToolDefinition(ctx.cwd, {
+          operations: {
+            access: (path) => access(path, constants.R_OK | constants.W_OK),
+            async readFile(path) {
+              const buffer = await readFile(path);
+              if (buffer.length <= maxSyntaxSourceBytes) before = buffer;
+              return buffer;
+            },
+            async writeFile(path, content) {
+              await writeFile(path, content, "utf8");
+              if (
+                before !== undefined &&
+                Buffer.byteLength(content) <= maxSyntaxSourceBytes
+              )
+                after = content;
+            },
+          },
+        });
+        const result = await tool.execute(id, args, signal, update, context);
+        if (
+          before === undefined ||
+          after === undefined ||
+          result.details === undefined ||
+          result.details.diff.length > 65536
+        )
+          return result;
+        try {
+          const syntax = await analyzeEditSyntax(
+            args.path,
+            diffSource(before.toString("utf8")),
+            diffSource(after),
+            result.details.diff,
+          );
+          return syntax === undefined
+            ? result
+            : {
+                ...result,
+                details: { ...result.details, studioSyntax: syntax },
+              };
+        } catch {
+          // The file was already updated. A parser failure must not invite a second edit.
+          return result;
+        }
       },
     });
   });

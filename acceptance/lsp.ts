@@ -409,7 +409,7 @@ try {
   );
   await writeFile(
     join(root, "config/studio/config.toml"),
-    "[display]\ninline_diagnostics = false\n",
+    "[display]\ninline_diagnostics = false\n[lsp]\nenabled = false\n",
   );
   await session.extensionRunner.emit({
     type: "session_start",
@@ -426,8 +426,93 @@ try {
     callComponent.render(100).join("\n"),
     /×|Retained late diagnostic/u,
   );
+  // Sessions saved before Tree-sitter keep their original LSP labels.
+  const legacyContext = {
+    ...policyContext,
+    toolCallId: "historical-policy",
+    state: {},
+  };
+  const historicalLabel = "HistoricPolicy › retryDelay(attempt, baseMs)";
+  const legacyCall = rendered.renderCall(policyArgs, theme, legacyContext);
+  rendered.renderResult(
+    {
+      ...policy.result,
+      details: {
+        diff: nativeDiff,
+        studioDiffScopes: [{ row: 1, label: historicalLabel }],
+      },
+    },
+    renderOptions,
+    theme,
+    legacyContext,
+  );
+  assert.match(
+    stripTerminalSequences(legacyCall.render(120).join("\n")),
+    /HistoricPolicy › retryDelay/u,
+  );
+
+  // An edit uses Tree-sitter with LSP disabled, preserves the native BOM/CRLF, and
+  // replays after the source file has been removed. A number inside a comment stays split.
+  const pythonPath = join(root, "retry.py");
+  const pythonSource = [
+    "class Policy:",
+    "    def retry_delay(self, attempt: int) -> int:",
+    "        if attempt < 0:",
+    "            return 0",
+    "        if attempt > 8:",
+    "            return 1500",
+    "        base = 100",
+    "        # retry factor: 2",
+    "        factor = 2",
+    "        return base * factor ** attempt",
+    "",
+  ].join("\r\n");
+  await writeFile(pythonPath, `\uFEFF${pythonSource}`);
+  for (const oldText of ["factor = 2", "# retry factor: 2"]) {
+    const args = {
+      path: "retry.py",
+      reason: "Increase the retry factor.",
+      edits: [{ oldText, newText: oldText.replace("2", "4") }],
+    };
+    const outcome = await tool.executeTool("edit", args);
+    assert.equal(outcome.isError, false);
+    const syntax = z
+      .object({
+        studioDiagnostics: z.undefined().optional(),
+        studioSyntax: z.object({
+          replacements: z.array(z.unknown()),
+          scopes: z.array(z.unknown()),
+        }),
+      })
+      .parse(outcome.result.details).studioSyntax;
+    const isCode = oldText === "factor = 2";
+    assert.equal(syntax.replacements.length, isCode ? 1 : 0);
+    assert.ok(syntax.scopes.length > 0);
+    if (!isCode) {
+      assert.equal(
+        await readFile(pythonPath, "utf8"),
+        `\uFEFF${pythonSource.replace("factor = 2", "factor = 4").replace("# retry factor: 2", "# retry factor: 4")}`,
+      );
+      await rm(pythonPath);
+    }
+    const context = {
+      ...renderContext,
+      args,
+      toolCallId: outcome.toolCall.id,
+      state: {},
+    };
+    const call = rendered.renderCall(args, theme, context);
+    rendered.renderResult(outcome.result, renderOptions, theme, context);
+    const text = stripTerminalSequences(call.render(120).join("\n"));
+    assert.match(text, /retry_delay\(self, attempt: int\)/u);
+    if (isCode) assert.match(text, /factor = 2 → 4/u);
+    else {
+      assert.match(text, /# retry factor: 2.*│.*# retry factor: 4/u);
+      assert.doesNotMatch(text, /→/u);
+    }
+  }
   console.log(
-    "Native Pi + TypeScript LSP: definitions, references, edit diagnostics, semantic rename and compiler verification passed.",
+    "Native Pi: Tree-sitter with LSP disabled, edit diagnostics, semantic navigation, rename and compiler verification passed.",
   );
 } finally {
   await session.extensionRunner.emit({

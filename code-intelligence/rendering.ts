@@ -5,6 +5,10 @@ import {
   syntaxDiffRows,
 } from "./diff.ts";
 import { diffScope, type DiffScope } from "./scopes.ts";
+import {
+  syntaxReplacement,
+  type SyntaxReplacement,
+} from "./syntax-analysis.ts";
 import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type {
   ExtensionAPI,
@@ -24,6 +28,18 @@ const detailsSchema = z.object({
     snapshot: diagnosticSnapshot,
   }),
 });
+// Older stored edits can carry only the language server's scope labels.
+const editDetails = z.object({
+  diff: z.string(),
+  studioSyntax: z
+    .object({
+      scopes: z.array(diffScope).max(32),
+      replacements: z.array(syntaxReplacement).max(2048),
+    })
+    .optional()
+    .catch(undefined),
+  studioDiffScopes: z.array(diffScope).max(32).optional().catch(undefined),
+});
 interface View {
   snapshot: DiagnosticSnapshot;
   settled: boolean;
@@ -38,7 +54,12 @@ export function registerDiagnosticRendering(
   const latest = new Map<string, string>();
   const diffs = new Map<
     string,
-    { path: string; diff: string; scopes: DiffScope[] }
+    {
+      path: string;
+      diff: string;
+      scopes: DiffScope[];
+      replacements: SyntaxReplacement[];
+    }
   >();
   const clear = () => {
     views.clear();
@@ -130,7 +151,11 @@ export function registerDiagnosticRendering(
                     undefined,
                     diffDisplay(),
                     views.get(context.toolCallId)?.snapshot.diagnostics,
-                    { scopes: value.scopes, reason },
+                    {
+                      scopes: value.scopes,
+                      replacements: value.replacements,
+                      reason,
+                    },
                   );
                 },
               };
@@ -138,7 +163,7 @@ export function registerDiagnosticRendering(
           }
         : {}),
       renderResult(result, options, theme, context) {
-        const diff = z.object({ diff: z.string() }).safeParse(result.details);
+        const diff = editDetails.safeParse(result.details);
         const args = z.object({ path: z.string() }).safeParse(context.args);
         if (
           name === "edit" &&
@@ -151,9 +176,10 @@ export function registerDiagnosticRendering(
             path: args.data.path,
             diff: diff.data.diff,
             scopes:
-              z
-                .object({ studioDiffScopes: z.array(diffScope).max(32) })
-                .safeParse(result.details).data?.studioDiffScopes ?? [],
+              diff.data.studioSyntax?.scopes ??
+              diff.data.studioDiffScopes ??
+              [],
+            replacements: diff.data.studioSyntax?.replacements ?? [],
           });
         }
         const parsed = detailsSchema.safeParse(result.details);
