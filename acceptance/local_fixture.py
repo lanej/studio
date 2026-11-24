@@ -24,6 +24,7 @@ class Scenario(str, Enum):
     LEAD_PLAN = "lead-plan"
     SOCRATES = "socrates"
     SOCRATES_READY = "socrates-ready"
+    ASSIGNMENT_INPUT = "assignment-input"
 
 
 class BeadsSource(TypedDict):
@@ -125,7 +126,7 @@ class FixturePaths:
         providers = {model.provider: model.settings(port) for model in models}
         (self.agent / "models.json").write_text(json.dumps({"providers": providers}))
         settings: dict[str, object] = {"packages": [str(options.root)]}
-        if options.scenario in (Scenario.SOCRATES, Scenario.SOCRATES_READY):
+        if options.scenario in (Scenario.SOCRATES, Scenario.SOCRATES_READY, Scenario.ASSIGNMENT_INPUT):
             settings.update({"theme": "dotfiles", "quietStartup": True})
             themes = self.agent / "themes"
             themes.mkdir()
@@ -160,6 +161,7 @@ class CaseEvidence(TypedDict):
 class ReportObservations(TypedDict, total=False):
     registered_process: str
     registered_pane: Pane
+    assignment_input: dict[str, int | str]
 
 
 class Report(ReportObservations):
