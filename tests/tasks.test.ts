@@ -306,7 +306,7 @@ await test("parked details use the current owner and scheduler path rules", () =
   );
 });
 
-await test("parked task opens retained diff and requests guarded retry", async () => {
+await test("retained diff snapshots refresh with same-attempt evidence and clear on failed retry", async () => {
   const task = { ...rejected, assignee: `pi:${attempt.id}` };
   const current = {
     ...attempt,
@@ -332,17 +332,27 @@ await test("parked task opens retained diff and requests guarded retry", async (
     getBgAnsi: () => "",
   };
   let retried = "";
+  let loaded = view;
+  let output = "OLD_DIFF";
+  let diffReads = 0;
+  const diffState: { pending?: Promise<string> } = {};
+  let retryFails = true;
   const browser = new TaskBrowser(
     view,
     {
       label: "Fixture",
       identity: project,
-      load: () => Promise.resolve(view),
+      load: () => Promise.resolve(loaded),
       show: () => Promise.resolve(task),
-      diff: () => Promise.resolve("retained diff evidence"),
+      diff: () => {
+        diffReads++;
+        return diffState.pending ?? Promise.resolve(output);
+      },
       retry: (id) => {
         retried = id;
-        return Promise.resolve();
+        return retryFails
+          ? Promise.reject(new Error("RETRY_UNCERTAIN"))
+          : Promise.resolve();
       },
     },
     theme,
@@ -351,19 +361,88 @@ await test("parked task opens retained diff and requests guarded retry", async (
     () => {},
     task.id,
   );
-  const render = () => browser.render(80).map(stripAnsi).join("\n");
+  const render = () => browser.render(120).map(stripAnsi).join("\n");
   render();
   browser.handleInput("\t");
   assert.match(render(), /› ↗ Open retained diff/u);
   browser.handleInput("\r");
   await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.match(render(), /retained diff evidence/u);
+  assert.match(render(), /OLD_DIFF/u);
+  assert.match(render(), /Captured diff snapshot/u);
+  assert.match(render(), /Re-open retained diff to refresh/u);
+  assert(current.verification !== undefined);
+  loaded = {
+    ...view,
+    attempts: [
+      {
+        ...current,
+        message: "NEW_FAILURE",
+        verification: {
+          ...current.verification,
+          summary: "New failed check",
+          exitCode: 43,
+          output: "NEW_FAILURE",
+        },
+      },
+    ],
+  };
+  await browser.refresh();
+  assert.match(render(), /NEW_FAILURE/u);
+  assert.doesNotMatch(render(), /OLD_DIFF/u);
+  output = "NEW_DIFF";
+  // The focused diff action survives refresh; opening it reads the current checkout again.
+  browser.handleInput("\r");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.match(render(), /NEW_DIFF/u);
+  assert.equal(diffReads, 2);
+  output = "MANUAL_CHECKOUT_EDIT";
+  await browser.refresh();
+  assert.match(render(), /NEW_DIFF/u);
+  assert.doesNotMatch(render(), /MANUAL_CHECKOUT_EDIT/u);
+  browser.handleInput("\r");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.match(render(), /MANUAL_CHECKOUT_EDIT/u);
+  assert.equal(diffReads, 3);
+  const beforeRemoval = loaded;
+  loaded = { ...loaded, attempts: [] };
+  await browser.refresh();
+  assert.doesNotMatch(render(), /MANUAL_CHECKOUT_EDIT/u);
+  loaded = beforeRemoval;
+  await browser.refresh();
+  assert.doesNotMatch(render(), /MANUAL_CHECKOUT_EDIT/u);
+  browser.handleInput("\t");
+  render();
+  browser.handleInput("\r");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.match(render(), /MANUAL_CHECKOUT_EDIT/u);
+  assert.equal(diffReads, 4);
   browser.handleInput("\t");
   render();
   browser.handleInput("\r");
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(retried, attempt.id);
+  assert.match(render(), /RETRY_UNCERTAIN/u);
+  assert.doesNotMatch(render(), /MANUAL_CHECKOUT_EDIT/u);
+  retryFails = false;
+  browser.handleInput("\r");
+  await new Promise((resolve) => setTimeout(resolve, 0));
   assert.match(render(), /Retry queued/u);
+  assert.doesNotMatch(render(), /MANUAL_CHECKOUT_EDIT/u);
+  let release: ((value: string) => void) | undefined;
+  diffState.pending = new Promise<string>((resolve) => {
+    release = resolve;
+  });
+  browser.handleInput("\x1b[Z");
+  assert.match(render(), /› ↗ Open retained diff/u);
+  browser.handleInput("\r");
+  render();
+  browser.handleInput("\t");
+  assert.match(render(), /› ↗ Retry attempt/u);
+  browser.handleInput("\r");
+  assert(release !== undefined);
+  release("LATE_OLD_DIFF");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.doesNotMatch(render(), /LATE_OLD_DIFF/u);
 });
 
 await test("narrow and wide inspectors explain missing evidence and block unsafe recovery", () => {

@@ -61,7 +61,12 @@ export class TaskBrowser {
   private bodyHeight = 1;
   private busy = false;
   private notice = "";
-  private readonly diffs = new Map<string, string>();
+  private readonly diffs = new Map<
+    string,
+    { evidence: string; text: string; capturedAt: string }
+  >();
+  private readonly diffRequests = new Map<string, number>();
+
   private closed = false;
   private pendingInspection:
     | { id: string; origin: string | undefined }
@@ -80,6 +85,20 @@ export class TaskBrowser {
     this.rows = taskTree(snapshot.tasks);
     this.selected = initialId ?? this.rows[0]?.task.id;
     this.focus = initialId === undefined ? "tree" : "inspector";
+  }
+
+  private diffEvidence(
+    attempt: import("../execution/store.ts").Execution,
+  ): string {
+    // Lease renewal does not change the retained checkout or its execution evidence.
+    return JSON.stringify({ ...attempt, heartbeatAt: undefined });
+  }
+
+  private clearDiff(id: string): number {
+    this.diffs.delete(id);
+    const request = (this.diffRequests.get(id) ?? 0) + 1;
+    this.diffRequests.set(id, request);
+    return request;
   }
 
   invalidate(): void {}
@@ -217,7 +236,12 @@ export class TaskBrowser {
           action: { kind: "diff", id: owned.id },
         });
         const diff = this.diffs.get(owned.id);
-        if (diff !== undefined) text(diff);
+        if (diff !== undefined) {
+          text(
+            `Captured diff snapshot · ${diff.capturedAt}. Re-open retained diff to refresh after checkout edits; this view is not live.`,
+          );
+          text(diff.text);
+        }
       }
       if (this.snapshot.retryBlocked?.has(owned.id) === true)
         text(
@@ -404,6 +428,14 @@ export class TaskBrowser {
   }
 
   private update(snapshot: TaskSnapshot): void {
+    for (const [id, cached] of this.diffs) {
+      const attempt = snapshot.attempts.find((row) => row.id === id);
+      if (
+        attempt === undefined ||
+        cached.evidence !== this.diffEvidence(attempt)
+      )
+        this.clearDiff(id);
+    }
     const selected = this.selected;
     this.restoreAction = this.actions[this.activeAction]?.action;
     const index = this.rows.findIndex((row) => row.task.id === this.selected);
@@ -544,6 +576,7 @@ export class TaskBrowser {
         this.inspect(action.id);
       } else if (action?.kind === "retry" && this.source.retry !== undefined) {
         const retry = this.source.retry;
+        this.clearDiff(action.id);
         this.run(async () => {
           await retry(action.id);
           this.update(await this.source.load());
@@ -557,18 +590,31 @@ export class TaskBrowser {
           (item) => item.id === action.id,
         );
         const diff = this.source.diff;
-        if (attempt !== undefined)
+        if (attempt !== undefined) {
+          const request = this.clearDiff(attempt.id);
+          const evidence = this.diffEvidence(attempt);
           this.run(async () => {
             const result = await diff(attempt);
-            this.diffs.set(
-              attempt.id,
-              result.length > 0
-                ? result
-                : "No retained changes in the tracked diff.",
+            const current = this.snapshot.attempts.find(
+              (row) => row.id === attempt.id,
             );
+            if (
+              this.diffRequests.get(attempt.id) === request &&
+              current !== undefined &&
+              this.diffEvidence(current) === evidence
+            )
+              this.diffs.set(attempt.id, {
+                evidence,
+                capturedAt: new Date().toLocaleTimeString(),
+                text:
+                  result.length > 0
+                    ? result
+                    : "No retained changes in the tracked diff.",
+              });
           }).catch((error: unknown) => {
             this.report(error);
           });
+        }
       } else if (this.actions.length > 0) this.activeAction = 0;
     } else if (
       matchesKey(input, NavigationKey.Right) &&
