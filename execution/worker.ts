@@ -60,6 +60,36 @@ const taskMetadata = z.looseObject({
   delivery: z.enum(TaskDelivery).optional(),
   blockedBy: z.array(z.string()).optional(),
 });
+export function startAssignmentHeartbeat(
+  renew: () => Promise<void>,
+  renewed: () => void,
+  failed: (error: unknown) => void,
+  schedule = (tick: () => void) => {
+    const timer = setInterval(tick, 15000);
+    return () => {
+      clearInterval(timer);
+    };
+  },
+): () => Promise<void> {
+  let stopped = false;
+  let pending: Promise<void> | undefined;
+  const unschedule = schedule(() => {
+    if (stopped || pending !== undefined) return;
+    pending = renew()
+      .then(renewed)
+      .catch(failed)
+      .finally(() => {
+        pending = undefined;
+      });
+  });
+  return async () => {
+    if (!stopped) {
+      stopped = true;
+      unschedule();
+    }
+    await pending;
+  };
+}
 export async function executeAssignment(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
@@ -71,8 +101,7 @@ export async function executeAssignment(
   const controller = new AbortController();
   const abort = AbortSignal.any([signal, controller.signal]);
   const failure: { heartbeat?: string } = {};
-  const lease: { pending: Promise<void> | undefined } = { pending: undefined };
-  let timer: ReturnType<typeof setInterval> | undefined;
+  let stopHeartbeat: (() => Promise<void>) | undefined;
   try {
     let attempt = store.attempt(id);
     const project = store.project(attempt.project);
@@ -154,23 +183,19 @@ export async function executeAssignment(
         );
     };
     await heartbeat(project, id, attempt.bead.id);
-    timer = setInterval(() => {
-      if (lease.pending !== undefined) return;
-      lease.pending = heartbeat(project, id, attempt.bead?.id ?? "")
-        .then(() => {
-          store.change(id, (row) => {
-            row.heartbeatAt = Date.now();
-          });
-        })
-        .catch((error: unknown) => {
-          failure.heartbeat =
-            error instanceof Error ? error.message : String(error);
-          controller.abort();
-        })
-        .finally(() => {
-          lease.pending = undefined;
+    stopHeartbeat = startAssignmentHeartbeat(
+      () => heartbeat(project, id, attempt.bead?.id ?? ""),
+      () => {
+        store.change(id, (row) => {
+          row.heartbeatAt = Date.now();
         });
-    }, 15000);
+      },
+      (error) => {
+        failure.heartbeat =
+          error instanceof Error ? error.message : String(error);
+        controller.abort();
+      },
+    );
     await check();
     attempt = await withAllocation(store, attempt.id, check, () =>
       prepareCheckout(store, attempt, project),
@@ -485,6 +510,8 @@ export async function executeAssignment(
       );
       if (!review.approved) throw new Error(review.summary);
     });
+    // Drain lease renewal before closing Beads, then recheck any renewal failure and current authority.
+    await stopHeartbeat();
     await check();
     await service.finishAccepted(
       beadSchema.parse(attempt.bead),
@@ -497,8 +524,7 @@ export async function executeAssignment(
         "Accepted result is integrated and Beads completion is confirmed";
     });
   } finally {
-    if (timer !== undefined) clearInterval(timer);
-    await lease.pending;
+    await stopHeartbeat?.();
     store.close();
   }
 }
