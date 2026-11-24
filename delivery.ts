@@ -52,18 +52,20 @@ const mailbox = z.object({
 
 export async function octo(cwd: string, ...args: string[]): Promise<unknown> {
   const executable = await requireIntegration(await loadConfig(), "octo");
-  return JSON.parse(
-    await run(executable, [...args, "--json"], {
-      cwd,
-      env: {
-        ...process.env,
-        OCTO_MANAGER_AGENT: "0",
-        CODEX_THREAD_ID: undefined,
-        OCTO_MANAGER_AGENT_ID: undefined,
-      },
-      timeout: 15_000,
-    }),
-  );
+  const output = await run(executable, [...args, "--json"], {
+    cwd,
+    env: {
+      ...process.env,
+      OCTO_MANAGER_AGENT: "0",
+      CODEX_THREAD_ID: undefined,
+      OCTO_MANAGER_AGENT_ID: undefined,
+    },
+    timeout: 15_000,
+  });
+  // Octo authors publication instructions as Markdown, even with --json.
+  // All other commands must retain their strict structured-response contract.
+  if (args[0] === "pr" && args[1] === "instructions") return output;
+  return JSON.parse(output);
 }
 
 export async function refreshPublication(
