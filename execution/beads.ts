@@ -321,7 +321,7 @@ export async function verifyHeartbeatAuthority(
         await run(
           project.beadsExecutable,
           ["-C", project.beadsWorkspace, "context", "--json"],
-          { timeout: 15000 },
+          { cwd: project.beadsWorkspace, timeout: 15000 },
         ),
       ),
     );
@@ -357,6 +357,6 @@ export async function heartbeat(
       "heartbeat",
       bead,
     ],
-    { timeout: 15000 },
+    { cwd: project.beadsWorkspace, timeout: 15000 },
   );
 }

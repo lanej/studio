@@ -22,7 +22,7 @@ export function knownTaskStatus(value: string): TaskStatus | undefined {
   return parsed.success ? parsed.data : undefined;
 }
 
-function knownRelationship(value: string): TaskRelationship | undefined {
+export function knownRelationship(value: string): TaskRelationship | undefined {
   const parsed = z.enum(TaskRelationship).safeParse(value);
   return parsed.success ? parsed.data : undefined;
 }

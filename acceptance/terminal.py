@@ -31,6 +31,7 @@ parser.add_argument("--task-review", action="store_true", help="Exercise empty p
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 palette = json.loads((root / "resources/colors.json").read_text())
+theme = json.loads((root / "resources/theme.json").read_text())["colors"]
 output = Path(args.output)
 output.mkdir(parents=True, exist_ok=True)
 
@@ -68,6 +69,7 @@ class DiscoveryProvider(BaseHTTPRequestHandler):
             **{f"/v0/beads/issues/{task['id']}": task for task in review_tasks},
         }
         if path == "/v0/beads/issues":
+            self.server.issue_reads += 1
             status, body = self.server.issue_listing
         else:
             status, body = (200, pages[path]) if path in pages else (404, {})
@@ -77,6 +79,7 @@ class DiscoveryProvider(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(body).encode())
 
     def do_POST(self):
+        self.server.responses += 1
         request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         prompt = "\n".join(str(message.get("content", "")) for message in request["messages"] if message["role"] == "system")
         if args.task_review:
@@ -120,14 +123,15 @@ with tempfile.TemporaryDirectory(prefix="studio-terminal-") as directory, Thread
     boundary.write_text('''#!/usr/bin/env python3
 import json, sys
 if '--readonly' not in sys.argv: raise SystemExit(31)
-if 'sql' in sys.argv: print(json.dumps([{'branch':'main'}]))
-elif 'list' in sys.argv: print(json.dumps([
+tasks = [
     {'id':'daily-1','title':'Studio','status':'in_progress'},
-    {'id':'daily-1.1','title':'Idle compaction','status':'open','parent':'daily-1'},
+    {'id':'daily-1.1','title':'Idle compaction','status':'open','parent':'daily-1','description':'Compact settled sessions after five minutes and 60%.','acceptance_criteria':'Preserve drafts, task identity, and pending effects.'},
     {'id':'daily-1.1.1','title':'Check idle guard','status':'closed','parent':'daily-1.1'},
-    {'id':'daily-1.2','title':'Deliver through Octo','status':'open','parent':'daily-1'},
-]))
-elif 'show' in sys.argv: print(json.dumps([{'id':sys.argv[-1],'title':'Idle compaction','status':'open','parent':'daily-1','description':'Compact settled sessions after five minutes and 60%.','acceptance_criteria':'Preserve drafts, task identity, and pending effects.'}]))
+    {'id':'daily-1.2','title':'Deliver through Octo','status':'open','parent':'daily-1','dependencies':[{'id':'daily-1.1','dependency_type':'blocks'}]},
+]
+if 'sql' in sys.argv: print(json.dumps([{'branch':'main'}]))
+elif 'list' in sys.argv: print(json.dumps(tasks))
+elif 'show' in sys.argv: print(json.dumps([next(task for task in tasks if task['id']==sys.argv[-1])]))
 ''')
     boundary.chmod(0o755)
     if args.task_review:
@@ -194,6 +198,8 @@ for (const bead of {json.dumps(review_tasks)}.filter(task => task.assignee)) {{
 store.close();
 """
         subprocess.run(["bun", "--no-env-file", "-e", seed_reviews], cwd=root, env=env, check=True)
+    provider.issue_reads = 0
+    provider.responses = 0
     font_size = 18 if args.task_review else 14
     try:
         font = ImageFont.truetype("/System/Library/Fonts/Menlo.ttc", font_size)
@@ -202,7 +208,7 @@ store.close();
         font = ImageFont.truetype("DejaVuSansMono.ttf", font_size)
         bold = ImageFont.truetype("DejaVuSansMono-Bold.ttf", font_size)
     cell_width, cell_height = (11, 23) if args.task_review else (9, 18)
-    viewports = [(124, 25), (60, 24)] if args.task_review else [(100, 26), (60, 20)]
+    viewports = [(80, 24), (60, 20)]
     for columns, rows in viewports:
         master, slave = os.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0))
@@ -286,48 +292,88 @@ store.close();
                 os.write(master, b"/tasks\r")
                 wait_text("No tasks yet")
                 empty_view = "\n".join(screen.display)
-                for label in ["Tasks", "/plan-draft <description>", "Esc Close"]:
+                for label in ["Tasks", "/plan-draft <description>", "Alt+T inspect"]:
                     assert label in empty_view, empty_view
                 assert review_project not in empty_view, empty_view
+                assert "Tasks · Beads" in empty_view, empty_view
                 assert "Review finding" not in empty_view and "Changes requested" not in empty_view, empty_view
                 assert all(task["title"] not in empty_view for task in review_tasks), empty_view
                 capture("task-empty")
-                os.write(master, b"\x1b")
+                os.write(master, b"/tasks close\r")
                 pump(.35)
                 assert "No tasks yet" not in "\n".join(screen.display), screen.display
 
                 provider.issue_listing = (200, {"items": review_tasks, "has_more": False})
                 os.write(master, b"/tasks\r")
-                wait_text("No details recorded.")
-                assert "Diff presentation" in "\n".join(screen.display), screen.display
-                os.write(master, b"j")
+                wait_text("Diff presentation")
+                os.write(master, b"jk background draft")
+                pump(.2)
+                passive = "\n".join(screen.display)
+                assert any("›" in line and "Diff presentation" in line for line in screen.display), screen.display
+                assert "jk background draft" in passive, passive
+                capture("task-status-panel")
+                completed = [dict(task, status="closed") if task["id"] == "ui-12.1" else task for task in review_tasks]
+                provider.issue_listing = (200, {"items": completed, "has_more": False})
+                wait_until(lambda: any("● Inline replacements" in line for line in screen.display), timeout=8)
+                assert "jk background draft" in "\n".join(screen.display), screen.display
+                assert "Alt+T inspect" in "\n".join(screen.display), screen.display
+                capture("task-status-updated")
+                # A provider response confirms the lead accepts submissions with the panel open.
+                os.write(master, b"\x15")
+                before_response = provider.responses
+                os.write(master, (review_question + "\r").encode())
+                wait_until(lambda: provider.responses > before_response)
+                pump(.5)
+                assert "Alt+T inspect" in "\n".join(screen.display), screen.display
+                provider.issue_listing = (200, {"items": review_tasks, "has_more": False})
+                os.write(master, b"\x1bt")
+                wait_text("Esc lead")
+                os.write(master, b"r")
                 pump(.4)
+                os.write(master, b"j\r")
+                pump(.5)
                 text = "\n".join(screen.display)
-                for label in ["Inline replacements", "Changes requested", "Reviewing", "chooseLayout()", "renderDiff()", "Acceptance criteria"]:
+                for label in ["Inline replacements", "The reviewer found:", "chooseLayout()", "renderDiff()"]:
                     assert label in text, text
-                if columns == 60:
-                    assert any(line.startswith("╭") and line.endswith("╮") for line in screen.display), text
+                assert "Changes requested" not in text and "Reviewing" not in text, text
                 assert "activation.ts" not in text and "Extension \"" not in text, text
                 capture("task-readability-review")
-                os.write(master, b"\r")
-                wait_text("Scope")
-                assert "Inline replacements" in "\n".join(screen.display), screen.display
                 os.write(master, b"\x1b")
-                pump(.35)
-                assert "Review finding" not in "\n".join(screen.display), screen.display
-                # A direct lookup uses the same inspector with the whole finding scrollable.
+                wait_text("Alt+T inspect")
+                os.write(master, b"preserved lead draft")
+                pump(.2)
+                os.write(master, b"\x1bt")
+                wait_text("Esc lead")
+                assert "Inline replacements" in "\n".join(screen.display), screen.display
+                os.write(master, b"\x1b[D")
+                pump(.2)
+                assert any("›" in line and "Inline replacements" in line for line in screen.display), screen.display
+                os.write(master, b"q")
+                pump(.3)
+                assert "Alt+T inspect" not in "\n".join(screen.display), screen.display
+                assert "preserved lead draft" in "\n".join(screen.display), screen.display
+                os.write(master, b"\x15")
+                # A direct lookup opens passively too; focus must still be explicit.
                 os.write(master, b"/tasks ui-12.1\r")
-                wait_text("Scope")
+                wait_text("The reviewer found:")
+                assert "Alt+T inspect" in "\n".join(screen.display), screen.display
+                provider.issue_listing = (503, {"code": "unavailable", "reason": "Service unavailable"})
+                wait_text("Beads HTTP 503", timeout=8)
                 assert "Inline replacements" in "\n".join(screen.display), screen.display
-                os.write(master, b"\x1b")
-                pump(.35)
-                assert "Review finding" not in "\n".join(screen.display), screen.display
+                capture("task-status-unavailable")
+                provider.issue_listing = (200, {"items": review_tasks, "has_more": False})
+                wait_until(lambda: "Beads HTTP 503" not in "\n".join(screen.display), timeout=8)
+                os.write(master, b"/tasks close\r")
+                pump(.3)
+                reads = provider.issue_reads
+                pump(5.3)
+                assert provider.issue_reads == reads, (reads, provider.issue_reads)
                 provider.issue_listing = (503, {"code": "unavailable", "reason": "Service unavailable"})
                 os.write(master, b"/tasks\r")
                 wait_text("Beads HTTP 503")
                 assert "No tasks yet" not in "\n".join(screen.display), screen.display
 
-                # Bind the existing unapproved draft. Opening the drawer must leave approval with the lead.
+                # Opening tasks never approves the existing unapproved draft.
                 os.write(master, f"/socrates {discovery_id}\r".encode())
                 wait_text("When should work begin?")
                 os.write(master, b"\x1b")
@@ -337,7 +383,7 @@ store.close();
                 wait_text("No tasks yet")
                 empty_draft = "\n".join(screen.display)
                 assert "Review your draft with /plan." in empty_draft and "/plan-draft" not in empty_draft, empty_draft
-                os.write(master, b"\x1b")
+                os.write(master, b"/tasks close\r")
                 pump(.35)
                 os.write(master, b"/plan\r")
                 wait_text("Review before creating tasks")
@@ -349,7 +395,7 @@ store.close();
             capture("daily-driver")
             os.write(master, f"/socrates {discovery_id}\r".encode())
             pump(.5)
-            if columns == 100:
+            if columns == 80:
                 assert "When should work begin?" in "\n".join(screen.display), screen.display
                 capture("discovery-question")
                 os.write(master, b"\r")
@@ -378,7 +424,7 @@ store.close();
             assert "Keep the lead free for research" in "\n".join(screen.display), screen.display
             os.write(master, b"\x1b")
             pump(.2)
-            if columns == 100:
+            if columns == 80:
                 os.write(master, b"/spec-freeze\r")
                 pump(.3)
                 assert "Freeze specification" in "\n".join(screen.display), screen.display
@@ -396,24 +442,42 @@ store.close();
             restore_transcript()
             os.write(master, b"/tasks\r")
             pump(1)
-            rendered = "\n".join(screen.display)
-            for label in ["Tasks", "Studio", "Idle compaction", "Check idle guard", "Deliver through Octo"]:
-                assert label in rendered, screen.display
-            for tree in ["├─ Idle compaction", "│  └─ Check idle guard", "└─ Deliver through Octo"]:
-                assert tree in rendered, screen.display
-            progress = [(y, line.index("◐")) for y, line in enumerate(screen.display) if "◐" in line]
-            opened = [(y, line.index("○")) for y, line in enumerate(screen.display) if "○" in line]
-            assert progress and opened, screen.display
-            for (y, x), tone in [(progress[0], "accent"), (opened[0], "text.muted")]:
-                assert x >= columns // 4, screen.display
-                assert screen.buffer[y][x].fg.upper() == palette["roles"][tone].lstrip("#"), screen.display
+            view = "\n".join(screen.display)
+            assert "◐ Studio" in view and "Idle compaction" in view and "Deliver through Octo" in view, screen.display
+            assert "daily-1" not in view and "Status:" not in view, screen.display
+            for noise in ["navigation", "Pi can explain", "[Extensions]", "[Extension issues]", "Warning: Extension", "idle compact", "escape/ctrl+c"]:
+                assert noise not in view, screen.display
+            colors = {screen.buffer[y][x].fg.upper() for y in range(rows) for x in range(columns)}
+            assert palette["roles"]["accent"].lstrip("#") in colors, colors
+            assert "├─ ○ Idle compaction" in view and "│  └─ ● Check idle guard" in view, screen.display
+            if columns == 80:
+                selected_row = next(y for y, line in enumerate(screen.display) if "›" in line and "◐ Studio" in line)
+                assert screen.buffer[selected_row][columns-3].bg.upper() == theme["userMessageBg"].lstrip("#"), screen.display
             capture("tasks")
+            os.write(master, b"\x1bt")
+            wait_text("Esc lead")
             os.write(master, b"j\r")
             pump(.5)
-            assert "Acceptance" in "\n".join(screen.display), screen.display
-            assert "Read-only observation" not in "\n".join(screen.display)
-            capture("task-details")
+            view = "\n".join(screen.display)
+            assert "Brief & acceptance" in view and "Execution evidence" in view, screen.display
+            assert "Preserve drafts" not in view and "daily-1" not in view, screen.display
+            capture("task-inspector")
+            os.write(master, b"\t\t\t\r")
+            pump(.3)
+            if columns == 60:
+                os.write(master, b"jjj")
+                pump(.2)
+            assert "Preserve drafts" in "\n".join(screen.display), screen.display
+            capture("task-brief")
+            os.write(master, b"\x1b[D")
+            pump(.2)
+            assert any("›" in line and "Idle compaction" in line for line in screen.display), screen.display
+            os.write(master, b"r")
+            pump(.4)
+            assert any("›" in line and "Idle compaction" in line for line in screen.display), screen.display
             os.write(master, b"\x1b")
+            pump(.2)
+            os.write(master, b"/tasks close\r")
             pump(.2)
             os.write(master, b"/archives\r")
             pump(.5)
@@ -455,12 +519,12 @@ store.close();
             os.write(master, b"unfinished instruction")
             wait_text("unfinished instruction")
         finally:
+            os.close(master)
             process.terminate()
             try: process.wait(timeout=5)
-            except subprocess.TimeoutExpired: process.kill(); process.wait()
-            os.close(master)
+            except subprocess.TimeoutExpired: process.kill(); process.wait(timeout=5)
     provider.shutdown()
 if args.task_review:
-    print("Native empty project, review selection, direct lookup, return to the lead, and service errors passed at both terminal widths.")
+    print("Native passive task updates, retained lead input, deliberate focus/return, review details, close cleanup, and service recovery passed at 80x24 and 60x20.")
 else:
     print("Native Pi discovery answer/resume, breakdown review, tree selection, directory switching, and draft editing passed.")

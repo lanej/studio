@@ -1,4 +1,6 @@
-import { activeTaskReviews } from "./execution/store.ts";
+import { basename } from "node:path";
+import { TaskPanel } from "./tasks/panel.ts";
+import { readTaskEvidence } from "./tasks/evidence.ts";
 import { registerProjectPolicy } from "./execution/policy.ts";
 import { registerDiscovery } from "./discovery/extension.ts";
 import {
@@ -19,9 +21,8 @@ import { directoryProfileType, registerDirectory } from "./directory.ts";
 import {
   BeadsReader,
   knownTaskStatus,
-  taskSchema,
-  taskTree,
   TaskStatus,
+  taskSchema,
 } from "./beads.ts";
 import { delegateTool, registerDelegation } from "./delegation.ts";
 import { TaskBeads } from "./task-service.ts";
@@ -43,7 +44,6 @@ import {
   piModeSchema,
 } from "./runtime.ts";
 import { focusTaskPane, taskPaneBeads } from "./task-run.ts";
-import { openTaskDrawer, TaskAction } from "./ui.ts";
 
 const attemptType = "studio:idle-attempt";
 const attemptSchema = z.object({ historyId: z.string() });
@@ -60,6 +60,7 @@ export default function studioExtension(
   registerActivationAdmission(pi);
   const intelligence = registerCodeIntelligence(pi);
   const idle = new IdleSession();
+  const tasks = new TaskPanel();
   let removeInputListener: (() => void) | undefined;
   let lifecycle = 0;
   let selectedProfile = managed?.profile;
@@ -211,6 +212,7 @@ export default function studioExtension(
   };
 
   pi.on(PiEvent.SessionStart, async (_event, ctx) => {
+    tasks.close();
     idle.newSession();
     selectedProfile = managed?.profile;
     if (managed === undefined) {
@@ -234,6 +236,7 @@ export default function studioExtension(
     await initialize(ctx);
   });
   pi.on(PiEvent.SessionShutdown, () => {
+    tasks.close();
     release();
   });
   pi.on(PiEvent.SessionTree, async (_event, ctx) => initialize(ctx));
@@ -261,10 +264,23 @@ export default function studioExtension(
     else idle.toolStart(event.toolName);
   });
 
+  pi.registerShortcut("alt+t", {
+    description: "Focus the open task panel; Escape returns to the lead",
+    handler: () => {
+      tasks.focus();
+    },
+  });
   pi.registerCommand("tasks", {
-    description: "Inspect the authoritative Beads containment tree (read-only)",
+    description:
+      "Show live Beads tasks without taking focus; use /tasks close to dismiss",
     handler: async (argument, ctx) => {
+      if (argument.trim() === "close") {
+        tasks.close();
+        return;
+      }
+      const generation = lifecycle;
       const config = await loadConfig();
+      if (generation !== lifecycle) return;
       if (config.beads === undefined && config.beadsService === undefined) {
         ctx.ui.notify(
           "Configure a Beads service or read-only workspace in your Studio configuration. Run studio config --example for a service example.",
@@ -288,74 +304,65 @@ export default function studioExtension(
             ? undefined
             : new BeadsReader(config.beads);
       if (reader === undefined) return;
-      const project = config.beadsService?.projectId;
-      const label = project ?? config.beads?.database ?? "";
-      let id = argument.trim();
-      if (id.length === 0) {
-        const tasks = await reader.list();
-        if (tasks.length === 0) {
-          const source = config.beadsService;
-          const database =
-            source === undefined
-              ? label
-              : (config.runtime.projects.find(
-                  (p) =>
-                    p.source.projectId === source.projectId &&
-                    p.source.url === source.url,
-                )?.beadsDatabase ?? "");
-          const canPlan =
-            discovery !== undefined &&
-            source !== undefined &&
-            source.reviewOnly !== true;
-          await openTaskDrawer(ctx, [], database, {
-            emptyAction: canPlan
-              ? discovery.hasSelectedDraft(ctx)
-                ? "review"
-                : "draft"
-              : undefined,
-          });
-          return;
-        }
-        const rows = taskTree(tasks);
-        const reviews = activeTaskReviews(project, tasks);
-        const live =
-          config.beadsService === undefined
-            ? new Set<string>()
-            : await taskPaneBeads(config.beadsService.projectId);
-        const selection = await openTaskDrawer(
-          ctx,
-          rows.map((row) => ({
-            row,
-            review: reviews.get(row.task.id),
-            canFocus:
-              live.has(row.task.id) &&
-              knownTaskStatus(row.task.status) === TaskStatus.InProgress,
-          })),
-          label,
-          { limitReached: tasks.length === 1000 },
-        );
-        if (selection === undefined) return;
-        if (
-          selection.action === TaskAction.FocusPane &&
-          config.beadsService !== undefined
-        ) {
-          await focusTaskPane(config.beadsService, selection.id);
-          return;
-        }
-        id = selection.id;
-      }
-      const task = await reader.show(id);
-      await openTaskDrawer(
+      const projectId = config.beadsService?.projectId;
+      const project = config.runtime.projects.find(
+        (item) =>
+          item.source.projectId === projectId &&
+          item.source.url === config.beadsService?.url,
+      );
+      await tasks.open(
         ctx,
-        [
-          {
-            row: { task, depth: 0 },
-            review: activeTaskReviews(project, [task]).get(task.id),
-            canFocus: false,
+        {
+          key: JSON.stringify([
+            ctx.sessionManager.getSessionId(),
+            ctx.cwd,
+            config.beadsService,
+            config.beads,
+          ]),
+          focusPane: async (id) => {
+            if (config.beadsService !== undefined)
+              await focusTaskPane(config.beadsService, id);
           },
-        ],
-        label,
-        { detailOnly: true },
+          label:
+            project === undefined
+              ? config.beadsService === undefined
+                ? basename(config.beads?.workspace ?? ctx.cwd)
+                : "Beads"
+              : basename(project.root),
+          identity: projectId ?? config.beads?.database ?? "",
+          emptyHint:
+            discovery !== undefined &&
+            config.beadsService !== undefined &&
+            config.beadsService.reviewOnly !== true
+              ? discovery.hasSelectedDraft(ctx)
+                ? "Review your draft with /plan."
+                : "Draft a plan with /plan-draft <description>."
+              : "Tasks added in Beads will appear here.",
+          show: (id) => reader.show(id),
+          load: async () => {
+            const tasks = await reader.list();
+            const live =
+              projectId === undefined
+                ? new Set<string>()
+                : await taskPaneBeads(projectId);
+            return {
+              tasks,
+              ...readTaskEvidence(projectId),
+              observedAt: new Date().toLocaleTimeString(),
+              focusable: new Set(
+                tasks
+                  .filter(
+                    (task) =>
+                      live.has(task.id) &&
+                      knownTaskStatus(task.status) === TaskStatus.InProgress,
+                  )
+                  .map((task) => task.id),
+              ),
+              limitReached: tasks.length === 1000,
+            };
+          },
+        },
+        argument.trim().length === 0 ? undefined : argument.trim(),
       );
     },
   });

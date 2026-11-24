@@ -45,7 +45,11 @@ Dotfiles registers this checkout as `studio`; its updater and installer use the 
 
 Export standalone source with `python3 scripts/export.py /path/to/empty-destination`. See [source provenance and integration ownership](EXTRACTION.md).
 
-The theme comes from a bundled snapshot of the shared semantic adapter, with Nord selected by the current design-system preset. The terminal retains its canvas and opacity settings. The task drawer opens on the right of the lead console and uses the full width below 80 columns. Moving through the tree shows the selected task’s acceptance criteria alongside its review finding or, when there is no finding, its scope. Enter opens the full details in the drawer. Right focuses a task’s live managed Pi pane when available. An empty project shows where to start a plan or review the current draft. Read-only sessions show where tasks come from. The footer shows the current directory using [shortpath](https://github.com/lanej/dotfiles/blob/master/tools/shortpath/README.md) when it is on PATH. Colored glyphs mark the lead mode and reasoning level alongside the bead ID and model. The same row fits Git changes, the Octo-tracked PR, context usage, and estimated session cost as space allows. GPT model IDs show a provider glyph, version, and variant glyph for Sol, Luna, Terra, and Astra. Secondary fields collapse as the pane narrows, and other extensions retain their status lines. Startup hints, resource listings, zero-usage counters, and the permanent compaction-policy line are hidden. Bash tool cards highlight shell syntax in command lines. Code from Pi’s grep tool and supported `rg` and `sed` shell tool calls uses the active syntax theme. Pi’s output folding and truncation remain available. Actionable errors remain visible.
+The theme comes from a bundled snapshot of the shared semantic adapter, with Nord selected by the current design-system preset. The terminal retains its canvas and opacity settings. `/tasks` opens a live status panel while input stays with the lead. It refreshes every five seconds, retaining selection, disclosures and scroll position; a failed refresh keeps the last observation and shows the error. Press Alt+T to focus the panel, then Escape or Alt+T to return to the lead with the panel still open. Use `/tasks close`, or q inside the panel, to dismiss it. The panel uses at most 80 columns and 24 rows and leaves five terminal rows for the lead. At 60 columns it switches between the tree and inspector. Icons carry task state; IDs and raw Beads values stay behind Identity. Uses and Feeds links show dependencies by title, while concise prose distinguishes authoritative task data from the last recorded local execution evidence. Briefs, acceptance criteria and execution receipts expand on demand. Inside the panel, use j/k or arrows to move or scroll, Enter to inspect, Tab/Shift-Tab to select links and disclosures, Left to return to the same tree row, and r to refresh immediately. Right focuses a live managed Pi pane when available. Current-owner reviewer findings remain visible in the inspector, and an empty project shows the applicable planning step or its read-only Beads source guidance.
+
+![Live task panel with a lead draft retained during background updates, reconstructed from native terminal output](docs/assets/task-status-panel.png)
+
+The footer shows the current directory using [shortpath](https://github.com/lanej/dotfiles/blob/master/tools/shortpath/README.md) when it is on PATH. Colored glyphs mark the lead mode and reasoning level alongside the bead ID and model. The same row fits Git changes, the Octo-tracked PR, context usage, and estimated session cost as space allows. GPT model IDs show a provider glyph, version, and variant glyph for Sol, Luna, Terra, and Astra. Secondary fields collapse as the pane narrows, and other extensions retain their status lines. Startup hints, resource listings, zero-usage counters, and the permanent compaction-policy line are hidden. Bash tool cards highlight shell syntax in command lines. Code from Pi’s grep tool and supported `rg` and `sed` shell tool calls uses the active syntax theme. Pi’s output folding and truncation remain available. Actionable errors remain visible.
 
 In Studio’s terminal, inline tool images use their native pixel size when they fit. Press `Ctrl+O` to expand tool output and magnify smaller images to fit the pane. To use a fixed width, open `/settings` and change **Image width** from **auto** to a column count. A monochrome Nerd Font brain icon marks each thinking block. Expanded prose wraps at 88 columns in wide panes. Click a block to fold it individually, or press `Ctrl+T` to toggle thinking across the conversation.
 
@@ -212,13 +216,13 @@ The native Beads probe uses a disposable service to race claims, edit the accept
 The capture shows the native worker and verified Beads result in an isolated Zellij session with the installed `dotfiles` theme, `tmux` layout, and `lane-status` bar. The trial used a deterministic loopback provider.
 
 
-The separately invoked `uv run --script acceptance/terminal.py --output docs/assets` exercises tree navigation, task details, Escape recovery, directory switching, invalid-directory recovery, and draft entry through actual Pi PTYs with a controlled Beads boundary. It checks the native theme colors, filled status pills and absence of startup/helper text. The retained renders preserve terminal-cell colors and crop unused terminal rows; they do not establish live provider behavior.
+The separately invoked `uv run --script acceptance/terminal.py --output docs/assets` exercises tree navigation, task details, Escape recovery, directory switching, invalid-directory recovery, and draft entry through actual Pi PTYs with a controlled Beads boundary. It checks native theme colors, title-first icons, collapsed identity and evidence, dependency links, and selection preservation after returning or refreshing at 80×24 and 60×20. The retained images reconstruct native PTY cells; they do not establish desktop font rendering or live provider behavior.
 
 ![Native Pi task browser at 60 columns](docs/assets/tasks-60.png)
 
-![Native Pi task browser at 100 columns](docs/assets/tasks-100.png)
+![Native Pi task browser at 80 columns](docs/assets/tasks-80.png)
 
-![Native Pi task details at 60 columns](docs/assets/task-details-60.png)
+![Native Pi task inspector at 60 columns](docs/assets/task-inspector-60.png)
 
 ## Delegation and archives
 
@@ -228,7 +232,7 @@ Studio loads the pinned tintinweb runner through a small adapter. The configurat
 
 Run `/archives` to search and preview archived lead sessions alongside existing Session Snap archives. The default database is `~/.pi/agent/session-archive.db`. Set `archives.database` to an absolute alternate path when needed. The picker shows up to the latest 1,000 archived sessions and opens a local, bounded preview. It opens the database read-only and does not modify transcript history.
 
-Verify real delegation with `bun run test:delegation-native` and an installed native worktree manager. The terminal acceptance script also exercises archive search and preview at 60 and 100 columns.
+Verify real delegation with `bun run test:delegation-native` and an installed native worktree manager. The terminal acceptance script also exercises archive search and preview at 60 and 80 columns.
 
 ## Standalone acceptance
 
