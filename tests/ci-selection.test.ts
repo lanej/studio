@@ -93,10 +93,21 @@ await test("shared runtime inputs and the full CLI integration retain their cons
     "tests/ci-selection.test.ts",
   ])
     assert.deepEqual(await selected(path), [...workflowFiles], path);
-  assert.deepEqual(await selected("resources/socrates/host.md"), [
+  await access(fileURLToPath(new URL("../socrates/host.md", import.meta.url)));
+  assert.deepEqual(await selected("socrates/host.md"), [
     "check.yml",
     "beads.yml",
   ]);
+  assert.deepEqual(
+    (await selectedChecks(["socrates/host.md"])).flatMap((item) => item.checks),
+    [
+      "check (ubuntu-latest, minimum)",
+      "check (macos-latest, minimum)",
+      "check (ubuntu-latest, latest)",
+      "beads-native (ubuntu-latest)",
+      "beads-native (macos-latest)",
+    ],
+  );
   assert.deepEqual(await selected("vendor/task-runtime/beads.ts"), [
     "check.yml",
     "beads.yml",
@@ -119,6 +130,20 @@ await test("shared runtime inputs and the full CLI integration retain their cons
 });
 
 await test("selection detects a removed consumer edge and rejects unsupported filter syntax", async () => {
+  const guidanceConsumer = await readWorkflow("check.yml");
+  assert(
+    matchesPaths(guidanceConsumer.on.pull_request.paths, ["socrates/host.md"]),
+  );
+  assert.equal(
+    matchesPaths(
+      guidanceConsumer.on.pull_request.paths.filter(
+        (path) => path !== "socrates/host.md",
+      ),
+      ["socrates/host.md"],
+    ),
+    false,
+    "Removing the native Socrates guidance dependency must lose selection",
+  );
   const definition = await readWorkflow("lsp.yml");
   assert(
     matchesPaths(definition.on.pull_request.paths, [

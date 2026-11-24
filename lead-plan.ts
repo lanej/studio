@@ -87,6 +87,10 @@ export const leadPlanSchema = z.discriminatedUnion("mode", [
     draft: draftSchema,
     digest: z.string(),
     specificationVersion: z.number().int().positive().optional(),
+    // Beads stamp added by applyPlan after verifying the original brief at both revisions.
+    briefRevisionAdvance: z
+      .strictObject({ from: z.string().min(1), to: z.string().min(1) })
+      .optional(),
     children: childBeads,
   }),
 ]);

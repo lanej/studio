@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import termios
+import time
 
 import pyte
 from PIL import Image, ImageDraw, ImageFont
@@ -164,7 +165,10 @@ const record=store.create({json.dumps(str(project))}, 'terminal-fixture', 'Explo
 store.create({json.dumps(str(project))}, 'terminal-fixture', 'Separate research');
 store.change(record.id, row=>{{
  row.specification={{status:SpecStatus.Interrogating,version:1,acceptedRevision:row.revision,draft:{{objective:'Keep the lead free for research',scope:['Independent discovery'],requirements:[{{id:'R1',outcome:'Review proposed work',acceptance:'No tasks before approval'}}],decisions:[{{id:'D1',decision:'Choose work timing',basis:'observed',evidence:'Operator workflow',disposition:'open',uncertainty:'Need timing'}}],blockingQuestions:['When should work begin?']}},exchange:{{prompt:{{decisionId:'D1',question:'When should work begin?',options:[{{label:'After review',description:'Keep discovery free'}},{{label:'Keep exploring',description:'Leave work unqueued'}}]}}}}}};
- row.leadPlan.draft=draftSchema.parse({{summary:'Review before creating tasks',tasks:[{{key:'first',title:'Keep lead available',description:'Use separate workers',acceptance:'Lead remains free',hold:false,delivery:'local',check:['bun','test'],owns:['src']}}]}});
+ row.leadPlan.draft=draftSchema.parse({{summary:'Review before creating tasks',tasks:[
+   {{key:'first',title:'Keep lead available',description:'Use separate workers',acceptance:'Lead remains free',hold:false,delivery:'local',check:['bun','test'],owns:['src']}},
+   {{key:'verify',title:'Check the review flow',description:'Exercise the lead during review',acceptance:'Work starts after review',requirements:['R1'],blockedBy:['first']}}
+ ]}});
 }});
 const ready=store.create({json.dumps(str(project))}, 'terminal-fixture', 'Ready discovery');
 store.change(ready.id,row=>{{
@@ -207,7 +211,6 @@ store.close();
         screen = pyte.Screen(columns, rows)
         stream = pyte.ByteStream(screen)
         def pump(seconds):
-            import time
             until = time.monotonic() + seconds
             while time.monotonic() < until:
                 if select.select([master], [], [], 0.05)[0]:
@@ -215,6 +218,15 @@ store.close();
                         stream.feed(os.read(master, 65536))
                     except OSError:
                         break
+        def wait_until(predicate, timeout=12):
+            until = time.monotonic() + timeout
+            while time.monotonic() < until:
+                pump(.05)
+                if predicate():
+                    return
+                if process.poll() is not None:
+                    break
+            raise AssertionError("\n".join(screen.display))
         def capture(name):
             occupied = [y for y, line in enumerate(screen.display) if line.strip()]
             first = max(0, min(occupied) - 1)
@@ -330,7 +342,7 @@ store.close();
                 os.write(master, b"/plan\r")
                 wait_text("Review before creating tasks")
                 continue
-            wait_text("Δ1 +2 −1 ?1", timeout=45)
+            wait_until(lambda: any("tiny" in line and directory_label in line and "Δ1 +2 −1 ?1" in line for line in screen.display), timeout=45)
             footer = next((line for line in screen.display if "tiny" in line and directory_label in line), "")
             assert footer and len(footer) == columns, screen.display
             assert "↱ main" in footer and "Δ1 +2 −1 ?1" in footer, screen.display
@@ -350,9 +362,16 @@ store.close();
             assert record["specification"]["exchange"]["answer"]["text"] == "After review", record
             assert "graph" not in record and "approved" not in record, record
             os.write(master, b"/plan\r")
-            pump(.5)
-            assert "Review before creating tasks" in "\n".join(screen.display), screen.display
+            wait_until(lambda: all(text in "\n".join(screen.display) for text in
+                                   ["Specification", "Implementation", "Review before creating tasks", "Keep lead available", "Wave 2"]))
+            if columns == 100:
+                assert any("Specification" in line and "Implementation" in line for line in screen.display), screen.display
             capture("discovery-breakdown")
+            os.write(master, b"j\r")
+            wait_until(lambda: all(text in "\n".join(screen.display) for text in
+                                   ["Check the review flow", "Work starts after review", "Depends on · first"]))
+            os.write(master, b"\x1b")
+            wait_until(lambda: "Wave 2" in "\n".join(screen.display))
             os.write(master, b"\x1b")
             pump(.3)
             os.write(master, f"/socrates {ready_id}\r".encode())

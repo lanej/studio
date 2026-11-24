@@ -12,10 +12,12 @@ Studio also provides the dotfiles theme, task browser and idle compaction. The [
 | --- | --- |
 | `socrates/controls.ts` | Socrates commands and tools, pending-question presentation, answer persistence, revision checks, specification freeze and approval |
 | `socrates/spec.ts` | Persisted specification, question and decision schemas and transitions |
+| `socrates/assessment.ts` | Applicable property catalog, evidence requirements, and assessment freshness |
+| `socrates/presentation.ts` | Project saved assessments and live session activity into the status widget and inspection panel |
 | `socrates/guidance.ts`, `socrates/host.md` | Load the bundled Socrates skill and adapt it to the managed Pi host |
 | `socrates/selector.ts` | Adapt persisted questions and evidence to the reusable selector; own typed-answer choice and cancellation |
 | `socrates/evidence.ts`, `socrates/links.ts` | Validate question evidence and resolve its source links in the managed checkout |
-| [`@lanej/pi-components`](vendor/pi-components/README.md) | Independent terminal components: choice rendering, Vim movement, transient hints, detail views and explicit selection |
+| [`@lanej/pi-components`](vendor/pi-components/README.md) | Independent terminal components: selectors, condition states, activity indicators, and responsive evidence inspection |
 | `tests/`, `acceptance/` | Workflow checks and independently runnable native acceptance fixtures |
 
 The selector returns an item index or cancellation. Socrates owns the typed-answer option, pending question, answer persistence, accepted revisions and approvals. Keep question side-chat orchestration with its Socrates caller and reusable interaction widgets in the component package. Task browsing and plan review remain with their existing callers in `ui.ts`; add further capability directories when they have a clear owner rather than creating empty layers. Shared skill paths resolve relative to this package, including when it is installed from a managed worktree.
@@ -66,6 +68,22 @@ studio lead -- --help
 ## Discovery and approved work
 
 The lead stays available for research and conversation. Use `/socrates` to start discovery, `/socrates new TITLE` for another topic, and `/discoveries` to list saved discoveries for this project. Resume one with `/socrates UUID`. Discovery, questions, recorded answers, specification versions, and proposed breakdowns are private Studio state; they require no Beads service. Pi retains the conversation separately. `/spec-freeze` reviews the specification; `/spec-reopen` preserves the prior version before reopening it.
+
+At **104 terminal columns or wider**, Studio places a persistent status column to the right of the lead. The conversation and editor wrap at the divider. **Specification** sits above **Implementation**, leaving the prompt available while either updates. **Alt+S** collapses the sidebar and returns its width to the lead. Press it again to restore the sidebar with the cursor and draft in place. You can also use `/socrates-status min` or `/socrates-status max`.
+
+In a narrower terminal, status moves above the editor. The dock takes at most three rows minimized or eight expanded, capped at a third of the terminal height. Alt+S toggles its size. Studio remembers the wide and narrow settings separately as you resize. An independently installed Pi host without Studio’s right-column layout uses the dock at all widths.
+
+The specification shows **○ Open**, **◐ Partial**, and **● Satisfied**. Each assessed property needs evidence; a partial assessment names what already holds and the remaining gap. Muted **○ Not assessed** and **− Not applicable** have separate groups. After a recorded answer, revised brief or reopened specification, **↺ Recheck** preserves previous evidence and removes the property from the satisfied count. Satisfied properties fold together. Current activity, a pending question, or a recorded answer waiting for incorporation is shown independently of these assessments.
+
+The implementation shows proposals by dependency wave until approval. For approved work, Studio periodically reads the linked beads from the recorded project and shows their actual states. The sidebar puts blocked and active work first; the inspector keeps the dependency waves. Missing or unverifiable observations stay unknown. Requirement IDs connect tasks to the specification; the property count and the bead count measure different things. A closed bead is a Beads status, not a claim that the feature shipped.
+
+Use `/socrates-status inspect` for the bounded inspector, or `/plan` to start on Implementation. **Tab** switches columns, **j/k** selects an entry, **Enter** opens evidence or toggles a group, and **Esc** returns. **?** shows available keys. Inspect a requirement to see its acceptance criteria and linked tasks, or a task to see its requirements, dependencies and review details. Closing the inspector restores the layout you were using.
+
+![A live lead conversation beside specification coverage and linked Beads](docs/assets/socrates-status.png)
+
+![The full-width lead with the status column collapsed and its unsent message preserved](docs/assets/socrates-working.png)
+
+Run `bun run test:socrates-ui` for the native Pi terminal check with isolated state and loopback fixtures. Add `--output /path/to/captures` to retain wide and narrow renderings, text, and raw ANSI.
 
 At the end of Socrates, review the proposed work breakdown with `/plan`. For an explicit work request without Socrates, use `/plan-draft DESCRIPTION`. Neither creates tasks. `/plan-approve` shows the exact project, profile, task scopes, dependencies, hold intent, delivery obligations, and verification commands before creating the approved Beads graph. Approval also authorizes eligible implementation in separate workers. The lead stays free and can close while work continues.
 
