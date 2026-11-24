@@ -36,6 +36,7 @@ received_requests = []
 beads_project = str(uuid.uuid4())
 linked_beads = {}
 bead_reads = []
+initial_prompt = "Let me inspect this proposal while keeping our conversation open."
 # A native Markdown paragraph that fits the full terminal, but wraps in the lead column.
 review_sentence = "The live handoff check still needs a linked bead and a fresh assessment before the review can finish."
 linked_sentence = "The handoff check can start once the lead sidebar is complete and its linked dependency has closed."
@@ -212,6 +213,12 @@ class Terminal:
     def wait_for_rail(self):
         self.wait(lambda: self.rail_start() is not None, "The native console did not show a right status column")
 
+    def wait_for_session(self):
+        # Pi mounts widgets during session_start and restores the transcript
+        # after binding extension shortcuts. Only then can we exercise Alt+S.
+        self.contains(initial_prompt)
+        self.wait_for_rail()
+
     def check_lead_wrap(self, sentence):
         """Prove every word remains visible and that the lead itself received a smaller width."""
         x = self.rail_start()
@@ -346,7 +353,7 @@ const statuses={{assess:'closed',dock:'in_progress',verify:'blocked'}};
 const beads=Object.fromEntries(activeBreakdown.tasks.map(task=>[linked.graph[task.key],{{id:linked.graph[task.key],title:task.title,status:statuses[task.key],revision:'read-only-fixture',metadata:{{'studio.graph':linked.revision,'studio.approval':linked.approved,'studio.task':task}}}}]));
 function sessionFor(record) {{
  const manager=SessionManager.create({json.dumps(str(project))});
- manager.appendMessage({{role:'user',content:'Let me inspect this proposal while keeping our conversation open.',timestamp:Date.now()}});
+ manager.appendMessage({{role:'user',content:{json.dumps(initial_prompt)},timestamp:Date.now()}});
  manager.appendCustomEntry('studio:discovery',{{id:record,project:{json.dumps(str(project))}}});
  return manager.getSessionFile();
 }}
@@ -382,7 +389,7 @@ def run(output):
                 lambda: any("▸ ~/project" in line and "tiny" in line for line in terminal.screen.display),
                 "Studio's native session did not finish initialization",
             )
-            terminal.wait_for_rail()
+            terminal.wait_for_session()
             terminal.contains("Awaiting approval")
             terminal.contains("Record property evidence")
             terminal.assert_mark("Verification", "◐", "status.warning")
@@ -537,7 +544,7 @@ def run(output):
             terminal.close()
         terminal = Terminal(project, env, output, records['planOnlySession'], mode='regular')
         try:
-            terminal.wait_for_rail()
+            terminal.wait_for_session()
             terminal.contains("Awaiting approval")
             regular_draft = "Confirm that reviewing a standalone task and its requirements preserves my unsent message in regular mode."
             terminal.send(regular_draft)
