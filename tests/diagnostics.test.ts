@@ -2,7 +2,7 @@ import { syntaxDiffRows } from "../code-intelligence/diff.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ThemeBg, ThemeColor } from "@earendil-works/pi-coding-agent";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import {
   diagnosticRows,
   type DiagnosticSnapshot,
@@ -136,6 +136,65 @@ await test("edit diffs switch between aligned split and unified layouts without 
   );
   assert.ok(wrapped.every((row) => visibleWidth(row) <= 100));
   assert.match(wrapped.join("\n"), /short/u);
+});
+
+function renderDiff(diff: string, width: number): string {
+  const rows = syntaxDiffRows(diff, "retry.txt", plain, width, "/project");
+  assert.ok(rows.every((row) => visibleWidth(row) <= width));
+  return rows.map(stripTerminalSequences).join("\n");
+}
+
+await test("small replacements show both tokens inline and shared code once", () => {
+  const diff = [
+    " 1 const policy = {",
+    "-2   retries: 2,",
+    "-3   timeoutMs: 1500,",
+    "-4   mode: passive,",
+    "+2   retries: 4,",
+    "+3   timeoutMs: 3000,",
+    "+4   mode: active,",
+    " 5 };",
+  ].join("\n");
+  for (const width of [60, 120]) {
+    const text = renderDiff(diff, width);
+    assert.doesNotMatch(text, /Original|Updated| │ /u);
+    for (const label of ["const policy", "retries:", "timeoutMs:", "mode:"])
+      assert.equal(text.split(label).length, 2, label);
+    assert.ok(text.includes("retries: 2 → 4,"));
+    assert.ok(text.includes("timeoutMs: 1500 → 3000,"));
+    assert.ok(text.includes("mode: passive → active,"));
+  }
+  assert.match(
+    renderDiff("-1 rate: 1.25\n+1 rate: 1.75", 120),
+    /rate: 1\.25 → 1\.75/u,
+  );
+});
+
+await test("changing an operator or whitespace with a value preserves both expressions", () => {
+  assert.match(
+    renderDiff("-1 base-2\n+1 base+4", 120),
+    /-1 base-2\s*│\s*\+1 base\+4/u,
+  );
+  assert.match(
+    renderDiff("-1 retries: 2\n+1 retries:  4", 120),
+    /-1 retries: 2\s*│\s*\+1 retries: {2}4/u,
+  );
+});
+
+await test("a replacement that cannot fit inline keeps both source lines", () => {
+  const diff = "-1 mode: previousMode,\n+1 mode: proposedMode,";
+  const text = renderDiff(diff, 24);
+  assert.match(text, /-1 mode: previousMode,/u);
+  assert.match(text, /\+1 mode: proposedMode,/u);
+});
+
+await test("one-sided diffs use a single column even with surrounding context", () => {
+  for (const sign of ["+", "-"]) {
+    const text = renderDiff(` 1 start();\n${sign}2 retry();`, 120);
+    assert.doesNotMatch(text, /Original|Updated| │ /u);
+    assert.ok(text.includes(`${sign}2 retry();`));
+    assert.equal(text.split("start();").length, 2);
+  }
 });
 
 await test("edit inlays stay attached to each occurrence and underline the source range", () => {

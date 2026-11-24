@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
+import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import { z } from "zod";
 import {
   createAgentSessionFromServices,
@@ -175,7 +176,9 @@ try {
     () => native,
   );
   assert.ok(rendered?.renderResult !== undefined);
+  const renderOptions = { expanded: false, isPartial: false };
   const renderContext = {
+    ...renderOptions,
     args: { path: "b.ts" },
     toolCallId: written.toolCall.id,
     invalidate() {},
@@ -184,23 +187,22 @@ try {
     cwd: root,
     executionStarted: true,
     argsComplete: true,
-    isPartial: false,
-    expanded: false,
     showImages: false,
     isError: false,
     durationMs: 0,
     outputPad: 0,
   };
   assert.ok(rendered.renderCall !== undefined);
+  const theme = session.extensionRunner.getUIContext().theme;
   const callComponent = rendered.renderCall(
     renderContext.args,
-    session.extensionRunner.getUIContext().theme,
+    theme,
     renderContext,
   );
   const component = rendered.renderResult(
     written.result,
-    { expanded: false, isPartial: false },
-    session.extensionRunner.getUIContext().theme,
+    renderOptions,
+    theme,
     renderContext,
   );
   await eventually(
@@ -217,6 +219,7 @@ try {
     );
     assert.ok(rows.some((row) => row.includes("\x1b[4:3m")));
   }
+  // The type diagnostic needs the updated source line for its range and inlay.
   assert.match(callComponent.render(120).join("\n"), /Original.*Updated/u);
   assert.doesNotMatch(
     callComponent.render(100).join("\n"),
@@ -227,6 +230,24 @@ try {
     assert.ok(output.includes("\x1b[48;2;48;70;57m"));
     assert.ok(output.includes("\x1b[48;2;71;52;63m"));
   }
+  await writeFile(join(root, "policy.txt"), "retries: 2\n");
+  const policyArgs = {
+    path: "policy.txt",
+    edits: [{ oldText: "2", newText: "4" }],
+  };
+  const policy = await tool.executeTool("edit", policyArgs);
+  assert.equal(policy.isError, false);
+  const policyContext = {
+    ...renderContext,
+    args: policyArgs,
+    toolCallId: policy.toolCall.id,
+    state: {},
+  };
+  const policyCall = rendered.renderCall(policyArgs, theme, policyContext);
+  rendered.renderResult(policy.result, renderOptions, theme, policyContext);
+  const policyText = stripTerminalSequences(policyCall.render(120).join("\n"));
+  assert.match(policyText, /retries: 2 → 4/u);
+  assert.doesNotMatch(policyText, /Original|Updated| │ /u);
   await eventually(
     () => call(lspTool, { action: "diagnostics", path: "b.ts" }),
     /2322/u,

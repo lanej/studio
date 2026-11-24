@@ -33,6 +33,61 @@ interface DiffLine {
   after: string | undefined;
 }
 
+const identifier = /[$_\p{ID_Start}][$\p{Join_Control}\p{ID_Continue}]*/u;
+const decimal = /(?:\d[\d_]*(?:\.\d[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?\d[\d_]*)?/u;
+const radixInteger = /0[xX][\da-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+/u;
+const numericLiteral = `[+-]?(?:${radixInteger.source}|${decimal.source})[\\p{ID_Continue}]*`;
+// Only identifiers and literals are replaceable. Compare all whitespace and punctuation exactly.
+const sourceToken = new RegExp(
+  `(${identifier.source}|${numericLiteral})|\\s+|.`,
+  "gu",
+);
+
+interface WordReplacement {
+  prefixWidth: number;
+  original: string;
+  updated: string;
+}
+
+function wordReplacement(
+  original: string,
+  updated: string,
+): WordReplacement | undefined {
+  const oldTokens = [...original.matchAll(sourceToken)];
+  const newTokens = [...updated.matchAll(sourceToken)];
+  if (oldTokens.length !== newTokens.length) return undefined;
+  let replacement: WordReplacement | undefined;
+  for (const [index, oldToken] of oldTokens.entries()) {
+    const newToken = newTokens[index];
+    if (newToken === undefined) return undefined;
+    if (oldToken[0] === newToken[0]) continue;
+    if (
+      replacement !== undefined ||
+      oldToken[1] === undefined ||
+      newToken[1] === undefined
+    )
+      return undefined;
+    const prefix = updated.slice(0, newToken.index);
+    const suffix = updated.slice(newToken.index + newToken[0].length);
+    // Punctuation alone gives too little evidence to align two unrelated lines.
+    if (!/[\p{L}\p{N}_$]/u.test(prefix + suffix)) return undefined;
+    // A sign after an operand may be a binary operator. Keep the full comparison in that case.
+    const preceding = prefix.trimEnd().at(-1);
+    if (
+      (/^[+-]/u.test(oldToken[0]) || /^[+-]/u.test(newToken[0])) &&
+      preceding !== undefined &&
+      !"=:,([{".includes(preceding)
+    )
+      return undefined;
+    replacement = {
+      prefixWidth: visibleWidth(clean(prefix)),
+      original: oldToken[0],
+      updated: newToken[0],
+    };
+  }
+  return replacement;
+}
+
 function parseDiffLines(diff: string): DiffLine[] {
   const lines: DiffLine[] = diff.split("\n").map((line) => {
     const match = /^([+\- ])(\s*\d+) (.*)$/u.exec(line);
@@ -278,8 +333,62 @@ export function syntaxDiffRows(
         (newRows[row] ?? " ".repeat(rightWidth)),
     );
   };
+  const compactWordRows = (): Map<DiffLine, string> | undefined => {
+    const pending = new Map<string, DiffLine>();
+    const rows = new Map<DiffLine, string>();
+    for (const line of lines) {
+      if (line.prefix === "-") {
+        pending.set(line.number, line);
+        continue;
+      }
+      if (line.prefix !== "+") {
+        if (pending.size > 0) return undefined;
+        continue;
+      }
+      const removed = pending.get(line.number);
+      if (removed === undefined) return undefined;
+      pending.delete(line.number);
+      const number = Number(line.afterNumber);
+      if (
+        activeIssues.some(
+          (issue) =>
+            issue.line <= number && (issue.endLine ?? issue.line) >= number,
+        )
+      )
+        return undefined;
+      const codeWidth = visibleWidth(line.code);
+      if (gutter + Math.max(codeWidth, visibleWidth(removed.code)) >= inner)
+        return undefined;
+      const change = wordReplacement(removed.rawCode, line.rawCode);
+      if (
+        change === undefined ||
+        gutter + codeWidth + visibleWidth(change.original) + 3 > inner
+      )
+        return undefined;
+      const code = line.after ?? line.code;
+      const suffixStart = change.prefixWidth + visibleWidth(change.updated);
+      rows.set(
+        line,
+        theme.fg("toolDiffContext", `~${line.number.padStart(digits)} `) +
+          sliceByColumn(code, 0, change.prefixWidth) +
+          background(removed, theme.fg("toolDiffRemoved", change.original)) +
+          theme.fg("dim", " → ") +
+          background(line, theme.fg("toolDiffAdded", change.updated)) +
+          sliceByColumn(code, suffixStart, Number.POSITIVE_INFINITY),
+      );
+    }
+    return pending.size === 0 ? rows : undefined;
+  };
   const body: string[] = [];
-  if (split) {
+  const compact = hasAdditions && hasDeletions ? compactWordRows() : undefined;
+  if (compact !== undefined) {
+    for (const line of lines) {
+      if (line.prefix === "-") continue;
+      const replacement = compact.get(line);
+      if (replacement === undefined) body.push(...cell(line, "after", inner));
+      else body.push(replacement);
+    }
+  } else if (split) {
     body.push(
       pad(theme.fg("muted", "Original"), leftWidth) +
         theme.fg("dim", " │ ") +
