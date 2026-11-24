@@ -68,9 +68,9 @@ await test("expanded thinking preserves Markdown and reflows independently of th
     const plain = lines.map(stripTerminalSequences);
     assert.deepEqual(
       plain
-        .filter((line) => line.includes("Thinking"))
-        .map((line) => line.trim()),
-      ["▾ Thinking"],
+        .filter((line) => line.includes("\u{F09D1}"))
+        .map((line) => line.trimStart()),
+      ["▾ \u{F09D1} "],
     );
     assert.ok(
       plain.some((line) => line.trim() === "│ Inspecting the screenshot"),
@@ -89,6 +89,10 @@ await test("expanded thinking preserves Markdown and reflows independently of th
     assert.ok(lines.every((line) => !line.includes("\u001b[3m")));
     assert.ok(plain.some((line) => line.trim() === "The answer follows."));
   }
+  component.setHideThinkingBlock(true);
+  const folded = component.render(34).map(stripTerminalSequences);
+  assert.ok(folded.some((line) => line.trim() === "▸ \u{F09D1}"));
+  assert.ok(!folded.join("").includes("Inspecting"));
   assert.deepEqual(
     transformed,
     [88, 30].map((width) => ({

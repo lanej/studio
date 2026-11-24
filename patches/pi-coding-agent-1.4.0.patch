@@ -92,7 +92,7 @@ index 28c00ed..aaf6fe6 100644
 diff --git a/dist/modes/interactive/components/assistant-message.js b/dist/modes/interactive/components/assistant-message.js
 --- a/dist/modes/interactive/components/assistant-message.js
 +++ b/dist/modes/interactive/components/assistant-message.js
-@@ -1,9 +1,28 @@
+@@ -1,9 +1,29 @@
 -import { Container, Markdown, MouseRegion, Spacer, Text } from "@earendil-works/pi-tui";
 +import { Container, Markdown, MouseRegion, Spacer, Text, truncateToWidth } from "@earendil-works/pi-tui";
  import { getMarkdownTheme, theme } from "../theme/theme.js";
@@ -100,6 +100,7 @@ diff --git a/dist/modes/interactive/components/assistant-message.js b/dist/modes
  const OSC133_ZONE_START = "\x1b]133;A\x07";
  const OSC133_ZONE_END = "\x1b]133;B\x07";
  const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
++export const DEFAULT_THINKING_LABEL = "\u{F09D1}"; // Nerd Fonts: nf-md-brain
 +// Keep prose readable in wide lead consoles while letting Pi lay out the original Markdown.
 +class ExpandedThinkingBlock extends Markdown {
 +    constructor(text, outputPad, markdownTheme, transform) {
@@ -114,7 +115,7 @@ diff --git a/dist/modes/interactive/components/assistant-message.js b/dist/modes
 +        if (body.length === 0 || available <= 0)
 +            return [];
 +        const margin = " ".repeat(padding);
-+        const heading = theme.fg("thinkingText", theme.bold("▾ Thinking"));
++        const heading = theme.fg("thinkingText", "▾ " + DEFAULT_THINKING_LABEL + " "); // Kitty draws the icon into the following blank cell.
 +        const rail = railWidth ? theme.fg("borderMuted", "│") + " " : "";
 +        return [margin + truncateToWidth(heading, available, ""), ...body.map((line) => margin + rail + line)];
 +    }
@@ -122,7 +123,16 @@ diff --git a/dist/modes/interactive/components/assistant-message.js b/dist/modes
  /**
   * Component that renders a complete assistant message
   */
-@@ -110,13 +129,9 @@
+@@ -18,7 +38,7 @@
+     hasToolCalls = false;
+     isStreaming = false;
+     thinkingVisibilityOverrides = new Map();
+-    constructor(message, hideThinkingBlock = false, markdownTheme = getMarkdownTheme(), hiddenThinkingLabel = "Thinking...", outputPad = 1, markdownTransformers = []) {
++    constructor(message, hideThinkingBlock = false, markdownTheme = getMarkdownTheme(), hiddenThinkingLabel = DEFAULT_THINKING_LABEL, outputPad = 1, markdownTransformers = []) {
+         super();
+         this.hideThinkingBlock = hideThinkingBlock;
+         this.markdownTheme = markdownTheme;
+@@ -110,13 +130,9 @@
                  const runIndex = thinkingRunIndex++;
                  const hidden = this.thinkingVisibilityOverrides.get(runIndex) ?? this.hideThinkingBlock;
                  const thinkingComponent = hidden
@@ -274,3 +284,24 @@ index 4d6c23a..4c1a6e5 100644
          },
          "clearOnShrink": {
            "type": "boolean",
+diff --git a/dist/modes/interactive/interactive-mode.js b/dist/modes/interactive/interactive-mode.js
+--- a/dist/modes/interactive/interactive-mode.js
++++ b/dist/modes/interactive/interactive-mode.js
+@@ -48,7 +48,7 @@
+ import { reportBug } from "./bug-report.js";
+ import { createChatViewport } from "./chat-viewport.js";
+ import { ArminComponent } from "./components/armin.js";
+-import { AssistantMessageComponent } from "./components/assistant-message.js";
++import { AssistantMessageComponent, DEFAULT_THINKING_LABEL } from "./components/assistant-message.js";
+ import { BashExecutionComponent } from "./components/bash-execution.js";
+ import { BranchSummaryMessageComponent } from "./components/branch-summary-message.js";
+ import { CompactionSummaryMessageComponent } from "./components/compaction-summary-message.js";
+@@ -269,7 +269,7 @@
+     workingVisible = true;
+     workingIndicatorOptions = undefined;
+     defaultWorkingMessage = "Working";
+-    defaultHiddenThinkingLabel = "Thinking...";
++    defaultHiddenThinkingLabel = DEFAULT_THINKING_LABEL;
+     hiddenThinkingLabel = this.defaultHiddenThinkingLabel;
+     lastSigintTime = 0;
+     lastEscapeTime = 0;
