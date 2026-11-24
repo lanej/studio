@@ -1,4 +1,11 @@
-import { knownTaskStatus, parentId, TaskStatus, type Task } from "../beads.ts";
+import {
+  knownRelationship,
+  knownTaskStatus,
+  parentId,
+  TaskRelationship,
+  TaskStatus,
+  type Task,
+} from "../beads.ts";
 import { ExecutionPhase, type Execution } from "../execution/store.ts";
 
 export interface TaskSnapshot {
