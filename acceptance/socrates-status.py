@@ -36,6 +36,7 @@ received_requests = []
 beads_project = str(uuid.uuid4())
 linked_beads = {}
 bead_reads = []
+initial_prompt = "Let me inspect this proposal while keeping our conversation open."
 # A native Markdown paragraph that fits the full terminal, but wraps in the lead column.
 review_sentence = "The live handoff check still needs a linked bead and a fresh assessment before the review can finish."
 linked_sentence = "The handoff check can start once the lead sidebar is complete and its linked dependency has closed."
@@ -178,18 +179,54 @@ class Terminal:
         for key in keys:
             self.send(key)
 
+    def board_rows(self):
+        rows = []
+        for line in self.screen.display:
+            if line.strip() == "? keys":
+                return rows
+            rows.append(line.split("│"))
+        return []
+
+    @staticmethod
+    def row_label(cell):
+        mark, _, text = cell.strip().removeprefix("› ").partition(" ")
+        if len(mark) == 1 and not mark.isalnum():
+            # Properties, tasks and foldable groups start with one status or disclosure glyph.
+            return text.partition("  ")[0].strip().removesuffix(" ◆")
+        return None
+
+    def board_selection(self):
+        rows = self.board_rows()
+        for y, cells in enumerate(rows):
+            for column, cell in enumerate(cells):
+                if cell.lstrip().startswith("› ") and (label := self.row_label(cell)) is not None:
+                    return y, column, label
+        return None
+
+    def wait_for_selection(self, label):
+        self.wait(lambda: (selected := self.board_selection()) is not None and label == selected[2],
+                  f"The inspector did not restore its selection to {label!r}")
+
     def select_row(self, label):
-        """Move to the named entry in the focused column, including foldable headings."""
-        def selected():
-            return any(cell.lstrip().startswith("› ") and label in cell for line in self.screen.display
-                       for cell in line.split("│"))
-        if selected():
-            return
-        self.send("\x1b[H")
-        for _ in range(40):
-            if selected():
+        """Walk to a visible row, waiting for the selection to move after each key."""
+        def positions():
+            selected = self.board_selection()
+            if selected is not None:
+                y, column, _ = selected
+                for target, cells in enumerate(self.board_rows()):
+                    if column < len(cells) and self.row_label(cells[column]) == label:
+                        return y, target
+            return None
+
+        self.wait(lambda: positions() is not None, f"Missing {label!r} in the active inspector column")
+        for _ in range(self.screen.lines):
+            y, target = positions()
+            if y == target:
                 return
-            self.send("j")
+            before = self.board_selection()
+            self.send("j" if y < target else "k")
+            self.wait(lambda: positions() is not None and self.board_selection() != before,
+                      f"The selection did not move toward {label!r}")
         raise AssertionError(f"Could not focus {label!r}\n{self.text()}")
 
     def close_detail(self):
@@ -213,6 +250,12 @@ class Terminal:
 
     def wait_for_rail(self):
         self.wait(lambda: self.rail_start() is not None, "The native console did not show a right status column")
+
+    def wait_for_session(self):
+        # Pi mounts widgets during session_start and restores the transcript
+        # after binding extension shortcuts. Only then can we exercise Alt+S.
+        self.contains(initial_prompt)
+        self.wait_for_rail()
 
     def check_lead_wrap(self, sentence):
         """Prove every word remains visible and that the lead itself received a smaller width."""
@@ -352,7 +395,7 @@ const statuses={{assess:'closed',dock:'in_progress',verify:'blocked'}};
 const beads=Object.fromEntries(activeBreakdown.tasks.map(task=>[linked.graph[task.key],{{id:linked.graph[task.key],title:task.title,status:statuses[task.key],revision:'read-only-fixture',metadata:{{'studio.graph':linked.revision,'studio.approval':linked.approved,'studio.task':task}}}}]));
 function sessionFor(record) {{
  const manager=SessionManager.create({json.dumps(str(project))});
- manager.appendMessage({{role:'user',content:'Let me inspect this proposal while keeping our conversation open.',timestamp:Date.now()}});
+ manager.appendMessage({{role:'user',content:{json.dumps(initial_prompt)},timestamp:Date.now()}});
  manager.appendCustomEntry('studio:discovery',{{id:record,project:{json.dumps(str(project))}}});
  if (record === planOnly.id) {{
    const call={{type:'toolCall',id:'draft-1',name:'draft_implementation_plan',arguments:graphDraft}};
@@ -396,7 +439,7 @@ def run(output):
                 lambda: any("▸ ~/project" in line and "tiny" in line for line in terminal.screen.display),
                 "Studio's native session did not finish initialization",
             )
-            terminal.wait_for_rail()
+            terminal.wait_for_session()
             terminal.contains("Awaiting approval")
             terminal.contains("Record property evidence")
             terminal.assert_mark("Verification", "◐", "status.warning")
@@ -463,6 +506,7 @@ def run(output):
             terminal.capture("status-board-task-detail")
             terminal.close_detail()
             terminal.send("\t")
+            terminal.wait_for_selection("Verification")
             terminal.send("\r")
             terminal.contains("Question and resume are covered.")
             terminal.capture("status-board-property-detail")
@@ -547,7 +591,14 @@ def run(output):
             terminal.send('\x1b')
             terminal.send('/plan\r')
             terminal.contains('Enter details')
-            terminal.select_row('Verify the handoff')
+            def selected_task(title):
+                terminal.wait(lambda: any(line.lstrip().startswith('› ') and line.rstrip().endswith('  ' + title)
+                                          for line in terminal.screen.display),
+                              f"The plan graph did not select {title!r}")
+            selected_task('Record property evidence')
+            for title in ('Keep the lead available', 'Verify the handoff'):
+                terminal.send('j')
+                selected_task(title)
             terminal.assert_mark('Verify the handoff', '×', 'status.error')
             linked_beads['bd-verify']['status'] = 'open'
             terminal.wait(lambda: '1 open' in terminal.text() or 'Open' in next((line for line in terminal.screen.display if 'Verify the handoff' in line), ''), 'Live task status did not refresh')
