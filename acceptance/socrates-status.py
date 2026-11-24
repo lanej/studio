@@ -280,12 +280,13 @@ class Terminal:
 
     def close(self):
         print("Closing the lead terminal", flush=True)
+        # Darwin drains pending terminal output when the last slave closes. The
+        # test has stopped reading, so hang up the master before waiting for Pi.
+        os.close(self.master)
         try:
             os.killpg(self.process.pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
-        # Darwin can hold an exiting child until the master drains or closes.
-        os.close(self.master)
         try:
             self.process.wait(timeout=5)
         except subprocess.TimeoutExpired:
