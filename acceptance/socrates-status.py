@@ -434,6 +434,20 @@ def run(output):
         linked_beads.update(records['beads'])
         Thread(target=provider.serve_forever, daemon=True).start()
         terminal = Terminal(project, env, output, records['session'])
+
+        def resume_discovery(title, offset):
+            terminal.send("/discoveries\r")
+            terminal.contains("Select a saved discovery")
+            for _ in range(offset):
+                terminal.send("\x1b[B")
+            terminal.wait(
+                lambda: any(line.lstrip().startswith("→ #") and title in line for line in terminal.screen.display),
+                f"Picker did not highlight {title!r}",
+            )
+            terminal.send("\r")
+            terminal.wait(lambda: "Select a saved discovery" not in terminal.text(), "Picker did not close")
+            terminal.send("/socrates\r")
+
         try:
             terminal.wait(
                 lambda: any("▸ ~/project" in line and "tiny" in line for line in terminal.screen.display),
@@ -517,7 +531,7 @@ def run(output):
             terminal.send("?")
             terminal.send("\x1b")
 
-            terminal.send(f"/socrates {records['question']}\r")
+            resume_discovery("Question in progress", 3)
             terminal.contains("Which verification boundary should we use?")
             terminal.send("\x1b")
             terminal.contains("Waiting for your answer")
@@ -549,7 +563,7 @@ def run(output):
             assert saved["specification"]["status"] == "interrogating", saved
             assert "graph" not in saved and "approved" not in saved, saved
 
-            terminal.send(f"/socrates {records['unknown']}\r")
+            resume_discovery("Unassessed discovery", 2)
             terminal.contains("Make specification readiness visible")
             terminal.send("\x1b")
             terminal.contains("Not assessed 13")
@@ -561,7 +575,7 @@ def run(output):
             terminal.assert_mark("Problem First", "○", "text.muted")
             terminal.capture("status-board-unassessed")
             terminal.send("\x1b")
-            terminal.send(f"/socrates {records['approved']}\r")
+            resume_discovery("Specification and linked work", 0)
             terminal.contains('Make specification readiness visible')
             terminal.send("\x1b")
             terminal.wait_for_rail()
