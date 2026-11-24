@@ -16,6 +16,7 @@ import {
 } from "../execution/store.ts";
 import { retryWriterFence } from "../execution/recovery.ts";
 import { TaskBrowser } from "../tasks/browser.ts";
+import { TaskPanel } from "../tasks/panel.ts";
 import { readTaskEvidence } from "../tasks/evidence.ts";
 import {
   parkedDetails,
@@ -457,4 +458,242 @@ await test("failed external links and late detail replies preserve the operator'
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(calls, [rejected.id, successor.id]);
   assert.match(view(), /j\/k scroll/u);
+});
+
+await test("live refresh keeps navigation and serializes reads while explicit focus can leave the panel open", async () => {
+  const theme: Pick<Theme, "fg" | "bg" | "bold" | "getBgAnsi"> = {
+    fg: (_color, value) => value,
+    bg: (_color, value) => value,
+    bold: (value) => value,
+    getBgAnsi: () => "",
+  };
+  let focused = false;
+  let closed = false;
+  let reads = 0;
+  let release: ((value: TaskSnapshot) => void) | undefined;
+  const loaded = new Promise<TaskSnapshot>((resolve) => {
+    release = resolve;
+  });
+  const shown: string[] = [];
+  const browser = new TaskBrowser(
+    snapshot,
+    {
+      label: "Canary",
+      identity: project,
+      load: () => {
+        reads++;
+        return loaded;
+      },
+      show: (id) => {
+        shown.push(id);
+        return Promise.resolve(successor);
+      },
+    },
+    theme,
+    () => 13,
+    () => {},
+    () => {
+      closed = true;
+    },
+    undefined,
+    {
+      focused: () => focused,
+      leave: () => {
+        focused = false;
+      },
+    },
+  );
+  const view = () => browser.render(60).map(stripAnsi).join("\n");
+  assert.match(view(), /Alt\+T inspect/u);
+  focused = true;
+  browser.handleInput("j");
+  assert.match(view(), /› ○ Wait for the prerequisite/u);
+  const refresh = browser.refresh();
+  await browser.refresh();
+  assert.equal(reads, 1, "background refreshes must not overlap");
+  browser.handleInput("\r");
+  release?.({
+    ...snapshot,
+    tasks: [successor, { ...rejected, status: "closed" }],
+  });
+  await refresh;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(
+    shown,
+    [successor.id],
+    "inspection requested during refresh must run afterwards",
+  );
+  browser.handleInput("\t");
+  view();
+  browser.handleInput("j");
+  const before = view().split("\n").slice(2, -3);
+  await browser.refresh();
+  assert.deepEqual(
+    view().split("\n").slice(2, -3),
+    before,
+    "refresh must preserve inspector scroll and disclosure selection",
+  );
+  browser.handleInput("\x1b");
+  assert.equal(focused, false);
+  assert.equal(closed, false, "Escape must leave the status panel open");
+  assert.match(view(), /Alt\+T inspect/u);
+  focused = true;
+  browser.handleInput("\x1bt");
+  assert.equal(focused, false);
+  focused = true;
+  browser.handleInput("\x1b[D");
+  assert.match(view(), /› ○ Wait for the prerequisite/u);
+  browser.handleInput("q");
+  assert.equal(closed, true);
+  browser.dispose();
+  await browser.refresh();
+  assert.equal(reads, 2, "disposed panels must not read again");
+});
+
+await test("closing during the initial read prevents a late panel from mounting", async () => {
+  let release: ((value: TaskSnapshot) => void) | undefined;
+  const loaded = new Promise<TaskSnapshot>((resolve) => {
+    release = resolve;
+  });
+  let mounts = 0;
+  const panel = new TaskPanel();
+  const opened = panel.open(
+    {
+      hasUI: true,
+      ui: {
+        custom: () => {
+          mounts++;
+          return Promise.reject(new Error("A closed panel must not mount"));
+        },
+        notify: () => {},
+      },
+    },
+    {
+      key: "old session",
+      label: "Canary",
+      identity: project,
+      load: () => loaded,
+      show: () => Promise.resolve(rejected),
+      focusPane: () => Promise.resolve(),
+    },
+  );
+  panel.close();
+  release?.(snapshot);
+  await opened;
+  assert.equal(mounts, 0);
+
+  let reject: ((error: Error) => void) | undefined;
+  const failed = new Promise<TaskSnapshot>((_resolve, fail) => {
+    reject = fail;
+  });
+  const ctx = {
+    hasUI: true,
+    ui: {
+      custom: () => {
+        mounts++;
+        return Promise.reject(new Error("A closed panel must not mount"));
+      },
+      notify: () => {},
+    },
+  };
+  const source = {
+    key: "old session",
+    label: "Canary",
+    identity: project,
+    load: () => failed,
+    show: () => Promise.resolve(rejected),
+    focusPane: () => Promise.resolve(),
+  };
+  const obsolete = panel.open(ctx, source);
+  panel.close();
+  reject?.(new Error("Old session disconnected"));
+  await obsolete;
+  assert.equal(
+    mounts,
+    0,
+    "obsolete read failures must not interrupt the current lead",
+  );
+  await assert.rejects(
+    panel.open(ctx, {
+      ...source,
+      load: () => Promise.reject(new Error("Current service unavailable")),
+    }),
+    /Current service unavailable/u,
+  );
+});
+
+await test("automatic refresh revalidates an explicitly inspected task outside a bounded listing", async () => {
+  const shown: string[] = [];
+  const theme: Pick<Theme, "fg" | "bg" | "bold" | "getBgAnsi"> = {
+    fg: (_color, value) => value,
+    bg: (_color, value) => value,
+    bold: (value) => value,
+    getBgAnsi: () => "",
+  };
+  const browser = new TaskBrowser(
+    { ...snapshot, limitReached: true },
+    {
+      label: "Canary",
+      identity: project,
+      load: () =>
+        Promise.resolve({ ...snapshot, tasks: [rejected], limitReached: true }),
+      show: (id) => {
+        shown.push(id);
+        return Promise.resolve({ ...successor, status: "closed" });
+      },
+    },
+    theme,
+    () => 20,
+    () => {},
+    () => {},
+    successor.id,
+  );
+  browser.render(60);
+  await browser.refresh();
+  assert.deepEqual(shown, [successor.id]);
+  assert.match(
+    browser.render(60).map(stripAnsi).join("\n"),
+    /Wait for the prerequisite/u,
+  );
+  browser.handleInput("\x1b[D");
+  assert.match(
+    browser.render(60).map(stripAnsi).join("\n"),
+    /› ● Wait for the prerequisite/u,
+  );
+});
+
+await test("a list projection does not erase expanded task details during refresh", async () => {
+  const detail = {
+    ...rejected,
+    description: "Retain the complete accepted brief",
+  };
+  const theme: Pick<Theme, "fg" | "bg" | "bold" | "getBgAnsi"> = {
+    fg: (_color, value) => value,
+    bg: (_color, value) => value,
+    bold: (value) => value,
+    getBgAnsi: () => "",
+  };
+  const browser = new TaskBrowser(
+    { ...snapshot, tasks: [detail] },
+    {
+      label: "Canary",
+      identity: project,
+      load: () => Promise.resolve({ ...snapshot, tasks: [rejected] }),
+      show: () => Promise.resolve(detail),
+    },
+    theme,
+    () => 24,
+    () => {},
+    () => {},
+    detail.id,
+  );
+  const view = () => browser.render(60).map(stripAnsi).join("\n");
+  view();
+  browser.handleInput("\t");
+  view();
+  browser.handleInput("\r");
+  assert.match(view(), /Retain the complete accepted brief/u);
+  await browser.refresh();
+  assert.match(view(), /Retain the complete accepted brief/u);
+  assert.doesNotMatch(view(), /No description recorded/u);
 });
