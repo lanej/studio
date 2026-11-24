@@ -1,17 +1,19 @@
 #!/usr/bin/env bun
+import './runtime.mjs';
+import { selectedHost, runtimeIdentity } from './host-identity.mjs';
+import { activation } from './activation.mjs';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import './runtime.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const prefix = resolve(process.env.STUDIO_PREFIX ?? join(homedir(), '.local'));
 const store = join(prefix, 'share/studio');
 const launcher = join(prefix, 'bin/studio');
-const bun = process.execPath;
+const minimum = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).engines.bun;
 const action = process.argv[2];
 function run(argv, cwd = root, capture = false) {
   const result = spawnSync(argv[0], argv.slice(1), { cwd, encoding: 'utf8', stdio: capture ? 'pipe' : ['inherit', 'inherit', 'inherit'] });
@@ -45,20 +47,21 @@ function status() {
     const value = JSON.parse(readFileSync(join(release, 'installation.json'), 'utf8'));
     if (value.platform === process.platform && value.arch === process.arch && value.sha256 === digest(release, value.files)) record = value;
   } catch { /* A replaced or missing installation has unknown identity. */ }
-  return { installed_binary: existsSync(launcher) ? launcher : null, installed_revision: record?.revision ?? null,
-    installed_fingerprint: record?.fingerprint ?? null, running_revision: null,
-    activation: 'Reload or relaunch Pi to load the installed extension; existing sessions remain active.' };
+  let host = null;
+  try { if (record) host = selectedHost(record.minimum ?? minimum); } catch { /* Selected runtime stays unknown. */ }
+  return { selected_host: host, installed_binary: existsSync(launcher) ? launcher : null, installed_revision: record?.revision ?? null,
+    installed_fingerprint: record?.fingerprint ?? null, installed_identity: record && host ? runtimeIdentity(record.sha256, host.sha256, record.minimum ?? minimum) : null, installed_release: record === null ? null : dirname(dirname(readlinkSync(launcher))), running_revision: null,
+    activation: 'Use guarded native checkpoints and verify the loaded host and bundle; legacy sessions require a trustworthy restoration path.' };
 }
 try {
   if (action === 'status') { console.log(JSON.stringify(status())); process.exit(0); }
+  if (['inventory', 'checkpoint', 'restart', 'restore', 'verify'].includes(action)) {
+    process.exit(await activation(action, status()));
+  }
   if (!['build', 'restart'].includes(action)) throw new Error('Usage: bun scripts/lifecycle.mjs build|restart|status');
+  const selected = selectedHost(minimum);
   const names = files();
   const fingerprint = digest(root, names);
-  if (action === 'restart') {
-    if (status().installed_fingerprint !== fingerprint) throw new Error('Build and install this source before activation.');
-    console.error(status().activation);
-    process.exit(3);
-  }
   if (existsSync(launcher) && !lstatSync(launcher).isSymbolicLink()) throw new Error(`Preserving local executable: ${launcher}`);
   mkdirSync(store, { recursive: true });
   const lock = join(store, 'install.lock');
@@ -75,6 +78,7 @@ try {
       cpSync(join(root, name), join(stage, name));
     }
     writeFileSync(join(stage, "source-files.json"), JSON.stringify([...new Set([...names, "source-files.json"])].sort()) + "\n");
+    const bun = selected.path;
     run([bun, 'install', '--frozen-lockfile', '--ignore-scripts'], stage);
     run([bun, 'scripts/prepare-delegation.mjs'], stage);
     run([bun, 'scripts/check-build.mjs'], stage);
@@ -84,7 +88,7 @@ try {
         revision = run(['git', 'rev-parse', 'HEAD'], root, true);
     } catch { /* A source export can be installed before its first commit. */ }
     const manifest = installedFiles(stage);
-    const installed = { revision, fingerprint, platform: process.platform, arch: process.arch, files: manifest, sha256: digest(stage, manifest) };
+    const installed = { minimum, revision, fingerprint, platform: process.platform, arch: process.arch, files: manifest, sha256: digest(stage, manifest) };
     writeFileSync(join(stage, 'installation.json'), JSON.stringify(installed) + '\n');
     if (existsSync(destination)) {
       const previous = JSON.parse(readFileSync(join(destination, 'installation.json'), 'utf8'));

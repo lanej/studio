@@ -6,4 +6,4 @@ if ! command -v bun >/dev/null 2>&1; then
     exit 1
 fi
 bun --no-env-file "--config=$package/resources/bunfig.toml" "$package/scripts/runtime.mjs"
-exec bun --no-env-file "--config=$package/resources/bunfig.toml" "$package/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js" "$@"
+exec bun --no-env-file "--config=$package/resources/bunfig.toml" "$package/node_modules/@earendil-works/pi-coding-agent/dist/cli.js" "$@"

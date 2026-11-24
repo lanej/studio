@@ -1,3 +1,8 @@
+import {
+  recoverManagedBinding,
+  registerActivation,
+  registerActivationAdmission,
+} from "./activation.ts";
 import { FooterStatus } from "./runtime.ts";
 import type {
   ExtensionAPI,
@@ -50,6 +55,7 @@ async function matchWorker(
 }
 
 export default function managedWorker(pi: ExtensionAPI): void {
+  registerActivationAdmission(pi);
   const id = process.env["STUDIO_ATTEMPT"];
   if (id === undefined) return;
   z.uuid().parse(id);
@@ -79,6 +85,11 @@ export default function managedWorker(pi: ExtensionAPI): void {
     studioExtension(pi, {
       profile: lead.profile,
       approvalPending: () => approvalPending,
+      activationBlocked: () =>
+        submissions.size > 0 ||
+        ![Phase.Running, Phase.Verified, Phase.CheckFailed].includes(
+          db.get(id).phase,
+        ),
       trackedPullRequest: () => {
         const delivery = db.get(id).delivery;
         return delivery?.pr !== undefined && delivery.agent !== undefined
@@ -102,6 +113,15 @@ export default function managedWorker(pi: ExtensionAPI): void {
       },
     );
   }
+  registerActivation(
+    pi,
+    () =>
+      approvalPending ||
+      submissions.size > 0 ||
+      ![Phase.Running, Phase.Verified, Phase.CheckFailed].includes(
+        db.get(id).phase,
+      ),
+  );
   pi.on("session_start", async (event, ctx) => {
     binding = undefined;
     lifetime = new AbortController();
@@ -111,6 +131,7 @@ export default function managedWorker(pi: ExtensionAPI): void {
       return;
     }
     try {
+      await recoverManagedBinding(ctx, db, id);
       const record = db.get(id);
       const pane = await matchWorker(ctx, record);
       const model = ctx.model;

@@ -20,7 +20,7 @@ const agent = join(temporary, ".pi/agent");
 await mkdir(agent, { recursive: true });
 const registry = await ModelRuntime.create({
   authPath: join(agent, "auth.json"),
-  modelsPath: join(agent, "models.json"),
+  modelsPath: null,
 });
 for (const [role, selection] of Object.entries(exampleConfig.profiles.personal))
   assert.ok(
@@ -48,8 +48,8 @@ await writeFile(
   JSON.stringify({
     providers: {
       [workModel.provider]: {
-        baseUrl: "https://bedrock-mantle.us-east-1.api.aws/v1",
-        api: "openai-completions",
+        baseUrl: "https://bedrock-mantle.us-east-1.api.aws/openai/v1",
+        api: "openai-responses",
         apiKey: "$STUDIO_FIXTURE_NO_MANTLE_AUTH",
         models: [{ id: workModel.model }],
       },

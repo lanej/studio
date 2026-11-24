@@ -95,7 +95,7 @@ export const configSchema = z
     runtime: z
       .object({
         enabled: z.boolean().default(false),
-        concurrency: z.number().int().min(1).max(2).default(2),
+        concurrency: z.number().int().min(1).max(3).default(2),
         pollMs: z.number().int().min(1000).max(60000).default(5000),
         projects: z.array(runtimeProjectSchema).default([]),
       })
@@ -221,25 +221,25 @@ export async function loadConfig(path = configPath()): Promise<StudioConfig> {
   }
 }
 
-const roles = (provider: string, prefix: string) => ({
+const roles = (provider: string, model: string) => ({
   [AgentRole.Lead]: {
     provider,
-    model: `${prefix}gpt-6.1-sol`,
+    model,
     reasoning: ReasoningLevel.High,
   },
   [AgentRole.Worker]: {
     provider,
-    model: `${prefix}gpt-6.1-sol`,
+    model,
     reasoning: ReasoningLevel.Medium,
   },
   [AgentRole.Reviewer]: {
     provider,
-    model: `${prefix}gpt-6.1-sol`,
+    model,
     reasoning: ReasoningLevel.Medium,
   },
   [AgentRole.Explorer]: {
     provider,
-    model: `${prefix}gpt-6.1-sol`,
+    model,
     reasoning: ReasoningLevel.Low,
   },
 });
@@ -263,7 +263,13 @@ export const exampleConfig = {
     projectId: "11111111-1111-4111-8111-111111111111",
   },
   profiles: {
-    [StudioProfile.Work]: roles(DefaultProvider.BedrockMantle, "openai."),
-    [StudioProfile.Personal]: roles(DefaultProvider.ChatGPTSubscription, ""),
+    [StudioProfile.Work]: roles(
+      DefaultProvider.BedrockMantle,
+      "openai.gpt-6.1-sol",
+    ),
+    [StudioProfile.Personal]: roles(
+      DefaultProvider.ChatGPTSubscription,
+      "gpt-6.1-sol",
+    ),
   },
 };

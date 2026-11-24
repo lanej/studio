@@ -15,7 +15,7 @@
     "studio": "scripts/studio",
     "test": "bun test tests/",
     "test:beads-native": "bun acceptance/beads-control.ts",
-    "test:pi-native": "bun acceptance/pi-resources.ts",
+    "test:pi-native": "bun acceptance/pi-models.ts && bun acceptance/pi-resources.ts",
     "format": "bun scripts/check-typescript.mjs fmt",
     "check": "bun scripts/check-typescript.mjs all",
     "lint": "bun scripts/check-typescript.mjs lint",
@@ -36,11 +36,14 @@
     "test:runtime-beads-native": "bun acceptance/runtime-beads.ts",
     "test:runtime-worker-native": "bun acceptance/runtime-worker.ts",
     "test:verification-native": "bun acceptance/verification-sandbox.ts",
-    "test:git-boundary-native": "bun acceptance/git-boundary.ts"
+    "test:git-boundary-native": "bun acceptance/git-boundary.ts",
+    "test:activation-native": "bun acceptance/activation.ts"
   },
   "dependencies": {
     "@bufbuild/protobuf": "2.16.0",
     "@lanej/task-runtime": "file:./vendor/task-runtime",
+    "@lumis-sh/wasm-json": "0.26.7",
+    "@vscode/tree-sitter-wasm": "0.3.1",
     "@tintinweb/pi-subagents": "0.26.2",
     "commander": "^14.0.0",
     "pi-git-diff": "0.1.1",

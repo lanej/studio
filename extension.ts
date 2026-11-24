@@ -3,6 +3,10 @@ import { browseTasks } from "./tasks/browser.ts";
 import { readTaskEvidence } from "./tasks/evidence.ts";
 import { registerProjectPolicy } from "./execution/policy.ts";
 import { registerDiscovery } from "./discovery/extension.ts";
+import {
+  registerActivation,
+  registerActivationAdmission,
+} from "./activation.ts";
 import { registerCodeIntelligence } from "./code-intelligence/extension.ts";
 import { inspectIntegrations } from "./integrations.ts";
 import { registerSearchRendering } from "./search-renderer.ts";
@@ -14,7 +18,12 @@ import type {
 import { z } from "zod";
 import { registerArchives } from "./archives.ts";
 import { directoryProfileType, registerDirectory } from "./directory.ts";
-import { BeadsReader, taskSchema } from "./beads.ts";
+import {
+  BeadsReader,
+  knownTaskStatus,
+  TaskStatus,
+  taskSchema,
+} from "./beads.ts";
 import { delegateTool, registerDelegation } from "./delegation.ts";
 import { TaskBeads } from "./task-service.ts";
 import { dispatchGate } from "./capabilities.ts";
@@ -44,9 +53,11 @@ export default function studioExtension(
   managed?: {
     profile: StudioProfile;
     approvalPending: () => boolean;
+    activationBlocked?: () => boolean;
     trackedPullRequest: () => string | undefined;
   },
 ): void {
+  registerActivationAdmission(pi);
   const intelligence = registerCodeIntelligence(pi);
   const idle = new IdleSession();
   let removeInputListener: (() => void) | undefined;
@@ -64,6 +75,14 @@ export default function studioExtension(
     () => {
       idle.terminalInput();
     },
+  );
+  registerActivation(
+    pi,
+    (ctx) =>
+      discovery?.pending() === true ||
+      managed?.approvalPending() === true ||
+      managed?.activationBlocked?.() === true ||
+      delegation.blocks(ctx.sessionManager.getSessionId()),
   );
   registerArchives(pi);
   registerDirectory(
@@ -248,7 +267,7 @@ export default function studioExtension(
       const config = await loadConfig();
       if (config.beads === undefined && config.beadsService === undefined) {
         ctx.ui.notify(
-          "Configure a Beads service or read-only workspace in studio/config.json",
+          "Configure a Beads service or read-only workspace in your Studio configuration. Run studio config --example for a service example.",
           "warning",
         );
         return;
@@ -271,16 +290,28 @@ export default function studioExtension(
       if (reader === undefined) return;
       const projectId = config.beadsService?.projectId;
       const project = config.runtime.projects.find(
-        (item) => item.source.projectId === projectId,
+        (item) =>
+          item.source.projectId === projectId &&
+          item.source.url === config.beadsService?.url,
       );
       const paneTask = await browseTasks(
         ctx,
         {
           label:
             project === undefined
-              ? basename(config.beads?.workspace ?? ctx.cwd)
+              ? config.beadsService === undefined
+                ? basename(config.beads?.workspace ?? ctx.cwd)
+                : "Beads"
               : basename(project.root),
           identity: projectId ?? config.beads?.database ?? "",
+          emptyHint:
+            discovery !== undefined &&
+            config.beadsService !== undefined &&
+            config.beadsService.reviewOnly !== true
+              ? discovery.hasSelectedDraft(ctx)
+                ? "Review your draft with /plan."
+                : "Draft a plan with /plan-draft <description>."
+              : "Tasks added in Beads will appear here.",
           show: (id) => reader.show(id),
           load: async () => {
             const tasks = await reader.list();
@@ -292,7 +323,15 @@ export default function studioExtension(
               tasks,
               ...readTaskEvidence(projectId),
               observedAt: new Date().toLocaleTimeString(),
-              focusable: live,
+              focusable: new Set(
+                tasks
+                  .filter(
+                    (task) =>
+                      live.has(task.id) &&
+                      knownTaskStatus(task.status) === TaskStatus.InProgress,
+                  )
+                  .map((task) => task.id),
+              ),
               limitReached: tasks.length === 1000,
             };
           },

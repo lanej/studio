@@ -11,8 +11,10 @@ import {
 } from "@earendil-works/pi-tui";
 import { taskTree, type Task, type TreeRow } from "../beads.ts";
 import { NavigationKey } from "../runtime.ts";
+import { selectorText } from "@lanej/pi-components";
 import { taskStatusGlyph } from "../ui.ts";
 import {
+  currentReviewFinding,
   needsAttention,
   plain,
   retainedEvidence,
@@ -24,6 +26,7 @@ import {
 interface BrowserSource {
   label: string;
   identity: string;
+  emptyHint?: string;
   load: () => Promise<TaskSnapshot>;
   show: (id: string) => Promise<Task>;
 }
@@ -89,15 +92,24 @@ export class TaskBrowser {
 
   private wrapped(text: string, width: number): string[] {
     // Provider text is data: terminal control sequences must never reach the renderer.
-    return new Text(text.replace(/[^\P{Cc}\n]/gu, " "), 0, 0).render(
-      Math.max(1, width),
-    );
+    return new Text(
+      selectorText(text).replace(/[^\P{Cc}\n]/gu, " "),
+      0,
+      0,
+    ).render(Math.max(1, width));
   }
 
   private details(width: number): DetailLine[] {
     const row = this.row;
     if (row === undefined)
-      return [{ text: "No tasks in this source. Press r to refresh." }];
+      return [
+        "No tasks yet",
+        "",
+        ...this.wrapped(
+          this.source.emptyHint ?? "Tasks added in Beads will appear here.",
+          width,
+        ),
+      ].map((text) => ({ text }));
     const task = row.task;
     const lines: DetailLine[] = [];
     const text = (value: string) => {
@@ -135,6 +147,11 @@ export class TaskBrowser {
       lines.push({ text: this.theme.bold(line) });
     text("");
     text(taskNarrative(task, this.snapshot));
+    const finding = currentReviewFinding(task, this.snapshot);
+    if (finding !== undefined) {
+      text("");
+      text(`The reviewer found: ${finding}`);
+    }
     if (row.warning !== undefined) text(row.warning);
     const links = taskLinks(task, this.snapshot.tasks);
     text("");
@@ -180,9 +197,14 @@ export class TaskBrowser {
   }
 
   render(width: number): string[] {
-    const height = Math.max(6, Math.min(24, this.height()));
+    const height = Math.max(1, Math.min(24, this.height()));
+    if (width < 1) return [];
+    if (width < 3 || height < 6)
+      return this.wrapped(this.row?.task.title ?? "No tasks yet", width)
+        .slice(0, height)
+        .map((line) => this.paint("userMessageBg", this.pad(line, width)));
     const inner = Math.max(1, width - 2);
-    const split = width >= 76;
+    const split = width >= 76 && this.rows.length > 0;
     const treeWidth = split ? Math.min(31, Math.floor(inner * 0.41)) : inner;
     const detailWidth = split ? Math.max(1, inner - treeWidth - 3) : inner;
     this.bodyHeight = height - 5;
@@ -240,7 +262,9 @@ export class TaskBrowser {
     const body = Array.from({ length: this.bodyHeight }, (_, index) =>
       split
         ? `${tree[index] ?? " ".repeat(treeWidth)}${this.theme.fg("borderMuted", " │ ")}${detail[index] ?? " ".repeat(detailWidth)}`
-        : ((this.focus === "tree" ? tree[index] : detail[index]) ?? ""),
+        : ((this.focus === "tree" && this.rows.length > 0
+            ? tree[index]
+            : detail[index]) ?? ""),
     );
     const hint =
       this.focus === "tree"

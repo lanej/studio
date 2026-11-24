@@ -1,3 +1,4 @@
+import { selectorText } from "@lanej/pi-components";
 import {
   knownRelationship,
   knownTaskStatus,
@@ -18,7 +19,7 @@ export interface TaskSnapshot {
 }
 
 export function plain(value: string): string {
-  return value.replace(/\p{Cc}/gu, " ");
+  return selectorText(value).replace(/\p{Cc}/gu, " ");
 }
 
 export function taskAttempts(task: Task, snapshot: TaskSnapshot): Execution[] {
@@ -64,6 +65,28 @@ export function taskLinks(
       )
       .map((item) => item.id),
   };
+}
+
+/** Findings belong only to the current Beads owner; earlier attempts remain in raw evidence. */
+export function currentReviewFinding(
+  task: Task,
+  snapshot: TaskSnapshot,
+): string | undefined {
+  const attempt = selectedAttempt(task, snapshot);
+  if (
+    attempt === undefined ||
+    task.assignee !== `pi:${attempt.id}` ||
+    knownTaskStatus(task.status) !== TaskStatus.InProgress
+  )
+    return undefined;
+  return [
+    ExecutionPhase.Reviewing,
+    ExecutionPhase.Running,
+    ExecutionPhase.Parked,
+    ExecutionPhase.Waiting,
+  ].includes(attempt.phase)
+    ? attempt.reviewFinding
+    : undefined;
 }
 
 const phaseNarrative = {
@@ -145,12 +168,13 @@ export function taskNarrative(task: Task, snapshot: TaskSnapshot): string {
 export function needsAttention(task: Task, snapshot: TaskSnapshot): boolean {
   const attempt = selectedAttempt(task, snapshot);
   return (
-    attempt !== undefined &&
-    (attempt.phase === ExecutionPhase.Parked ||
-      attempt.phase === ExecutionPhase.Uncertain ||
-      (attempt.verification !== undefined &&
-        attempt.verification.exitCode !== null &&
-        attempt.verification.exitCode !== 0))
+    currentReviewFinding(task, snapshot) !== undefined ||
+    (attempt !== undefined &&
+      (attempt.phase === ExecutionPhase.Parked ||
+        attempt.phase === ExecutionPhase.Uncertain ||
+        (attempt.verification !== undefined &&
+          attempt.verification.exitCode !== null &&
+          attempt.verification.exitCode !== 0)))
   );
 }
 
@@ -166,6 +190,9 @@ export function retainedEvidence(task: Task, snapshot: TaskSnapshot): string {
       [
         `Attempt ${attempt.id}`,
         attempt.message,
+        ...(attempt.reviewFinding === undefined
+          ? []
+          : [`Reviewer finding\n${attempt.reviewFinding}`]),
         attempt.verification === undefined
           ? "No verifier receipt."
           : `Verifier receipt\n${JSON.stringify(attempt.verification, null, 2)}`,

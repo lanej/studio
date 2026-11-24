@@ -27,6 +27,7 @@ import {
   ReasoningLevel,
 } from "../config.ts";
 import { run } from "../process.ts";
+import { coldReadInstructions } from "../review-contract.ts";
 import { PiEvent } from "../runtime.ts";
 
 import { piExecutable } from "../task-run.ts";
@@ -43,7 +44,7 @@ enum RpcCommand {
 const root = fileURLToPath(new URL("../", import.meta.url));
 const requestSchema = z.object({
   model: z.enum(AgentRole),
-  messages: z.array(z.object({ role: z.string() })),
+  messages: z.array(z.object({ role: z.string(), content: z.unknown() })),
   tools: z
     .array(z.object({ function: z.object({ name: z.string() }) }))
     .default([]),
@@ -64,6 +65,7 @@ const attemptSchema = z.object({
   sessionFile: z.string().optional(),
 });
 type ModelRequest = z.infer<typeof requestSchema>;
+type DelegatedRole = AgentRole.Explorer | AgentRole.Reviewer;
 const toolNames = (request: ModelRequest) =>
   request.tools.map((tool) => tool.function.name);
 const settledEvent: string = PiEvent.AgentSettled;
@@ -81,7 +83,7 @@ function bounded<T>(operation: Promise<T>, reason: string): Promise<T> {
   });
 }
 
-function fixtureProvider(scenario: Scenario) {
+function fixtureProvider(scenario: Scenario, role: DelegatedRole) {
   const requests: ModelRequest[] = [];
   let markChildStarted: (() => void) | undefined;
   const childStarted = new Promise<void>((resolve) => {
@@ -109,7 +111,7 @@ function fixtureProvider(scenario: Scenario) {
         ? {
             name: "studio_delegate",
             arguments: JSON.stringify({
-              role: AgentRole.Explorer,
+              role,
               brief: "Read fixture.txt",
             }),
           }
@@ -157,8 +159,12 @@ function fixtureProvider(scenario: Scenario) {
   };
 }
 
-async function exercise(scenario: Scenario, fixture: string) {
-  const provider = fixtureProvider(scenario);
+async function exercise(
+  scenario: Scenario,
+  fixture: string,
+  role: DelegatedRole,
+) {
+  const provider = fixtureProvider(scenario, role);
   try {
     await new Promise<void>((resolve, reject) => {
       provider.server.once("error", reject);
@@ -331,7 +337,11 @@ process.exit(lose ? 1 : (result.status ?? 1));
     };
     try {
       await rpc("profile", RpcCommand.Prompt, "/studio-profile personal");
-      await rpc("lead", RpcCommand.Prompt, "Delegate repository inspection");
+      await rpc(
+        "lead",
+        RpcCommand.Prompt,
+        "Delegate repository inspection. Author-only explanation: yellow lighthouse.",
+      );
       if (scenario === Scenario.Cancel) {
         await bounded(
           provider.childStarted,
@@ -361,8 +371,8 @@ process.exit(lose ? 1 : (result.status ?? 1));
             : "complete";
       assert.equal(attempt.state, expected);
       assert.equal(attempt.source, source);
-      assert.equal(attempt.role, AgentRole.Explorer);
-      assert.equal(attempt.reasoning, ReasoningLevel.Low);
+      assert.equal(attempt.role, role);
+      assert.equal(attempt.reasoning, efforts[role]);
       const [lead] = provider.requests;
       assert.ok(lead !== undefined);
       assert.ok(toolNames(lead).includes("studio_delegate"));
@@ -399,11 +409,22 @@ process.exit(lose ? 1 : (result.status ?? 1));
         } else {
           const transcript = await readFile(attempt.sessionFile, "utf8");
           const children = provider.requests.filter(
-            (request) => request.model === AgentRole.Explorer,
+            (request) => request.model === role,
           );
           const [child] = children;
           assert.ok(child !== undefined);
           assert.equal(children.length, 2);
+          const hasReviewInstructions = child.messages.some(
+            (message) =>
+              (message.role === "system" || message.role === "developer") &&
+              typeof message.content === "string" &&
+              message.content.includes(coldReadInstructions),
+          );
+          assert.equal(hasReviewInstructions, role === AgentRole.Reviewer);
+          assert.doesNotMatch(
+            JSON.stringify(child.messages),
+            /yellow lighthouse/,
+          );
           assert.deepEqual(
             new Set(toolNames(child)),
             new Set(["read", "ls", "find", "grep"]),
@@ -443,9 +464,13 @@ process.exit(lose ? 1 : (result.status ?? 1));
 const [argument, extra] = process.argv.slice(2);
 assert.equal(extra, undefined, "Choose at most one scenario");
 const scenario = z.enum(Scenario).parse(argument ?? Scenario.Complete);
-const fixture = await mkdtemp(join(tmpdir(), "studio-delegation-"));
-try {
-  await exercise(scenario, await realpath(fixture));
-} finally {
-  await rm(fixture, { recursive: true, force: true });
+const roles: DelegatedRole[] = [AgentRole.Explorer];
+if (scenario === Scenario.Complete) roles.push(AgentRole.Reviewer);
+for (const role of roles) {
+  const fixture = await mkdtemp(join(tmpdir(), "studio-delegation-"));
+  try {
+    await exercise(scenario, await realpath(fixture), role);
+  } finally {
+    await rm(fixture, { recursive: true, force: true });
+  }
 }

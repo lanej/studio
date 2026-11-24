@@ -351,5 +351,18 @@ export function registerDiscovery(
     pending ? { cancel: true } : undefined,
   );
   pi.on("session_before_fork", () => (pending ? { cancel: true } : undefined));
-  return { pending: () => pending };
+  return {
+    pending: () => pending,
+    hasSelectedDraft(ctx: ExtensionContext): boolean {
+      const id = locate(ctx);
+      if (id === undefined) return false;
+      const record = storage((db) => db.find(id));
+      return (
+        record !== undefined &&
+        record.project === realpathSync(ctx.cwd) &&
+        record.approved === undefined &&
+        record.leadPlan.draft !== null
+      );
+    },
+  };
 }
