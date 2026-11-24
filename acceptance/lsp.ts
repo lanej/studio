@@ -217,10 +217,10 @@ try {
     );
     assert.ok(rows.some((row) => row.includes("\x1b[4:3m")));
   }
-  assert.match(callComponent.render(120).join("\n"), /Before.*After/u);
+  assert.match(callComponent.render(120).join("\n"), /Original.*Updated/u);
   assert.doesNotMatch(
     callComponent.render(100).join("\n"),
-    /Before.*After| │ /u,
+    /Original.*Updated| │ /u,
   );
   for (const width of [100, 120]) {
     const output = callComponent.render(width).join("\n");

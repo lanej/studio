@@ -163,7 +163,12 @@ export function syntaxDiffRows(
   const leftWidth = Math.floor((inner - 3) / 2);
   const rightWidth = inner - 3 - leftWidth;
   const gutter = digits + 2;
-  const split = leftWidth - gutter >= display.min_split_columns;
+  const hasAdditions = lines.some((line) => line.prefix === "+");
+  const hasDeletions = lines.some((line) => line.prefix === "-");
+  const split =
+    hasAdditions &&
+    hasDeletions &&
+    leftWidth - gutter >= display.min_split_columns;
   const pad = (text: string, columns: number) =>
     text + " ".repeat(Math.max(0, columns - visibleWidth(text)));
   const toolBackground = theme.bg("toolSuccessBg", "").replace("\x1b[49m", "");
@@ -276,9 +281,9 @@ export function syntaxDiffRows(
   const body: string[] = [];
   if (split) {
     body.push(
-      pad(theme.fg("muted", "Before"), leftWidth) +
+      pad(theme.fg("muted", "Original"), leftWidth) +
         theme.fg("dim", " │ ") +
-        theme.fg("muted", "After"),
+        theme.fg("muted", "Updated"),
     );
     let index = 0;
     while (index < lines.length) {

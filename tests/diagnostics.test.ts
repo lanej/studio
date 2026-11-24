@@ -121,7 +121,7 @@ await test("edit diffs switch between aligned split and unified layouts without 
     assert.match(text, /retries = "three"/u);
     assert.equal(text.includes(" │ "), width >= 93);
     if (width >= 93) {
-      assert.match(text, /Before.*After/u);
+      assert.match(text, /Original.*Updated/u);
       assert.match(text, /9 finish\(\).*│.*8 finish\(\)/u);
     }
   }
