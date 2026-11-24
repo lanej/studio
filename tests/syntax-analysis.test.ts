@@ -139,7 +139,7 @@ await test("each numbered hunk has its own scope and inserted or deleted lines u
     { row: 4, label: "function other()" },
   ]);
   assert.deepEqual(
-    result?.replacements.map((r) => r.row),
+    result.replacements.map((r) => r.row),
     [2, 5],
   );
   const removed = before.replace("  return 2;\n", "");
