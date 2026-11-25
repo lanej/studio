@@ -36,8 +36,8 @@ type HeadingTheme = Pick<Theme, "fg" | "bold" | "style" | "appearance"> & {
   colors: Pick<Theme["colors"], "toolSuccessBg">;
 };
 type DiffTheme = HeadingTheme &
-  Pick<Theme, "bg"> & {
-    colors: Pick<Theme["colors"], "text" | "toolDiffAdded" | "toolDiffRemoved">;
+  Pick<Theme, "bg" | "name"> & {
+    colors: Pick<Theme["colors"], "toolDiffAdded" | "toolDiffRemoved">;
   };
 
 export function editFileHeading(
@@ -60,6 +60,10 @@ export function editFileHeading(
 }
 
 const white = rgbColor(255, 255, 255);
+const studioWordColors = {
+  toolDiffRemoved: { ink: parseColor("#bf616a"), tint: parseColor("#47343f") },
+  toolDiffAdded: { ink: parseColor("#a3be8c"), tint: parseColor("#304639") },
+};
 
 function luminance(color: Color) {
   const { r, g, b } = colorToRgb(color);
@@ -70,12 +74,19 @@ function luminance(color: Color) {
   return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
 }
 
-function readableInk(background: Color, preferred: Color) {
-  const bg = luminance(background);
-  const fg = luminance(preferred);
-  if ((Math.max(bg, fg) + 0.05) / (Math.min(bg, fg) + 0.05) >= 4.5)
-    return preferred;
-  return bg > 0.179 ? rgbColor(0, 0, 0) : white;
+function contrast(a: Color, b: Color) {
+  const first = luminance(a);
+  const second = luminance(b);
+  return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
+}
+
+function readableInk(
+  background: Color,
+  preferred: Color,
+  minimumContrast = 4.5,
+) {
+  if (contrast(background, preferred) >= minimumContrast) return preferred;
+  return luminance(background) > 0.179 ? rgbColor(0, 0, 0) : white;
 }
 
 function inlayText(theme: HeadingTheme, text: string) {
@@ -327,20 +338,26 @@ export function syntaxDiffRows(
     );
   };
   const tokens = changedTokens(lines, details.replacements);
-  const token = (
-    text: string,
-    tone: "toolDiffAdded" | "toolDiffRemoved",
-    override?: string,
-  ) => {
-    const bg =
-      override === undefined
-        ? mixColors(theme.colors[tone], white, 0.6, "srgb")
-        : parseColor(override);
+  const token = (text: string, tone: "toolDiffAdded" | "toolDiffRemoved") => {
+    const { ink: studioInk, tint } = studioWordColors[tone];
     const ink =
-      theme.appearance === "dark"
-        ? theme.colors.toolSuccessBg
-        : theme.colors.text;
-    return theme.style(text, { bg, fg: readableInk(bg, ink), bold: true });
+      theme.name === "dotfiles" && theme.appearance === "dark"
+        ? studioInk
+        : theme.colors[tone];
+    const surface = theme.colors.toolSuccessBg;
+    const override =
+      tone === "toolDiffRemoved"
+        ? display.removed_background
+        : display.added_background;
+    const bg =
+      override !== undefined
+        ? parseColor(override)
+        : theme.appearance === "dark"
+          ? tint
+          : mixColors(surface, ink, 0.12, "srgb");
+    // Preserve the original diff ink whenever it is as legible as on the tool surface.
+    const minimumContrast = Math.min(4.5, contrast(ink, surface));
+    return theme.style(text, { bg, fg: readableInk(bg, ink, minimumContrast) });
   };
   const markedCode = (line: DiffLine, compact: boolean) => {
     const removed = line.prefix === "-";
@@ -349,9 +366,9 @@ export function syntaxDiffRows(
     if (change === undefined) return code;
     const text = removed ? change.original : change.updated;
     const fill = compact
-      ? token(change.original, "toolDiffRemoved", display.removed_background) +
+      ? token(change.original, "toolDiffRemoved") +
         theme.fg("dim", " → ") +
-        token(change.updated, "toolDiffAdded", display.added_background)
+        token(change.updated, "toolDiffAdded")
       : token(text, removed ? "toolDiffRemoved" : "toolDiffAdded");
     // Restore the file card after the token, or let the configured row tint take over.
     const painted = compact

@@ -1,5 +1,6 @@
 import { editFileHeading, syntaxDiffRows } from "../code-intelligence/diff.ts";
 import type { SyntaxReplacement } from "../code-intelligence/syntax-analysis.ts";
+import studioTheme from "../resources/theme.json" with { type: "json" };
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type {
@@ -290,6 +291,13 @@ await test("file reasons share the heading and a creation marks the file once", 
 await test("token fills and gutter roles survive compact, paired and wrapped diffs", () => {
   const theme = {
     ...plain,
+    name: studioTheme.name,
+    colors: {
+      ...plain.colors,
+      toolSuccessBg: parseColor(studioTheme.colors.toolSuccessBg),
+      toolDiffRemoved: parseColor(studioTheme.colors.toolDiffRemoved),
+      toolDiffAdded: parseColor(studioTheme.colors.toolDiffAdded),
+    },
     fg(role: ThemeColor, text: string) {
       const ansi =
         role === "warning"
@@ -322,6 +330,7 @@ await test("token fills and gutter roles survive compact, paired and wrapped dif
   );
   const light = {
     ...theme,
+    name: "custom-light",
     appearance: "light" as const,
     colors: {
       ...theme.colors,
@@ -366,41 +375,69 @@ await test("token fills and gutter roles survive compact, paired and wrapped dif
     );
     const view = rows.join("\n");
     assert.ok(rows.every((row) => visibleWidth(row) <= width));
-    assert.ok(view.includes("\x1b[48;2;229;192;195m"), "removal tint");
-    assert.ok(view.includes("\x1b[48;2;218;229;209m"), "addition tint");
-    assert.ok(view.includes("\x1b[38;2;59;66;82m"), "dark ink on light fills");
+    assert.ok(view.includes("\x1b[48;2;71;52;63m"), "dark rose removal tint");
+    assert.ok(view.includes("\x1b[48;2;48;70;57m"), "dark green addition tint");
+    assert.ok(
+      view.includes("\x1b[38;2;191;97;106m"),
+      "original red removal ink",
+    );
+    assert.ok(
+      view.includes("\x1b[38;2;163;190;140m"),
+      "original green addition ink",
+    );
     if (withIssue && width === 120)
       assert.ok(view.includes(`${gray}Out of range`));
     if (!withIssue) {
       assert.ok(view.includes("\x1b[33m~\x1b[39m\x1b[34m12 "));
+      assert.ok(view.includes("\x1b[38;2;191;97;106m\x1b[48;2;71;52;63m2"));
+      assert.ok(view.includes("\x1b[38;2;163;190;140m\x1b[48;2;48;70;57m4"));
       assert.match(stripTerminalSequences(view), /return attempts < 2 → 4;/u);
     } else {
       assert.ok(view.includes("\x1b[4:3m"));
     }
+    const custom = syntaxDiffRows(
+      diff,
+      "retry.ts",
+      light,
+      width,
+      "/project",
+      (text) => text.split("\n"),
+      {
+        min_split_columns: 40,
+        inline_diagnostics: true,
+        removed_background: "#080808",
+        added_background: "#f0f0f0",
+      },
+      issue,
+      { replacements: [change] },
+    ).join("\n");
+    assert.ok(
+      custom.includes("\x1b[38;2;255;162;168m\x1b[48;2;8;8;8m"),
+      "readable custom theme ink survives a configured dark fill",
+    );
+    assert.ok(
+      custom.includes("\x1b[38;2;0;0;0m\x1b[48;2;240;240;240m"),
+      "unreadable diff ink adapts to a configured light fill",
+    );
   }
-  const custom = syntaxDiffRows(
+  const otherDark = syntaxDiffRows(
     diff,
     "retry.ts",
-    light,
+    { ...theme, name: "custom-dark" },
     80,
     "/project",
+    (text) => text.split("\n"),
     undefined,
-    {
-      min_split_columns: 40,
-      inline_diagnostics: true,
-      removed_background: "#080808",
-      added_background: "#f0f0f0",
-    },
     [],
     { replacements: [change] },
   ).join("\n");
   assert.ok(
-    custom.includes("\x1b[38;2;255;255;255m\x1b[48;2;8;8;8m"),
-    "light ink on overridden dark fill",
+    otherDark.includes("\x1b[38;2;255;162;168m\x1b[48;2;71;52;63m2"),
+    "other dark themes retain their removal ink",
   );
   assert.ok(
-    custom.includes("\x1b[38;2;32;32;32m\x1b[48;2;240;240;240m"),
-    "light-theme ink on overridden light fill",
+    otherDark.includes("\x1b[38;2;169;196;146m\x1b[48;2;48;70;57m4"),
+    "other dark themes retain their addition ink",
   );
 });
 
