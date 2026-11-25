@@ -39,16 +39,18 @@ export function reviseDelivery(draft: LeadDraft, argument: string): LeadDraft {
   };
 }
 
-const taskKey = z
+export const taskKey = z
   .string()
   .regex(/^[a-z][a-z0-9-]{0,31}$/u)
   .refine(
     (key) => key !== "root",
     "The root task key is reserved for the graph container",
   );
+export const pullRequestMergeSchema = z.enum(["manual", "project-policy"]);
 export const draftSchema = z
   .strictObject({
     summary: z.string().trim().min(1).max(8000),
+    pullRequestMerge: pullRequestMergeSchema.optional(),
     tasks: z
       .array(
         z.strictObject({
@@ -132,7 +134,10 @@ export function orderedTasks(draft: LeadDraft): LeadDraft["tasks"] {
   );
 }
 
-export function taskReviewLines(task: LeadDraft["tasks"][number]): string[] {
+export function taskReviewLines(
+  task: LeadDraft["tasks"][number],
+  intent: "proposal" | "execution" = "execution",
+): string[] {
   return [
     task.description,
     `Acceptance · ${task.acceptance}`,
@@ -141,7 +146,9 @@ export function taskReviewLines(task: LeadDraft["tasks"][number]): string[] {
       : []),
     `Owns · ${task.owns.length === 0 ? "the entire isolated checkout" : task.owns.join(", ")}`,
     `Admission · ${task.hold === true ? "on hold" : "when ready"}`,
-    `Delivery · ${deliveryOutcome(task.delivery)}${task.delivery === undefined ? " (default)" : ""}`,
+    task.delivery === undefined && intent === "proposal"
+      ? "Delivery · To be decided"
+      : `Delivery · ${deliveryOutcome(task.delivery)}${task.delivery === undefined ? " (default)" : ""}`,
     `Verification · ${task.check === undefined || task.check.length === 0 ? "independent criterion review; no executable agreed" : JSON.stringify(task.check)}`,
     ...(task.blockedBy.length > 0
       ? [`Blocked by · ${task.blockedBy.join(", ")}`]
@@ -149,7 +156,10 @@ export function taskReviewLines(task: LeadDraft["tasks"][number]): string[] {
   ];
 }
 
-export function describePlan(draft: LeadDraft): string {
+export function describePlan(
+  draft: LeadDraft,
+  intent: "proposal" | "execution" = "execution",
+): string {
   const waves = taskWaves(draft.tasks);
   let displayedWave = 0;
   return [
@@ -164,7 +174,7 @@ export function describePlan(draft: LeadDraft): string {
         ...heading,
         "",
         `├─ ${task.key} · ${task.title}`,
-        ...taskReviewLines(task),
+        ...taskReviewLines(task, intent),
       ];
     }),
   ].join("\n");

@@ -502,17 +502,6 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       }),
       /operator decision is pending/u,
     );
-    const session = (
-      await run(
-        process.execPath,
-        [
-          "--no-env-file",
-          "-e",
-          'import {SessionManager} from "@earendil-works/pi-coding-agent";const s=SessionManager.create(process.cwd());s.appendMessage({role:"user",content:"operator-decision-fixture-ready",timestamp:Date.now()});console.log(s.getSessionFile())',
-        ],
-        { cwd: fixture.workspace, env },
-      )
-    ).trim();
     const input = join(options.output, "ui-input.json");
     await writeFile(
       input,
@@ -538,7 +527,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
             "XDG_CONFIG_HOME",
           ].flatMap((key) => (env[key] === undefined ? [] : [[key, env[key]]])),
         ),
-        session,
+        source,
         task: `${parent}.ask`,
         question,
         answer,

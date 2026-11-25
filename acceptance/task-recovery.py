@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import tempfile
 import sys
+from task_panel_session import task_panel_session
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--input", required=True, type=Path)
@@ -52,9 +53,10 @@ with tempfile.TemporaryDirectory(prefix="st-rec-ui-", dir="/private/tmp" if sys.
             env["STUDIO_CONFIG"] = str(unavailable_config)
         if mode == "missing":
             env["STUDIO_STATE_DIR"] = str(temporary / "missing-state")
+        session = task_panel_session(Path(fixture["project"]), env, config["beadsService"], fixture["task"], "recovery-fixture-ready")
         for width in (100, 60):
             terminal = module.Terminal(Path(fixture["project"]), env, args.output,
-                                       fixture["session"], columns=width, rows=34)
+                                       session, columns=width, rows=34)
             try:
                 terminal.contains("recovery-fixture-ready")
                 terminal.send(f"/tasks {fixture['task']}\r")

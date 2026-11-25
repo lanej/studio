@@ -12,7 +12,6 @@ import {
   renderStatusDock,
   type StatusColumn,
   type Activity,
-  type Condition,
   type StatusTheme,
 } from "@lanej/pi-components";
 import {
@@ -21,8 +20,16 @@ import {
   draftCoverage,
   type CoverageStatus,
 } from "./assessment.ts";
-import { SpecStatus } from "./spec.ts";
-import { implementationColumn, specificationColumn } from "./columns.ts";
+import {
+  hasSettledDeliveryPolicy,
+  specificationGaps,
+  SpecStatus,
+} from "./spec.ts";
+import {
+  type AssessedCondition,
+  implementationColumn,
+  specificationColumn,
+} from "./columns.ts";
 import {
   assessmentRevision,
   implementationPresentation,
@@ -31,7 +38,8 @@ import {
   type ImplementationSource,
 } from "./implementation.ts";
 import { createPlanInspector } from "./plan-inspector.ts";
-import { renderStatusSidebar } from "./sidebar.ts";
+import { planGraphColor } from "../plan-graph.ts";
+import { renderSocratesSections, renderStatusSidebar } from "./sidebar.ts";
 import { createImplementationWatch } from "./implementation-watch.ts";
 
 export interface SocratesObservation extends ImplementationSource {
@@ -48,16 +56,16 @@ export interface SocratesActivity {
 export interface SocratesPresentation {
   id: string;
   title: string;
-  conditions: Condition[];
+  conditions: AssessedCondition[];
   activity: Activity;
   summary: string;
   implementation: ImplementationPresentation;
   columns: StatusColumn[];
   dockColumns: StatusColumn[];
+  prioritizeSpecification: boolean;
 }
 
 const conditionStates = {
-  unknown: ConditionState.Unknown,
   satisfied: ConditionState.Satisfied,
   partial: ConditionState.Partial,
   open: ConditionState.Open,
@@ -83,6 +91,7 @@ export function socratesPresentation(
       id: observation.id,
       title: label,
       conditions: [],
+      prioritizeSpecification: false,
       activity,
       summary: "",
       implementation,
@@ -93,20 +102,27 @@ export function socratesPresentation(
   const fresh = coverageFresh(spec, revision);
   const properties = coverageProperties(spec.draft);
   const conditions = properties.map(
-    (property): Condition => ({
+    (property): AssessedCondition => ({
       id: property.id,
       label: property.label,
       state: conditionStates[property.status],
-      stale: property.status !== "unknown" && !fresh,
-      details: property.reason ?? "No assessment recorded for this property.",
+      stale: property.recorded && !fresh,
+      details: property.reason,
     }),
   );
   const counts = conditionCounts(conditions);
+  const outstanding =
+    counts.satisfied + counts.notApplicable < conditions.length;
+  const reviewBeforeHandoff =
+    spec.status === SpecStatus.Frozen &&
+    observation.bead === undefined &&
+    observation.approved === undefined &&
+    observation.handoff === undefined &&
+    outstanding;
   const summary = [
     `${String(counts.satisfied)} satisfied`,
     ...(counts.partial > 0 ? [`${String(counts.partial)} partial`] : []),
     ...(counts.open > 0 ? [`${String(counts.open)} open`] : []),
-    ...(counts.unknown > 0 ? [`${String(counts.unknown)} not assessed`] : []),
     ...(counts.stale > 0 ? [`${String(counts.stale)} recheck`] : []),
     ...(counts.notApplicable > 0
       ? [`${String(counts.notApplicable)} not applicable`]
@@ -136,8 +152,15 @@ export function socratesPresentation(
         detail: "Awaiting incorporation into the draft",
       };
     }
-    if (spec.status === SpecStatus.Frozen)
+    if (spec.status === SpecStatus.Frozen) {
+      if (reviewBeforeHandoff)
+        return {
+          state: live.working ? ActivityState.Working : ActivityState.Idle,
+          label: "Review properties before handoff",
+          detail: "Review the property evidence against the current breakdown.",
+        };
       return { state: ActivityState.Idle, label: "Specification frozen" };
+    }
     if (live.working)
       return {
         state: ActivityState.Working,
@@ -163,6 +186,18 @@ export function socratesPresentation(
         label: "Assessments need review",
       };
     const questions = spec.draft.blockingQuestions.length;
+    if (
+      questions === 0 &&
+      counts.open === 0 &&
+      counts.partial === 0 &&
+      observation.bead === undefined &&
+      !hasSettledDeliveryPolicy(spec.draft)
+    )
+      return {
+        state: ActivityState.Idle,
+        label: "PR decision open",
+        detail: "Settle which beads open PRs and how they merge.",
+      };
     return {
       state: ActivityState.Idle,
       label: questions > 0 ? "Open questions remain" : "Awaiting review",
@@ -182,6 +217,13 @@ export function socratesPresentation(
     id: observation.id,
     title: label,
     conditions,
+    prioritizeSpecification:
+      spec.acceptedRevision !== revision ||
+      reviewBeforeHandoff ||
+      (spec.status !== SpecStatus.Frozen &&
+        (outstanding ||
+          (observation.bead === undefined &&
+            specificationGaps(spec, revision).length > 0))),
     activity: currentActivity,
     summary,
     implementation,
@@ -203,33 +245,39 @@ function statusTheme(theme: Theme): StatusTheme {
     success: (text) => theme.fg("success", text),
     warning: (text) => theme.fg("warning", text),
     error: (text) => theme.fg("error", text),
+    review: (text) => theme.fg("thinkingHigh", text),
     bold: (text) => theme.bold(text),
     selected: (text) => theme.bg("selectedBg", text),
   };
 }
 
-// Nested selected rows and terminal truncation reset the background. Restore the panel surface after either reset.
+// ANSI resets inside a padded row should return to the panel's text and surface.
 function surface(theme: Theme, line: string, width: number): string {
   const background = theme.getBgAnsi("userMessageBg");
+  const foreground = theme.getFgAnsi("text");
   const padded = truncateToWidth(line, width, "", true);
-  return theme.bg(
-    "userMessageBg",
+  return theme.style(
     padded
-      .replaceAll("\x1b[0m", `\x1b[0m${background}`)
+      .replaceAll("\x1b[0m", `\x1b[0m${foreground}${background}`)
+      .replaceAll("\x1b[39m", foreground)
       .replaceAll("\x1b[49m", background),
+    { fg: "text", bg: "userMessageBg" },
   );
 }
 
 const widgetKey = "studio:socrates";
 
 function sidebarWidth(columns: number): number {
-  return columns >= 104 ? Math.min(48, Math.floor(columns / 3)) : 0;
+  return columns >= 104
+    ? Math.min(56, columns - 68, Math.floor(columns * 0.4))
+    : 0;
 }
 
 /** UI state is session-local; no timer or saved focus can establish agent activity. */
 export function registerSocratesPresentation(
   pi: ExtensionAPI,
   read: (ctx: ExtensionContext) => SocratesObservation | undefined,
+  viewSpecification: (ctx: ExtensionContext) => Promise<void>,
 ) {
   const live: SocratesActivity = { working: false, paused: false };
   const tools = new Map<string, string>();
@@ -303,8 +351,8 @@ export function registerSocratesPresentation(
             render(width) {
               if (snapshot === undefined || inspecting) return [];
               return renderStatusSidebar(
-                snapshot.dockColumns,
-                statusTheme(theme),
+                snapshot,
+                { ...statusTheme(theme), lane: planGraphColor(theme) },
                 width,
                 tui.terminal.rows,
               ).map((line) => surface(theme, line, width));
@@ -339,13 +387,25 @@ export function registerSocratesPresentation(
               1,
               Math.min(dockExpanded ? 8 : 3, Math.floor(tui.terminal.rows / 3)),
             );
-            return renderStatusDock({
-              columns: snapshot.dockColumns,
-              theme: statusTheme(theme),
-              width: Math.max(0, width - 3),
-              expanded: dockExpanded,
-              maxRows,
-            }).map((line, index) => {
+            const inner = Math.max(0, width - 3);
+            const colors = statusTheme(theme);
+            const rows =
+              dockExpanded && snapshot.prioritizeSpecification
+                ? renderSocratesSections(
+                    snapshot,
+                    { ...colors, lane: planGraphColor(theme) },
+                    inner,
+                    maxRows,
+                    true,
+                  )
+                : renderStatusDock({
+                    columns: snapshot.dockColumns,
+                    theme: colors,
+                    width: inner,
+                    expanded: dockExpanded,
+                    maxRows,
+                  });
+            return rows.map((line, index) => {
               const edge =
                 index === 0
                   ? theme.fg("accent", dockExpanded ? "▾ " : "▸ ")
@@ -493,9 +553,13 @@ export function registerSocratesPresentation(
   });
   pi.registerCommand("socrates-status", {
     description:
-      "Toggle lead status, or use min, max, or inspect for specification and Beads details",
+      "Toggle lead status, use min or max to resize, inspect for evidence, or spec to read the full specification",
     async handler(argument, ctx) {
       const action = argument.trim();
+      if (action === "spec") {
+        await viewSpecification(ctx);
+        return;
+      }
       if (action === "inspect") {
         await inspect(ctx);
         return;
@@ -505,10 +569,14 @@ export function registerSocratesPresentation(
         return;
       }
       if (action !== "min" && action !== "max")
-        throw new Error("Use /socrates-status min, max, or inspect");
+        throw new Error("Use /socrates-status min, max, inspect, or spec");
       refresh(ctx);
       resizeStatus(action === "max");
     },
   });
-  return { refresh, inspect };
+  function open(ctx: ExtensionContext) {
+    refresh(ctx);
+    if (snapshot !== undefined) resizeStatus(true);
+  }
+  return { refresh, inspect, open };
 }

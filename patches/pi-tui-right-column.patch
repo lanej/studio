@@ -1,3 +1,34 @@
+diff --git a/dist/colors.js b/dist/colors.js
+--- a/dist/colors.js
++++ b/dist/colors.js
+@@ -196,7 +196,7 @@
+     const db = first.b - second.b;
+     return dr * dr * 0.299 + dg * dg * 0.587 + db * db * 0.114;
+ }
+-function rgbToAnsi256(color) {
++function rgbToAnsi256(color, background) {
+     const rIndex = findClosest(CUBE_VALUES, color.r);
+     const gIndex = findClosest(CUBE_VALUES, color.g);
+     const bIndex = findClosest(CUBE_VALUES, color.b);
+@@ -206,7 +206,8 @@
+     const grayOffset = findClosest(GRAY_VALUES, gray);
+     const grayValue = GRAY_VALUES[grayOffset];
+     const spread = Math.max(color.r, color.g, color.b) - Math.min(color.r, color.g, color.b);
+-    if (spread < 10 &&
++    // Near-neutral surfaces can collapse to one bright cube color despite a closer gray.
++    if ((spread < 10 || (background && spread < 32)) &&
+         colorDistance(color, { r: grayValue, g: grayValue, b: grayValue }) < colorDistance(color, cubeColor)) {
+         return 232 + grayOffset;
+     }
+@@ -219,7 +220,7 @@
+     if (mode === "truecolor") {
+         return `\x1b[${background ? 48 : 38};2;${Math.round(rgb.r)};${Math.round(rgb.g)};${Math.round(rgb.b)}m`;
+     }
+-    return `\x1b[${background ? 48 : 38};5;${rgbToAnsi256(rgb)}m`;
++    return `\x1b[${background ? 48 : 38};5;${rgbToAnsi256(rgb, background)}m`;
+ }
+ export function foregroundAnsi(color, mode) {
+     return colorAnsi(color, mode, false);
 diff --git a/dist/components/image.d.ts b/dist/components/image.d.ts
 index 0a1a84a9e425ef0e6d7df672535fe96a1adefb83..21327f0866563bca6ba934639aeb9e8a2615eb62 100644
 --- a/dist/components/image.d.ts
