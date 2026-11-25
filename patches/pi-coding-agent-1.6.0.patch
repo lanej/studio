@@ -12,10 +12,65 @@ index f61225f2da158f995127d6df58161937aa47afb3..2ba3724e92ea3c8c3804075fc0389385
      source?: InputSource;
      /** Internal hook used by RPC mode to observe how an accepted prompt was dispatched. Not called if the prompt is rejected. */
 diff --git a/dist/core/agent-session.js b/dist/core/agent-session.js
-index 009632bb5679380e48ec2473c6128163d9cde7eb..5fb413801b7e5bedae36fe8f28acce0f93979f23 100644
+index 009632bb5679380e48ec2473c6128163d9cde7eb..d4cb634faf39b86c90cd571ecac87f0eede049a5 100644
 --- a/dist/core/agent-session.js
 +++ b/dist/core/agent-session.js
-@@ -1754,6 +1754,10 @@ export class AgentSession {
+@@ -443,11 +443,11 @@ export class AgentSession {
+      * Run a call that the tool call `parentToolCallId` made through `ctx.executeTool()`. It goes
+      * through the agent's tool pipeline with the session's hooks, against the callable tools.
+      */
+-    async _executeNestedToolCall(parentToolCallId, name, args, options) {
++    async _executeNestedToolCall(parentToolCallId, name, args, options, caller) {
+         this._nestedToolCalls ??= new NestedToolCallRunner({
+             getTools: () => this._getCallableTools(),
+             isSequential: () => this.agent.toolExecution === "sequential",
+-            runToolCall: (toolCall, parentId, signal, onUpdate) => {
++            runToolCall: (toolCall, parentId, signal, onUpdate, tools) => {
+                 const assistantMessage = this._findLastAssistantMessage();
+                 if (!assistantMessage) {
+                     return Promise.resolve({
+@@ -457,7 +457,7 @@ export class AgentSession {
+                     });
+                 }
+                 return runToolCall(toolCall, {
+-                    tools: this._getCallableTools(),
++                    tools,
+                     assistantMessage,
+                     context: { messages: this.agent.state.messages, tools: this.agent.state.tools },
+                     beforeToolCall: (context) => this._beforeToolCall(context, parentId),
+@@ -471,7 +471,22 @@ export class AgentSession {
+                 this._emit(event);
+             },
+         });
+-        return this._nestedToolCalls.execute(parentToolCallId, name, args, options);
++        // A model-only alias may delegate to its own active canonical tool. The caller
++        // comes from Pi's registered wrapper, never the model input or executeTool options.
++        const toolsForCall = () => {
++            const tools = this._getCallableTools();
++            if (caller?.definition.exposure !== "model-only") return tools;
++            const alias = this._toolDefinitions.get(caller.definition.name);
++            const target = this._toolDefinitions.get(name);
++            if (alias?.definition !== caller.definition || alias.sourceInfo !== caller.sourceInfo ||
++                target?.definition.exposure !== "model-only" || target.sourceInfo !== caller.sourceInfo ||
++                target.definition.parameters !== caller.definition.parameters ||
++                !target.definition.modelOnlyAliases?.includes(caller.definition.name)) return tools;
++            const active = this.agent.state.tools;
++            const canonical = active.find(tool => tool.name === name);
++            return canonical && active.some(tool => tool.name === caller.definition.name) ? [...tools, canonical] : tools;
++        };
++        return this._nestedToolCalls.execute(parentToolCallId, name, args, options, toolsForCall);
+     }
+     /** Whether `projection`, the current session projection, exceeds the compaction threshold of `model`. */
+     _exceedsCompactionThreshold(model, projection) {
+@@ -1165,6 +1180,7 @@ export class AgentSession {
+             promptGuidelines: definition.promptGuidelines,
+             exposure: this._getToolExposure(definition.name),
+             ...(definition.namespace ? { namespace: definition.namespace } : {}),
++            ...(definition.modelOnlyAliases ? { modelOnlyAliases: [...definition.modelOnlyAliases] } : {}),
+             ...(definition.annotations ? { annotations: { ...definition.annotations } } : {}),
+             ...(definition.reachesTools ? { reachesTools: definition.reachesTools } : {}),
+             sourceInfo,
+@@ -1754,6 +1770,10 @@ export class AgentSession {
              expandedText = this._expandSkillCommand(expandedText);
              expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
          }
@@ -26,6 +81,15 @@ index 009632bb5679380e48ec2473c6128163d9cde7eb..5fb413801b7e5bedae36fe8f28acce0f
          // If streaming, queue via steer() or followUp() based on option
          if (this.isStreaming) {
              if (!options?.streamingBehavior) {
+@@ -2948,7 +2968,7 @@ export class AgentSession {
+             },
+             getSystemPrompt: () => this.systemPrompt,
+             getSystemPromptOptions: () => this._baseSystemPromptOptions,
+-            executeTool: (callerId, name, args, options) => this._executeNestedToolCall(callerId, name, args, options),
++            executeTool: (callerId, name, args, options, caller) => this._executeNestedToolCall(callerId, name, args, options, caller),
+             getCallableTools: () => this._getCallableTools(),
+         }, {
+             registerProvider: (name, config) => {
 diff --git a/dist/core/settings-defaults.d.ts b/dist/core/settings-defaults.d.ts
 index 471f1f30bba7b4d2d725364f5bbba4dee55f42a2..427c2688cc7d8dc88fef55cee671c8332a92dedf 100644
 --- a/dist/core/settings-defaults.d.ts
@@ -515,10 +579,10 @@ index cc28afe3a71e57f933fffe7bcf9fc0ec399e5332..fce3f21553be2a671044c6510883e3ae
          "clearOnShrink": {
            "type": "boolean",
 diff --git a/dist/core/extensions/types.d.ts b/dist/core/extensions/types.d.ts
-index f784e083e2644e0fb14fe023c94ec7c8605b819a..f249f05f3366068eeb1f8b8c39b756eb80a09998 100644
+index f784e083e2644e0fb14fe023c94ec7c8605b819a..44eb9028ca2f269ee73378f833e1e578e31e94fe 100644
 --- a/dist/core/extensions/types.d.ts
 +++ b/dist/core/extensions/types.d.ts
-@@ -365,6 +365,10 @@
+@@ -365,6 +365,10 @@ export interface ToolRenderResultOptions {
  }
  /** Context passed to tool renderers. */
  export interface ToolRenderContext<TState = any, TArgs = any> extends KeybindingHints {
@@ -529,6 +593,33 @@ index f784e083e2644e0fb14fe023c94ec7c8605b819a..f249f05f3366068eeb1f8b8c39b756eb
      /** Current tool call arguments. Shared across call/result renders for the same tool call. */
      args: TArgs;
      /** Unique id for this tool execution. Stable across call/result renders for the same tool call. */
+@@ -498,6 +502,8 @@ export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = un
+      * How the model reaches the tool. Default: `"direct"`. See {@link ToolExposure}.
+      */
+     exposure?: ToolExposure;
++    /** Same-extension model-only aliases allowed to invoke this active tool with its original schema and hooks. */
++    modelOnlyAliases?: readonly string[];
+     /** Group the tool belongs to, for example its MCP server. */
+     namespace?: ToolNamespace;
+     /**
+@@ -1619,7 +1625,7 @@ export type SetSessionNameHandler = (name: string) => void;
+ export type GetSessionNameHandler = () => string | undefined;
+ export type GetActiveToolsHandler = () => string[];
+ /** Tool info with name, description, parameter schema, prompt guidelines, and source metadata. */
+-export type ToolInfo = Pick<ToolDefinition, "name" | "description" | "parameters" | "promptGuidelines" | "reachesTools"> & {
++export type ToolInfo = Pick<ToolDefinition, "name" | "description" | "parameters" | "promptGuidelines" | "reachesTools" | "modelOnlyAliases"> & {
+     exposure: ToolExposure;
+     namespace?: ToolNamespace;
+     annotations?: ToolAnnotations;
+@@ -1722,7 +1728,7 @@ export interface ExtensionContextActions {
+     getSystemPrompt: () => string;
+     getSystemPromptOptions?: () => BuildSystemPromptOptions;
+     /** Backs `ExtensionToolContext.executeTool()`. Without it, nested calls fail. */
+-    executeTool?: (callerId: string, name: string, args: unknown, options: ExecuteToolOptions) => Promise<AgentToolCallOutcome>;
++    executeTool?: (callerId: string, name: string, args: unknown, options: ExecuteToolOptions, caller?: RegisteredTool) => Promise<AgentToolCallOutcome>;
+     /** Backs `ExtensionToolContext.tools`. */
+     getCallableTools?: () => readonly AgentTool[];
+ }
 diff --git a/dist/core/tools/renderers/bash.js b/dist/core/tools/renderers/bash.js
 index 43430f16caa03ec9b2c57a5e105b257f4b11416b..dabb4e6914085175b8ee4331acb3b9e0562b2824 100644
 --- a/dist/core/tools/renderers/bash.js
@@ -671,3 +762,104 @@ index 58828fe68da77a2aaf324e3fbfff74071e5d9ee2..77bb8fb880a7e2bb2a2983cc962d8cf8
          return component;
      },
      renderResult(result, _options, theme, context) {
+diff --git a/dist/core/extensions/runner.d.ts b/dist/core/extensions/runner.d.ts
+index 237dcfb192e70f71fa3b7cae6e1cf6115b51d32e..bae0b74dc19434cfdaae994c618703327c53bf29 100644
+--- a/dist/core/extensions/runner.d.ts
++++ b/dist/core/extensions/runner.d.ts
+@@ -175,7 +175,7 @@ export declare class ExtensionRunner {
+      * Create the context for executing the tool call `toolCallId`: the extension context plus
+      * `tools` and `executeTool()`. `signal` is the default signal of nested calls.
+      */
+-    createToolContext(toolCallId: string, signal: AbortSignal | undefined): ExtensionToolContext;
++    createToolContext(toolCallId: string, signal: AbortSignal | undefined, caller?: RegisteredTool): ExtensionToolContext;
+     createCommandContext(): ExtensionCommandContext;
+     emitBoundary(baseEvent: BoundaryBaseEvent, buildContext: (entries: SessionBoundaryDraft[]) => BoundaryContextPreview | Promise<BoundaryContextPreview>): Promise<BoundaryDispatchResult>;
+     private isSessionBeforeEvent;
+diff --git a/dist/core/extensions/runner.js b/dist/core/extensions/runner.js
+index 2cf7fb5c0c242650b4b8d3a0a574ee5fda5a2363..9446aafd5031831bed1c0d418f95a821c76f52d5 100644
+--- a/dist/core/extensions/runner.js
++++ b/dist/core/extensions/runner.js
+@@ -706,7 +706,7 @@ export class ExtensionRunner {
+      * Create the context for executing the tool call `toolCallId`: the extension context plus
+      * `tools` and `executeTool()`. `signal` is the default signal of nested calls.
+      */
+-    createToolContext(toolCallId, signal) {
++    createToolContext(toolCallId, signal, caller) {
+         const runner = this;
+         // createContext() returns a fresh object, so adding properties does not affect other contexts.
+         return Object.defineProperties(this.createContext(), {
+@@ -729,7 +729,7 @@ export class ExtensionRunner {
+                             isError: true,
+                         };
+                     }
+-                    return runner.executeToolFn(toolCallId, name, args, { ...options, signal: options.signal ?? signal });
++                    return runner.executeToolFn(toolCallId, name, args, { ...options, signal: options.signal ?? signal }, caller);
+                 },
+             },
+         });
+diff --git a/dist/core/extensions/wrapper.js b/dist/core/extensions/wrapper.js
+index 9b663aaad23479c99dc8c4ead46fa50abd8b380a..5ca8c035ba5deae605e175233019d255fb464267 100644
+--- a/dist/core/extensions/wrapper.js
++++ b/dist/core/extensions/wrapper.js
+@@ -10,7 +10,7 @@ import { wrapToolDefinition } from "../tools/tool-definition-wrapper.js";
+  * Uses the runner's createToolContext() for consistent context across tools and event handlers.
+  */
+ export function wrapRegisteredTool(registeredTool, runner) {
+-    return wrapToolDefinition(registeredTool.definition, (toolCallId, signal) => runner.createToolContext(toolCallId, signal));
++    return wrapToolDefinition(registeredTool.definition, (toolCallId, signal) => runner.createToolContext(toolCallId, signal, registeredTool));
+ }
+ /**
+  * Wrap all registered tools into AgentTools.
+diff --git a/dist/core/nested-tool-calls.d.ts b/dist/core/nested-tool-calls.d.ts
+index 1d3adb1b412c5ecc81e2f9f68368cdfbc3234ab3..6b0188efbdf8bac76099fba5aa165b725284eacc 100644
+--- a/dist/core/nested-tool-calls.d.ts
++++ b/dist/core/nested-tool-calls.d.ts
+@@ -81,7 +81,7 @@ export interface NestedToolCallHost {
+     /** Whether every nested call runs exclusively, as when the agent executes tool calls sequentially. */
+     isSequential(): boolean;
+     /** Run the call through the tool pipeline, with hooks that report `parentToolCallId`. */
+-    runToolCall(toolCall: AgentToolCall, parentToolCallId: string, signal: AbortSignal | undefined, onUpdate: (partialResult: AgentToolResult<unknown>) => Promise<void>): Promise<AgentToolCallOutcome>;
++    runToolCall(toolCall: AgentToolCall, parentToolCallId: string, signal: AbortSignal | undefined, onUpdate: (partialResult: AgentToolResult<unknown>) => Promise<void>, tools: readonly AgentTool[]): Promise<AgentToolCallOutcome>;
+     emit(event: NestedToolExecutionEvent): Promise<void>;
+ }
+ export declare class NestedToolCallRunner {
+@@ -95,7 +95,7 @@ export declare class NestedToolCallRunner {
+      * Run `name` on behalf of the call `callerId`. The nested call gets the id `<callerId>/<n>`.
+      * Never rejects for tool failures: they come back as `isError: true`.
+      */
+-    execute(callerId: string, name: string, args: unknown, options?: NestedToolCallOptions): Promise<AgentToolCallOutcome>;
++    execute(callerId: string, name: string, args: unknown, options?: NestedToolCallOptions, getTools?: () => readonly AgentTool[]): Promise<AgentToolCallOutcome>;
+     /** Remove and return the record of the nested calls a model-issued call made. */
+     takeRecord(toolCallId: string): NestedCallSummary | undefined;
+     clear(): void;
+diff --git a/dist/core/nested-tool-calls.js b/dist/core/nested-tool-calls.js
+index be4a571d0f5ab07f482d8d634f937e0448787c1d..bcea3cb865d57c26d1f6ea24d51a0e3318ea6e91 100644
+--- a/dist/core/nested-tool-calls.js
++++ b/dist/core/nested-tool-calls.js
+@@ -95,7 +95,7 @@ export class NestedToolCallRunner {
+      * Run `name` on behalf of the call `callerId`. The nested call gets the id `<callerId>/<n>`.
+      * Never rejects for tool failures: they come back as `isError: true`.
+      */
+-    async execute(callerId, name, args, options = {}) {
++    async execute(callerId, name, args, options = {}, getTools = () => this.host.getTools()) {
+         let scope = this.scopes.get(callerId);
+         if (!scope) {
+             scope = { recorder: new NestedCallRecorder(), nextId: 1, holdsQueue: false };
+@@ -117,7 +117,7 @@ export class NestedToolCallRunner {
+         });
+         const exclusive = !scope.holdsQueue &&
+             (this.host.isSequential() ||
+-                this.host.getTools().find((tool) => tool.name === name)?.executionMode === "sequential");
++                getTools().find((tool) => tool.name === name)?.executionMode === "sequential");
+         let release;
+         if (exclusive) {
+             const previous = this.queueTail;
+@@ -143,7 +143,7 @@ export class NestedToolCallRunner {
+                     partialResult,
+                     parentToolCallId: callerId,
+                 });
+-            });
++            }, getTools());
+         }
+         finally {
+             this.scopes.delete(toolCall.id);

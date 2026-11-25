@@ -103,7 +103,7 @@ export function registerStudio(
   registerActivationAdmission(pi);
   registerSessionForks(pi);
   const intelligence = registerCodeIntelligence(pi);
-  if (managed === undefined) registerModelTools(pi);
+  registerModelTools(pi, { coding: managed === undefined });
   const idle = new IdleSession();
   const tasks = new TaskPanel();
   let removeInputListener: (() => void) | undefined;

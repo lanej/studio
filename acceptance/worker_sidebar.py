@@ -117,6 +117,9 @@ discoveries.close();
         cells = [rail_lines[start].removeprefix("Beads").strip(), rail_lines[start + 1].strip()]
         assert [len(row) for row in cells] == [10, 2], cells
         assert sorted("".join(cells)) == sorted("●" * 3 + "◐" * 3 + "○" * 6), cells
+        graph = console.rail_text().partition("Implementation")[2].partition("Workers")[0]
+        for title in ("Restore the selected graph node", "Keep the graph visible on resize"):
+            assert any("◐" in line and line.rstrip().endswith(title) for line in graph.splitlines()), graph
         assert question in " ".join(roster().split()), roster()
         assert "2 active · 1 needs you" in roster(), roster()
         console.send(worker_prompt + "\r")

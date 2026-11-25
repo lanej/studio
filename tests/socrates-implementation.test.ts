@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { HandoffPhase } from "../discovery/store.ts";
 import { runtimeProjectSchema, StudioProfile } from "../config.ts";
 import { LeadMode, draftSchema, planDigest } from "../lead-plan.ts";
-import { beadSchema } from "../task-service.ts";
+import { beadSchema, TaskBeads } from "../task-service.ts";
 import { SpecStatus, specRecord } from "../socrates/spec.ts";
 import { coverageFresh, coverageToken } from "../socrates/assessment.ts";
 import {
@@ -13,6 +13,7 @@ import {
   assessmentRevision,
   implementationPresentation,
   implementationRead,
+  readImplementation,
   type ImplementationSource,
   type ImplementationObservation,
 } from "../socrates/implementation.ts";
@@ -181,7 +182,11 @@ await test("sidebar draws dependency forks and joins, clipping at task boundarie
   assert.doesNotMatch(sidebar, /Wave|Local integration/u);
   for (const row of implementation.rows) row.state = ImplementationState.Closed;
   const live = renderSidebarGraph(implementation, theme, 35);
-  assert.match(live.lines[2] ?? "", /^● │ {2}Run on macOS +Closed$/u);
+  assert.equal(live.lines[2], "● │  Run on macOS");
+  assert.equal(
+    renderSidebarGraph(implementation, theme, 17).lines[2],
+    "● │  Run on macOS",
+  );
   assert.equal(live.lines[1], graph.lines[1]);
   assert.equal(live.lines[5], graph.lines[5]);
 });
@@ -528,4 +533,67 @@ await test("a switched graph ignores a late read and polling failure replaces co
   } finally {
     watch.dispose();
   }
+});
+
+await test("the worker roster distinguishes an empty plan from partial and failed Beads reads", async (ctx) => {
+  const active = {
+    ...observed("restore", "in_progress"),
+    assignee: `pi:${randomUUID()}`,
+  };
+  const finished = observed("verify", "closed");
+  const served = new Map([
+    [active.id, active],
+    [finished.id, finished],
+  ]);
+  ctx.mock.method(TaskBeads.prototype, "get", (id: string) => {
+    const row = served.get(id);
+    return row === undefined
+      ? Promise.reject(new Error("Beads unavailable"))
+      : Promise.resolve(row);
+  });
+
+  const initial = await readImplementation(approved);
+  assert.ok(initial?.state === "current");
+  assert.equal(initial.workerEvidenceError, undefined);
+  assert.deepEqual(
+    initial.workers?.map((worker) => worker.beadId),
+    [active.id],
+  );
+
+  served.delete(finished.id);
+  const partial = await readImplementation(approved);
+  assert.ok(partial?.state === "current");
+  assert.ok(partial.workerEvidenceError !== undefined);
+  assert.deepEqual(
+    partial.workers?.map((worker) => worker.beadId),
+    [active.id],
+  );
+
+  served.set(finished.id, finished);
+  served.delete(active.id);
+  const lost = await readImplementation(approved);
+  assert.ok(lost?.state === "current");
+  assert.ok(lost.workerEvidenceError !== undefined);
+  assert.deepEqual(lost.workers ?? [], []);
+
+  served.set(active.id, {
+    ...active,
+    metadata: { ...active.metadata, "studio.graph": "replaced" },
+  });
+  const foreign = await readImplementation(approved);
+  assert.ok(foreign?.state === "current");
+  assert.ok(foreign.workerEvidenceError !== undefined);
+  assert.deepEqual(foreign.workers ?? [], []);
+
+  served.clear();
+  const unavailable = await readImplementation(approved);
+  assert.ok(unavailable?.state === "unavailable");
+  assert.ok(unavailable.message !== undefined);
+
+  served.set(active.id, { ...active, status: "closed" });
+  served.set(finished.id, finished);
+  const recovered = await readImplementation(approved);
+  assert.ok(recovered?.state === "current");
+  assert.equal(recovered.workerEvidenceError, undefined);
+  assert.deepEqual(recovered.workers ?? [], []);
 });

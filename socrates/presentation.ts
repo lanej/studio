@@ -249,7 +249,9 @@ export function socratesPresentation(
     dockColumns: [
       {
         ...column,
-        groups: column.groups.filter((group) => group.id !== "requirements"),
+        groups: column.groups
+          .filter((group) => group.id !== "requirements")
+          .map((group) => ({ ...group, showStatusLabels: false })),
       },
       implementationColumn(implementation, true),
     ],
@@ -337,12 +339,16 @@ export function registerSocratesPresentation(
             rows: observed.workers ?? [],
             evidenceError: observed.workerEvidenceError,
           }
-        : { rows: [] };
+        : {
+            rows: [],
+            evidenceError:
+              observed?.state === "unavailable"
+                ? (observed.message ?? "Beads could not be read.")
+                : undefined,
+          };
     workerPane.setRows(
       workers.rows,
-      observed?.state === "unavailable"
-        ? observed.message
-        : workers.evidenceError,
+      workers.evidenceError,
       observed?.state === "loading",
     );
     snapshot =

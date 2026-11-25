@@ -105,8 +105,11 @@ await test("compact workers prioritize operator questions, respect bounds and di
   );
   assert.match(
     renderWorkerCompact(failed, theme, 33, 8, true).join(" "),
-    /status unavailable[\s\S]*Reviewing/u,
+    /Workers · partial[\s\S]*Reviewing/u,
   );
+  const partial = renderWorkerCompact(failed, theme, 33, 2);
+  assert.match(partial[0] ?? "", /partial.*1 needs you/u);
+  assert.equal(partial[1], worker.question);
   assert.doesNotMatch(short.join(" "), /Reviewer|Verify focus/u);
   const limited = renderWorkerCompact(view, theme, 33, 5, true).join(" ");
   assert.match(limited, /Should the parent keep focus\?[\s\S]*\+1 more/u);

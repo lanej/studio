@@ -32,7 +32,9 @@ function workerHeading(
   if (counts.unknown > 0) parts.push(`${String(counts.unknown)} unknown`);
   if (counts.waiting > 0) parts.push(`${String(counts.waiting)} waiting`);
   if (counts.attention > 0) parts.push(theme.warning(attention));
-  const title = theme.bold("Workers");
+  const title =
+    theme.bold("Workers") +
+    (view.evidenceError === undefined ? "" : theme.warning(" · partial"));
   const tally = parts.join(theme.muted(" · "));
   const gap = width - visibleWidth(title) - visibleWidth(tally);
   if (gap < 1 && counts.attention > 0)
@@ -97,10 +99,9 @@ export function renderWorkerCompact(
   if (width <= 0 || height <= 0) return [];
   const unavailable = view.evidenceError !== undefined;
   const warning = theme.warning("! Worker status unavailable");
-  if (view.rows.length === 0 || (height === 1 && unavailable))
+  if (view.rows.length === 0)
     return unavailable ? [truncateToWidth(warning, width, "…")] : [];
   const lines = [workerHeading(view, theme, width)];
-  if (unavailable) lines.push(truncateToWidth(warning, width, "…"));
   if (lines.length >= height) return lines;
   if (!expanded) {
     const question = view.rows.find(

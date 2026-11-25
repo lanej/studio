@@ -62,6 +62,8 @@ const keySchema = z
         /^(?:ctrl\+)?(?:shift\+)?(?:alt\+)?(?:super\+)?/u,
         "",
       );
+      // Pi only matches Escape without modifiers, even with CSI-u reporting.
+      if (base === "escape" && value !== base) return false;
       return (
         baseKeys.has(base.toLowerCase()) ||
         (printable.test(base) && base !== '"')

@@ -1,5 +1,6 @@
 import type { PaneKeybindings } from "./pane-keybindings.ts";
 import type { OpenTasks } from "./tasks/panel.ts";
+import { admittedDiagramAlias } from "./model-tools/extension.ts";
 import { diagramTool } from "./diagram/extension.ts";
 import { mermaidTool } from "./diagram/mermaid-tool.ts";
 import { renderPlanCall } from "./plan-renderer.ts";
@@ -19,7 +20,6 @@ import { readDeliveryInbox } from "./delivery.ts";
 import { appendOctoEvents } from "./transcript-events.ts";
 import { delegateTool } from "./delegation.ts";
 import {
-  describePlan,
   draftSchema,
   LeadMode,
   planDigest,
@@ -100,7 +100,8 @@ export function registerLeadControls(
     openTasks,
     keybindings,
   );
-  const permits = (tool: string) => {
+  const permits = (name: string, ctx: ExtensionContext) => {
+    const tool = admittedDiagramAlias(pi, name, ctx.model?.id) ?? name;
     const spec = db.get(id).specification;
     if (tool === specTool || tool === askTool) {
       return (
@@ -119,7 +120,7 @@ export function registerLeadControls(
     pi.setActiveTools(
       pi
         .getAllTools()
-        .filter((tool) => permits(tool.name))
+        .filter((tool) => permits(tool.name, ctx))
         .map((tool) => tool.name),
     );
     ctx.ui.setStatus(FooterStatus.Plan, mode() ?? LeadMode.Planning);
@@ -150,7 +151,7 @@ export function registerLeadControls(
     },
   }));
   pi.on("tool_call", async (event, ctx) => {
-    if (!permits(event.toolName))
+    if (!permits(event.toolName, ctx))
       return {
         block: true,
         reason: "This tool is unavailable in the current lead mode",
@@ -415,7 +416,7 @@ export function registerLeadControls(
           !(await reviewPlan(
             ctx,
             `Approve the plan for ${record.bead.id}`,
-            describePlan(draft),
+            { draft },
             "start implementation",
           ))
         )

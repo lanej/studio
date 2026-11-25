@@ -65,20 +65,46 @@ export class TaskPanel {
     question: string,
   ): Promise<string | undefined> {
     const generation = this.generation;
-    const answer = await ctx.ui.custom<string | undefined>(
-      (tui, theme, _keys, done) => {
-        if (generation !== this.generation) done(undefined);
-        else
+    let releaseInput: (() => void) | undefined;
+    const release = () => {
+      releaseInput?.();
+      releaseInput = undefined;
+    };
+    try {
+      const answer = await ctx.ui.custom<string | undefined>(
+        (tui, theme, _keys, done) => {
+          const editor = new DecisionEditor(
+            tui,
+            theme,
+            question,
+            done,
+            this.bindings,
+          );
+          if (generation !== this.generation) {
+            done(undefined);
+            return editor;
+          }
           this.closeAnswer = () => {
             done(undefined);
           };
-        return new DecisionEditor(tui, theme, question, done, this.bindings);
-      },
-      { overlay: true, overlayOptions: floatingPaneOptions },
-    );
-    if (generation !== this.generation) return undefined;
-    this.closeAnswer = undefined;
-    return answer;
+          // Until Pi mounts the editor, the task browser still interprets q as quit.
+          releaseInput = ctx.ui.onTerminalInput((input) => {
+            if (!isKeyRelease(input)) editor.handleInput(input);
+            return { consume: true };
+          });
+          return editor;
+        },
+        {
+          overlay: true,
+          overlayOptions: floatingPaneOptions,
+          onHandle: release,
+        },
+      );
+      return generation === this.generation ? answer : undefined;
+    } finally {
+      release();
+      if (generation === this.generation) this.closeAnswer = undefined;
+    }
   }
 
   async open(

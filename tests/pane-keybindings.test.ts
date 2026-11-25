@@ -104,6 +104,8 @@ await test("Pi key identifiers cover modifiers, punctuation, aliases and functio
     "g g",
     "hyper+x",
     "ctrl+ctrl+p",
+    "ctrl+escape",
+    "shift+alt+esc",
     "ctrl+",
     "f13",
     '"',

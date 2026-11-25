@@ -291,7 +291,14 @@ export class WorkerPane {
     const warning =
       this.evidenceError === undefined
         ? []
-        : [theme.fg("warning", "Worker status unavailable")];
+        : [
+            theme.fg(
+              "warning",
+              this.rows.length === 0
+                ? "Worker status unavailable"
+                : "Some worker statuses are unavailable",
+            ),
+          ];
     const body: string[] = [...warning];
     if (this.reassigned) body.push(theme.fg("warning", "Assignment changed"));
     if (this.rows.length === 0) {

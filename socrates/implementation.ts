@@ -237,15 +237,33 @@ export async function readImplementation(
     const tasks = results.flatMap((result) =>
       result.status === "fulfilled" ? [result.value] : [],
     );
-    if (tasks.length === 0) return { key: request.key, state: "unavailable" };
-    const observed = { key: request.key, state: "current" as const, tasks };
+    if (tasks.length === 0)
+      return {
+        key: request.key,
+        state: "unavailable",
+        message: "Current status could not be read for any linked bead.",
+      };
     // The lead observes its assigned children. Its own root can also be in progress.
-    const active = tasks.filter(
+    const children = request.ids.filter((id) => id !== source.bead?.id);
+    const confirmed = tasks.filter(
+      (bead) =>
+        bead.id !== source.bead?.id &&
+        request.matches(bead) &&
+        knownTaskStatus(bead.status) !== undefined,
+    );
+    const observed = {
+      key: request.key,
+      state: "current" as const,
+      tasks,
+      workerEvidenceError:
+        confirmed.length === children.length
+          ? undefined
+          : "Current status could not be confirmed for every linked bead.",
+    };
+    const active = confirmed.filter(
       (bead) =>
         knownTaskStatus(bead.status) === TaskStatus.InProgress &&
-        bead.id !== source.bead?.id &&
-        bead.assignee.startsWith("pi:") &&
-        request.matches(bead),
+        bead.assignee.startsWith("pi:"),
     );
     if (active.length === 0) return observed;
     const project = request.authority.projectId;
@@ -255,7 +273,9 @@ export async function readImplementation(
       ...observed,
       workers: workerAssignments(project, active, evidence),
       workerEvidenceError:
-        evidence.evidenceError ?? evidence.interactiveEvidenceError,
+        evidence.evidenceError ??
+        evidence.interactiveEvidenceError ??
+        observed.workerEvidenceError,
     };
   } catch (error) {
     return {

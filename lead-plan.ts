@@ -134,6 +134,42 @@ export function orderedTasks(draft: LeadDraft): LeadDraft["tasks"] {
   );
 }
 
+export function taskReviewFields(
+  task: LeadDraft["tasks"][number],
+  intent: "proposal" | "execution" = "execution",
+): { label: string; value: string }[] {
+  const delivery =
+    task.delivery === undefined && intent === "proposal"
+      ? "To be decided"
+      : `${deliveryOutcome(task.delivery)}${task.delivery === undefined ? " (default)" : ""}`;
+  const verification =
+    task.check === undefined || task.check.length === 0
+      ? "independent criterion review; no executable agreed"
+      : JSON.stringify(task.check);
+  return [
+    { label: "Acceptance", value: task.acceptance },
+    ...(task.requirements.length > 0
+      ? [{ label: "Requirements", value: task.requirements.join(", ") }]
+      : []),
+    {
+      label: "Owns",
+      value:
+        task.owns.length === 0
+          ? "the entire isolated checkout"
+          : task.owns.join(", "),
+    },
+    {
+      label: "Admission",
+      value: task.hold === true ? "on hold" : "when ready",
+    },
+    { label: "Delivery", value: delivery },
+    { label: "Verification", value: verification },
+    ...(task.blockedBy.length > 0
+      ? [{ label: "Blocked by", value: task.blockedBy.join(", ") }]
+      : []),
+  ];
+}
+
 /** An already merged prerequisite carries its own ancestors on the target branch. */
 export function publicationPrerequisites(
   draft: LeadDraft,
@@ -164,19 +200,9 @@ export function taskReviewLines(
 ): string[] {
   return [
     task.description,
-    `Acceptance · ${task.acceptance}`,
-    ...(task.requirements.length > 0
-      ? [`Requirements · ${task.requirements.join(", ")}`]
-      : []),
-    `Owns · ${task.owns.length === 0 ? "the entire isolated checkout" : task.owns.join(", ")}`,
-    `Admission · ${task.hold === true ? "on hold" : "when ready"}`,
-    task.delivery === undefined && intent === "proposal"
-      ? "Delivery · To be decided"
-      : `Delivery · ${deliveryOutcome(task.delivery)}${task.delivery === undefined ? " (default)" : ""}`,
-    `Verification · ${task.check === undefined || task.check.length === 0 ? "independent criterion review; no executable agreed" : JSON.stringify(task.check)}`,
-    ...(task.blockedBy.length > 0
-      ? [`Blocked by · ${task.blockedBy.join(", ")}`]
-      : []),
+    ...taskReviewFields(task, intent).map(
+      ({ label, value }) => `${label} · ${value}`,
+    ),
   ];
 }
 

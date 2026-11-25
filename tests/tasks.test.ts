@@ -867,7 +867,7 @@ await test("live refresh preserves the focused task and Escape closes the floati
   assert.equal(reads, 2, "disposed panels must not read again");
 });
 
-await test("a loading task float owns input immediately and ignores reads that settle after Escape", async () => {
+await test("task and answer panes own input immediately and discard stale reads after close", async () => {
   class TestTui extends TuiMainScreen {
     override requestRender(): void {}
   }
@@ -932,6 +932,34 @@ await test("a loading task float owns input immediately and ignores reads that s
     show: () => Promise.resolve(rejected),
     focusPane: () => Promise.resolve(),
   };
+  const parent = panel.open(ctx, () =>
+    Promise.resolve({
+      ...source,
+      load: () => Promise.resolve(snapshot),
+    }),
+  );
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  const inspector = tui.getFocusedComponent();
+  assert.ok(inspector !== null && inspector !== lead);
+  const reply = panel.editAnswer(ctx, "Which behavior should the worker use?");
+  // The action key and the first word can arrive in a single terminal read.
+  send("q");
+  send("\x1b[113;1:3u"); // Kitty key release
+  send("uit");
+  assert.equal(lead.getValue(), "unsent");
+  await Promise.resolve();
+  assert.equal(earlyInput, undefined);
+  send("\r");
+  assert.equal(await reply, "quit");
+  assert.equal(tui.getFocusedComponent(), inspector);
+  const quickCancel = panel.editAnswer(ctx, "Still needed?");
+  send("\x1b");
+  assert.equal(await quickCancel, undefined);
+  assert.equal(earlyInput, undefined);
+  assert.equal(tui.getFocusedComponent(), inspector);
+  panel.close();
+  await parent;
+  assert.equal(tui.getFocusedComponent(), lead);
   const opened = panel.open(ctx, () => Promise.resolve(source));
   send("j"); // The opening command and another key arrive in one terminal read.
   assert.equal(lead.getValue(), "unsent");

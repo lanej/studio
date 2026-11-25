@@ -25,10 +25,7 @@ export {
   renderWorkerCompact,
   type WorkerSidebarView,
 } from "./worker-section.ts";
-import {
-  ImplementationState,
-  type ImplementationPresentation,
-} from "./implementation.ts";
+import type { ImplementationPresentation } from "./implementation.ts";
 
 type GraphTheme = StatusTheme & {
   lane: (lane: number, text: string) => string;
@@ -54,18 +51,8 @@ export function renderSidebarGraph(
     const prefix = renderGraphPrefix(row.prefix, theme.lane, paint(mark.glyph));
     const title = inline(row.task.label);
     const subject = `${prefix}  ${title}`;
-    const state = paint(mark.label);
-    // In a dense graph keep enough of the title to recognize the task.
-    const titleSpace = width - visibleWidth(prefix) - visibleWidth(state) - 3;
-    const showState =
-      row.task.state !== ImplementationState.Proposed &&
-      titleSpace >= Math.min(8, visibleWidth(title));
     nodeLines.push(lines.length);
-    lines.push(
-      showState
-        ? align(subject, state, width)
-        : truncateToWidth(subject, width, "…"),
-    );
+    lines.push(truncateToWidth(subject, width, "…"));
     for (const connector of row.connectors)
       lines.push(renderGraphPrefix(connector, theme.lane));
   }
@@ -95,7 +82,7 @@ function inline(text: string): string {
   return selectorText(text).replace(/\s+/gu, " ").trim();
 }
 
-/** Keep a lifecycle or row state readable even when the subject is long. */
+/** Place the lifecycle at the right edge of the section heading. */
 function align(left: string, right: string, width: number): string {
   const subject = truncateToWidth(
     left,
@@ -164,22 +151,10 @@ function propertyTitle(
   const mark = statusPaint(theme, item.status.tone);
   const label = inline(item.label);
   const glyph = mark(inline(item.status.glyph));
-  const state = mark(inline(item.status.label));
-  const suffix = item.id === focusId ? `${theme.accent("◆")} ${state}` : state;
-  const title = `${glyph} ${label}`;
-  if (visibleWidth(title) + visibleWidth(suffix) + 1 <= width)
-    return [align(title, suffix, width)];
-  const lines = wrapped(label, width - 2).map(
-    (line, i) => (i === 0 ? `${glyph} ` : "  ") + line,
+  const focus = item.id === focusId ? ` ${theme.accent("◆")}` : "";
+  return wrapTextWithAnsi(label + focus, Math.max(1, width - 2)).map(
+    (line, index) => (index === 0 ? `${glyph} ` : "  ") + line,
   );
-  const last = lines.at(-1);
-  if (
-    last !== undefined &&
-    visibleWidth(last) + visibleWidth(suffix) + 1 <= width
-  )
-    lines[lines.length - 1] = align(last, suffix, width);
-  else lines.push(`  ${suffix}`);
-  return lines;
 }
 
 function specificationRows(

@@ -515,15 +515,20 @@ export function registerDiscovery(
           !(await reviewPlan(
             ctx,
             `Approve ${record.title}`,
-            [
-              interactive === undefined
-                ? "Execution · background"
-                : `Execution · interactive in Zellij ${interactive.session}, tab ${String(interactive.tab)}`,
-              `Project · ${target.root}\nBeads · ${target.id}\nProfile · ${target.profile}`,
-              record.specification === undefined
-                ? "Recovery of the previously approved handoff"
-                : specText(record.specification),
-              ...draft.tasks
+            {
+              draft,
+              context: [
+                {
+                  label: "Execution",
+                  value:
+                    interactive === undefined
+                      ? "background"
+                      : `interactive in Zellij ${interactive.session}, tab ${String(interactive.tab)}`,
+                },
+                { label: "Project", value: target.root },
+                { label: "Beads", value: target.id },
+              ],
+              publications: draft.tasks
                 .filter((task) => task.delivery === TaskDelivery.PullRequest)
                 .map((publisher) => {
                   const local = publicationPrerequisites(draft, publisher)
@@ -531,10 +536,16 @@ export function registerDiscovery(
                       (task) => task.delivery !== TaskDelivery.PullRequest,
                     )
                     .map((task) => task.key);
-                  return `PR from ${publisher.key} · Includes ${[...local, publisher.key].join(", ")}`;
+                  return {
+                    label: `PR from ${publisher.key}`,
+                    value: `Includes ${[...local, publisher.key].join(", ")}`,
+                  };
                 }),
-              describePlan(draft),
-            ].join("\n\n"),
+              specification:
+                record.specification === undefined
+                  ? "Recovery of the previously approved handoff"
+                  : specText(record.specification),
+            },
             "create tasks and implement",
           ))
         )

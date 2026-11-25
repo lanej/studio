@@ -27,10 +27,12 @@ import pyte
 from local_provider import tool_delta
 from worker_sidebar import check_worker_sidebar, worker_prompt, worker_reply
 from PIL import Image, ImageDraw, ImageFont
+from socrates_fixture import message_text
 
 
 root = Path(__file__).resolve().parents[1]
 palette = json.loads((root / "resources/colors.json").read_text())
+data_change_planning = (root / "resources/socrates/references/data-change-planning.md").read_text()
 request_started = Event()
 release_response = Event()
 guidance_received = Event()
@@ -52,6 +54,63 @@ scope_gap = "The lead and its dock share a draft. Decide whether another session
 risk_gap = "Results are tagged by project. Verify a delayed poll cannot update a different session."
 verification_gap = "Question and resume are covered. A stale assessment still needs a native check."
 harmony_gap = "The dock and inspector read the same draft. Confirm they flag the same property after a revision."
+ownership_prompt = "Let's settle who owns assessment freshness when an operator edits a requirement."
+ownership_question = "Which component owns assessment freshness after a requirement changes?"
+ownership_answer = "The discovery store"
+ownership_criterion = "After a requirement changes, reopening the sidebar shows the stale assessment recorded by the discovery store."
+release_diagram = Event()
+
+
+def ownership_turn(request, draft):
+    """Model a decision-driven C4 turn against the native discovery tools."""
+    last = request["messages"][-1]
+    call = last.get("tool_call_id")
+    if last["role"] == "user" or call == "ask-owner":
+        resolved = call == "ask-owner"
+        if resolved:
+            assert message_text(last) == f"Operator answer for D1: {ownership_answer}", last
+        else:
+            system = "\n".join(message_text(m) for m in request["messages"] if m["role"] == "system")
+            host = system.split("# Pi host adapter", 1)[1]
+            assert all(term in host for term in ("C4", "ownership", "Mermaid", "sequence diagram", "ask_user_question")), host
+        decision = {**draft["decisions"][0], "decision": "Choose the owner of assessment freshness",
+                    "disposition": "resolved" if resolved else "open", "basis": "decided" if resolved else "observed",
+                    "evidence": ownership_answer if resolved else "The operator asked to settle ownership.",
+                    "uncertainty": "None" if resolved else ownership_question}
+        scope = {"propertyId": "scope", "status": "satisfied" if resolved else "open",
+                 "reason": ownership_answer if resolved else ownership_question}
+        coverage = {**draft["coverage"], "focus": "verification" if resolved else "scope", "assessments": [
+            scope if item["propertyId"] == "scope" else item for item in draft["coverage"]["assessments"]
+        ]}
+        return tool_delta("record-owner" if resolved else "draft-ownership", "draft_socrates_specification", {
+            **draft, "decisions": [decision], "blockingQuestions": [] if resolved else [ownership_question],
+            "requirements": [{"id": "R1", "outcome": "Keep assessment freshness consistent",
+                              "acceptance": ownership_criterion if resolved else "Reopen the sidebar after a requirement changes."}],
+            "coverage": coverage,
+        })
+    if call == "draft-ownership":
+        assert "Draft saved" in message_text(last), last
+        return tool_delta("ownership-diagram", "show_diagram", {
+            "title": "Assessment ownership", "systemId": "studio", "view": "container",
+            "nodes": [
+                {"id": "studio", "kind": "system", "label": "Studio", "detail": "Develops a specification with the operator."},
+                {"id": "lead", "kind": "container", "label": "Lead console", "detail": "Captures requirement edits."},
+                {"id": "store", "kind": "container", "label": "Discovery store", "detail": "Persists the current draft."},
+                {"id": "sidebar", "kind": "container", "label": "Status sidebar", "detail": "Displays the current assessments."},
+            ],
+            "edges": [{"from": "lead", "to": "store", "label": "Saves revisions"},
+                      {"from": "sidebar", "to": "store", "label": "Reads assessments"}],
+        })
+    if call == "ownership-diagram":
+        assert message_text(last) == "Diagram shown.", last
+        assert release_diagram.wait(20), "Native diagram was not visible"
+        return tool_delta("ask-owner", "ask_user_question", {
+            "decisionId": "D1", "question": ownership_question,
+            "options": [{"label": ownership_answer, "description": "Persist freshness once for every view."},
+                        {"label": "Each view", "description": "Determine freshness every time a view opens."}],
+        })
+    assert call == "record-owner" and "Draft saved" in message_text(last), last
+    return {"role": "assistant", "content": "The ownership decision is recorded."}
 
 
 class Provider(BaseHTTPRequestHandler):
@@ -90,8 +149,11 @@ class Provider(BaseHTTPRequestHandler):
         )
         user_messages = [str(m.get("content", "")) for m in request["messages"] if m["role"] == "user"]
         resumed_answer = any("recorded operator answer" in message for message in user_messages[-1:])
-        if resumed_answer and "Harmony" not in system:
-            provider_errors.append("Native lead did not load Socrates guidance")
+        if resumed_answer:
+            if "Harmony" not in system:
+                provider_errors.append("Native lead did not load Socrates guidance")
+            if data_change_planning not in system:
+                provider_errors.append("Native lead did not deliver the bundled data and interface guidance")
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.end_headers()
@@ -125,7 +187,9 @@ Should the native test change R1 and check both views?""")
         if user_messages and worker_prompt in user_messages[-1]:
             delta = {"role": "assistant", "content": worker_reply}
         last = request["messages"][-1]
-        if user_messages and "Explain which properties remain open" in user_messages[-1]:
+        if user_messages and ownership_prompt in user_messages[-1]:
+            delta = ownership_turn(request, self.server.in_progress_draft)
+        elif user_messages and "Explain which properties remain open" in user_messages[-1]:
             if last["role"] == "user":
                 guidance_received.set()
                 if not release_reassessment.wait(20):
@@ -351,9 +415,8 @@ class Terminal:
             self.wait(lambda: all(gap in property_text() for gap in (scope_gap, risk_gap, harmony_gap)),
                       "The wide rail did not render each property rationale")
             start = self.rail_start()
-            self.assert_mark("Scope", "○", "status.error")
-            self.assert_foreground("Open", "status.error", start)
-            self.assert_foreground("Partial", "status.warning", start)
+            self.assert_rail_mark("Scope", "○", "status.error")
+            self.assert_rail_mark("Verification", "◐", "status.warning")
             self.assert_foreground("Satisfied 9", "status.success", start)
             self.assert_foreground("Question and resume are covered.", "text.muted", start)
         rail = self.rail_text()
@@ -419,6 +482,21 @@ class Terminal:
                   f"The lead clipped or covered part of {sentence!r}")
         x = self.rail_start()
         assert not any(sentence in line[:x] for line in self.screen.display), f"Lead did not wrap at the rail\n{self.text()}"
+
+    def assert_rail_mark(self, title, mark, tone):
+        """The full title and its colored glyph occupy the row; an active property may also carry ◆."""
+        start = self.rail_start()
+        assert start is not None, self.text()
+        for y, line in enumerate(self.screen.display):
+            rail = line[start:]
+            if title not in rail:
+                continue
+            before, _, after = rail.partition(title)
+            x = before.find(mark)
+            if x >= 0 and after.strip() in ("", "◆"):
+                assert self.screen.buffer[y][start + x].fg.upper() == palette["roles"][tone].lstrip("#"), rail
+                return
+        raise AssertionError(f"Missing colored {mark} and full title {title!r} in the passive rail\n{self.rail_text()}")
 
     def assert_mark(self, label, mark, tone):
         for y, line in enumerate(self.screen.display):
@@ -680,8 +758,8 @@ def run(output):
                                       for request in received_requests for m in request["messages"] if m["role"] == "user"),
                           "The submitted prompt lost its contents or cursor position")
             terminal.wait(guidance_received.is_set, "Studio did not deliver the operator's guidance")
-            terminal.wait(lambda: "Recheck" in terminal.rail_text(), "Previous evidence still appeared current after operator input")
-            terminal.assert_foreground("Recheck", "focus", terminal.rail_start())
+            terminal.wait(lambda: "↺" in terminal.rail_text(), "Previous evidence still appeared current after operator input")
+            terminal.assert_foreground("↺", "focus", terminal.rail_start())
             release_reassessment.set()
             terminal.check_lead_wrap(review_sentence)
             terminal.check_property_focus()
@@ -840,9 +918,9 @@ def run(output):
             terminal.send('Explain the progress of the linked work.\r')
             terminal.wait_for_rail()
             terminal.check_lead_wrap(linked_sentence)
-            terminal.assert_mark('Verify the handoff', '×', 'status.error')
-            terminal.assert_mark('Keep the lead available', '◐', 'accent')
-            terminal.assert_mark('Record property evidence', '●', 'status.success')
+            terminal.assert_rail_mark('Verify the handoff', '×', 'status.error')
+            terminal.assert_rail_mark('Keep the lead available', '◐', 'accent')
+            terminal.assert_rail_mark('Record property evidence', '●', 'status.success')
             terminal.send('What would unblock verification?')
             terminal.capture('status-sidebar-linked')
             terminal.send(toggle_status)
@@ -856,6 +934,9 @@ def run(output):
             terminal.assert_mark('Record property evidence', '●', 'status.success')
             terminal.assert_mark('Keep the lead available', '◐', 'accent')
             terminal.assert_mark('Verify the handoff', '×', 'status.error')
+            for title, state in (("Record property evidence", "Closed"), ("Keep the lead available", "In progress"),
+                                 ("Verify the handoff", "Blocked")):
+                assert any(title in line and line.rstrip().endswith(state) for line in terminal.centered_lines()), terminal.text()
             terminal.capture('status-board-linked')
             terminal.send('\x1b')
             terminal.wait(lambda: not any(line.strip() == "? keys" for line in terminal.centered_lines()),
@@ -933,6 +1014,27 @@ def run(output):
             terminal.contains("Problem First")
             terminal.assert_mark("Problem First", "○", "status.error")
             assert "Review changes in the dock" not in terminal.rail_text(), terminal.rail_text()
+            terminal.send(ownership_prompt + "\r")
+            terminal.contains("Assessment ownership")
+            terminal.contains("Discovery store")
+            terminal.wait_for_rail()
+            terminal.capture("socrates-draft-diagram")
+            release_diagram.set()
+            terminal.contains(ownership_question)
+            terminal.contains(ownership_answer)
+            with sqlite3.connect(home / "state/discoveries.sqlite") as db:
+                query = "SELECT record FROM discoveries WHERE json_extract(record, '$.title') = 'Fresh discovery'"
+                pending = json.loads(db.execute(query).fetchone()[0])["specification"]
+                assert pending["exchange"]["prompt"]["question"] == ownership_question and "answer" not in pending["exchange"]
+                assert pending["draft"]["blockingQuestions"] == [ownership_question]
+                terminal.send("\r")
+                terminal.contains("The ownership decision is recorded.")
+                saved = json.loads(db.execute(query).fetchone()[0])["specification"]
+            assert "exchange" not in saved and saved["draft"]["blockingQuestions"] == [], saved
+            assert saved["draft"]["decisions"][0]["evidence"] == ownership_answer, saved
+            assert saved["draft"]["requirements"][0]["acceptance"] == ownership_criterion, saved
+            assert any(item["propertyId"] == "scope" and item["status"] == "satisfied"
+                       for item in saved["draft"]["coverage"]["assessments"]), saved
         finally:
             terminal.close()
             provider.shutdown()
@@ -947,4 +1049,4 @@ if __name__ == "__main__":
         run(parser.parse_args().output)
     finally:
         faulthandler.cancel_dump_traceback_later()
-    print("Native property-first planning, reviewed graph expansion, palette surfaces, and fullscreen, regular and narrow terminal interactions passed.")
+    print("Native property-first planning, design diagrams and decisions, reviewed graph expansion, palette surfaces, and fullscreen, regular and narrow terminal interactions passed.")
