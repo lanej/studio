@@ -269,7 +269,7 @@ export function registerDiscovery(
     renderCall: renderPlanCall,
     label: "Draft work breakdown",
     description:
-      "Persist a proposed work breakdown. No Beads tasks are created until the operator approves the exact proposal.",
+      "When the operator explicitly requests a work breakdown, persist the proposal, starting a discovery for the current project if none is selected. No Beads tasks are created until the operator approves the exact proposal.",
     parameters: Type.Object({
       summary: Type.String(),
       tasks: Type.Array(
@@ -288,8 +288,10 @@ export function registerDiscovery(
       ),
     }),
     async execute(_call, params, _signal, _update, ctx) {
-      const record = await requireBinding(ctx);
+      if (discoveryBusy()) throw new Error("Wait for the discovery command");
       const draft = draftSchema.parse(params);
+      if (locate(ctx) === undefined) create(ctx, draft.summary);
+      const record = await requireBinding(ctx);
       storage((db) =>
         db.change(record.id, (row) => {
           if (row.approved !== undefined)
