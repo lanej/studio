@@ -133,8 +133,8 @@ export default function studioExtension(
   registerSearchRendering(pi);
   registerSkillRendering(pi);
   if (managed !== undefined)
-    pi.on("session_start", () => {
-      delegation.syncTool();
+    pi.on("session_start", (_event, ctx) => {
+      delegation.syncTool(ctx);
     });
 
   const release = () => {
@@ -283,9 +283,9 @@ export default function studioExtension(
     await initialize(ctx);
   });
   pi.on(PiEvent.SessionCompact, async (_event, ctx) => initialize(ctx));
-  pi.on(PiEvent.ModelSelect, () => {
+  pi.on(PiEvent.ModelSelect, (_event, ctx) => {
     selectedProfile = managed?.profile;
-    delegation.syncTool();
+    delegation.syncTool(ctx);
   });
   pi.on(PiEvent.Input, () => {
     idle.activity();
@@ -628,7 +628,7 @@ export default function studioExtension(
     }
     pi.setThinkingLevel(reasoning);
     selectedProfile = name;
-    delegation.syncTool();
+    delegation.syncTool(ctx);
   }
   pi.registerCommand("studio-profile", {
     description: "Explicitly select the work or personal lead model",

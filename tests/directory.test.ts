@@ -15,6 +15,7 @@ import {
   createAgentSessionFromServices,
   createAgentSessionRuntime,
   createAgentSessionServices,
+  createReadToolDefinition,
   SessionManager,
   SettingsManager,
   type AgentSession,
@@ -90,6 +91,7 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
   let children = false;
   let cancel = false;
   let fullStudio = false;
+  let standaloneTool: string | undefined;
   const factory: CreateAgentSessionRuntimeFactory = async (options) => {
     const services = await createAgentSessionServices({
       cwd: options.cwd,
@@ -111,6 +113,11 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
           (pi) => {
             if (fullStudio) studioExtension(pi);
             else registerDirectory(pi, () => children);
+            if (standaloneTool !== undefined)
+              pi.registerTool({
+                ...createReadToolDefinition(options.cwd),
+                name: standaloneTool,
+              });
             pi.on("session_before_switch", () => ({ cancel }));
           },
         ],
@@ -275,12 +282,14 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
     fullStudio = true;
     await runtime.switchSession(originalFile);
     const driver = runtime.session.extensionRunner;
-    const profileCommand = driver.getCommand("studio-profile");
-    assert.ok(profileCommand !== undefined);
+    const selectWork = async (session: AgentSession) => {
+      const runner = session.extensionRunner;
+      const command = runner.getCommand("studio-profile");
+      assert.ok(command !== undefined);
+      await command.handler("work", runner.createCommandContext());
+    };
     assert.ok(!runtime.session.getActiveToolNames().includes(delegateTool));
-    const selectWork = () =>
-      profileCommand.handler("work", driver.createCommandContext());
-    await selectWork();
+    await selectWork(runtime.session);
     assert.ok(runtime.session.getActiveToolNames().includes(delegateTool));
     const other = driver
       .createCommandContext()
@@ -288,8 +297,33 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
     assert.ok(other !== undefined);
     await runtime.session.setModel(other);
     assert.ok(!runtime.session.getActiveToolNames().includes(delegateTool));
-    await selectWork();
+    await selectWork(runtime.session);
     assert.ok(runtime.session.getActiveToolNames().includes(delegateTool));
+    for (const tool of [undefined, "Agent", "subagent", "SubagentWorkflow"]) {
+      standaloneTool = tool;
+      const sessionManager =
+        tool === undefined
+          ? SessionManager.inMemory(source)
+          : SessionManager.create(source, join(root, "conflicting-sessions"));
+      const { session } = await factory({
+        cwd: source,
+        agentDir,
+        sessionManager,
+      });
+      try {
+        await session.bindExtensions({ mode: PiMode.Rpc });
+        await session.setModel(other);
+        await selectWork(session);
+        assert.equal(session.model?.id, "tiny");
+        assert.ok(
+          !session.getActiveToolNames().includes(delegateTool),
+          tool ?? "--no-session",
+        );
+      } finally {
+        session.dispose();
+      }
+    }
+    standaloneTool = undefined;
     runtime.session.setThinkingLevel("high");
     await cd(target);
     assert.ok(runtime.session.getActiveToolNames().includes(delegateTool));
