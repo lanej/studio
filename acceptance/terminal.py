@@ -22,6 +22,7 @@ import termios
 import time
 
 import pyte
+from task_panel_session import task_panel_session
 from PIL import Image, ImageDraw, ImageFont
 
 root = Path(__file__).resolve().parents[1]
@@ -78,7 +79,7 @@ class DiscoveryProvider(BaseHTTPRequestHandler):
             "/v0/beads/context": {"project_id": review_project, "backend": "dolt", "dolt_mode": "server",
                                   "capabilities": ["project.enforce", "issues.get", "issues.create", "issues.update"]},
             "/v0/beads/dependencies": {"items": [], "missing": []},
-            **{f"/v0/beads/issues/{task['id']}": task for task in review_tasks},
+            **{f"/v0/beads/issues/{task['id']}": task for task in self.server.panel_tasks},
         }
         if path == "/v0/beads/issues":
             self.server.issue_reads += 1
@@ -156,7 +157,8 @@ elif 'show' in sys.argv: print(json.dumps([next(task for task in tasks if task['
 ''')
     boundary.chmod(0o755)
     if args.task_review:
-        config = {"beadsService": {"projectId": review_project, "url": f"http://127.0.0.1:{provider.server_port}"}}
+        # The default source is unrelated. The panel must use the handed-off project's source.
+        config = {"beadsService": {"projectId": "11e82880-80f1-4f5a-8939-c29914929522", "url": "http://127.0.0.1:1"}}
     else:
         config = {"beads": {"workspace": str(workspace), "database": "fixture", "branch": "main", "executable": str(boundary)}}
     (home / "config.json").write_text(json.dumps(config))
@@ -184,8 +186,17 @@ elif 'show' in sys.argv: print(json.dumps([next(task for task in tasks if task['
     git("add", "tracked.txt")
     tracked.write_text("new\nkeep\nextra\n")
     (project / "untracked.txt").touch()
+    panel_source = {"projectId": review_project, "url": f"http://127.0.0.1:{provider.server_port}"}
+    if args.task_review:
+        provider.panel_tasks = review_tasks
+    else:
+        daily_tasks = json.loads(subprocess.check_output([boundary, "--readonly", "list"], text=True))
+        provider.panel_tasks = [{**task, "metadata": {}, "revision": "r1"} for task in daily_tasks]
+        provider.issue_listing = (200, {"items": provider.panel_tasks, "has_more": False})
+    task_panel_session(project, env, panel_source, provider.panel_tasks[0]["id"])
     seed = f"""
 import {{ Discoveries }} from {json.dumps(str(root / 'discovery/store.ts'))};
+import {{ coveragePropertyCatalog, coverageToken }} from {json.dumps(str(root / "socrates/assessment.ts"))};
 import {{ SpecStatus }} from {json.dumps(str(root / 'socrates/spec.ts'))};
 import {{ draftSchema }} from {json.dumps(str(root / 'lead-plan.ts'))};
 const store=new Discoveries();
@@ -202,6 +213,8 @@ const ready=store.create({json.dumps(str(project))}, 'terminal-fixture', 'Explor
 store.change(ready.id,row=>{{
  const source=store.get(record.id);
  row.specification={{...source.specification,acceptedRevision:row.revision,exchange:undefined,draft:{{...source.specification.draft,blockingQuestions:[],decisions:[{{id:'D1',decision:'Choose work timing',basis:'decided',evidence:'After review',disposition:'resolved',uncertainty:'None'}}]}}}};
+ row.specification.draft.coverage={{domains:[],assessments:coveragePropertyCatalog.filter(p=>p.domain==="universal").map(p=>({{propertyId:p.id,status:"satisfied",reason:"Reviewed against R1 and the recorded timing decision"}}))}};
+ row.specification.coverageRevision=coverageToken(row.specification);
 }});
 console.log(JSON.stringify({{discovery:record.id,ready:ready.id}}));store.close();
 """
@@ -338,11 +351,19 @@ interactive.close();
                 wait_text("unified diff.")
                 pump(.2)
                 restore_transcript()
+                os.write(master, b"/tasks\r")
+                wait_text("Approve a Socrates plan")
+                os.write(master, b"/discoveries\r")
+                wait_text("Select a saved discovery")
+                os.write(master, b"\x1b[B\x1b[B")
+                pump(.2)
+                os.write(master, b"\r")
+                pump(.35)
                 provider.issue_listing = (200, {"items": [], "has_more": False})
                 os.write(master, b"/tasks\r")
                 wait_text("No tasks yet")
                 empty_view = "\n".join(screen.display)
-                for label in ["Tasks", "/plan-draft <description>", "Alt+T inspect"]:
+                for label in ["Tasks", "Tasks added in Beads", "Alt+T inspect"]:
                     assert label in empty_view, empty_view
                 assert review_project not in empty_view, empty_view
                 assert "Tasks · Beads" in empty_view, empty_view
@@ -464,11 +485,8 @@ interactive.close();
                 pump(.35)
                 provider.issue_listing = (200, {"items": [], "has_more": False})
                 os.write(master, b"/tasks\r")
-                wait_text("No tasks yet")
-                empty_draft = "\n".join(screen.display)
-                assert "Review your draft with /plan." in empty_draft and "/plan-draft" not in empty_draft, empty_draft
-                os.write(master, b"/tasks close\r")
-                pump(.35)
+                wait_text("Approve a Socrates plan")
+                assert "No tasks yet" not in "\n".join(screen.display), screen.display
                 os.write(master, b"/plan\r")
                 wait_text("Review before creating tasks")
                 continue
@@ -533,15 +551,15 @@ interactive.close();
             os.write(master, b"/discoveries\r")
             wait_text("Select a saved discovery")
             listing = "\n".join(screen.display)
-            assert "#2 Explore independently" in listing and "#1 Explore independently" in listing, listing
+            assert "#3 Explore independently" in listing and "#2 Explore independently" in listing, listing
             assert all(value not in listing for value in [discovery_id, ready_id, "Foreign discovery"]), listing
             os.write(master, b"\x1b[B")
             pump(.2)
             os.write(master, b"\r")
             pump(.3)
             os.write(master, b"/discoveries\r")
-            wait_text("#1 Explore independently · answer saved · selected" if columns == 60 else
-                          "#1 Explore independently · question open · selected")
+            wait_text("#2 Explore independently · answer saved · selected" if columns == 60 else
+                          "#2 Explore independently · question open · selected")
             capture("discovery-picker", start_at="Select a saved discovery")
             os.write(master, b"\x1b")
             pump(.35)
@@ -597,6 +615,14 @@ interactive.close();
                 continue
             restore_transcript()
             os.write(master, b"/tasks\r")
+            wait_text("Approve a Socrates plan")
+            os.write(master, b"/discoveries\r")
+            wait_text("Select a saved discovery")
+            os.write(master, b"\x1b[B\x1b[B")
+            pump(.2)
+            os.write(master, b"\r")
+            pump(.35)
+            os.write(master, b"/tasks\r")
             pump(1)
             view = "\n".join(screen.display)
             assert "◐ Studio" in view and "Idle compaction" in view and "Deliver through Octo" in view, screen.display
@@ -618,7 +644,12 @@ interactive.close();
             assert "Brief & acceptance" in view and "Execution evidence" in view, screen.display
             assert "Preserve drafts" not in view and "daily-1" not in view, screen.display
             capture("task-inspector")
-            os.write(master, b"\t\t\t\r")
+            for _ in range(8):
+                os.write(master, b"\t")
+                pump(.1)
+                if "› ▸ Brief & acceptance" in "\n".join(screen.display):
+                    break
+            os.write(master, b"\r")
             pump(.3)
             if columns == 60:
                 os.write(master, b"jjj")

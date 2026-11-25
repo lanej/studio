@@ -15,6 +15,7 @@ import {
   specDraft,
   specQuestion,
   specText,
+  specificationGaps,
   type SpecQuestion,
 } from "./spec.ts";
 import { questionEvidenceParameter } from "./evidence.ts";
@@ -78,6 +79,7 @@ export function registerSocratesControls<T extends SocratesState>(
     label(record: T): string;
     snapshot?(ctx: ExtensionContext): T | undefined;
     check(record: T, revision: string): Promise<void>;
+    discovery?: boolean;
     select?(argument: string, ctx: ExtensionContext): Promise<void>;
   },
 ) {
@@ -272,7 +274,9 @@ export function registerSocratesControls<T extends SocratesState>(
         if (
           spec.draft === null ||
           spec.draft.blockingQuestions.length > 0 ||
-          !specDraft.safeParse(spec.draft).success
+          !specDraft.safeParse(spec.draft).success ||
+          (scope.discovery === true &&
+            specificationGaps(spec, record.revision).length > 0)
         ) {
           pi.sendUserMessage(`Resume Socrates discovery for ${scope.subject}.`);
           return;
@@ -308,7 +312,8 @@ export function registerSocratesControls<T extends SocratesState>(
           draft: null,
           acceptedRevision,
         };
-        row.leadPlan = { ...row.leadPlan, draft: null };
+        if (scope.discovery !== true)
+          row.leadPlan = { ...row.leadPlan, draft: null };
       });
       presentation.refresh(ctx);
       pi.sendUserMessage(
@@ -418,17 +423,27 @@ export function registerSocratesControls<T extends SocratesState>(
         };
       });
       presentation.refresh(ctx);
+      const saved = db.get(id);
+      const gaps =
+        scope.discovery === true && saved.specification !== undefined
+          ? specificationGaps(saved.specification, saved.revision)
+          : [];
+      const [firstGap] = gaps;
       return {
         content: [
           {
             type: "text",
             text:
-              draft.blockingQuestions.length > 0
-                ? "Draft saved. Resolve the blocking questions with the operator."
-                : "Draft saved. The operator can inspect it with /socrates and freeze it with /spec-freeze.",
+              firstGap !== undefined
+                ? `Draft saved. Update the proposed beads as the work changes. Use evidence or ask one focused question. Open item: ${firstGap}`
+                : draft.blockingQuestions.length > 0
+                  ? "Draft saved. Resolve the blocking questions with the operator."
+                  : scope.discovery === true
+                    ? "Properties satisfied or accounted for. Update the proposed beads against this specification, then offer /spec-freeze for review."
+                    : "Draft saved. The operator can inspect it with /socrates and freeze it with /spec-freeze.",
           },
         ],
-        details: {},
+        details: { gaps },
       };
     },
   });
@@ -438,6 +453,16 @@ export function registerSocratesControls<T extends SocratesState>(
       if (!ctx.isIdle()) throw new Error("Wait for the lead turn to settle");
       const record = await requireBinding(ctx);
       const spec = record.specification;
+      if (
+        scope.discovery === true &&
+        spec?.status === SpecStatus.Interrogating
+      ) {
+        const gaps = specificationGaps(spec, record.revision);
+        if (gaps.length > 0)
+          throw new Error(
+            `Continue /socrates before freezing: ${gaps.join(", ")}`,
+          );
+      }
       if (
         spec?.status !== SpecStatus.Interrogating ||
         spec.draft === null ||
@@ -479,7 +504,9 @@ export function registerSocratesControls<T extends SocratesState>(
         approvalPending(false);
       }
       pi.sendUserMessage(
-        "The operator froze the Socrates specification. Draft its implementation graph. Link each task to requirement IDs and own only normalized worktree-relative paths. Wait for /plan-approve before editing.",
+        scope.discovery === true
+          ? "The operator froze the Socrates specification. Review the proposed beads, update any missing or changed work and requirement links, and present the breakdown for /plan-approve. Only operator approval hands it to the runtime."
+          : "The operator froze the Socrates specification. Draft its implementation graph. Link each task to requirement IDs and own only normalized worktree-relative paths. Wait for /plan-approve before editing.",
       );
     },
   });

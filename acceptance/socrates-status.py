@@ -374,7 +374,7 @@ const breakdown=draftSchema.parse({{summary:'Keep the lead available during hand
   {{key:'assess',title:'Record property evidence',description:'Persist the rationale for each assessed property.',acceptance:'Old assessments remain inspectable after a revision.',requirements:['R1'],owns:['socrates/assessment.ts']}},
   {{key:'dock',title:'Keep the lead available',description:'Keep coverage and linked work visible beside the conversation.',acceptance:'Toggling the sidebar preserves the complete unsent prompt.',requirements:['R1'],blockedBy:['assess'],owns:['socrates/presentation.ts']}}
 ]}});
-store.change(covered,row=>{{row.specification.status=SpecStatus.Frozen;row.specification.approvalAt='2026-11-24T00:00:00Z';row.leadPlan.draft=breakdown;}});
+store.change(covered,row=>{{row.leadPlan.draft=breakdown;row.planSpecificationRevision=coverageToken(row.specification);}});
 const question=create('Question in progress',{{...draft,blockingQuestions:['Which verification boundary should we use?']}});
 store.change(question,row=>{{row.specification.exchange={{prompt:{{decisionId:'D1',question:'Which verification boundary should we use?',options:[{{label:'Focused native check',description:'Exercise the status UI'}},{{label:'Keep investigating',description:'Leave the boundary open'}}]}}}};}});
 const {{coverage,...legacyDraft}}=draft;
@@ -457,7 +457,7 @@ def run(output):
                 "Studio's native session did not finish initialization",
             )
             terminal.wait_for_session()
-            terminal.contains("Awaiting approval")
+            terminal.contains("Proposed beads")
             terminal.contains("Record property evidence")
             terminal.assert_mark("Verification", "◐", "status.warning")
             draft = "Review the evidence for the specification and the dependency on verification before approving these changes."
@@ -566,9 +566,11 @@ def run(output):
             assert saved["specification"]["status"] == "interrogating", saved
             assert "graph" not in saved and "approved" not in saved, saved
 
+            before_resume = len(received_requests)
             resume_discovery("Unassessed discovery", 2)
-            terminal.contains("Make specification readiness visible")
-            terminal.send("\x1b")
+            terminal.wait(lambda: any("Resume Socrates discovery" in str(request["messages"][-1]["content"])
+                                      for request in received_requests[before_resume:]),
+                          "Unassessed properties did not resume discovery")
             terminal.contains("Not assessed 13")
             terminal.send("/socrates-status inspect\r")
             terminal.contains("Not assessed")
@@ -638,7 +640,7 @@ def run(output):
         terminal = Terminal(project, env, output, records['planOnlySession'], mode='regular')
         try:
             terminal.wait_for_rail()
-            terminal.contains("Awaiting approval")
+            terminal.contains("Local plan")
             # The status rail groups live observations by wave. The inline plan uses a graph.
             lead_width = terminal.rail_start()
             def transcript():

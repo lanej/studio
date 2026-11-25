@@ -5,6 +5,7 @@ import {
   SpecStatus,
   preserveDecisions,
   specDraft,
+  specificationGaps,
   specRecord,
   specText,
   type LeadSpecification,
@@ -15,6 +16,8 @@ import {
   coverageSchema,
   coverageToken,
 } from "../socrates/assessment.ts";
+
+import { readySpecification } from "./fixtures/socrates.ts";
 
 const legacy = {
   objective: "Preserve the transcript",
@@ -308,4 +311,78 @@ await test("an answer invalidates assessments until it is incorporated in a save
   assert.equal(coverageFresh(updated, "brief-v1"), false);
   updated.coverageRevision = coverageToken(updated);
   assert.equal(coverageFresh(updated, "brief-v1"), true);
+});
+
+await test("Socrates readiness requires current evidence for every applicable property", () => {
+  const spec = readySpecification("brief-v1");
+  assert.deepEqual(specificationGaps(spec, "brief-v1"), []);
+  assert.ok(specificationGaps(spec, "new brief").length > 0);
+  assert.ok(specificationGaps({ ...spec, version: 2 }, "brief-v1").length > 0);
+  const coverage = spec.draft.coverage;
+  assert.ok(coverage !== undefined);
+  for (const status of ["missing", "partial", "open", "unknown"]) {
+    const assessments = coverage.assessments.filter(
+      ({ propertyId }) => propertyId !== "modularity",
+    );
+    const draft = specDraft.parse({
+      ...spec.draft,
+      coverage: {
+        ...coverage,
+        assessments:
+          status === "missing"
+            ? assessments
+            : [
+                ...assessments,
+                {
+                  propertyId: "modularity",
+                  status,
+                  reason: "Need to settle the module boundary.",
+                },
+              ],
+      },
+    });
+    const changed = { ...spec, draft };
+    assert.match(
+      specificationGaps(
+        { ...changed, coverageRevision: coverageToken(changed) },
+        "brief-v1",
+      ).join("\n"),
+      /modularity/iu,
+      status,
+    );
+  }
+});
+
+await test("a pending question or open decision blocks an otherwise assessed specification", () => {
+  const spec = readySpecification("brief-v1");
+  const question = "Where should the transcript be stored?";
+  const waiting = {
+    ...spec,
+    exchange: { prompt: { decisionId: "D1", question, options: [] } },
+  };
+  assert.ok(specificationGaps(waiting, "brief-v1").length > 0);
+  for (const draft of [
+    { ...spec.draft, blockingQuestions: [question] },
+    {
+      ...spec.draft,
+      decisions: [
+        {
+          id: "D1",
+          basis: "observed",
+          decision: question,
+          evidence: "Operator request",
+          disposition: DecisionDisposition.Open,
+          uncertainty: "Storage location",
+        },
+      ],
+    },
+  ]) {
+    const changed = { ...spec, draft: specDraft.parse(draft) };
+    assert.ok(
+      specificationGaps(
+        { ...changed, coverageRevision: coverageToken(changed) },
+        "brief-v1",
+      ).length > 0,
+    );
+  }
 });

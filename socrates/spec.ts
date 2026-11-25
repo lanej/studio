@@ -143,6 +143,44 @@ export const specRecord = z.strictObject({
 });
 export type LeadSpecification = z.infer<typeof specRecord>;
 
+/** Remaining decisions and evidence that prevent freezing a daily-driver specification. */
+export function specificationGaps(
+  spec: LeadSpecification,
+  currentRevision: string | null,
+): string[] {
+  const draft = spec.draft;
+  if (draft === null) return ["Draft the specification"];
+  const gaps: string[] = [];
+  if (spec.acceptedRevision !== currentRevision)
+    gaps.push("Refresh the specification against the current brief");
+  if (!specDraft.safeParse(draft).success)
+    gaps.push("Review the saved decisions in the current specification format");
+  if (spec.exchange !== undefined)
+    gaps.push(
+      spec.exchange.answer === undefined
+        ? "Answer the pending question"
+        : "Incorporate the recorded answer",
+    );
+  gaps.push(...draft.blockingQuestions);
+  for (const decision of draft.decisions) {
+    if (
+      isTrackedDecision(decision) &&
+      decision.disposition === DecisionDisposition.Open
+    )
+      gaps.push(`Resolve decision ${decision.id}`);
+  }
+  if (
+    draftCoverage(draft) !== undefined &&
+    !coverageFresh(spec, currentRevision)
+  )
+    gaps.push("Reassess properties against the current draft");
+  for (const property of coverageProperties(draft)) {
+    if (property.status !== "satisfied" && property.status !== "not-applicable")
+      gaps.push(`${property.label} · ${property.status}`);
+  }
+  return gaps;
+}
+
 export function specText(spec: LeadSpecification): string {
   const draft = spec.draft;
   if (draft === null) return "No specification drafted yet.";

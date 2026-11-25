@@ -273,8 +273,17 @@ export function implementationPresentation(
     plan?.mode !== LeadMode.Implementing
   ) {
     phase = ImplementationPhase.Proposed;
-    label = "Awaiting approval";
-    detail = "Proposed breakdown";
+    if (
+      source.bead === undefined &&
+      source.specification?.status !== SpecStatus.Frozen
+    ) {
+      label =
+        source.specification === undefined ? "Local plan" : "Proposed beads";
+      detail = "Draft work breakdown";
+    } else {
+      label = "Awaiting approval";
+      detail = "Proposed breakdown";
+    }
   } else if (request === undefined) {
     phase = ImplementationPhase.LinkChanged;
     label = "Plan link needs review";

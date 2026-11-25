@@ -1,9 +1,12 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { realpathSync } from "node:fs";
 import { Type } from "typebox";
 import { z } from "zod";
 import { loadConfig } from "../config.ts";
-import { ExecutionStore } from "./store.ts";
+import { ExecutionStore, type RuntimeProject } from "./store.ts";
 
 export async function mergePolicy(project: string) {
   const config = await loadConfig();
@@ -24,7 +27,10 @@ export async function mergePolicy(project: string) {
     store.close();
   }
 }
-export function registerProjectPolicy(pi: ExtensionAPI): void {
+export function registerProjectPolicy(
+  pi: ExtensionAPI,
+  selectedProject: (ctx: ExtensionContext) => RuntimeProject | undefined,
+): void {
   pi.registerTool({
     name: "studio_project_merge_policy",
     label: "Project merge policy",
@@ -47,9 +53,17 @@ export function registerProjectPolicy(pi: ExtensionAPI): void {
           reason: z.string().trim().min(1).optional(),
         })
         .parse(params);
+      const approved = selectedProject(ctx);
+      if (approved === undefined)
+        throw new Error(
+          "Approve a Socrates plan before using its runtime merge policy",
+        );
       const config = await loadConfig();
       const project = config.runtime.projects.find(
-        (item) => realpathSync(item.root) === realpathSync(ctx.cwd),
+        (item) =>
+          item.source.projectId === approved.id &&
+          item.source.url === approved.source.url &&
+          realpathSync(item.root) === realpathSync(ctx.cwd),
       );
       if (project === undefined)
         throw new Error(

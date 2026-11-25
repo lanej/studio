@@ -5,9 +5,15 @@ import { mkdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { stateDirectory } from "../attempts.ts";
-import { LeadMode, leadPlanSchema, planDigest } from "../lead-plan.ts";
+import {
+  LeadMode,
+  leadPlanSchema,
+  planDigest,
+  type LeadDraft,
+} from "../lead-plan.ts";
 import { runtimeProjectSchema } from "../config.ts";
-import { specRecord } from "../socrates/spec.ts";
+import { specRecord, SpecStatus, specificationGaps } from "../socrates/spec.ts";
+import { coverageToken } from "../socrates/assessment.ts";
 
 export enum HandoffPhase {
   Pending = "pending",
@@ -23,6 +29,7 @@ export const discoverySchema = z.object({
   specification: specRecord.optional(),
   history: z.array(specRecord).default([]),
   leadPlan: leadPlanSchema,
+  planSpecificationRevision: z.string().optional(),
   handoff: z
     .object({
       operation: z.uuid(),
@@ -44,6 +51,54 @@ export const discoverySchema = z.object({
   graph: z.record(z.string(), z.string()).optional(),
 });
 export type Discovery = z.infer<typeof discoverySchema>;
+
+/** A proposal is editable throughout discovery. Only this reviewed form may reach the runtime. */
+export function handoffDraft(record: Discovery): LeadDraft {
+  const draft = record.leadPlan.draft;
+  if (draft === null || draft.tasks.length === 0)
+    throw new Error("Draft at least one executable task first");
+  const retained = record.handoff;
+  if (retained !== undefined) {
+    if (
+      retained.digest !== planDigest(draft) ||
+      retained.revision !== record.revision
+    )
+      throw new Error(
+        "Reconcile the original handoff with its recorded draft and revision",
+      );
+    return draft;
+  }
+  const spec = record.specification;
+  if (
+    spec?.status !== SpecStatus.Frozen ||
+    spec.approvalAt === undefined ||
+    spec.draft === null
+  )
+    throw new Error(
+      "Start /socrates and freeze the reviewed specification with /spec-freeze before handing work to the runtime",
+    );
+  const gaps = specificationGaps(spec, record.revision);
+  if (gaps.length > 0) throw new Error(gaps.join("\n"));
+  if (record.planSpecificationRevision !== coverageToken(spec))
+    throw new Error(
+      "Update the work breakdown against the current frozen specification before approval",
+    );
+  const requirements = spec.draft.requirements.map(({ id }) => id);
+  if (
+    draft.tasks.some(
+      (task) =>
+        task.requirements.length === 0 ||
+        task.requirements.some((id) => !requirements.includes(id)),
+    ) ||
+    requirements.some(
+      (id) => !draft.tasks.some((task) => task.requirements.includes(id)),
+    )
+  )
+    throw new Error(
+      "Cover every frozen requirement and link each task to known requirement IDs",
+    );
+  return draft;
+}
 
 /** Discovery is private conversational state, not another task backlog. */
 export class Discoveries {
@@ -80,16 +135,16 @@ export class Discoveries {
           throw new Error(
             "The displayed draft changed before approval; review it again",
           );
+        handoffDraft(row);
         const retained = row.handoff;
         if (
           retained !== undefined &&
-          retained.phase !== HandoffPhase.Complete &&
           (!isDeepStrictEqual(retained.target, target) ||
             retained.digest !== digest ||
             retained.revision !== row.revision)
         )
           throw new Error(
-            "The uncertain handoff retains its original project authority and draft; reconcile that target first",
+            "The handoff retains its original project authority and draft; reconcile that target first",
           );
         if (
           retained?.phase === HandoffPhase.Pending &&

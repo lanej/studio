@@ -14,6 +14,7 @@ import { test } from "node:test";
 import { randomUUID } from "node:crypto";
 import { registerDiscovery } from "../discovery/extension.ts";
 import { Discoveries, HandoffPhase } from "../discovery/store.ts";
+import { readySpecification } from "./fixtures/socrates.ts";
 import { SpecStatus } from "../socrates/spec.ts";
 import { draftSchema, reviseDelivery } from "../lead-plan.ts";
 import {
@@ -268,6 +269,7 @@ await test("discovery approval freezes the displayed version before effects and 
           title: "First",
           description: "Bounded task",
           acceptance: "Verified result",
+          requirements: ["R1"],
         },
       ],
     });
@@ -280,6 +282,13 @@ await test("discovery approval freezes the displayed version before effects and 
       /reserved/u,
     );
     const displayed = store.change(discovery.id, (record) => {
+      const specification = readySpecification(record.revision);
+      record.specification = {
+        ...specification,
+        status: SpecStatus.Frozen,
+        approvalAt: "2026-11-24T00:00:00Z",
+      };
+      record.planSpecificationRevision = specification.coverageRevision;
       record.leadPlan.draft = draft;
     });
     const authorityId = randomUUID();
