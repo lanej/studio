@@ -233,6 +233,7 @@
   "resources/bunfig.toml",
   "resources/colors.json",
   "resources/socrates/SKILL.md",
+  "resources/socrates/references/data-change-planning.md",
   "resources/socrates/references/dialogue.txt",
   "resources/socrates/references/phases-2-3.txt",
   "resources/socrates/references/spec-scaffold.tpl",
