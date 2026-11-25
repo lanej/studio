@@ -1,6 +1,7 @@
 import {
   createAgentSessionFromServices,
   createAgentSessionServices,
+  highlightCode,
   initTheme,
   ToolExecutionComponent,
   type ExtensionAPI,
@@ -22,6 +23,7 @@ import { test, type TestContext } from "node:test";
 import { registerCodeIntelligence } from "../code-intelligence/extension.ts";
 import { registerModelTools } from "../model-tools/extension.ts";
 import { applyPatch, replaceText } from "../model-tools/operations.ts";
+import { registerSearchRendering } from "../search-renderer.ts";
 
 async function patchSession(
   cwd: string,
@@ -145,6 +147,7 @@ async function conversationFixture(t: TestContext) {
     ["read", "edit", "write", "bash"],
     (pi) => {
       registerCodeIntelligence(pi);
+      registerSearchRendering(pi);
       registerModelTools(pi);
     },
   );
@@ -192,6 +195,54 @@ await test("dialect tools keep their invoked names in conversation headings", as
     assert.ok(heading.startsWith(name), heading);
     assert.ok(heading.includes(subject), heading);
   }
+});
+
+await test("Codex discovery displays TypeScript tokens in both compact and expanded results with a workdir", async (t) => {
+  const { component } = await conversationFixture(t);
+  const args = {
+    command: "rg -n -A8 'TaskDelivery|deliveryOutcome' lead-plan.ts | head -70",
+    workdir: "operator's checkout",
+  };
+  const shell = component("shell_command", args);
+  const source = '  return "Opens a PR";';
+  const text = [
+    "12:const deliveryOutcome = () => {",
+    "13-  // Report the delivery result to the operator.",
+    "14-",
+    "15-",
+    "16-",
+    `17-${source}`,
+  ].join("\n");
+  shell.setArgsComplete();
+  const result = {
+    content: [{ type: "text", text }],
+    isError: false,
+    durationMs: 200,
+  };
+  shell.updateResult(result);
+  const [highlighted] = highlightCode(source, "typescript");
+  assert.ok(highlighted !== undefined && highlighted !== source);
+  for (const expanded of [false, true]) {
+    shell.setExpanded(expanded);
+    const rows = shell.render(100);
+    const display = stripTerminalSequences(rows.join("\n"));
+    assert.match(display, /Took 0\.2s/u);
+    assert.equal(display.includes("to expand"), !expanded);
+    const context = rows.find((row) =>
+      stripTerminalSequences(row).includes(`17-${source}`),
+    );
+    assert.ok(
+      context?.includes(highlighted) === true,
+      "Expected the native TypeScript token colors in the context line",
+    );
+    assert.equal(
+      rows.some((row) => stripTerminalSequences(row).includes("12:const")),
+      expanded,
+    );
+  }
+  assert.deepEqual(result.content, [{ type: "text", text }]);
+  shell.updateResult({ ...result, isError: true });
+  assert.ok(!shell.render(100).some((line) => line.includes(highlighted)));
 });
 
 // Compare the colored rows so this also covers syntax/token colors and gutter alignment.

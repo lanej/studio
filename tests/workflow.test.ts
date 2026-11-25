@@ -24,6 +24,7 @@ import { taskDetails, taskLabel, taskSchema, taskTree } from "../beads.ts";
 import { githubLink, renderReferences } from "../github-links.ts";
 import { footerModelLabel } from "../footer.ts";
 import { highlightSearchOutput } from "../search-renderer.ts";
+import { prepareShellSyntax } from "../shell-syntax.ts";
 
 const execute = promisify(execFile);
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -72,7 +73,8 @@ await test("task containment stays separate from blockers, including missing par
   );
 });
 
-await test("search rendering highlights only identifiable source, preserving prefixes", () => {
+await test("search rendering highlights only identifiable source, preserving prefixes", async () => {
+  await prepareShellSyntax();
   const color = (text: string, language: string) => [`[${language}]${text}`];
   assert.equal(
     highlightSearchOutput(
