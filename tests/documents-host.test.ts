@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
+import { Database } from "bun:sqlite";
+import { HOST_CONFORMANCE_CASES } from "@lanej/editor-interop/testing";
 import {
   DefaultResourceLoader,
   ExtensionRunner,
@@ -16,13 +18,18 @@ import {
 import { registerDiscovery } from "../discovery/extension.ts";
 import { Discoveries, handoffDraft } from "../discovery/store.ts";
 import { draftSchema, TaskDelivery } from "../lead-plan.ts";
-import { getDocumentHost } from "../documents/host.ts";
-import { renderPlan, renderSpecification } from "../documents/codec.ts";
-import { DocumentKind } from "../documents/model.ts";
+import {
+  registerPlanningDocuments,
+  getPlanningDocuments,
+} from "../planning/documents.ts";
+import { renderPlan, renderSpecification } from "../planning/codec.ts";
+import { DocumentKind, type DocumentSnapshot } from "../planning/model.ts";
 import { coverageFresh, specificationToken } from "../socrates/assessment.ts";
 import { readySpecification } from "./fixtures/socrates.ts";
 import { SpecStatus } from "../socrates/spec.ts";
-import { FeedbackState } from "../documents/feedback.ts";
+import { DocumentJournal, FeedbackState } from "../planning/feedback.ts";
+const expectation = (id: keyof typeof HOST_CONFORMANCE_CASES) =>
+  `${id}: ${HOST_CONFORMANCE_CASES[id]}`;
 
 await test(
   "native discovery document host guards both writers, save receipts, and queued owner identity",
@@ -50,6 +57,7 @@ await test(
         noContextFiles: true,
         extensionFactories: [
           (pi) => {
+            registerPlanningDocuments(pi);
             api = pi;
             registerDiscovery(pi, () => undefined);
           },
@@ -78,7 +86,7 @@ await test(
       const busy = { ...ctx, isIdle: () => false };
       const draftTool = runner.getToolDefinition("draft_implementation_plan");
       assert.ok(draftTool !== undefined && api !== undefined);
-      const host = getDocumentHost(api);
+      const host = getPlanningDocuments(api);
       assert.ok(host !== undefined);
       const original = draftSchema.parse({
         summary: "Original proposal",
@@ -103,7 +111,95 @@ await test(
         expectedRevision: snapshot.revision,
         markdown: renderPlan(operator),
       };
-      const accepted = await host.save(request);
+      const authority = new Database(join(state, "discoveries.sqlite"));
+      const journal = new Database(join(state, "documents.sqlite"));
+      let accepted: DocumentSnapshot;
+      try {
+        journal.run(
+          "CREATE TRIGGER reject_reservation BEFORE INSERT ON document_saves BEGIN SELECT RAISE(ABORT, 'simulated reservation failure'); END",
+        );
+        await assert.rejects(
+          host.save(request),
+          /simulated reservation failure/u,
+        );
+        assert.equal(
+          journal
+            .query("SELECT record FROM document_saves WHERE id=?")
+            .get(request.operationId),
+          null,
+        );
+        assert.equal(
+          store.get(snapshot.ref.ownerId).leadPlan.draft?.summary,
+          original.summary,
+          expectation("save.rollback_before_commit"),
+        );
+        journal.run("DROP TRIGGER reject_reservation");
+        authority.run(
+          "CREATE TRIGGER reject_witness BEFORE INSERT ON operation_witnesses BEGIN SELECT RAISE(ABORT, 'simulated witness write failure'); END",
+        );
+        await assert.rejects(
+          host.save(request),
+          /simulated witness write failure/u,
+        );
+        assert.equal(
+          store.get(snapshot.ref.ownerId).leadPlan.draft?.summary,
+          original.summary,
+          expectation("save.rollback_before_commit"),
+        );
+        assert.equal(
+          authority
+            .query(
+              "SELECT record FROM operation_witnesses WHERE operation_id=?",
+            )
+            .get(request.operationId),
+          null,
+        );
+        authority.run("DROP TRIGGER reject_witness");
+        journal.run(
+          "CREATE TRIGGER lose_receipt BEFORE UPDATE ON document_saves BEGIN SELECT RAISE(ABORT, 'simulated lost receipt'); END",
+        );
+        await assert.rejects(host.save(request), /simulated lost receipt/u);
+        assert.equal(
+          store.get(snapshot.ref.ownerId).leadPlan.draft?.summary,
+          operator.summary,
+          expectation("save.lost_reply_after_commit"),
+        );
+        journal.run("DROP TRIGGER lose_receipt");
+        accepted = await host.save(request);
+        const incomplete = { ...request, operationId: randomUUID() };
+        journal
+          .query("INSERT INTO document_saves VALUES (?,?)")
+          .run(incomplete.operationId, JSON.stringify({ request: incomplete }));
+        await assert.rejects(
+          host.save(incomplete),
+          /historical receipt has no authoritative commit witness/u,
+          expectation("save.incomplete_evidence"),
+        );
+        await assert.rejects(
+          host.save({ ...request, operationId: randomUUID() }),
+          /draft changed/u,
+        );
+        assert.equal(
+          store.get(snapshot.ref.ownerId).leadPlan.draft?.summary,
+          operator.summary,
+        );
+      } finally {
+        authority.close();
+        journal.close();
+      }
+      const reservations = new DocumentJournal(state);
+      try {
+        assert.throws(
+          () =>
+            reservations.save({
+              ...request,
+              ref: { ...request.ref, ownerId: randomUUID() },
+            }),
+          /operation ID already belongs/u,
+        );
+      } finally {
+        reservations.close();
+      }
       assert.equal(
         store.get(snapshot.ref.ownerId).leadPlan.draft?.summary,
         operator.summary,
@@ -168,6 +264,15 @@ await test(
         undefined,
         undefined,
         busy,
+      );
+      assert.deepEqual(
+        await host.save(request),
+        accepted,
+        "recovery returns the original witness after another writer advances the document",
+      );
+      assert.equal(
+        store.get(snapshot.ref.ownerId).leadPlan.draft?.summary,
+        agent.summary,
       );
       await assert.rejects(
         host.save({
@@ -695,7 +800,7 @@ await test(
       assert.match(historical.reason ?? "", /complete property assessment/u);
       host.dispose();
     } finally {
-      if (api !== undefined) getDocumentHost(api)?.dispose();
+      if (api !== undefined) getPlanningDocuments(api)?.dispose();
       store.close();
       if (previous === undefined) delete process.env["STUDIO_STATE_DIR"];
       else process.env["STUDIO_STATE_DIR"] = previous;

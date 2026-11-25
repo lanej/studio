@@ -15,6 +15,8 @@ parser.add_argument("--with-integrations", action="store_true", help="Also exerc
 parser.add_argument("--installation-only", action="store_true", help="Exercise export and installation without repeating source quality and unit checks")
 args = parser.parse_args()
 command_timeout = 240 if os.environ.get("GITHUB_ACTIONS") == "true" else 90
+# Hosted macOS lint can exceed four minutes on the isolated source export.
+lint_timeout = 600 if os.environ.get("GITHUB_ACTIONS") == "true" and os.environ.get("RUNNER_OS") == "macOS" else command_timeout
 bun = shutil.which("bun")
 assert bun, "Install Bun satisfying package.json engines.bun before standalone acceptance"
 current_version = subprocess.check_output([bun, "--version"], text=True).strip().split("+", 1)[0]
@@ -42,8 +44,20 @@ with tempfile.TemporaryDirectory(prefix="studio-standalone-") as temporary:
            "PATH": str(guard) + os.pathsep + os.environ["PATH"]}
     env.pop("STUDIO_CONFIG", None)
     env.pop("STUDIO_STATE_DIR", None)
-    def run(args, expected=0, cwd=None, stderr_contains=None):
-        result = subprocess.run(args, cwd=cwd or source, env=env, text=True, capture_output=True, timeout=command_timeout)
+    def run(args, expected=0, cwd=None, stderr_contains=None, timeout=command_timeout):
+        try:
+            result = subprocess.run(args, cwd=cwd or source, env=env, text=True, capture_output=True, timeout=timeout)
+        except subprocess.TimeoutExpired as error:
+            def tail(output, limit):
+                if isinstance(output, bytes):
+                    output = output.decode("utf-8", errors="replace")
+                return (output or "")[-limit:]
+            raise AssertionError(
+                f"Standalone command exceeded {timeout}s: {shlex.join(args)}\n"
+                f"Working directory: {cwd or source}\n"
+                f"stdout (tail):\n{tail(error.stdout, 4000)}\n"
+                f"stderr (tail):\n{tail(error.stderr, 8000)}"
+            ) from error
         assert result.returncode == expected, (args, result.stdout[-4000:], result.stderr[-8000:])
         if stderr_contains is not None:
             assert stderr_contains in result.stderr, (args, result.stderr)
@@ -63,7 +77,7 @@ with tempfile.TemporaryDirectory(prefix="studio-standalone-") as temporary:
     if not args.installation_only:
         run([bun, "install", "--cwd", ".typescript-quality", "--frozen-lockfile", "--ignore-scripts"])
         run([bun, "run", "typecheck"])
-        run([bun, "run", "lint"])
+        run([bun, "run", "lint"], timeout=lint_timeout)
         run([bun, "run", "test"])
         run([bun, "run", "test:pi-native"])
     report = json.loads(run([str(source / "scripts/studio"), "doctor"]))

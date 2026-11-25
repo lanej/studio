@@ -18,8 +18,11 @@ import { registerDiscovery } from "../discovery/extension.ts";
 import { Discoveries, handoffDraft, HandoffPhase } from "../discovery/store.ts";
 import { runtimeProjectSchema, StudioProfile } from "../config.ts";
 import { randomUUID } from "node:crypto";
-import { getDocumentHost } from "../documents/host.ts";
-import { DocumentKind } from "../documents/model.ts";
+import {
+  registerPlanningDocuments,
+  getPlanningDocuments,
+} from "../planning/documents.ts";
+import { DocumentKind } from "../planning/model.ts";
 import { SpecStatus } from "../socrates/spec.ts";
 import { draftSchema, planDigest } from "../lead-plan.ts";
 import { readySpecification } from "./fixtures/socrates.ts";
@@ -40,7 +43,7 @@ async function discoveryFixture(t: TestContext) {
   const store = new Discoveries(state);
   let api: ExtensionAPI | undefined;
   t.after(async () => {
-    if (api !== undefined) getDocumentHost(api)?.dispose();
+    if (api !== undefined) getPlanningDocuments(api)?.dispose();
     if (previousState === undefined) delete process.env["STUDIO_STATE_DIR"];
     else process.env["STUDIO_STATE_DIR"] = previousState;
     if (previousConfig === undefined) delete process.env["STUDIO_CONFIG"];
@@ -89,6 +92,7 @@ async function discoveryFixture(t: TestContext) {
     noContextFiles: true,
     extensionFactories: [
       (pi) => {
+        registerPlanningDocuments(pi);
         api = pi;
         const selected = registerDiscovery(pi, () => StudioProfile.Personal);
         discovery = selected;
@@ -143,7 +147,7 @@ async function discoveryFixture(t: TestContext) {
   });
   const save = (proposal = draft, context = toolContext) => {
     assert.ok(api !== undefined);
-    const document = getDocumentHost(api)
+    const document = getPlanningDocuments(api)
       ?.capture(context)
       .find((item) => item.ref.kind === DocumentKind.Plan);
     return tool.execute(
@@ -163,7 +167,7 @@ async function discoveryFixture(t: TestContext) {
   assert.ok(specTool !== undefined);
   const assess = (specificationDraft: unknown) => {
     assert.ok(api !== undefined);
-    const document = getDocumentHost(api)
+    const document = getPlanningDocuments(api)
       ?.capture(toolContext)
       .find((item) => item.ref.kind === DocumentKind.Specification);
     return specTool.execute(

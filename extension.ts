@@ -62,7 +62,10 @@ import {
 import { focusTaskPane, taskPaneBeads } from "./task-run.ts";
 import { hasInteractivePane } from "./execution/interactive-target.ts";
 import { registerDocumentWorkspace } from "./documents/workspace.ts";
-import { getDocumentHost } from "./documents/host.ts";
+import {
+  registerPlanningDocuments,
+  getPlanningDocuments,
+} from "./planning/documents.ts";
 
 const attemptType = "studio:idle-attempt";
 const attemptSchema = z.object({ historyId: z.string() });
@@ -76,6 +79,7 @@ export default function studioExtension(
     trackedPullRequest: () => string | undefined;
   },
 ): void {
+  registerPlanningDocuments(pi);
   registerHistoryBindings(pi);
   registerActivationAdmission(pi);
   registerSessionForks(pi);
@@ -99,7 +103,7 @@ export default function studioExtension(
   if (discovery !== undefined)
     registerProjectPolicy(pi, (ctx) => discovery.runtimeHandoff(ctx)?.target);
   registerDocumentWorkspace(pi);
-  const documentPending = () => getDocumentHost(pi)?.pending() === true;
+  const documentPending = () => getPlanningDocuments(pi)?.pending() === true;
   pi.on("session_before_switch", () =>
     documentPending() ? { cancel: true } : undefined,
   );

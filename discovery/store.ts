@@ -21,6 +21,12 @@ import {
   type DeliveryPolicy,
 } from "../socrates/spec.ts";
 import { specificationToken } from "../socrates/assessment.ts";
+import {
+  commitOperation,
+  initializeOperationWitnesses,
+  transaction,
+  type OperationWitness,
+} from "../operation-witness.ts";
 
 export enum HandoffPhase {
   Pending = "pending",
@@ -196,6 +202,7 @@ export class Discoveries {
     this.db.run(
       "CREATE TABLE IF NOT EXISTS discoveries (id TEXT PRIMARY KEY, project TEXT NOT NULL, record TEXT NOT NULL)",
     );
+    initializeOperationWitnesses(this.db);
   }
   beginHandoff(
     expected: Discovery,
@@ -296,28 +303,39 @@ export class Discoveries {
     update: (record: Discovery) => void,
     handoff = false,
   ): Discovery {
-    this.db.run("BEGIN IMMEDIATE");
-    try {
-      const record = this.get(id);
-      if (
-        !handoff &&
-        record.handoff !== undefined &&
-        record.handoff.phase !== HandoffPhase.Complete
-      )
-        throw new Error(
-          "The approved handoff is pending or uncertain; reconcile it before editing this discovery",
-        );
-      update(record);
-      const checked = discoverySchema.parse(record);
-      this.db
-        .query("UPDATE discoveries SET record=? WHERE id=?")
-        .run(JSON.stringify(checked), id);
-      this.db.run("COMMIT");
-      return checked;
-    } catch (error) {
-      this.db.run("ROLLBACK");
-      throw error;
-    }
+    return transaction(this.db, () => this.update(id, update, handoff));
+  }
+  changeWithWitness(
+    id: string,
+    operationId: string,
+    command: string,
+    update: (record: Discovery) => void,
+    result: (record: Discovery) => string,
+  ): OperationWitness {
+    return commitOperation(this.db, id, operationId, command, () =>
+      result(this.update(id, update)),
+    );
+  }
+  private update(
+    id: string,
+    update: (record: Discovery) => void,
+    handoff = false,
+  ): Discovery {
+    const record = this.get(id);
+    if (
+      !handoff &&
+      record.handoff !== undefined &&
+      record.handoff.phase !== HandoffPhase.Complete
+    )
+      throw new Error(
+        "The approved handoff is pending or uncertain; reconcile it before editing this discovery",
+      );
+    update(record);
+    const checked = discoverySchema.parse(record);
+    this.db
+      .query("UPDATE discoveries SET record=? WHERE id=?")
+      .run(JSON.stringify(checked), id);
+    return checked;
   }
 }
 function decode(value: unknown): Discovery {

@@ -1,5 +1,8 @@
-import { DocumentKind } from "../documents/model.ts";
-import { getDocumentHost, type DocumentHost } from "../documents/host.ts";
+import { DocumentKind } from "../planning/model.ts";
+import {
+  getPlanningDocumentHooks,
+  type PlanningDocumentHooks,
+} from "../planning/document-hooks.ts";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -89,7 +92,7 @@ export function registerSocratesControls<T extends SocratesState>(
     check(record: T, revision: string): Promise<void>;
     discovery?: boolean;
     select?(argument: string, ctx: ExtensionContext): Promise<void>;
-    documents?: DocumentHost;
+    documents?: PlanningDocumentHooks;
   },
 ) {
   async function viewSpecification(ctx: ExtensionContext) {
@@ -123,7 +126,7 @@ export function registerSocratesControls<T extends SocratesState>(
   );
   // A new run is admitted before its first message_start. Invalidate then so the
   // document host supplies the resulting token, while queued guidance waits for delivery.
-  const documents = scope.documents ?? getDocumentHost(pi);
+  const documents = scope.documents ?? getPlanningDocumentHooks(pi);
   let commandPrompt: string | undefined;
   let preparedUserMessage = false;
   pi.on("input", (event) => {

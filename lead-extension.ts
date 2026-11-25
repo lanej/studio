@@ -1,10 +1,10 @@
 import { realpathSync } from "node:fs";
-import { DocumentKind, DocumentOwnerKind } from "./documents/model.ts";
+import { DocumentKind, DocumentOwnerKind } from "./planning/model.ts";
 import {
-  registerDocumentHost,
+  requirePlanningDocumentHooks,
   documentReadTool,
   documentOutcomeTool,
-} from "./documents/host.ts";
+} from "./planning/document-hooks.ts";
 import { diagramTool } from "./diagram/extension.ts";
 import { mermaidTool } from "./diagram/mermaid-tool.ts";
 import { renderPlanCall } from "./plan-renderer.ts";
@@ -95,7 +95,8 @@ export function registerLeadControls(
   requireBinding: (ctx: ExtensionContext) => Promise<Attempt>,
   approvalPending: (active: boolean) => void,
 ) {
-  const documents = registerDocumentHost(pi, {
+  const documents = requirePlanningDocumentHooks(pi);
+  documents.bind({
     current(ctx) {
       if (ctx.sessionManager.getSessionId() !== id) return undefined;
       const project = realpathSync(ctx.cwd);
@@ -105,7 +106,8 @@ export function registerLeadControls(
         project,
         conversationId: id,
         read: () => db.get(id),
-        change: (update) => db.change(id, update),
+        changeWithWitness: (operationId, command, update, result) =>
+          db.changeWithWitness(id, operationId, command, update, result),
         validate: async (currentContext) => {
           const record = await requireBinding(currentContext);
           if (record.id !== id || record.revision === null)

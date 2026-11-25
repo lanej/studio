@@ -150,7 +150,6 @@ jobs:
           python3 -m pip install --disable-pip-version-check uv
       - name: Verify the native document workflow
         run: |
-          bun run test:documents-editor
           bun run test:documents-native -- --output "$RUNNER_TEMP/document-evidence"
       - uses: actions/upload-artifact@v4
         if: always()

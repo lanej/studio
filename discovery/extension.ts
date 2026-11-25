@@ -1,5 +1,5 @@
-import { DocumentKind, DocumentOwnerKind } from "../documents/model.ts";
-import { registerDocumentHost } from "../documents/host.ts";
+import { DocumentKind, DocumentOwnerKind } from "../planning/model.ts";
+import { requirePlanningDocumentHooks } from "../planning/document-hooks.ts";
 import { renderPlanCall } from "../plan-renderer.ts";
 import type {
   ExtensionAPI,
@@ -118,7 +118,8 @@ export function registerDiscovery(
       throw new Error("Select a discovery for this project");
     return Promise.resolve(record);
   };
-  const documents = registerDocumentHost(pi, {
+  const documents = requirePlanningDocumentHooks(pi);
+  documents.bind({
     current(ctx) {
       const id = locate(ctx);
       if (id === undefined) return undefined;
@@ -131,7 +132,10 @@ export function registerDiscovery(
         project,
         conversationId: ctx.sessionManager.getSessionId(),
         read: () => storage((db) => db.get(id)),
-        change: (update) => storage((db) => db.change(id, update)),
+        changeWithWitness: (operationId, command, update, result) =>
+          storage((db) =>
+            db.changeWithWitness(id, operationId, command, update, result),
+          ),
         validate: async (currentContext) => {
           const current = await requireBinding(currentContext);
           if (current.id !== id || current.project !== project)

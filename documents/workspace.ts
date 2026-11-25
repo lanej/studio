@@ -1,170 +1,147 @@
-import { createHash, randomUUID } from "node:crypto";
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { stateDirectory } from "../attempts.ts";
+import type { EditorWorkspace } from "@lanej/editor-interop";
 import { loadConfig } from "../config.ts";
 import { PiMode, piModeSchema } from "../runtime.ts";
-import { DocumentEditor } from "./editor.ts";
-import { getDocumentHost } from "./host.ts";
-import type { DocumentSnapshot } from "./model.ts";
-import { DocumentMethod, serveDocuments } from "./server.ts";
+import {
+  getPlanningDocuments,
+  type PlanningBinding,
+} from "../planning/documents.ts";
 
+/** Optional editor composition; planning controls do not load the interoperability package. */
 export function registerDocumentWorkspace(pi: ExtensionAPI): void {
   let context: ExtensionContext | undefined;
-  let server: Awaited<ReturnType<typeof serveDocuments>> | undefined;
-  let editor: DocumentEditor | undefined;
+  let workspace: EditorWorkspace | undefined;
+  let bound: PlanningBinding | undefined;
   let releaseHost: (() => void) | undefined;
-  let observedHost: ReturnType<typeof getDocumentHost>;
-  let generation = 0;
-  let refreshing = false;
+  let observedHost: ReturnType<typeof getPlanningDocuments>;
+  let epoch = 0;
+  let refreshing: Promise<void> | undefined;
+  let again = false;
+  const needsRefresh = () => again;
+  let explicit = false;
   let lastError: string | undefined;
-  let projection: Promise<unknown> = Promise.resolve();
-  const materialized = new Map<string, string>();
-
-  const report = (error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message === lastError) return;
+  const report = (cause: unknown) => {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    if (message !== lastError)
+      context?.ui.notify(`Studio documents: ${message}`, "warning");
     lastError = message;
-    context?.ui.notify(`Studio documents: ${message}`, "warning");
-  };
-  const documentPath = (snapshot: DocumentSnapshot) => {
-    const key = createHash("sha256")
-      .update(JSON.stringify(snapshot.ref))
-      .digest("hex");
-    return join(stateDirectory(), "documents", key, `${snapshot.ref.kind}.md`);
-  };
-  const materialize = async (snapshot: DocumentSnapshot) => {
-    const path = documentPath(snapshot);
-    const currentGeneration = generation;
-    if (materialized.get(path) !== snapshot.revision) {
-      await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-      const temporary = `${path}.${randomUUID()}.tmp`;
-      await writeFile(temporary, snapshot.markdown, { mode: 0o600 });
-      if (currentGeneration !== generation) {
-        await rm(temporary);
-        throw new Error("The Studio session changed");
-      }
-      await rename(temporary, path);
-      materialized.set(path, snapshot.revision);
-    }
-    return { ...snapshot, path };
-  };
-  const host = () => {
-    const current = getDocumentHost(pi);
-    if (current === undefined)
-      throw new Error("No planning document is bound to this Studio session");
-    return current;
   };
   const close = async () => {
-    generation++;
+    epoch++;
     releaseHost?.();
     releaseHost = undefined;
     observedHost = undefined;
-    const previous = server;
-    server = undefined;
-    editor?.dispose();
-    editor = undefined;
-    materialized.clear();
-    await previous?.close();
+    bound = undefined;
+    const previous = workspace;
+    workspace = undefined;
+    await previous?.dispose();
   };
-  const refresh = async (explicit = false) => {
-    if (
-      refreshing ||
-      context === undefined ||
-      piModeSchema.parse(context.mode) !== PiMode.Tui
-    )
+  const refreshNow = async (open: boolean) => {
+    const ctx = context;
+    if (ctx === undefined || piModeSchema.parse(ctx.mode) !== PiMode.Tui)
       return;
-    refreshing = true;
-    const currentGeneration = generation;
-    try {
-      const config = await loadConfig();
-      if (
-        !config.integrations.neovim.enabled ||
-        !config.integrations.zellij.enabled
-      ) {
-        if (explicit)
-          throw new Error(
-            "Enable integrations.neovim and integrations.zellij to open documents",
-          );
-        return;
-      }
-      const current = getDocumentHost(pi);
-      if (current === undefined) return;
-      if (current !== observedHost) {
-        releaseHost?.();
-        observedHost = current;
-        releaseHost = current.onChange(() => {
-          refresh().catch(report);
-        });
-      }
-      const snapshot = await current.sync();
-      if (snapshot.documents.length === 0) {
-        if (explicit)
-          throw new Error("No specification or plan has been drafted yet");
-        return;
-      }
-      if (currentGeneration !== generation) return;
-      if (server === undefined) {
-        const session = process.env["ZELLIJ_SESSION_NAME"];
-        if (session === undefined)
-          throw new Error(
-            "Start Studio inside Zellij to open the companion editor",
-          );
-        const candidate = await serveDocuments(async (method, params) => {
-          if (currentGeneration !== generation)
-            throw new Error("The Studio session changed");
-          if (
-            method === DocumentMethod.Sync ||
-            method === DocumentMethod.Save
-          ) {
-            const operation = projection
-              .catch(() => undefined)
-              .then(async () => {
-                if (currentGeneration !== generation)
-                  throw new Error("The Studio session changed");
-                const saved =
-                  method === DocumentMethod.Save
-                    ? await host().save(params)
-                    : undefined;
-                const state = await host().sync();
-                const documents = await Promise.all(
-                  state.documents.map(materialize),
-                );
-                // Replayed save receipts acknowledge their candidate without reverting the current file.
-                return saved === undefined
-                  ? { ...state, documents }
-                  : { ...saved, path: documentPath(saved) };
-              });
-            projection = operation;
-            return await operation;
-          }
-          switch (method) {
-            case DocumentMethod.Feedback:
-              return await host().feedback(params);
-            case DocumentMethod.Register:
-              if (editor === undefined)
-                throw new Error("The companion editor has not been launched");
-              return await editor.register(params);
-          }
-        });
-        if (currentGeneration !== generation) {
-          await candidate.close();
-          return;
-        }
-        server = candidate;
-        editor = new DocumentEditor(candidate.manifest, session);
-      }
-      await editor?.open(config, context.cwd, explicit);
-      lastError = undefined;
-    } finally {
-      refreshing = false;
+    const activation = epoch;
+    const config = await loadConfig();
+    if (activation !== epoch) return;
+    if (
+      !config.integrations.neovim.enabled ||
+      !config.integrations.zellij.enabled
+    ) {
+      if (workspace !== undefined) await close();
+      if (open)
+        throw new Error(
+          "Enable integrations.neovim and integrations.zellij to open documents",
+        );
+      return;
     }
+    const authority = getPlanningDocuments(pi);
+    const binding = authority?.binding();
+    if (authority === undefined || binding === undefined) return;
+    if (authority !== observedHost) {
+      releaseHost?.();
+      observedHost = authority;
+      releaseHost = authority.onChange(() => {
+        refresh().catch(report);
+      });
+    }
+    if (workspace !== undefined && !isDeepStrictEqual(bound, binding)) {
+      const previous = workspace;
+      workspace = undefined;
+      bound = undefined;
+      await previous.dispose();
+      if (activation !== epoch) return;
+    }
+    if (workspace === undefined) {
+      const session = process.env["ZELLIJ_SESSION_NAME"];
+      if (session === undefined)
+        throw new Error(
+          "Start Studio inside Zellij to open the companion editor",
+        );
+      const [
+        { createWorkspace },
+        { StudioDocumentProvider },
+        { StudioEditorLauncher },
+      ] = await Promise.all([
+        import("@lanej/editor-interop"),
+        import("./provider.ts"),
+        import("./editor.ts"),
+      ]);
+      if (activation !== epoch) return;
+      authority.assertBinding(binding);
+      const provider = new StudioDocumentProvider(authority, binding);
+      const candidate = await createWorkspace({
+        context: provider.context,
+        provider,
+        launcher: new StudioEditorLauncher(config, session),
+        directory: await mkdtemp(join(tmpdir(), "studio-editor-")),
+        runtimePath: dirname(
+          fileURLToPath(import.meta.resolve("@lanej/editor-interop/neovim")),
+        ),
+        workingDirectory: binding.project,
+        title: "Studio documents",
+      });
+      if (
+        activation !== epoch ||
+        !isDeepStrictEqual(authority.binding(), binding)
+      ) {
+        await candidate.dispose();
+        return;
+      }
+      workspace = candidate;
+      bound = binding;
+    } else await workspace.refresh();
+    if (open) {
+      const result = await workspace.open();
+      if (result.state === "uncertain") throw new Error(result.reason);
+    }
+    lastError = undefined;
   };
-
+  const refresh = (open = false): Promise<void> => {
+    explicit ||= open;
+    if (refreshing !== undefined) {
+      again = true;
+      return refreshing;
+    }
+    refreshing = (async () => {
+      do {
+        again = false;
+        const requested = explicit;
+        explicit = false;
+        await refreshNow(requested);
+      } while (needsRefresh());
+    })().finally(() => {
+      refreshing = undefined;
+    });
+    return refreshing;
+  };
   pi.registerCommand("documents", {
     description:
       "Open or reconnect this Studio session's specification and plan editor",

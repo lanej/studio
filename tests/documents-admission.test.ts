@@ -15,11 +15,15 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { registerDiscovery } from "../discovery/extension.ts";
 import { Discoveries } from "../discovery/store.ts";
-import { getDocumentHost, revisionFor } from "../documents/host.ts";
-import { FeedbackState } from "../documents/feedback.ts";
+import {
+  registerPlanningDocuments,
+  getPlanningDocuments,
+  revisionFor,
+} from "../planning/documents.ts";
+import { FeedbackState } from "../planning/feedback.ts";
 import { draftSchema } from "../lead-plan.ts";
-import { renderPlan } from "../documents/codec.ts";
-import { DocumentKind, documentSnapshotSchema } from "../documents/model.ts";
+import { renderPlan } from "../planning/codec.ts";
+import { DocumentKind, documentSnapshotSchema } from "../planning/model.ts";
 import { coverageFresh } from "../socrates/assessment.ts";
 import { readySpecification } from "./fixtures/socrates.ts";
 
@@ -128,6 +132,7 @@ await test(
           noContextFiles: true,
           extensionFactories: [
             (pi) => {
+              registerPlanningDocuments(pi);
               api = pi;
               registerDiscovery(pi, () => undefined);
               pi.on("input", async (event) => {
@@ -163,7 +168,7 @@ await test(
       try {
         await session.bindExtensions({ mode: "rpc" });
         assert.ok(api !== undefined);
-        const host = getDocumentHost(api);
+        const host = getPlanningDocuments(api);
         assert.ok(host !== undefined);
         const ctx = session.extensionRunner.createToolContext(
           "initial",

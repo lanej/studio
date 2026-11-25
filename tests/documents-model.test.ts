@@ -7,15 +7,15 @@ import {
   renderDocument,
   renderPlan,
   renderSpecification,
-} from "../documents/codec.ts";
+} from "../planning/codec.ts";
 import {
   DocumentKind,
   DocumentOwnerKind,
   documentRefSchema,
   type DocumentRef,
   type WritableSpecificationDraft,
-} from "../documents/model.ts";
-import { documentRevision } from "../documents/revisions.ts";
+} from "../planning/model.ts";
+import { documentRevision } from "../planning/revisions.ts";
 import {
   TaskDelivery,
   draftSchema,

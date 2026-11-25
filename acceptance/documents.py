@@ -310,13 +310,24 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                     return lua("vim.api.nvim_buf_get_lines(0,0,-1,false)")
 
                 def marks():
-                    return lua("vim.api.nvim_buf_get_extmarks(0,vim.api.nvim_get_namespaces().StudioDocuments,0,-1,{details=true})")
+                    return lua("vim.api.nvim_buf_get_extmarks(0,vim.api.nvim_get_namespaces().EditorDocuments,0,-1,{details=true})")
 
                 def keys(pane, value):
                     terminal.write_to_pane(pane, *value.encode())
 
                 def ex(command):
                     keys(editor, "\x1b:" + command + "\r")
+
+                def document_buffer(heading):
+                    return lua("(function() for _, b in ipairs(vim.api.nvim_list_bufs()) do "
+                               "if vim.api.nvim_buf_is_loaded(b) and vim.tbl_contains("
+                               "vim.api.nvim_buf_get_lines(b,0,-1,false)," + json.dumps(heading) +
+                               ") then return b end end return 0 end)()")
+
+                def select_document(heading):
+                    buffer = document_buffer(heading)
+                    assert buffer, "Missing document heading: " + heading
+                    ex("buffer " + str(buffer))
 
                 def saved():
                     return read_records(home / "state/discoveries.sqlite", "discoveries")[0]
@@ -327,8 +338,7 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                 terminal.until("full specification buffer", lambda: "## Objective" in lines())
                 assert lua("vim.g.documents_fixture_init") == "configuration preserved"
                 assert "Explicit operator instruction" in lines(), "Full specification was truncated to the sidebar summary"
-                buffers = lua("vim.tbl_map(function(b) return vim.api.nvim_buf_get_name(b) end,vim.api.nvim_list_bufs())")
-                assert any(path.endswith("plan.md") for path in buffers), "Full plan buffer missing"
+                assert document_buffer("## Summary"), "Full plan buffer missing"
                 terminal.until("rendered Studio draft summary", lambda: "Specification" in terminal.capture_pane(studio))
                 terminal.until("rendered full specification", lambda: "Objective" in terminal.capture_pane(editor))
                 capture.save("normal")
@@ -358,8 +368,8 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                 print("PASS :write edits complete coverage and delivery policy without freeze or plan approval", flush=True)
 
                 objective_line = lines().index("Review the complete proposal in Neovim.") + 1
-                keys(editor, f"{objective_line}GV:StudioComment\r")
-                terminal.until("selection comment prompt", lambda: "Studio comment:" in terminal.capture_pane(editor))
+                keys(editor, f"{objective_line}GV:EditorComment\r")
+                terminal.until("selection comment prompt", lambda: "Editor comment:" in terminal.capture_pane(editor))
                 keys(editor, "Is this something we really want? Clarify the acceptance check.\r")
                 terminal.until("explicit outcome for selection", lambda: len(feedback()) == 1 and feedback()[0]["state"] == "answered")
                 first = feedback()[0]
@@ -369,8 +379,8 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                 terminal.until("direct document update and concise marker", lambda:
                                "explicit Studio review alone" in "\n".join(lines()) and "Answered" in json.dumps(marks()))
                 capture.save("response")
-                ex("StudioChanges")
-                terminal.until("response selector", lambda: "Studio comments" in terminal.capture_pane(editor))
+                ex("EditorChanges")
+                terminal.until("response selector", lambda: "Editor comments" in terminal.capture_pane(editor))
                 keys(editor, "1\r")
                 terminal.until("changed location selector", lambda: "Changed document locations" in terminal.capture_pane(editor))
                 keys(editor, "1\r")
@@ -382,8 +392,8 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
 
                 ex(r"%s/Review the complete proposal in Neovim\./Local unsaved proposal survives./")
                 dirty_line = lines().index("Local unsaved proposal survives.") + 1
-                keys(editor, f"{dirty_line}GV:StudioComment\r")
-                terminal.until("dirty selection comment prompt", lambda: "Studio comment:" in terminal.capture_pane(editor))
+                keys(editor, f"{dirty_line}GV:EditorComment\r")
+                terminal.until("dirty selection comment prompt", lambda: "Editor comment:" in terminal.capture_pane(editor))
                 keys(editor, "Perform the conflict check and clarify acceptance.\r")
                 terminal.until("second request answered", lambda: len(feedback()) == 2 and feedback()[1]["state"] == "answered")
                 terminal.until("visible dirty conflict status", lambda: "conflict" in lua("vim.wo.winbar"))
@@ -396,12 +406,12 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                 capture.save("narrow")
                 print("PASS dirty edits retained; incoming update held; stale save rejected; narrow rendering captured", flush=True)
 
-                ex("StudioReload!")
+                ex("EditorReload!")
                 terminal.until("explicit reload resolved conflict", lambda: not lua("vim.bo.modified") and "conflict" not in lua("vim.wo.winbar"))
                 before_explanation = saved()
                 objective_line = lines().index("Review the complete proposal in Neovim.") + 1
-                keys(editor, f"{objective_line}GV:StudioComment\r")
-                terminal.until("explanation-only selection prompt", lambda: "Studio comment:" in terminal.capture_pane(editor))
+                keys(editor, f"{objective_line}GV:EditorComment\r")
+                terminal.until("explanation-only selection prompt", lambda: "Editor comment:" in terminal.capture_pane(editor))
                 keys(editor, "Give an explanation only: why keep approval in Studio?\r")
                 terminal.until("explanation-only outcome", lambda: len(feedback()) == 3 and feedback()[2]["state"] == "answered")
                 explanation = feedback()[2]
@@ -415,17 +425,17 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                 assert after_explanation == before_explanation, "Explanation-only response mutated a document or approval"
                 terminal.until("explicit no-edits response marker", lambda: "no document edits" in json.dumps(marks()))
                 choice = sorted(item["requestId"] for item in feedback()).index(explanation["requestId"]) + 1
-                ex("StudioChanges")
-                terminal.until("no-edits response selector", lambda: "Studio comments" in terminal.capture_pane(editor))
+                ex("EditorChanges")
+                terminal.until("no-edits response selector", lambda: "Editor comments" in terminal.capture_pane(editor))
                 keys(editor, f"{choice}\r")
                 terminal.until("no-edits navigation result", lambda:
                                "No document edits" in terminal.capture_pane(editor))
                 keys(editor, "\r")
                 print("PASS explanation-only outcome preserves documents and explicitly reports no edits", flush=True)
 
-                ex("buffer plan.md")
+                select_document("## Summary")
                 terminal.until("editable plan before freeze", lambda:
-                               lua("vim.api.nvim_buf_get_name(0)").endswith("plan.md") and lua("vim.bo.modifiable"))
+                               lua("vim.api.nvim_get_current_buf()") == document_buffer("## Summary") and lua("vim.bo.modifiable"))
                 assert "Bind editable documents to their Studio conversation." in lines()
                 ex(r"%s/Deliver the document editing loop\./Deliver the proposed document editing loop./")
                 ex('%s/pullRequestMerge = "project-policy"/pullRequestMerge = "manual"/')
@@ -441,7 +451,7 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                 assert saved()["planSpecificationRevision"]
                 assert saved()["specification"]["status"] == "interrogating" and "approved" not in saved()
                 terminal.until("plan policy buffer save acknowledged", lambda: not lua("vim.bo.modified"))
-                ex("buffer specification.md")
+                select_document("## Objective")
                 terminal.focus_pane(studio)
                 keys(studio, "Reassess the edited document properties against the current specification and plan.\r")
                 terminal.until("native agent reassessed current documents", lambda: bool(saved()["specification"].get("coverageRevision")))
@@ -462,9 +472,9 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                 assert "approvalAt" in saved()["specification"] and "approved" not in saved()
                 terminal.until("frozen document protected in Neovim", lambda: not lua("vim.bo.modifiable"))
                 terminal.focus_pane(editor)
-                ex("buffer plan.md")
+                select_document("## Summary")
                 terminal.until("editable full plan", lambda:
-                               lua("vim.api.nvim_buf_get_name(0)").endswith("plan.md") and lua("vim.bo.modifiable"))
+                               lua("vim.api.nvim_get_current_buf()") == document_buffer("## Summary") and lua("vim.bo.modifiable"))
                 assert "Bind editable documents to their Studio conversation." in lines()
                 ex(r"%s/Deliver the proposed document editing loop\./Deliver the reviewed document editing loop./")
                 ex("write")
@@ -496,7 +506,7 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                 terminal.until("current documents in reopened editor", lambda: "## Objective" in lines() or "## Summary" in lines())
                 assert lua("vim.g.documents_fixture_init") == "configuration preserved"
                 terminal.focus_pane(editor)
-                ex("buffer plan.md")
+                select_document("## Summary")
                 terminal.until("latest plan in reopened pane", lambda: "Deliver the reviewed document editing loop." in lines())
                 assert len(terminal.terminals()) == 2
                 print("PASS closed pane stays closed through routine refresh; /documents reopens exactly one current editor", flush=True)
@@ -511,7 +521,7 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                 # wraps in the narrow pane. Its remote evaluator waits behind it.
                 terminal.until("visible disconnect notice", lambda:
                                "disconnected" in terminal.capture_pane(editor) or
-                               "Cannot reach the bound Studio" in terminal.capture_pane(editor))
+                               "Cannot reach the bound host session" in terminal.capture_pane(editor))
                 if "Press ENTER" in terminal.capture_pane(editor):
                     keys(editor, "\r")
                 terminal.until("visible disconnected editor status", lambda: "disconnected" in lua("vim.wo.winbar"))
