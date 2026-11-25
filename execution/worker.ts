@@ -58,6 +58,15 @@ const taskMetadata = z.looseObject({
   delivery: z.enum(TaskDelivery).optional(),
   blockedBy: z.array(z.string()).optional(),
 });
+export type InteractiveWorker = (assignment: {
+  cwd: string;
+  directory: string;
+  selection: NonNullable<Execution["worker"]>;
+  tools: ToolDefinition[];
+  prompt: string;
+  check: () => Promise<void>;
+  signal: AbortSignal;
+}) => Promise<string>;
 export function startAssignmentHeartbeat(
   renew: () => Promise<void>,
   renewed: () => void,
@@ -94,6 +103,7 @@ export async function executeAssignment(
   id: string,
   signal: AbortSignal,
   token: string,
+  interactiveWorker?: InteractiveWorker,
 ): Promise<void> {
   const store = new ExecutionStore();
   const controller = new AbortController();
@@ -102,6 +112,13 @@ export async function executeAssignment(
   let stopHeartbeat: (() => Promise<void>) | undefined;
   try {
     let attempt = store.attempt(id);
+    if (
+      (attempt.interactive === undefined) !==
+      (interactiveWorker === undefined)
+    )
+      throw new Error(
+        "Execution host does not match the approved dispatch mode",
+      );
     const project = store.project(attempt.project);
     const service = new ExecutionBeads(project.source);
     if (attempt.bead === undefined || attempt.revision === undefined)
@@ -122,7 +139,10 @@ export async function executeAssignment(
       row.pid = process.pid;
       row.started = started;
       row.launchSettled = false;
-      if (row.phase === ExecutionPhase.Uncertain)
+      if (
+        row.phase === ExecutionPhase.Uncertain &&
+        row.interactive === undefined
+      )
         row.phase = ExecutionPhase.Launching;
       const session = ctx.sessionManager.getSessionId();
       if (
@@ -245,6 +265,26 @@ export async function executeAssignment(
       mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
       let session: AgentSession | undefined;
       const tools = await snapshotTools(checkout.path, head, git);
+      const workerTools =
+        role === AgentRole.Worker
+          ? [
+              ...tools.filter((tool) => tool.name !== "read"),
+              ...writableTools(project, store.attempt(id), check),
+            ]
+          : undefined;
+      if (workerTools !== undefined && interactiveWorker !== undefined) {
+        const result = await interactiveWorker({
+          cwd: checkout.path,
+          directory: sessionDir,
+          selection,
+          tools: workerTools,
+          prompt,
+          check,
+          signal: abort,
+        });
+        await check();
+        return result;
+      }
       try {
         const result = await runner.runChild(ctx, role, prompt, {
           pi,
@@ -256,26 +296,20 @@ export async function executeAssignment(
           signal: abort,
           agentId: `${id}-${role}-${String(round)}`,
           sessionDir,
-          driverTools:
-            role === AgentRole.Worker
-              ? [
-                  ...tools.filter((tool) => tool.name !== "read"),
-                  ...writableTools(project, store.attempt(id), check),
-                ]
-              : [
-                  ...tools,
-                  ...reviewTools,
-                  ...(await snapshotTools(
-                    checkout.path,
-                    attempt.base ?? head,
-                    git,
-                  ).then((items) =>
-                    items.map((tool) => ({
-                      ...tool,
-                      name: `base_${tool.name}`,
-                    })),
-                  )),
-                ],
+          driverTools: workerTools ?? [
+            ...tools,
+            ...reviewTools,
+            ...(await snapshotTools(
+              checkout.path,
+              attempt.base ?? head,
+              git,
+            ).then((items) =>
+              items.map((tool) => ({
+                ...tool,
+                name: `base_${tool.name}`,
+              })),
+            )),
+          ],
           onSessionCreated(created) {
             session = created;
             if (
@@ -387,7 +421,9 @@ export async function executeAssignment(
         await delay(1000, undefined, { signal: abort });
       }
     };
-    const implement = async (maxPasses = 3): Promise<void> => {
+    const implement = async (
+      maxPasses = interactiveWorker === undefined ? 3 : 1,
+    ): Promise<void> => {
       let verificationFailure = "";
       const feedback = store.attempt(id).reviewFeedback ?? [];
       for (let pass = 0; pass < maxPasses; pass++) {
@@ -552,6 +588,7 @@ export async function executeAssignment(
           summary: `${verdict.summary}\n${verdict.readback}`,
         };
       const localRepair =
+        interactiveWorker === undefined &&
         metadata.delivery !== TaskDelivery.PullRequest &&
         verdict.repairableInScope === true;
       store.change(id, (row) => {

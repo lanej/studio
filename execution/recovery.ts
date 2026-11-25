@@ -1,4 +1,5 @@
 import { processFailure, run } from "../process.ts";
+import { isDeepStrictEqual } from "node:util";
 import { sameBrief } from "../task-service.ts";
 import {
   loadConfig,
@@ -63,8 +64,9 @@ export async function retainClaim(
       ? claimed
       : await service.bind(claimed, id);
   const config = configuration ?? (await loadConfig());
+  const admission = store.attempt(id);
   const profile = studioProfileSchema.parse(
-    bound.metadata["studio.profile"] ?? store.attempt(id).profile,
+    bound.metadata["studio.profile"] ?? admission.profile,
   );
   const roles = config.profiles[profile];
   if (roles === undefined)
@@ -76,6 +78,30 @@ export async function retainClaim(
     metadata === undefined
       ? undefined
       : draftSchema.shape.tasks.element.parse(metadata);
+  const intent = store.interactiveIntent(bound.id);
+  const interactive = intent?.interactive;
+  if (
+    (interactive !== undefined ||
+      bound.metadata["studio.interactive"] === true) &&
+    (interactive === undefined ||
+      intent?.project !== admission.project ||
+      profile !== admission.profile ||
+      intent.id !== bound.metadata["studio.graph"] ||
+      intent.digest !== bound.metadata["studio.approval"] ||
+      task === undefined ||
+      intent.ids[task.key] !== bound.id ||
+      !isDeepStrictEqual(
+        intent.draft?.tasks.find((item) => item.key === task.key),
+        task,
+      ) ||
+      task.title !== bound.title ||
+      task.description !== bound.description ||
+      task.acceptance !== bound.acceptance_criteria ||
+      bound.metadata["studio.interactive"] !== true)
+  )
+    throw new Error(
+      "Interactive approval cannot be confirmed for this task; retain its claim",
+    );
   store.change(id, (row) => {
     row.bead = bound;
     row.revision = bound.revision;
@@ -86,6 +112,7 @@ export async function retainClaim(
     row.phase = ExecutionPhase.Queued;
     row.owns = task?.owns ?? [];
     row.check = task?.check ?? [];
+    row.interactive = interactive;
 
     row.message =
       "Claim receipt reconciled; waiting for non-conflicting worker capacity";
@@ -129,6 +156,12 @@ export async function reconcileAttempt(
   )
     return;
   if (
+    record.interactive !== undefined &&
+    record.launchToken !== undefined &&
+    record.pid === undefined
+  )
+    return;
+  if (
     record.pid !== undefined &&
     record.started !== undefined &&
     (await alive(record.pid, record.started))
@@ -166,6 +199,21 @@ export async function reconcileAttempt(
     return;
   }
   await service.requireCurrent(record.bead, record.revision, id);
+  if (record.interactive !== undefined) {
+    store.change(id, (row) => {
+      if (
+        row.launchToken !== record.launchToken ||
+        row.pid !== record.pid ||
+        row.started !== record.started
+      )
+        return;
+      row.phase = ExecutionPhase.Parked;
+      row.launchSettled = true;
+      row.message =
+        "Interactive worker exited. Inspect the retained transcript and checkout before reconciling the task.";
+    });
+    return;
+  }
   if (record.recoveries >= 3) {
     store.change(id, (row) => {
       row.phase = ExecutionPhase.Parked;

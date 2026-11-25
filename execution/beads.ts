@@ -146,6 +146,7 @@ export class ExecutionBeads extends TaskBeads {
     draft: LeadDraft,
     ids: Record<string, string>,
     profile?: StudioProfile,
+    interactive = false,
   ): Promise<Record<string, string>> {
     this.requireWritable();
     const root = z.string().parse(ids["root"]);
@@ -190,6 +191,9 @@ export class ExecutionBeads extends TaskBeads {
               "studio.approval": digest,
               "studio.task": task,
               ...(profile === undefined ? {} : { "studio.profile": profile }),
+              ...(interactive
+                ? { "studio.interactive": true, "studio.graph": id }
+                : {}),
               "studio.root": root,
             },
           },

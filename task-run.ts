@@ -22,6 +22,9 @@ import { LeadMode } from "./lead-plan.ts";
 import { processFailure, processStart, run } from "./process.ts";
 import { ClaimRefused, TaskBeads } from "./task-service.ts";
 import { Zellij } from "./zellij.ts";
+import { focusInteractivePane } from "./execution/interactive-target.ts";
+import { readTaskEvidence } from "./tasks/evidence.ts";
+import { ExecutionStore } from "./execution/store.ts";
 
 const extension = join(packageRoot, "worker-extension.ts");
 export async function piExecutable(): Promise<string> {
@@ -79,6 +82,29 @@ export async function focusTaskPane(
     .string()
     .min(1, "Open the task tree inside Zellij to focus a pane")
     .parse(process.env["ZELLIJ_SESSION_NAME"]);
+  const candidates = readTaskEvidence(source.projectId).attempts.filter(
+    (attempt) => attempt.bead?.id === bead && attempt.interactive !== undefined,
+  );
+  if (candidates.length > 0) {
+    const service = new TaskBeads(source);
+    const current = await service.get(bead);
+    const attempt = candidates.find(
+      (candidate) => candidate.bead?.assignee === current.assignee,
+    );
+    if (attempt?.bead !== undefined && attempt.revision !== undefined) {
+      await service.requireCurrent(attempt.bead, attempt.revision, attempt.id);
+      const store = new ExecutionStore();
+      try {
+        const enrolled = store.project(attempt.project);
+        if (!isDeepStrictEqual(enrolled.source, source))
+          throw new Error("This inspector uses a different Beads authority");
+        await focusInteractivePane(store.attempt(attempt.id), enrolled.root);
+      } finally {
+        store.close();
+      }
+      return;
+    }
+  }
   const db = new Attempts(stateDirectory(), true);
   try {
     const record = db.latest(source.projectId, bead);
