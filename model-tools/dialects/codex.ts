@@ -2,7 +2,7 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { z } from "zod";
 import { APPLY_PATCH_GRAMMAR } from "../codex-patch-runner.mjs";
-import { patchCallView, patchResultView } from "../codex-rendering.ts";
+import { patchEditRenderers } from "../codex-rendering.ts";
 import { applyPatch, runShell } from "../operations.ts";
 import { piShellArguments, type ShellRequest } from "../shell.ts";
 
@@ -57,23 +57,6 @@ const patch = defineTool({
   executionMode: "sequential",
   exposure: "model-only",
   defaultActive: false,
-  renderCall(args, theme, context) {
-    return patchCallView(
-      typeof args.patch === "string" ? args.patch : "",
-      context.argsComplete,
-      context.expanded,
-      theme,
-    );
-  },
-  renderResult(result, options, theme, context) {
-    return patchResultView(
-      result,
-      context.isError,
-      options.expanded,
-      context.keyHint("app.tools.expand", "to expand"),
-      theme,
-    );
-  },
   execute(_id, args, signal, _update, ctx) {
     return applyPatch(ctx, args.patch, signal);
   },
@@ -106,7 +89,7 @@ export const codexTools = [
       },
     },
   },
-  { operation: "patch", tool: patch },
+  { operation: "patch", tool: patch, display: { compose: patchEditRenderers } },
 ] as const;
 
 export const codexDialect = {

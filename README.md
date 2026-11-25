@@ -182,6 +182,8 @@ In an ordinary coding session, Studio selects the core tool names and arguments 
 
 The dialects in `model-tools/dialects/` translate model-facing arguments and results. Both `Bash` and `shell_command` call `runShell` in `model-tools/operations.ts`, so their timeouts, output, and permissions go through the same Pi shell executor after translation. Claude `Edit` uses exact text replacement. Codex `apply_patch` uses a batch operation that preflights its hunks and runs through the same shell permission hook. The patch tool is available when local read, edit, write, and shell access are all active. Custom executors, restricted workers, and snapshot reviewers retain their configured tools. Studio-specific operations such as Socrates planning and LSP navigation keep their own names across models.
 
+In the conversation, Claude `Edit` and Codex `apply_patch` use the same edit view. Each changed file shows a numbered diff with surrounding lines. When available, the view adds the enclosing declaration, highlights individual token replacements, and displays diagnostics on the affected lines. A multi-file patch groups the changes by file. The transcript retains the diff and syntax context from execution, so later edits to the checkout do not change an earlier result.
+
 ## Run a bead locally
 
 From the repository in a running Zellij session, use the full ID of a ready, unassigned bead. Supply the agreed verification command as separate arguments after `--`. For example, if the bead's acceptance criteria are covered by `make test`:

@@ -23,17 +23,21 @@ export function registerCodingRenderer(
   studioRenderers.set(pi, existing);
 }
 
+const editRenderer = () => defineTool(createEditToolDefinition("."));
 const nativeRenderers = {
   read: () => defineTool(createReadToolDefinition(".")),
   write: () => defineTool(createWriteToolDefinition(".")),
-  replace: () => defineTool(createEditToolDefinition(".")),
+  replace: editRenderer,
+  patch: editRenderer,
   shell: () => defineTool(createBashToolDefinition(".")),
 };
 
 export interface ToolDisplay {
   // The TUI can ask for a preview before all arguments arrive.
-  arguments: (raw: unknown, cwd: string) => unknown;
+  arguments?: (raw: unknown, cwd: string) => unknown;
   resultText?: (modelText: string) => string;
+  // A batch can present each of its files through the resolved single-file renderer.
+  compose?: (renderer: ToolRenderers) => ToolRenderers;
 }
 
 // Pi renders the model call, not the nested canonical call. Reuse the same
@@ -42,7 +46,6 @@ export function modelToolRenderers(
   pi: RendererHost,
   { operation, display }: { operation: CodingOperation; display?: ToolDisplay },
 ): ToolRenderers {
-  if (operation === "patch") return {};
   const native = nativeRenderers[operation]();
   const base: ToolRenderers = native;
   const chain = studioRenderers.get(pi) ?? [];
@@ -50,6 +53,7 @@ export function modelToolRenderers(
     (next, resolve) => resolve(native.name, () => next) ?? next,
     base,
   );
+  if (display?.compose !== undefined) return display.compose(renderer);
   const call = renderer.renderCall;
   const result = renderer.renderResult;
   return {
@@ -60,7 +64,7 @@ export function modelToolRenderers(
       ? {}
       : {
           renderCall(args, theme, ctx) {
-            const mapped = display?.arguments(args, ctx.cwd) ?? args;
+            const mapped = display?.arguments?.(args, ctx.cwd) ?? args;
             return call(mapped, theme, { ...ctx, args: mapped });
           },
         }),
@@ -68,7 +72,7 @@ export function modelToolRenderers(
       ? {}
       : {
           renderResult(outcome, options, theme, ctx) {
-            const mapped = display?.arguments(ctx.args, ctx.cwd) ?? ctx.args;
+            const mapped = display?.arguments?.(ctx.args, ctx.cwd) ?? ctx.args;
             const [first] = outcome.content;
             const formatText = display?.resultText;
             const displayResult =

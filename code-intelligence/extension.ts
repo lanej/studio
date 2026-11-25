@@ -265,7 +265,7 @@ export function registerCodeIntelligence(pi: ExtensionAPI): CodeIntelligence {
       }
     },
   });
-  registerPatchDiagnostics(pi, intelligence, requireTrust);
+  registerPatchDiagnostics(pi, intelligence, requireTrust, display);
   pi.on("tool_result", async (event, ctx) => {
     if (
       !intelligence.enabled ||

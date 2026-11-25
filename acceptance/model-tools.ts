@@ -244,7 +244,7 @@ await test("Pi sends native tool contracts, executes calls and restores the acti
 
   const workdir = join(cwd, "operator's workspace");
   await mkdir(workdir);
-  await writeFile(join(cwd, "previous.ts"), "export {};\n");
+  await writeFile(join(cwd, "previous.ts"), "export const retries = 1;\n");
   replies.push(
     patchReply(
       [
@@ -254,8 +254,8 @@ await test("Pi sends native tool contracts, executes calls and restores the acti
         "*** Update File: previous.ts",
         "*** Move to: renamed.ts",
         "@@",
-        "-export {};",
-        "+export const renamed = true;",
+        "-export const retries = 1;",
+        "+export const retries = 2;",
         ...["two", "three", "four"].flatMap((name) => [
           `*** Add File: ${name}.ts`,
           "+export {};",
@@ -310,6 +310,32 @@ await test("Pi sends native tool contracts, executes calls and restores the acti
   assert.match(patchFeedback, /project trust/u);
   assert.match(patchFeedback, /"omittedFiles":1/u);
   assert.match(patchFeedback, /"path":"renamed.ts","state":"unavailable"/u);
+  const [saved] = session.sessionManager
+    .getBranch()
+    .flatMap((entry) =>
+      entry.type === "message" &&
+      entry.message.role === "toolResult" &&
+      entry.message.toolName === "apply_patch"
+        ? [entry.message]
+        : [],
+    );
+  assert.ok(saved !== undefined);
+  assert.partialDeepStrictEqual(saved.details, {
+    studioPatchEdits: [
+      {
+        path: "previous.ts",
+        moveTo: "renamed.ts",
+        diff: "-1 export const retries = 1;\n+1 export const retries = 2;",
+        studioSyntax: { replacements: [{ original: "1", updated: "2" }] },
+      },
+    ],
+    studioPatchDiagnostics: {
+      files: ["renamed.ts", "two.ts", "three.ts"].map((path) => ({ path })),
+      toolCallIds: [1, 2, 3].map(
+        (index) => `${saved.toolCallId}:patch:${String(index)}`,
+      ),
+    },
+  });
   const shellResult = resultItems.find(
     (item) =>
       item.type === "function_call_output" && item["call_id"] === "call_shell",

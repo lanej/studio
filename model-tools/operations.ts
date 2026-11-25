@@ -2,11 +2,17 @@ import type {
   AgentToolUpdateCallback,
   ExtensionToolContext,
 } from "@earendil-works/pi-coding-agent";
-import { mkdtemp, rm, writeFile as writePrivateInput } from "node:fs/promises";
+import {
+  mkdtemp,
+  readFile as readPrivateReceipt,
+  rm,
+  writeFile as writePrivateInput,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { packageRoot } from "../package-resources.ts";
 import { MAX_PATCH_BYTES, patchSuccess } from "./codex-patch-runner.mjs";
+import { patchEdits } from "./patch-edits.ts";
 import { patchDiagnosticTargets } from "./patch-diagnostics.ts";
 import {
   piShellArguments,
@@ -97,6 +103,7 @@ export async function applyPatch(
   const directory = await mkdtemp(join(tmpdir(), "studio-codex-patch-"));
   try {
     const input = join(directory, "patch");
+    const receipt = join(directory, "edits.json");
     await writePrivateInput(input, patch, { flag: "wx", mode: 0o600, signal });
     const command = [
       process.execPath,
@@ -109,18 +116,28 @@ export async function applyPatch(
       .map(quoteShellArgument)
       .join(" ");
     // Bun starts in Studio's installation. The admitted shell supplies the actual target cwd.
-    const outcome = await runShell(ctx, { command: `${command} "$PWD"` });
+    const outcome = await runShell(ctx, {
+      command: `${command} "$PWD" ${quoteShellArgument(receipt)}`,
+    });
     const applied =
       !outcome.isError &&
       outcome.content.some(
         (item) =>
           item.type === "text" && item.text.startsWith(`${patchSuccess}\n`),
       );
+    // Decoration travels outside shell stdout; the model receives the original
+    // result and the transcript can replay the edit without reopening the file.
+    const edits = applied
+      ? await readPrivateReceipt(receipt, "utf8")
+          .then((raw) => patchEdits.parse(JSON.parse(raw)))
+          .catch(() => undefined)
+      : undefined;
     return {
       content: outcome.content,
       details: applied
         ? {
             studioPatchApplied: true,
+            ...(edits === undefined ? {} : { studioPatchEdits: edits }),
             studioPatchTargets: patchDiagnosticTargets(patch),
           }
         : undefined,

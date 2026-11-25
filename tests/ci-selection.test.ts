@@ -100,6 +100,7 @@ test("shared runtime inputs and the full CLI integration retain their consumers"
     "code-intelligence/new-server.ts",
     "model-tools/rendering.ts",
     "model-tools/patch-diagnostics.ts",
+    "model-tools/patch-edits.ts",
     "model-tools/codex-patch-runner.mjs",
     "model-tools/policy.ts",
     "scripts/ci-selection.ts",

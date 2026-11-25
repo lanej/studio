@@ -1,0 +1,91 @@
+diff --git a/src/apply-patch.ts b/src/apply-patch.ts
+index ac97eef95a9174a48b1c827a0b465a328ae6ca19..6e7aab1b735b9a6b7d9f006ec48de9f79c3ba062 100644
+--- a/src/apply-patch.ts
++++ b/src/apply-patch.ts
+@@ -53,6 +53,10 @@ export interface ApplyPatchResult {
+ export interface ApplyPatchOptions {
+   cwd: string;
+   signal?: AbortSignal;
++  /** Total UTF-8 budget for retaining original update sources for the observer. */
++  maxOriginalBytes?: number;
++  /** Inspect the pre-image and planned write under the existing mutation locks. */
++  beforeMutation?: (operation: Readonly<PlannedOperation>) => Promise<void>;
+ }
+ 
+ export function parseApplyPatch(input: string): ApplyPatchHunk[] {
+@@ -222,9 +226,9 @@ function headerPath(line: string, marker: string, lineNumber: number): string {
+ }
+ 
+ type PlannedOperation =
+-  | { kind: "add"; path: string; displayPath: string; content: string }
++  | { kind: "add"; path: string; displayPath: string; content: string; overwrote?: boolean }
+   | { kind: "delete"; path: string; displayPath: string }
+-  | { kind: "update"; path: string; displayPath: string; moveTo?: string; moveDisplayPath?: string; chunkGroups: UpdateChunk[][]; content: string };
++  | { kind: "update"; path: string; displayPath: string; moveTo?: string; moveDisplayPath?: string; overwrote?: boolean; original?: string; chunkGroups: UpdateChunk[][]; content: string };
+ 
+ type VirtualFile = { exists: boolean; isDirectory: boolean; isFile: boolean; isSymbolicLink?: boolean; content?: string };
+ 
+@@ -239,10 +243,11 @@ export async function applyPatch(input: string, options: ApplyPatchOptions): Pro
+   });
+ 
+   return withMutationLocks(lockPaths, async () => {
+-    const operations = await planOperations(hunks, cwd, options.signal);
++    const operations = await planOperations(hunks, cwd, options.signal, options.maxOriginalBytes ?? 0);
+     throwIfAborted(options.signal);
+     // Preflight catches parse/match errors before writes; I/O failures can still leave a partial patch.
+     for (const operation of operations) {
++      await options.beforeMutation?.(operation);
+       throwIfAborted(options.signal);
+       if (operation.kind === "add") {
+         await writeTargetFile(operation.path, operation.content, options.signal);
+@@ -270,8 +275,16 @@ export async function applyPatch(input: string, options: ApplyPatchOptions): Pro
+ async function planOperations(
+   hunks: ApplyPatchHunk[],
+   cwd: string,
+-  signal?: AbortSignal,
++  signal: AbortSignal | undefined,
++  remainingOriginalBytes: number,
+ ): Promise<PlannedOperation[]> {
++  const retainOriginal = (text: string): string | undefined => {
++    if (remainingOriginalBytes <= 0 || text.length > remainingOriginalBytes) return undefined;
++    const bytes = Buffer.byteLength(text);
++    if (bytes > remainingOriginalBytes) return undefined;
++    remainingOriginalBytes -= bytes;
++    return text;
++  };
+   const operations: PlannedOperation[] = [];
+   const virtualFiles = new Map<string, VirtualFile>();
+ 
+@@ -299,12 +312,14 @@ async function planOperations(
+       if (source.file.isDirectory || (source.file.exists && !source.file.isFile)) {
+         throw new Error(`Cannot add file over non-file '${hunk.path}'.`);
+       }
++      const overwrote = source.file.exists;
+       source.file.exists = true;
+       source.file.isDirectory = false;
+       source.file.isFile = true;
+       source.file.content = hunk.content;
+       operations.push({
+         kind: "add",
++        overwrote,
+         path: source.absolute,
+         displayPath: sourceDisplay,
+         content: hunk.content,
+@@ -344,7 +359,9 @@ async function planOperations(
+         path: sourceEntry.absolute,
+         displayPath: sourceDisplay,
+         moveTo: destination.absolute,
++        overwrote: destination.file.exists,
+         moveDisplayPath: displayPath(cwd, resolvePatchPath(hunk.moveTo!, cwd), hunk.moveTo!),
++        original: retainOriginal(original),
+         chunkGroups: [[...hunk.chunks]],
+         content,
+       });
+@@ -367,6 +384,7 @@ async function planOperations(
+         kind: "update",
+         path: source.absolute,
+         displayPath: sourceDisplay,
++        original: retainOriginal(original),
+         chunkGroups: [[...hunk.chunks]],
+         content,
+       });
