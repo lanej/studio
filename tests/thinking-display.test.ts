@@ -69,11 +69,13 @@ await test("expanded thinking preserves Markdown and reflows independently of th
     assert.deepEqual(
       plain
         .filter((line) => line.includes("\u{F09D1}"))
-        .map((line) => line.trimStart()),
-      ["▾ \u{F09D1} "],
+        .map((line) => line.trim()),
+      ["▾ \u{F09D1} Inspecting the screenshot"],
     );
     assert.ok(
-      plain.some((line) => line.trim() === "│ Inspecting the screenshot"),
+      plain.some(
+        (line) => line.trim() === "▾ \u{F09D1} Inspecting the screenshot",
+      ),
     );
     const body = plain.filter(
       (line) => line.includes("│ ") && !line.includes("Inspecting"),
@@ -85,7 +87,7 @@ await test("expanded thinking preserves Markdown and reflows independently of th
         .join(" "),
       prose,
     );
-    assert.ok(body.every((line) => visibleWidth(line) <= Math.min(width, 91)));
+    assert.ok(body.every((line) => visibleWidth(line) <= Math.min(width, 93)));
     assert.ok(lines.every((line) => !line.includes("\u001b[3m")));
     assert.ok(plain.some((line) => line.trim() === "The answer follows."));
   }
@@ -95,7 +97,7 @@ await test("expanded thinking preserves Markdown and reflows independently of th
   assert.ok(!folded.join("").includes("Inspecting"));
   assert.deepEqual(
     transformed,
-    [88, 30].map((width) => ({
+    [88, 28].map((width) => ({
       markdown: `**Inspecting the screenshot**\n\n${prose}`,
       width,
       streaming: true,
@@ -141,7 +143,7 @@ await test("clicking a folded run preserves neighboring runs and the user's glob
     .render(width)
     .map(stripTerminalSequences)
     .join("\n");
-  assert.match(reopened, /│ First note\./u);
+  assert.match(reopened, /\u{F09D1} First note\./u);
   assert.doesNotMatch(reopened, /Second note/u);
   component.setHideThinkingBlock(true);
   component.setHiddenThinkingLabel("");
@@ -151,4 +153,35 @@ await test("clicking a folded run preserves neighboring runs and the user's glob
     .join("")
     .trim();
   assert.equal(hidden, "Progress.");
+});
+
+await test("the brain shares the first prose or heading row while narrow Markdown keeps its content", () => {
+  initTheme("dark", false);
+  for (const lead of [
+    "Checking the unit switch.",
+    "## Checking the unit switch",
+  ]) {
+    const prose =
+      "Every retained word must survive wrapping into the narrow pane.";
+    const markdown = `${lead}\n\n${prose}\n\n- Preserve the list item.\n\n\`\`\`ts\nconst unit = "celsius";\n\`\`\``;
+    const component = new AssistantMessageComponent(
+      message([{ type: "thinking", thinking: markdown }]),
+      false,
+      getMarkdownTheme(),
+    );
+    for (const width of [120, 24]) {
+      const lines = component.render(width).map(stripTerminalSequences);
+      const first = lines.find((line) => line.includes("\u{F09D1}"));
+      assert.ok(first !== undefined && /\u{F09D1} .*Checking/u.test(first));
+      assert.ok(lines.every((line) => visibleWidth(line) <= width));
+      const text = lines
+        .map((line) => line.replace(/^[ ▾│\u{F09D1}]*/u, "").trim())
+        .filter((line) => line.length > 0)
+        .join(" ");
+      assert.match(text, /Checking the unit switch/u);
+      assert.ok(text.includes(prose));
+      assert.match(text, /Preserve the list item\./u);
+      assert.match(text, /const unit = "celsius";/u);
+    }
+  }
 });

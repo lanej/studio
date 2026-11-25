@@ -118,12 +118,12 @@ index 28c00ed..aaf6fe6 100644
      })),
      clearOnShrink: Type.Optional(Type.Boolean({
 diff --git a/dist/modes/interactive/components/assistant-message.js b/dist/modes/interactive/components/assistant-message.js
-index 6280084..5bad66b 100644
+index 6280084..3cf4b54 100644
 --- a/dist/modes/interactive/components/assistant-message.js
 +++ b/dist/modes/interactive/components/assistant-message.js
-@@ -1,9 +1,29 @@
+@@ -1,9 +1,32 @@
 -import { Container, Markdown, MouseRegion, Spacer, Text } from "@earendil-works/pi-tui";
-+import { Container, Markdown, MouseRegion, Spacer, Text, truncateToWidth } from "@earendil-works/pi-tui";
++import { Container, Markdown, MouseRegion, Spacer, Text, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
  import { getMarkdownTheme, theme } from "../theme/theme.js";
  import { createMarkdownTransform } from "./markdown-transform.js";
  const OSC133_ZONE_START = "\x1b]133;A\x07";
@@ -139,20 +139,23 @@ index 6280084..5bad66b 100644
 +    render(width) {
 +        const padding = Math.min(this.outputPad, Math.max(0, Math.floor((width - 1) / 2)));
 +        const available = width - 2 * padding;
-+        const railWidth = available >= 4 ? 2 : 0;
-+        const body = super.render(Math.max(1, Math.min(88, available - railWidth)));
++        // Reserve the marker before Markdown reflow so its first row keeps its full text.
++        const marker = available >= 5 ? "▾ " + DEFAULT_THINKING_LABEL + " " : available >= 2 ? "▾" : "";
++        const markerWidth = visibleWidth(marker);
++        const body = super.render(Math.max(1, Math.min(88, available - markerWidth)));
 +        if (body.length === 0 || available <= 0)
 +            return [];
++        const first = body.findIndex((line) => stripTerminalSequences(line).trim().length > 0);
 +        const margin = " ".repeat(padding);
-+        const heading = theme.fg("thinkingText", "▾ " + DEFAULT_THINKING_LABEL + " "); // Kitty draws the icon into the following blank cell.
-+        const rail = railWidth ? theme.fg("borderMuted", "│") + " " : "";
-+        return [margin + truncateToWidth(heading, available, ""), ...body.map((line) => margin + rail + line)];
++        const heading = theme.fg("thinkingText", marker); // The trailing cell leaves room for Kitty's Nerd Font icon.
++        const rail = markerWidth >= 2 ? " ".repeat(markerWidth - 2) + theme.fg("borderMuted", "│") + " " : " ".repeat(markerWidth);
++        return body.map((line, index) => margin + (index === first ? heading : rail) + line);
 +    }
 +}
  /**
   * Component that renders a complete assistant message
   */
-@@ -18,7 +38,7 @@ export class AssistantMessageComponent extends Container {
+@@ -18,7 +41,7 @@ export class AssistantMessageComponent extends Container {
      hasToolCalls = false;
      isStreaming = false;
      thinkingVisibilityOverrides = new Map();
@@ -161,7 +164,7 @@ index 6280084..5bad66b 100644
          super();
          this.hideThinkingBlock = hideThinkingBlock;
          this.markdownTheme = markdownTheme;
-@@ -110,13 +130,9 @@ export class AssistantMessageComponent extends Container {
+@@ -110,13 +133,9 @@ export class AssistantMessageComponent extends Container {
                  const runIndex = thinkingRunIndex++;
                  const hidden = this.thinkingVisibilityOverrides.get(runIndex) ?? this.hideThinkingBlock;
                  const thinkingComponent = hidden
