@@ -204,6 +204,25 @@ studio merge "$BEAD_ID" --head "$SHA" --notice "$NOTICE_ID"
 
 After Octo confirms the merge, exit the lead and settle its child beads. Run `studio archive "$BEAD_ID"` from a surviving checkout. The command retains the transcripts and a recovery manifest, confirms Beads closure, and asks the native manager to remove the eligible checkout. A retention decision leaves finalization pending. Repeating the command resumes it. The original branch and native transcripts are preserved.
 
+## Shell completion
+
+Completion is opt-in and works with a standalone Studio install. Enable it in the current shell, or add the corresponding line to your shell configuration:
+
+```sh
+# Bash
+source <(studio completion bash)
+# Zsh
+# Initialize Zsh's completion system first if your configuration has not done so.
+autoload -Uz compinit; compinit
+source <(studio completion zsh)
+# Fish
+studio completion fish | source
+```
+
+You can also save `studio completion <bash|zsh|fish>` to a file and source it explicitly. Generation changes no shell configuration. Tab completes commands, nested runtime commands, command-specific options, profiles (`work` and `personal`), help topics, and completion shell names. Suggestions come from the same Commander declarations used to parse the CLI. They are static and offline: completion reads no Studio configuration, credentials, task or attempt IDs, and contacts no Beads or Octo service. Native Pi arguments after `--` remain under Pi's control.
+
+Run `bun test tests/cli-completion.test.ts` for offline candidate and metadata checks, and `bun acceptance/cli-completion.ts` for real Bash, Zsh, and Fish Tab acceptance. The native check requires those shells and Python on `PATH` and uses disposable isolated shell state.
+
 ## Checks
 
 ```sh
