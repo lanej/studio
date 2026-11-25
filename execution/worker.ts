@@ -20,6 +20,7 @@ import {
   ExecutionStore,
   ExecutionPhase,
   VerificationPhase,
+  completedWithoutExecutable,
   type Execution,
   type RuntimeProject,
 } from "./store.ts";
@@ -46,6 +47,29 @@ export function parseWorkerResult(
   return delivery === TaskDelivery.PullRequest
     ? workerResult.parse(value)
     : localWorkerResult.parse(value);
+}
+/** Resume an approved revision only while its agreed verification is still accepted. */
+export async function resumeReviewedAssignment(
+  attempt: Execution,
+  implement: () => Promise<void>,
+  resume: () => void,
+): Promise<void> {
+  const verification = attempt.verification;
+  const accepted =
+    verification !== undefined &&
+    attempt.verifier?.phase === VerificationPhase.Complete &&
+    isDeepStrictEqual(verification.check, attempt.check) &&
+    (attempt.check.length === 0
+      ? completedWithoutExecutable(attempt)
+      : verification.exitCode === 0);
+  if (
+    attempt.head === undefined ||
+    attempt.review === undefined ||
+    attempt.reviewFinding !== undefined ||
+    !accepted
+  )
+    await implement();
+  else resume();
 }
 const parseResult = (text: string): unknown =>
   JSON.parse(
@@ -529,15 +553,7 @@ export async function executeAssignment(
           );
       }
     };
-    // A retained approval cannot stand in for a later failed or missing verification or finding.
-    if (
-      head === undefined ||
-      attempt.review === undefined ||
-      attempt.reviewFinding !== undefined ||
-      attempt.verification?.exitCode !== 0
-    )
-      await implement();
-    else {
+    await resumeReviewedAssignment(attempt, implement, () => {
       const saved = parseWorkerResult(
         JSON.parse(attempt.summary),
         metadata.delivery,
@@ -547,7 +563,7 @@ export async function executeAssignment(
         title: saved.title ?? acceptedBead.title,
         body: saved.body ?? saved.summary,
       };
-    }
+    });
     if (head === undefined) throw new Error("No verified worker head");
     attempt = store.attempt(id);
     await check();

@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { test as gitTest } from "bun:test";
 import { mkdtemp, rm, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import { resumeReviewedAssignment } from "../execution/worker.ts";
 import {
   deliverAssignment,
   type DeliveryDependencies,
@@ -12,6 +15,7 @@ import {
 import {
   ExecutionStore,
   ExecutionPhase,
+  VerificationPhase,
   executionSchema,
   projectSchema,
 } from "../execution/store.ts";
@@ -152,7 +156,7 @@ async function fixture() {
     if (command === "pr validate") return { valid: true };
     if (command === "pr publish") {
       assert.equal(args[args.indexOf("--request-id") + 1], id);
-      assert.equal(args[args.indexOf("--expected-head") + 1], firstHead);
+      assert.equal(args[args.indexOf("--expected-head") + 1], initial.head);
       if (losePublish) {
         losePublish = false;
         throw new Error("Publication response lost");
@@ -638,6 +642,170 @@ await test("delivery cannot submit effects after the accepted task authority is 
     );
     assert.equal(f.calls.length, 0);
     assert.equal(f.gitCalls.length, 0);
+  } finally {
+    await f.close();
+  }
+});
+
+gitTest(
+  "approved no-command worker resume replays a lost publication without another commit",
+  async () => {
+    const f = await fixture();
+    try {
+      const environment = Object.fromEntries(
+        Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
+      );
+      const git = (...args: string[]) => {
+        const result = spawnSync(
+          "/usr/bin/git",
+          ["-c", "core.hooksPath=/dev/null", ...args],
+          {
+            cwd: f.directory,
+            encoding: "utf8",
+            timeout: process.env["CI"] === "true" ? 10_000 : 2_000,
+            env: {
+              ...environment,
+              GIT_CONFIG_GLOBAL: "/dev/null",
+              GIT_CONFIG_NOSYSTEM: "1",
+              GIT_AUTHOR_NAME: "Fixture",
+              GIT_AUTHOR_EMAIL: "fixture@example.invalid",
+              GIT_COMMITTER_NAME: "Fixture",
+              GIT_COMMITTER_EMAIL: "fixture@example.invalid",
+            },
+          },
+        );
+        assert.equal(result.status, 0, result.stderr);
+        return result.stdout.trim();
+      };
+      git("init", "--quiet");
+      git(
+        "-c",
+        "core.hooksPath=/dev/null",
+        "commit",
+        "--allow-empty",
+        "-m",
+        "Approved work",
+      );
+      const head = git("rev-parse", "HEAD");
+      const tree = git("rev-parse", "HEAD^{tree}");
+      f.initial.head = head;
+      f.store.change(f.initial.id, (row) => {
+        row.head = head;
+        row.check = [];
+        row.verifier = { phase: VerificationPhase.Complete };
+        row.verification = {
+          summary: "Controller verification",
+          check: [],
+          exitCode: null,
+          gitHead: "precommit-head",
+          gitState: tree,
+          output: "",
+        };
+      });
+      let implementations = 0;
+      let resumes = 0;
+      const resume = () =>
+        resumeReviewedAssignment(
+          f.store.attempt(f.initial.id),
+          () => {
+            implementations++;
+            git(
+              "-c",
+              "core.hooksPath=/dev/null",
+              "commit",
+              "--allow-empty",
+              "-m",
+              "Unnecessary new implementation",
+            );
+            f.store.change(f.initial.id, (row) => {
+              row.head = git("rev-parse", "HEAD");
+            });
+            return Promise.resolve();
+          },
+          () => {
+            resumes++;
+          },
+        );
+      f.configure({ lostPublish: true });
+      await assert.rejects(f.run(), /Publication response lost/u);
+      const path = join(
+        f.directory,
+        "delivery",
+        f.initial.id,
+        "publication.json",
+      );
+      const retained = await readFile(path, "utf8");
+      await resume();
+      await f.run();
+      assert.equal(implementations, 0);
+      assert.equal(resumes, 1);
+      assert.equal(git("rev-parse", "HEAD"), head);
+      assert.equal(git("rev-list", "--count", "HEAD"), "1");
+      assert.equal(await readFile(path, "utf8"), retained);
+      assert.equal(f.store.attempt(f.initial.id).head, head);
+      assert.equal(
+        f.calls.filter((call) => call[0] === "pr" && call[1] === "publish")
+          .length,
+        2,
+      );
+      assert.equal(f.calls.filter((call) => call[0] === "merge").length, 1);
+    } finally {
+      await f.close();
+    }
+  },
+  process.env["CI"] === "true" ? 30_000 : 5_000,
+);
+
+await test("worker resume requires matching completed verification and independent approval", async () => {
+  const f = await fixture();
+  try {
+    const accepted = executionSchema.parse({
+      ...f.initial,
+      check: ["verify"],
+      verifier: { phase: VerificationPhase.Complete },
+      verification: {
+        summary: "Verified",
+        check: ["verify"],
+        exitCode: 0,
+        gitHead: "precommit-head",
+        gitState: "tree",
+        output: "",
+      },
+    });
+    const verification = accepted.verification;
+    assert.ok(verification !== undefined);
+    const invalid = [
+      { ...accepted, verification: undefined },
+      { ...accepted, verifier: undefined },
+      { ...accepted, verifier: { phase: VerificationPhase.Running } },
+      { ...accepted, verification: { ...verification, exitCode: 42 } },
+      { ...accepted, verification: { ...verification, exitCode: null } },
+      { ...accepted, verification: { ...verification, check: [] } },
+      {
+        ...accepted,
+        check: [],
+        verification: { ...verification, check: [], exitCode: 0 },
+      },
+      { ...accepted, review: undefined },
+      { ...accepted, reviewFinding: "Change required" },
+      { ...accepted, head: undefined },
+    ];
+    for (const attempt of [accepted, ...invalid]) {
+      let implemented = false;
+      let resumed = false;
+      await resumeReviewedAssignment(
+        attempt,
+        () => {
+          implemented = true;
+          return Promise.resolve();
+        },
+        () => {
+          resumed = true;
+        },
+      );
+      assert.equal(implemented, attempt !== accepted);
+      assert.equal(resumed, attempt === accepted);
+    }
   } finally {
     await f.close();
   }

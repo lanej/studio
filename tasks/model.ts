@@ -12,7 +12,11 @@ import {
   TaskStatus,
   type Task,
 } from "../beads.ts";
-import { ExecutionPhase, type Execution } from "../execution/store.ts";
+import {
+  ExecutionPhase,
+  completedWithoutExecutable,
+  type Execution,
+} from "../execution/store.ts";
 import { retainedConflicts } from "../execution/supervisor.ts";
 
 export interface TaskSnapshot {
@@ -74,21 +78,26 @@ export function parkedDetails(
   )
     return undefined;
   const verification = attempt.verification;
+  const noExecutable = completedWithoutExecutable(attempt);
   const state =
     attempt.phase === ExecutionPhase.Uncertain
       ? "Uncertain execution: inspect the retained writer and receipts before recovery."
       : attempt.reviewFinding !== undefined
         ? `Reviewer requested changes: ${attempt.reviewFinding}. Correct the finding before retrying; independent review remains required.`
-        : verification !== undefined && verification.exitCode !== 0
+        : !noExecutable &&
+            verification !== undefined &&
+            verification.exitCode !== 0
           ? `Verification failed or did not complete: ${verification.check.join(" ")} (exit ${String(verification.exitCode)}).`
           : "Parked: decision evidence is unavailable; inspect the retained reason.";
   const completed =
     verification !== undefined
-      ? verification.exitCode === null
-        ? "Last evidenced step: verification has no confirmed exit."
-        : verification.exitCode === 0
-          ? "Last evidenced completed step: verification passed."
-          : `Last evidenced step: verification exited ${String(verification.exitCode)}.`
+      ? noExecutable
+        ? "Last evidenced completed step: no executable check was agreed; acceptance relies on independent review."
+        : verification.exitCode === null
+          ? "Last evidenced step: verification has no confirmed exit."
+          : verification.exitCode === 0
+            ? "Last evidenced completed step: verification passed."
+            : `Last evidenced step: verification exited ${String(verification.exitCode)}.`
       : attempt.summary.length > 0
         ? "Last evidenced step: worker report recorded."
         : "Last completed step: unknown.";
@@ -392,11 +401,13 @@ export function taskNarrative(task: Task, snapshot: TaskSnapshot): string {
     const verification = attempt.verification;
     if (verification !== undefined) {
       parts.push(
-        verification.exitCode === null
-          ? "The verifier has no confirmed exit code."
-          : verification.exitCode === 0
-            ? "The verifier exited 0."
-            : `The verifier exited ${String(verification.exitCode)}.`,
+        completedWithoutExecutable(attempt)
+          ? "No executable check was agreed; acceptance relies on independent review."
+          : verification.exitCode === null
+            ? "The verifier has no confirmed exit code."
+            : verification.exitCode === 0
+              ? "The verifier exited 0."
+              : `The verifier exited ${String(verification.exitCode)}.`,
       );
     }
     parts.push(phaseNarrative[attempt.phase]);

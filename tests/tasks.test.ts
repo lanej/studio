@@ -1446,3 +1446,41 @@ await test("interactive delivery uses readonly scoped receipts and exact current
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+await test("completed no-command receipts are distinct from unconfirmed verifier exits and review approval", () => {
+  assert.ok(attempt.verification !== undefined);
+  const noCommand = {
+    ...attempt,
+    check: [],
+    verifier: { phase: VerificationPhase.Complete },
+    verification: { ...attempt.verification, check: [], exitCode: null },
+    review: undefined,
+  };
+  const display = (row: Execution) => {
+    const view = { ...snapshot, attempts: [row] };
+    return `${parkedDetails(rejected, view) ?? ""}\n${taskNarrative(rejected, view)}`;
+  };
+  const details = display(noCommand);
+  assert.match(details, /no executable check was agreed/iu);
+  assert.match(details, /acceptance relies on independent review/iu);
+  assert.doesNotMatch(
+    details,
+    /Verification failed|no confirmed exit|verification passed/u,
+  );
+  for (const row of [
+    { ...noCommand, verifier: undefined },
+    { ...noCommand, verifier: { phase: VerificationPhase.Running } },
+    { ...noCommand, check: ["verify"] },
+    {
+      ...noCommand,
+      verification: { ...noCommand.verification, check: ["verify"] },
+    },
+  ]) {
+    assert.match(display(row), /Verification failed or did not complete/u);
+    assert.doesNotMatch(display(row), /no executable check was agreed/iu);
+  }
+  assert.match(
+    display({ ...noCommand, reviewFinding: "Repair criterion" }),
+    /Reviewer requested changes: Repair criterion/u,
+  );
+});
