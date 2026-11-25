@@ -95,7 +95,11 @@ function markdownRows(
 ): string[] {
   return value === undefined
     ? []
-    : new Markdown(selectorText(value), 0, 0, theme.markdown).render(width);
+    : [
+        ...new Markdown(selectorText(value), 0, 0, theme.markdown).render(
+          width,
+        ),
+      ];
 }
 
 function joinBlocks(blocks: string[][]): string[] {
