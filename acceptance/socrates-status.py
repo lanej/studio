@@ -87,7 +87,7 @@ def ownership_turn(request, draft):
             "requirements": [{"id": "R1", "outcome": "Keep assessment freshness consistent",
                               "acceptance": ownership_criterion if resolved else "Reopen the sidebar after a requirement changes."}],
             "coverage": coverage,
-        })
+        }, creating=not resolved)
     if call == "draft-ownership":
         assert "Draft saved" in message_text(last), last
         return tool_delta("ownership-diagram", "show_diagram", {
@@ -113,13 +113,16 @@ def ownership_turn(request, draft):
     return {"role": "assistant", "content": "The ownership decision is recorded."}
 
 
-def candidate_delta(request, call_id, name, draft):
+def candidate_delta(request, call_id, name, draft, *, creating=False):
     """Read the live document before constructing each seeded candidate."""
     reading = document_read_result(request["messages"])
     if reading is None:
         return tool_delta(f"read-{call_id}", READ_TOOL, {})
     kind = "specification" if name == "draft_socrates_specification" else "plan"
     revision = document_revision(reading, kind)
+    if creating:
+        assert revision is None, f"The new {kind} document already exists"
+        return tool_delta(call_id, name, draft)
     assert revision is not None, f"The seeded {kind} document disappeared"
     return tool_delta(call_id, name, {**draft, "expectedRevision": revision})
 
