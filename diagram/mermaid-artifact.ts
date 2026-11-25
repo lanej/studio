@@ -71,20 +71,32 @@ async function runRenderer(
     if (stderr.length < 4096) stderr += chunk.slice(0, 4096 - stderr.length);
   });
   await new Promise<void>((done, reject) => {
-    const cancel = () => {
+    let escalation: NodeJS.Timeout | undefined;
+    const terminate = (name: NodeJS.Signals) => {
       try {
         if (unix && child.pid !== undefined)
-          signalProcessGroup(child.pid, "SIGKILL");
-        else child.kill("SIGKILL");
+          signalProcessGroup(child.pid, name);
+        else child.kill(name);
       } catch (error) {
         reject(error instanceof Error ? error : new Error(String(error)));
-        return;
       }
-      reject(new Error("Mermaid CLI rendering was interrupted"));
+    };
+    const cancel = () => {
+      // Puppeteer owns Chromium in a separate process group. Give the CLI
+      // time to run its signal handler and close that browser.
+      terminate("SIGTERM");
+      escalation = setTimeout(() => {
+        terminate("SIGKILL");
+      }, 1000);
+      escalation.unref();
+    };
+    const cleanup = () => {
+      signal.removeEventListener("abort", cancel);
+      clearTimeout(escalation);
     };
     signal.addEventListener("abort", cancel, { once: true });
     child.once("error", (error) => {
-      signal.removeEventListener("abort", cancel);
+      cleanup();
       reject(
         processFailure(error).code === "ENOENT"
           ? new Error(
@@ -94,8 +106,10 @@ async function runRenderer(
       );
     });
     child.once("close", (code, killedBy) => {
-      signal.removeEventListener("abort", cancel);
-      if (code === 0) done();
+      cleanup();
+      if (signal.aborted)
+        reject(new Error("Mermaid CLI rendering was interrupted"));
+      else if (code === 0) done();
       else {
         const detail = selectorText(stderr)
           .replace(/\s+/gu, " ")
@@ -112,7 +126,10 @@ async function runRenderer(
   });
 }
 
-async function checkImage(path: string, format: "svg" | "png") {
+const imageFormats = ["svg", "png"] as const;
+type ImageFormat = (typeof imageFormats)[number];
+
+async function checkImage(path: string, format: ImageFormat) {
   const info = await lstat(path);
   const limit = format === "png" ? 4 * 1024 * 1024 : 8 * 1024 * 1024;
   if (!info.isFile() || info.size === 0 || info.size > limit)
@@ -143,19 +160,24 @@ async function checkImage(path: string, format: "svg" | "png") {
     throw new Error("Rendered PNG exceeds the terminal preview dimensions");
 }
 
-async function hasImages(directory: string) {
+async function missingImages(directory: string): Promise<ImageFormat[]> {
   const info = await lstat(directory).catch((error: unknown) => {
     if (processFailure(error).code !== "ENOENT") throw error;
     return undefined;
   });
-  if (info === undefined) return false;
+  if (info === undefined) return [...imageFormats];
   if (!info.isDirectory())
     throw new Error("Mermaid output path is not a directory");
-  await Promise.all([
-    checkImage(join(directory, "diagram.svg"), "svg"),
-    checkImage(join(directory, "diagram.png"), "png"),
-  ]);
-  return true;
+  const missing: ImageFormat[] = [];
+  for (const format of imageFormats) {
+    try {
+      await checkImage(join(directory, `diagram.${format}`), format);
+    } catch (error) {
+      if (processFailure(error).code !== "ENOENT") throw error;
+      missing.push(format);
+    }
+  }
+  return missing;
 }
 
 export async function renderMermaidArtifact(
@@ -211,18 +233,19 @@ export async function renderMermaidArtifact(
         ? timeout
         : AbortSignal.any([options.signal, timeout]);
     try {
-      if (await hasImages(output)) {
+      const missing = await missingImages(output);
+      if (missing.length === 0) {
         signal.throwIfAborted();
         return rendered;
       }
-      // The editable source is already visible. Render both formats from our
+      // The editable source is already visible. Render missing formats from our
       // own snapshot even if an editor changes that file between invocations.
       await writeFile(input, source, { mode: 0o600 });
       const drafts = join(stage, "rendered");
       await mkdir(drafts, { mode: 0o700 });
       const config = join(stage, "mermaid.json");
       await writeFile(config, JSON.stringify(siteConfig), { mode: 0o600 });
-      for (const format of ["svg", "png"] as const) {
+      for (const format of missing) {
         const destination = join(drafts, `diagram.${format}`);
         await runRenderer(
           options.executable ?? "mmdc",
@@ -244,12 +267,33 @@ export async function renderMermaidArtifact(
         await checkImage(destination, format);
       }
       signal.throwIfAborted();
-      try {
-        await rename(drafts, output);
-      } catch (error) {
-        // Another process may have published the same immutable pair.
-        if (!(await hasImages(output))) throw error;
+      if (missing.length === imageFormats.length) {
+        try {
+          await rename(drafts, output);
+          return rendered;
+        } catch (error) {
+          // A competing render can publish the directory while we render.
+          const { code } = processFailure(error);
+          if (code !== "EEXIST" && code !== "ENOTEMPTY" && code !== "EPERM")
+            throw error;
+        }
       }
+      if (!(await lstat(output)).isDirectory())
+        throw new Error("Mermaid output path is not a directory");
+      for (const format of missing) {
+        const name = `diagram.${format}`;
+        try {
+          await link(join(drafts, name), join(output, name));
+        } catch (error) {
+          if (processFailure(error).code !== "EEXIST") throw error;
+        }
+      }
+      // Also check any files the user or another render supplied concurrently.
+      await Promise.all(
+        imageFormats.map((format) =>
+          checkImage(join(output, `diagram.${format}`), format),
+        ),
+      );
       return rendered;
     } catch (error) {
       options.signal?.throwIfAborted();

@@ -1,8 +1,18 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import {
+  mkdtemp,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test, type TestContext } from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import {
   mermaidSourceLimit,
   renderMermaidArtifact,
@@ -100,7 +110,7 @@ await test("timeouts and cancellation release the render and preserve the source
   const directory = await workspace(t);
   const executable = await cli(
     directory,
-    "await new Promise(done => setTimeout(done,30_000));",
+    "process.on('SIGTERM', () => {}); await new Promise(done => setTimeout(done,30_000));",
   );
   const root = join(directory, "diagrams");
   const timedOut = await renderMermaidArtifact(root, source, {
@@ -127,6 +137,50 @@ await test("timeouts and cancellation release the render and preserve the source
   ]);
 });
 
+await test(
+  "cancellation waits for the CLI to close its separately grouped browser",
+  { skip: process.platform === "win32", timeout: 15_000 },
+  async (t) => {
+    const directory = await workspace(t);
+    const ready = join(directory, "browser-ready");
+    const closed = join(directory, "browser-closed");
+    const executable = await cli(
+      directory,
+      `
+    import { spawn } from "node:child_process";
+    import { once } from "node:events";
+    // IPC disconnect also cleans the fixture up if its driver is killed.
+    const browser = spawn(process.execPath, ["-e", 'process.once("disconnect", () => process.exit(0)); process.send("ready"); setTimeout(() => process.exit(1), 10000);'], { detached: true, stdio: ["ignore", "ignore", "ignore", "ipc"] });
+    const stopped = once(browser, "exit");
+    await once(browser, "message");
+    process.once("SIGTERM", () => browser.kill("SIGTERM"));
+    await writeFile(${JSON.stringify(ready)}, "ready");
+    await stopped;
+    // The stage must still exist until the driver's own cleanup has completed.
+    await readFile(opt("-i"));
+    await writeFile(${JSON.stringify(closed)}, "closed");
+  `,
+    );
+    const controller = new AbortController();
+    const cancelled = assert.rejects(
+      renderMermaidArtifact(join(directory, "diagrams"), source, {
+        executable,
+        signal: controller.signal,
+      }),
+      /Operator cancelled/u,
+    );
+    try {
+      const deadline = Date.now() + 8000;
+      while (!existsSync(ready) && Date.now() < deadline) await delay(10);
+      assert.ok(existsSync(ready), "browser fixture did not become ready");
+    } finally {
+      controller.abort(new Error("Operator cancelled"));
+      await cancelled;
+    }
+    assert.equal(await readFile(closed, "utf8"), "closed");
+  },
+);
+
 await test("invalid requests and edits to a published source leave the original files alone", async (t) => {
   const directory = await workspace(t);
   const root = join(directory, "diagrams");
@@ -145,3 +199,71 @@ await test("invalid requests and edits to a published source leave the original 
   );
   assert.equal(await readFile(result.sourcePath, "utf8"), "Edited locally.");
 });
+
+await test("a missing export is repaired without replacing surviving or concurrently restored files", async (t) => {
+  const directory = await workspace(t);
+  const root = join(directory, "diagrams");
+  const executable = await cli(directory, output);
+  const original = await renderMermaidArtifact(root, source, { executable });
+  assert.ok(original.status === "rendered");
+  const edited =
+    '<svg xmlns="http://www.w3.org/2000/svg"><title>My edits</title></svg>';
+  await writeFile(original.svgPath, edited);
+  const saved = join(directory, "saved.png");
+  await rename(original.pngPath, saved);
+
+  // Only the missing format should require the renderer.
+  const pngOnly = `assert.ok(dest.endsWith(".png"));\n${output}`;
+  await cli(directory, pngOnly);
+  assert.deepEqual(
+    await renderMermaidArtifact(root, source, { executable }),
+    original,
+  );
+  assert.deepEqual(await readFile(original.pngPath), await readFile(saved));
+  assert.equal(await readFile(original.svgPath, "utf8"), edited);
+
+  // The user restores their original PNG while the replacement is rendering.
+  await rm(original.pngPath);
+  await cli(
+    directory,
+    `import { link } from "node:fs/promises";
+    await link(${JSON.stringify(saved)}, ${JSON.stringify(original.pngPath)});
+    ${pngOnly}`,
+  );
+  assert.deepEqual(
+    await renderMermaidArtifact(root, source, { executable }),
+    original,
+  );
+  assert.equal((await stat(original.pngPath)).ino, (await stat(saved)).ino);
+  assert.equal(await readFile(original.svgPath, "utf8"), edited);
+  assert.deepEqual((await readdir(dirname(original.sourcePath))).sort(), [
+    "diagram.mmd",
+    "rendered",
+  ]);
+});
+
+await test(
+  "repair checks for a replaced output directory after rendering",
+  { skip: process.platform === "win32" },
+  async (t) => {
+    const directory = await workspace(t);
+    const root = join(directory, "diagrams");
+    const executable = await cli(directory, output);
+    const original = await renderMermaidArtifact(root, source, { executable });
+    assert.ok(original.status === "rendered");
+    await rm(original.pngPath);
+    const cache = dirname(original.pngPath);
+    const moved = join(directory, "moved");
+    await cli(
+      directory,
+      `import { rename, symlink } from "node:fs/promises";
+      await rename(${JSON.stringify(cache)}, ${JSON.stringify(moved)});
+      await symlink(${JSON.stringify(moved)}, ${JSON.stringify(cache)});
+      ${output}`,
+    );
+    const repair = await renderMermaidArtifact(root, source, { executable });
+    assert.ok(repair.status === "source-only");
+    assert.match(repair.reason, /not a directory/u);
+    assert.deepEqual(await readdir(moved), ["diagram.svg"]);
+  },
+);

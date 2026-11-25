@@ -88,9 +88,14 @@ export function registerMermaidTool(pi: ExtensionAPI): void {
     promptSnippet: "Render a reusable Mermaid artifact and display its image.",
     promptGuidelines: [
       "Use show_diagram for interactive C4 exploration. Call render_mermaid when a rendered or shareable diagram is wanted. Keep ordinary draft iterations lightweight.",
+      "Use self-contained Mermaid source unless the user supplies an external asset for the diagram.",
     ],
     exposure: "model-only",
-    annotations: { readOnlyHint: false, destructiveHint: false },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: true,
+    },
     parameters,
     async execute(_call, args, signal) {
       const artifact = await renderMermaidArtifact(
