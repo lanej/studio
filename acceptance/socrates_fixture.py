@@ -92,12 +92,26 @@ class Requirement:
 
 
 @dataclass(frozen=True)
+class PropertyAssessment:
+    propertyId: str
+    status: Literal["satisfied", "open"]
+    reason: str
+
+
+@dataclass(frozen=True)
+class Coverage:
+    domains: list[str]
+    assessments: list[PropertyAssessment]
+
+
+@dataclass(frozen=True)
 class DraftArguments:
     objective: str
     scope: list[str]
     requirements: list[Requirement]
     decisions: list[Decision]
     blockingQuestions: list[str]
+    coverage: Coverage
     expectedRevision: str | None = None
 
 
@@ -220,6 +234,23 @@ def document_revision(result: str, kind: str) -> str | None:
 
 
 def draft(resolved: list[Decision], *, pending: Exchange | None = None) -> ToolCall:
+    evidence = {
+        "problem-first": "A failed archive can leave the operator without a recoverable checkout.",
+        "interpretation": "R1 treats preservation of handoff evidence as the desired outcome.",
+        "clarity": "D1 distinguishes keeping the existing checkout from recovering from a transcript.",
+        "scope": "The exercise covers a disposable Beads checkout and its archive.",
+        "context": "The archive follows merge confirmation and precedes checkout cleanup.",
+        "parsimony": "The handoff can use the existing checkout and archive.",
+        "success": "The operator can recover the handoff evidence required by R1.",
+        "verification": "R1 requires inspecting the Beads graph after the handoff.",
+        "constraints": "The handoff check uses a disposable checkout.",
+        "stakeholders": "The operator needs access to the retained evidence.",
+        "risk": "Archive failure is the recovery case exercised by D1.",
+        "execution-readiness": "The work can proceed with the recorded recovery decision.",
+        "harmony": "D1's recovery path preserves the evidence required by R1.",
+    }
+    if pending is not None:
+        evidence["execution-readiness"] = pending.question
     return ToolCall(
         DRAFT_TOOL,
         DraftArguments(
@@ -230,6 +261,10 @@ def draft(resolved: list[Decision], *, pending: Exchange | None = None) -> ToolC
             ],
             decisions=resolved if pending is None else [*resolved, pending.open_decision()],
             blockingQuestions=[] if pending is None else [pending.question],
+            coverage=Coverage([], [
+                PropertyAssessment(property_id, "open" if property_id == "execution-readiness" and pending else "satisfied", reason)
+                for property_id, reason in evidence.items()
+            ]),
         ),
     )
 
@@ -257,7 +292,8 @@ def tool_turn(text: str, history: list[str]) -> ToolCall | None:
     if text == f"Operator answer for {RECEIPT.id}: {RECEIPT.answer}":
         return draft([ARCHIVE.resolved_decision(), RECEIPT.resolved_decision()])
     # The initial draft waits for /socrates; later drafts continue to the receipt dialog.
-    if text.startswith("Draft saved. Resolve") and RESUME_DRAFT in history:
+    if (text.startswith("Draft saved. Resolve") or
+            (text.startswith("Draft saved.") and "Open item:" in text)) and RESUME_DRAFT in history:
         return RECEIPT.ask()
     return None
 

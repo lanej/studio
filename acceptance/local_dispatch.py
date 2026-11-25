@@ -2,6 +2,7 @@
 
 import json
 import shlex
+import sqlite3
 import subprocess
 import time
 from pathlib import Path
@@ -38,6 +39,116 @@ TASKS = [
 ]
 
 
+QUESTION = "Should the second worker consume the first worker's marker?"
+WAIT = "Wait for first.txt"
+COVERAGE = {
+    "problem-first": "Two workers must agree which marker is authoritative.",
+    "interpretation": "D1 specifies which result the second worker consumes.",
+    "clarity": "Each task names its output file and expected contents.",
+    "scope": "Only first.txt, second.txt and third.txt are in scope.",
+    "context": "The second worker runs in its own checkout.",
+    "parsimony": "One predecessor edge transfers the accepted change.",
+    "success": "R1 requires verified output in the dependent checkout.",
+    "verification": "Each task has an executable check on its own output.",
+    "constraints": "The third worker stays on hold until explicitly released.",
+    "stakeholders": "The operator approves and steers the interactive workers.",
+    "risk": "The ownership check fences writes outside each named output.",
+    "execution-readiness": "Each worker has a named file, check and admission rule.",
+    "harmony": "The dependency in the plan matches the operator decision D1.",
+    "modularity": "Each worker owns one distinct output file.",
+    "policy-mechanism-separation": "D1 sets the dependency and Beads enforces readiness.",
+    "robustness": "The worker must pass verification and review before satisfying the dependency.",
+    "repair": "A lost worker pane must preserve the checkout and claim for inspection.",
+    "least-surprise": "Operator guidance remains in the selected worker's pane.",
+    "regression-protection": "The interactive fixture exercises dependency gating and pane loss.",
+}
+
+
+def dispatch_spec(resolved: bool, *, ordered: bool = False) -> dict:
+    pending = {}
+    if not resolved:
+        pending.update({
+            "interpretation": "D1 still allows two sources for the second worker's marker.",
+            "parsimony": "The need for a predecessor edge depends on D1.",
+        })
+    if not ordered:
+        pending.update({
+            "execution-readiness": "The second worker's start rule still needs a verified dependency.",
+            "harmony": "The proposed dependency must be reconciled with D1.",
+        })
+    return {
+        "objective": "Verify the interactive marker handoff.",
+        "scope": ["The three named marker files in disposable worktrees"],
+        "requirements": [{"id": "R1", "outcome": "Produce the three agreed marker files.",
+                          "acceptance": "Each per-task check passes and the held worker waits for release."}],
+        "decisions": [{"id": "D1", "decision": "Choose the source of the second worker's marker.",
+                       "basis": "decided" if resolved else "observed",
+                       "evidence": WAIT if resolved else "The task brief leaves the marker source open.",
+                       "disposition": "resolved" if resolved else "open",
+                       "uncertainty": "None" if resolved else "The answer determines the dependency edge."},
+                      {"id": "D2", "decision": "All three marker files integrate locally.",
+                       "basis": "decided", "evidence": "The operator requested local delivery without pull requests.",
+                       "disposition": "resolved", "uncertainty": "None"}],
+        "deliveryPolicy": {"decisionId": "D2", "pullRequests": "none"},
+        "blockingQuestions": [] if resolved else [QUESTION],
+        "coverage": {"domains": ["engineering"], "assessments": [
+            {"propertyId": key, "status": "partial" if key in pending else "satisfied",
+             "reason": pending.get(key, reason)}
+            for key, reason in COVERAGE.items()
+        ]},
+    }
+
+
+def dispatch_plan(ordered: bool) -> dict:
+    tasks = [dict(task, requirements=["R1"]) for task in TASKS]
+    if not ordered:
+        tasks[1].pop("blockedBy")
+        tasks[1]["description"] = "The marker source is pending decision D1."
+    return {"summary": "Exercise guarded interactive delivery", "tasks": tasks}
+
+
+def discovery_response(request: CompletionRequest) -> ToolDelta | TextDelta:
+    last = request["messages"][-1]
+    if last["role"] == "user":
+        if message_text(last).startswith("Begin Socrates discovery"):
+            return tool_delta("open-spec", "draft_socrates_specification", dispatch_spec(False))
+        # A host that requests another plan after freeze receives the reviewed graph.
+        assert "froze" in message_text(last), last
+        return tool_delta("frozen-plan", "draft_implementation_plan", dispatch_plan(True))
+    assert last["role"] == "tool", last
+    result = message_text(last)
+    call = last.get("tool_call_id")
+    if call == "open-spec":
+        assert "Draft saved" in result, result
+        return tool_delta("provisional-plan", "draft_implementation_plan", dispatch_plan(False))
+    if call == "provisional-plan":
+        assert "Draft saved" in result, result
+        return tool_delta("assess-provisional-plan", "draft_socrates_specification", dispatch_spec(False))
+    if call == "assess-provisional-plan":
+        assert "Draft saved" in result, result
+        return tool_delta("ask-dependency", "ask_user_question", {
+            "decisionId": "D1", "question": QUESTION, "options": [
+                {"label": WAIT, "description": "Consume the accepted result after verification."},
+                {"label": "Generate independently", "description": "Start both workers immediately."},
+            ],
+        })
+    if call == "ask-dependency":
+        assert WAIT in result, result
+        return tool_delta("resolved-spec", "draft_socrates_specification", dispatch_spec(True))
+    if call == "resolved-spec":
+        assert "Draft saved" in result, result
+        return tool_delta("updated-plan", "draft_implementation_plan", dispatch_plan(True))
+    if call == "updated-plan":
+        assert "Draft saved" in result, result
+        return tool_delta("assess-updated-plan", "draft_socrates_specification", dispatch_spec(True, ordered=True))
+    if call == "assess-updated-plan":
+        assert "Properties satisfied" in result, result
+    else:
+        assert call == "frozen-plan" and "Draft saved" in result, last
+    reply = "The frozen plan is ready for approval." if call == "frozen-plan" else "The dependency is recorded in the plan."
+    return {"role": "assistant", "content": reply}
+
+
 class DispatchProvider(Provider):
     first = Event()
     release_first = Event()
@@ -59,12 +170,7 @@ class DispatchProvider(Provider):
         user = [message_text(item) for item in messages if item["role"] == "user"]
         tools = [message_text(item) for item in messages if item["role"] == "tool"]
         if "draft_implementation_plan" in names:
-            if tools:
-                return {"role": "assistant", "content": "Draft ready for approval."}
-            assert "/plan-approve" in user[-1], user
-            return tool_delta("draft-dispatch", "draft_implementation_plan", {
-                "summary": "Exercise guarded interactive delivery", "tasks": TASKS,
-            })
+            return discovery_response(request)
         assert not names.intersection({"bash", "powershell", "subagent", "task_submit_result"}), names
         if "review_context" in names:
             assert not names.intersection({"edit", "write"}), names
@@ -137,6 +243,15 @@ def exercise_interactive_dispatch(fixture: Fixture, terminal: Terminal, lead: in
     def no_pane(pane: int) -> bool:
         return all(item["id"] != pane or item["exited"] for item in terminal.terminals())
 
+    def confirm_review(action: str) -> None:
+        for _ in range(20):
+            if f"Enter {action}" in terminal.capture_pane(lead):
+                terminal.write_to_pane(lead, 13)
+                return
+            terminal.write_to_pane(lead, 13)
+            terminal.pty.drain(0.15)
+        raise AssertionError(f"Review action {action} did not appear")
+
     diagnostics = fixture.artifacts / "interactive-supervisor.log"
     with diagnostics.open("w") as log, subprocess.Popen(
         ["bun", str(fixture.options.root / "acceptance/interactive-supervisor.ts")],
@@ -151,20 +266,37 @@ def exercise_interactive_dispatch(fixture: Fixture, terminal: Terminal, lead: in
             terminal.until("native lead", lambda: "⊛ 6.1" in capture())
             type_line(lead, "/studio-profile personal")
             terminal.pty.drain(0.35)
-            type_line(lead, "/plan-draft Interactive acceptance")
-            terminal.until("draft settled", lambda: "Draft ready for approval." in capture())
+            type_line(lead, "/socrates Interactive markers, local integration only")
+            terminal.until("operator decision opens", lambda: WAIT in capture() and "Generate independently" in capture())
+            database = Path(fixture.env["STUDIO_STATE_DIR"]) / "discoveries.sqlite"
+
+            def discovery() -> dict:
+                with sqlite3.connect(database) as db:
+                    [row] = db.execute("SELECT record FROM discoveries")
+                return json.loads(row[0])
+
+            provisional = discovery()
+            assert provisional["specification"]["status"] == "interrogating"
+            assessments = provisional["specification"]["draft"]["coverage"]["assessments"]
+            assert {item["propertyId"] for item in assessments} == set(COVERAGE)
+            assert provisional["leadPlan"]["draft"]["tasks"][1]["blockedBy"] == []
+            assert provisional["specification"]["draft"]["deliveryPolicy"] == {"decisionId": "D2", "pullRequests": "none"}
+            assert all(task["delivery"] == "local" for task in provisional["leadPlan"]["draft"]["tasks"])
+            assert get("issues")["items"] == []
+            terminal.write_to_pane(lead, 13)
+            terminal.until("operator decision incorporated", lambda: "The dependency is recorded in the plan." in capture())
+            assert discovery()["leadPlan"]["draft"]["tasks"][1]["blockedBy"] == ["first"]
+            type_line(lead, "/spec-freeze")
+            terminal.until("operator reviews specification", lambda: "Freeze specification" in capture())
+            confirm_review("freeze spec")
+            terminal.until("frozen plan settled", lambda: "The frozen plan is ready for approval." in capture())
+            assert discovery()["specification"]["status"] == "frozen"
             type_line(lead, "/plan-approve interactive")
             terminal.until("review displays verified target", lambda:
                            f"interactive in Zellij {fixture.name}, tab {tab}" in " ".join(capture().split()))
             (fixture.artifacts / "interactive-approval.ansi").write_text(terminal.capture_pane(lead, ansi=True))
             assert get("issues")["items"] == []
-            for _ in range(5):
-                if "Enter create tasks and implement" in capture():
-                    break
-                terminal.write_to_pane(lead, 13)
-                terminal.pty.drain(0.15)
-            terminal.until("approval confirmation", lambda: "Enter create tasks and implement" in capture())
-            terminal.write_to_pane(lead, 13)
+            confirm_review("create tasks and implement")
             terminal.until("first native worker after lost acknowledgement", DispatchProvider.first.is_set)
             first = attempt("first")
             pane = first["pane"]

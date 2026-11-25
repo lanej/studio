@@ -32,6 +32,7 @@ import uuid
 import pyte
 from PIL import Image, ImageDraw, ImageFont
 
+from socrates_fixture import READ_TOOL, document_read_result, document_revision
 from zellij_pty import Terminal as Pty
 from zellij_terminal import Terminal
 
@@ -40,6 +41,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SEED = """
 import { Discoveries } from './discovery/store.ts';
 import { SpecStatus } from './socrates/spec.ts';
+import { coveragePropertyCatalog } from './socrates/assessment.ts';
 import { SessionManager } from '@earendil-works/pi-coding-agent';
 const project = process.argv[1];
 const session = SessionManager.create(project);
@@ -54,14 +56,22 @@ store.change(record.id, row => {
       requirements: [{id: 'R1', outcome: 'Keep the full document beside Studio chat.',
         acceptance: 'Saving updates the draft without approving it.'}],
       decisions: [{id: 'D1', decision: 'Keep approval in Studio.', basis: 'decided',
-        evidence: 'Explicit operator instruction', disposition: 'resolved', uncertainty: 'None'}],
-      blockingQuestions: []
+        evidence: 'Explicit operator instruction', disposition: 'resolved', uncertainty: 'None'},
+        {id: 'D2', decision: 'Choose who may merge the proposed pull request.', basis: 'observed',
+         evidence: 'The operator is reviewing merge authority.', disposition: 'open',
+         uncertainty: 'Awaiting the operator merge decision.'}],
+      deliveryPolicy: {decisionId: 'D2', pullRequests: 'per-bead', merge: 'project-policy'},
+      blockingQuestions: [],
+      coverage: {domains: ['engineering'], assessments: coveragePropertyCatalog
+        .filter(({domain}) => domain === 'universal' || domain === 'engineering')
+        .map(({id, label}) => ({propertyId: id, status: 'satisfied',
+          reason: 'The native document fixture exercises ' + label + '.'}))}
     }
   };
-  row.leadPlan.draft = {summary: 'Deliver the document editing loop.', tasks: [
+  row.leadPlan.draft = {summary: 'Deliver the document editing loop.', pullRequestMerge: 'project-policy', tasks: [
     {key: 'bridge', title: 'Connect the editor', description: 'Bind editable documents to their Studio conversation.',
      acceptance: 'The full plan survives a save.', requirements: ['R1'], owns: ['documents'],
-     blockedBy: []} ]};
+     blockedBy: [], delivery: 'pull-request'} ]};
 });
 session.appendMessage({role:'user',content:'Inspect this proposal with me.',timestamp:Date.now()});
 session.appendCustomEntry('studio:discovery', {id:record.id,project,session:session.getSessionId()});
@@ -97,7 +107,7 @@ class Provider(BaseHTTPRequestHandler):
         latest = max((i for i, message in enumerate(messages) if message["role"] == "user"), default=-1)
         prompt = content_text(messages[latest])
         match = re.search(r"Studio document feedback ([^\s]+)", prompt)
-        if match is None:
+        if match is None and not prompt.startswith('Reassess the edited document properties'):
             if "Check the closed editor lifecycle" in prompt:
                 reply = "The editor remains closed until you explicitly open documents."
             elif "The operator froze the Socrates specification" in prompt:
@@ -107,24 +117,26 @@ class Provider(BaseHTTPRequestHandler):
                 reply = "Missing bound feedback."
             delta, finish = {"role": "assistant", "content": reply}, "stop"
         else:
-            request_id = match.group(1)
+            request_id = match.group(1) if match else None
             calls = [call["function"]["name"] for message in messages[latest + 1:]
                      for call in message.get("tool_calls", [])]
             explanation_only = "explanation only" in prompt
             if not explanation_only and "draft_socrates_specification" not in calls:
-                draft = read_records(self.state / "discoveries.sqlite", "discoveries")[0]["specification"]["draft"]
-                draft["requirements"][0]["acceptance"] = (
-                    "Preserve local unsaved edits while incoming changes await reconciliation."
-                    if "conflict check" in prompt else
-                    "Saving updates Studio; explicit Studio review alone freezes the specification."
-                )
-                system = "\n".join(content_text(message) for message in messages if message["role"] == "system")
-                snapshots = re.search(r"Studio document snapshots[^\n]*\n([^\n]+)", system)
-                assert snapshots, "Native document snapshots missing from provider context"
-                documents = json.loads(snapshots.group(1))
-                draft["expectedRevision"] = next(item["revision"] for item in documents if item["ref"]["kind"] == "specification")
-                name, arguments = "draft_socrates_specification", draft
-            elif "document_feedback_outcome" not in calls:
+                reading = document_read_result(messages)
+                if reading is None:
+                    assert READ_TOOL in {tool['function']['name'] for tool in request['tools']}
+                    name, arguments = READ_TOOL, {}
+                else:
+                    draft = read_records(self.state / "discoveries.sqlite", "discoveries")[0]["specification"]["draft"]
+                    if request_id:
+                        draft["requirements"][0]["acceptance"] = (
+                            "Preserve local unsaved edits while incoming changes await reconciliation."
+                            if "conflict check" in prompt else
+                            "Saving updates Studio; explicit Studio review alone freezes the specification."
+                        )
+                    draft["expectedRevision"] = document_revision(reading, "specification")
+                    name, arguments = "draft_socrates_specification", draft
+            elif request_id and "document_feedback_outcome" not in calls:
                 name, arguments = "document_feedback_outcome", {
                     "requestId": request_id, "summary": "Kept approval in Studio." if explanation_only else "Clarified the acceptance check."
                 }
@@ -136,7 +148,9 @@ class Provider(BaseHTTPRequestHandler):
                          "function": {"name": name, "arguments": json.dumps(arguments)}}]}
                 finish = "tool_calls"
             else:
-                reply = ("Approval stays in Studio so saving a draft cannot authorize execution. No document edits were needed."
+                reply = ("Property assessments now cover the edited specification and plan; freeze remains an explicit Studio action."
+                         if request_id is None else
+                         "Approval stays in Studio so saving a draft cannot authorize execution. No document edits were needed."
                          if explanation_only else "I clarified the acceptance check. The full explanation stays here in Studio chat.")
                 delta = {"role": "assistant", "content": reply}
                 finish = "stop"
@@ -226,7 +240,7 @@ def run(output: Path | None):
                "PI_CODING_AGENT_DIR": str(home / "agent"), "STUDIO_CONFIG": str(home / "config.json"),
                "STUDIO_STATE_DIR": str(home / "state"), "PI_SKIP_VERSION_CHECK": "1", "PI_TELEMETRY": "0",
                # This display-only PTY does not answer OSC color queries.
-               "NVIM_NOTTYFAST": "1"}
+                "NVIM_NOTTYFAST": "1", "PYTHONDONTWRITEBYTECODE": "1"}
         (home / ".config/zellij/config.kdl").write_text(
             'default_shell "/bin/sh"\nshow_startup_tips false\non_force_close "quit"\n'
             'default_layout "compact"\n')
@@ -322,12 +336,26 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
 
                 terminal.focus_pane(editor)
                 ex(r"%s/Inspect the complete proposal in Neovim\./Review the complete proposal in Neovim./")
+                ex('%s/basis = "observed"/basis = "decided"/')
+                ex('%s/disposition = "open"/disposition = "resolved"/')
+                ex('%s/merge = "project-policy"/merge = "manual"/')
+                ex(r"%s/Choose who may merge the proposed pull request\./Open one PR per bead and reserve merge for the operator./")
+                ex(r"%s/The operator is reviewing merge authority\./The operator chose manual merge for each proposed PR./")
+                ex(r"%s/Awaiting the operator merge decision\./None/")
+                ex(r"%s/The native document fixture exercises Verification\./The native journey checks saved state and visible editor outcomes./")
                 ex("write")
                 terminal.until("save accepted by Studio", lambda: saved()["specification"]["draft"]["objective"].startswith("Review"))
+                edited_spec = saved()["specification"]["draft"]
+                assert edited_spec["deliveryPolicy"] == {"decisionId": "D2", "pullRequests": "per-bead", "merge": "manual"}
+                assert edited_spec["decisions"][1]["disposition"] == "resolved"
+                assert edited_spec["coverage"]["domains"] == ["engineering"]
+                assert len(edited_spec["coverage"]["assessments"]) == 19
+                assert next(item["reason"] for item in edited_spec["coverage"]["assessments"] if item["propertyId"] == "verification") == (
+                    "The native journey checks saved state and visible editor outcomes.")
                 assert saved()["specification"]["status"] == "interrogating"
                 assert "approvalAt" not in saved()["specification"] and "approved" not in saved()
                 terminal.until("clean saved buffer", lambda: not lua("vim.bo.modified"))
-                print("PASS :write accepted without freeze or plan approval", flush=True)
+                print("PASS :write edits complete coverage and delivery policy without freeze or plan approval", flush=True)
 
                 objective_line = lines().index("Review the complete proposal in Neovim.") + 1
                 keys(editor, f"{objective_line}GV:StudioComment\r")
@@ -378,7 +406,13 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                 terminal.until("explanation-only outcome", lambda: len(feedback()) == 3 and feedback()[2]["state"] == "answered")
                 explanation = feedback()[2]
                 assert explanation["changes"] == [] and explanation["responseId"]
-                assert saved() == before_explanation, "Explanation-only response mutated a document or approval"
+                after_explanation = saved()
+                assert "coverageRevision" not in after_explanation["specification"], "Operator feedback retained an old property assessment"
+                # A new operator message invalidates the prior assessment even
+                # when its answer leaves the documents and authority unchanged.
+                for snapshot in (before_explanation, after_explanation):
+                    snapshot["specification"].pop("coverageRevision", None)
+                assert after_explanation == before_explanation, "Explanation-only response mutated a document or approval"
                 terminal.until("explicit no-edits response marker", lambda: "no document edits" in json.dumps(marks()))
                 choice = sorted(item["requestId"] for item in feedback()).index(explanation["requestId"]) + 1
                 ex("StudioChanges")
@@ -388,7 +422,33 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                                "No document edits" in terminal.capture_pane(editor))
                 keys(editor, "\r")
                 print("PASS explanation-only outcome preserves documents and explicitly reports no edits", flush=True)
+
+                ex("buffer plan.md")
+                terminal.until("editable plan before freeze", lambda:
+                               lua("vim.api.nvim_buf_get_name(0)").endswith("plan.md") and lua("vim.bo.modifiable"))
+                assert "Bind editable documents to their Studio conversation." in lines()
+                ex(r"%s/Deliver the document editing loop\./Deliver the proposed document editing loop./")
+                ex('%s/pullRequestMerge = "project-policy"/pullRequestMerge = "manual"/')
+                ex(r"%s/The full plan survives a save\./The full plan and its manual merge rule survive a save./")
+                ex("write")
+                terminal.until("plan policy save accepted by Studio", lambda:
+                               saved()["leadPlan"]["draft"].get("pullRequestMerge") == "manual")
+                plan_draft = saved()["leadPlan"]["draft"]
+                assert plan_draft["summary"] == "Deliver the proposed document editing loop."
+                assert plan_draft["tasks"][0]["delivery"] == "pull-request"
+                assert plan_draft["tasks"][0]["acceptance"] == "The full plan and its manual merge rule survive a save."
+                assert "coverageRevision" not in saved()["specification"], "Plan save retained stale property approval"
+                assert saved()["planSpecificationRevision"]
+                assert saved()["specification"]["status"] == "interrogating" and "approved" not in saved()
+                terminal.until("plan policy buffer save acknowledged", lambda: not lua("vim.bo.modified"))
+                ex("buffer specification.md")
                 terminal.focus_pane(studio)
+                keys(studio, "Reassess the edited document properties against the current specification and plan.\r")
+                terminal.until("native agent reassessed current documents", lambda: bool(saved()["specification"].get("coverageRevision")))
+                terminal.until("reassessment completed", lambda:
+                               "freeze remains an explicit Studio action" in " ".join(terminal.capture_pane(studio).split()))
+                assert saved()["specification"]["status"] == "interrogating" and "approved" not in saved()
+                print("PASS pre-freeze plan edits preserve merge policy and require native property reassessment", flush=True)
                 keys(studio, "/spec-freeze\r")
                 terminal.until("Studio freeze review", lambda: "Freeze specification" in terminal.capture_pane(studio))
                 assert saved()["specification"]["status"] == "interrogating"
@@ -406,11 +466,13 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                 terminal.until("editable full plan", lambda:
                                lua("vim.api.nvim_buf_get_name(0)").endswith("plan.md") and lua("vim.bo.modifiable"))
                 assert "Bind editable documents to their Studio conversation." in lines()
-                ex(r"%s/Deliver the document editing loop\./Deliver the reviewed document editing loop./")
+                ex(r"%s/Deliver the proposed document editing loop\./Deliver the reviewed document editing loop./")
                 ex("write")
                 terminal.until("plan save accepted by Studio", lambda:
                                saved()["leadPlan"]["draft"]["summary"] == "Deliver the reviewed document editing loop.")
                 assert saved()["specification"]["status"] == "frozen" and "approved" not in saved()
+                assert saved()["leadPlan"]["draft"]["pullRequestMerge"] == "manual"
+                assert "coverageRevision" not in saved()["specification"], "Frozen plan edit bypassed reassessment"
                 assert not Provider.errors, Provider.errors
                 print("PASS explicit Studio freeze protects the specification; full plan edits save without approval", flush=True)
 
@@ -445,6 +507,13 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                 keys(studio, "/quit\r")
                 terminal.until("Studio closed without closing Neovim", lambda:
                                len(terminal.terminals()) == 1 and terminal.terminals()[0]["id"] == editor)
+                # Neovim can ask for acknowledgement when the disconnect notice
+                # wraps in the narrow pane. Its remote evaluator waits behind it.
+                terminal.until("visible disconnect notice", lambda:
+                               "disconnected" in terminal.capture_pane(editor) or
+                               "Cannot reach the bound Studio" in terminal.capture_pane(editor))
+                if "Press ENTER" in terminal.capture_pane(editor):
+                    keys(editor, "\r")
                 terminal.until("visible disconnected editor status", lambda: "disconnected" in lua("vim.wo.winbar"))
                 assert "Local plan survives Studio disconnect." in lines() and lua("vim.bo.modified")
                 assert saved()["leadPlan"]["draft"]["summary"] == "Deliver the reviewed document editing loop."
@@ -459,12 +528,16 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                                 "requests": len(Provider.requests), "feedback": feedback(),
                                 "finalSpecificationStatus": saved()["specification"]["status"],
                                 "finalPlanSummary": saved()["leadPlan"]["draft"]["summary"],
+                                "coverageAssessmentCount": len(saved()["specification"]["draft"]["coverage"]["assessments"]),
+                                "deliveryPolicy": saved()["specification"]["draft"]["deliveryPolicy"],
+                                "pullRequestMerge": saved()["leadPlan"]["draft"]["pullRequestMerge"],
+                                "planEditInvalidatedCoverage": "coverageRevision" not in saved()["specification"],
                                 "planApproved": "approved" in saved(),
                                 "lifecycle": lifecycle,
                                 "images": "RGB reconstructions from the actual terminal ANSI, not desktop screenshots"}
                     messages = [json.loads(line).get("message", {}) for line in Path(record["session"]).read_text().splitlines()]
                     evidence["toolResults"] = [message for message in messages if message.get("role") == "toolResult"
-                                               and message.get("toolName") in ("draft_socrates_specification", "document_feedback_outcome")]
+                                               and message.get("toolName") in (READ_TOOL, "draft_socrates_specification", "document_feedback_outcome")]
                     (output / "documents-evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
             except Exception:
                 capture.save("failure")

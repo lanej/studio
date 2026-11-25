@@ -42,7 +42,7 @@
         "command": null
       },
       "since_ms": 0,
-      "changed_ms": 1795627508330,
+      "changed_ms": 1795629859062,
       "seen": false,
       "muted": null,
       "ignore_output": false,
@@ -51,7 +51,7 @@
       "remembered": {
         "status": "Done",
         "text": "done",
-        "since_ms": 1795627508330
+        "since_ms": 1795629859062
       }
     },
     "command_state": {
@@ -70,14 +70,14 @@
         "app": "pi",
         "title": null,
         "msg": null,
-        "updated_ms": 1795627508330
+        "updated_ms": 1795629859062
       }
     ],
     "tab_id": 0,
     "tab_position": 0,
     "tab_name": "Tab #1",
-    "pane_command": "bun --no-env-file --config=/Users/joshlane/src/studio/.worktrees/codex-471b7cf3/resources/bunfig.toml /Users/joshlane/src/studio/.worktrees/codex-471b7cf3/cli.ts lead -- --offline --no-mcp --model fixture/tiny --tui-mode fullscreen --session /private/tmp/st-doc-psru32lh/agent/sessions/--private-tmp-st-doc-psru32lh-project--/2026-11-25T17-24-56-710Z_01a213bd-3505-7273-9048-60a5ef3bdd2c.jsonl",
-    "pane_cwd": "/private/tmp/st-doc-psru32lh/project"
+    "pane_command": "bun --no-env-file --config=/Users/joshlane/src/studio/.worktrees/codex-c07a182f/resources/bunfig.toml /Users/joshlane/src/studio/.worktrees/codex-c07a182f/cli.ts lead -- --offline --no-mcp --model fixture/tiny --tui-mode fullscreen --session /private/tmp/st-doc-3tas8i1r/agent/sessions/--private-tmp-st-doc-3tas8i1r-project--/2026-11-25T18-04-07-353Z_01a213e1-1338-7162-853e-a9d77184faba.jsonl",
+    "pane_cwd": "/private/tmp/st-doc-3tas8i1r/project"
   },
   {
     "id": 1,
@@ -87,7 +87,7 @@
     "is_floating": false,
     "is_suppressed": false,
     "is_collapsed": false,
-    "title": "Studio documents 880e03aa",
+    "title": "Studio documents e3c07907",
     "exited": false,
     "exit_status": null,
     "is_held": false,
@@ -103,7 +103,7 @@
       6,
       26
     ],
-    "terminal_command": "/usr/bin/env STUDIO_NVIM_RUNTIME=/Users/joshlane/src/studio/.worktrees/codex-471b7cf3/resources/nvim STUDIO_DOCUMENT_CONNECTION=/private/tmp/st-doc-psru32lh/tmp/studio-doc-4Ryw2p/connection.json /opt/homebrew/bin/nvim -c lua dofile(vim.env.STUDIO_NVIM_RUNTIME .. '/bootstrap.lua')",
+    "terminal_command": "/usr/bin/env STUDIO_NVIM_RUNTIME=/Users/joshlane/src/studio/.worktrees/codex-c07a182f/resources/nvim STUDIO_DOCUMENT_CONNECTION=/private/tmp/st-doc-3tas8i1r/tmp/studio-doc-Z0eHQJ/connection.json /opt/homebrew/bin/nvim -c lua dofile(vim.env.STUDIO_NVIM_RUNTIME .. '/bootstrap.lua')",
     "plugin_url": null,
     "is_selectable": true,
     "index_in_pane_group": {},
@@ -145,6 +145,6 @@
     "tab_position": 0,
     "tab_name": "Tab #1",
     "pane_command": "/opt/homebrew/bin/nvim -c lua dofile(vim.env.STUDIO_NVIM_RUNTIME .. '/bootstrap.lua')",
-    "pane_cwd": "/private/tmp/st-doc-psru32lh/project"
+    "pane_cwd": "/private/tmp/st-doc-3tas8i1r/project"
   }
 ]

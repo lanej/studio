@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, TypedDict
 
+from task_panel_session import task_panel_session
 from local_fixture import Allocation, Fixture, Report, Scenario, TaskSnapshot
 from local_provider import ADMITTED_MODEL, Provider
 from socrates_fixture import ARCHIVE, RECEIPT
@@ -227,7 +228,10 @@ def exercise_question_exchange(case: Case) -> None:
     assert spec()["exchange"] == first
     terminal.send_to_pane(pane, "/spec-freeze\r")
     terminal.until("open question blocks freeze", lambda:
-                   "Resolve the blocking questions" in terminal.capture_pane(pane))
+                   "Continue /socrates before freezing" in " ".join(terminal.capture_pane(pane).split()) and
+                   "Execution Readiness · open" in terminal.capture_pane(pane))
+    assert spec()["status"] == "interrogating" and spec()["exchange"] == first
+    assert "approvalAt" not in spec()
     terminal.send_to_pane(pane, "/socrates\r")
     terminal.until("same original choice reopened", lambda: ARCHIVE.answer in terminal.capture_pane(pane))
     terminal.send_to_pane(pane, "j")
@@ -294,6 +298,17 @@ def freeze_specification(case: Case, *, interview: bool) -> None:
     terminal.send_to_pane(pane, "/spec-freeze\r")
     terminal.until("specification review opens", lambda:
                    "Freeze specification for " + bead in case.capture(pane))
+    for _ in range(200):
+        if "Enter freeze spec" in terminal.capture_pane(pane):
+            break
+        terminal.send_to_pane(pane, "j")
+    else:
+        raise AssertionError(case.capture(pane))
+    assert spec()["status"] == "interrogating" and "approvalAt" not in spec()
+    (case.harness.artifacts / "socrates-freeze-review.txt").write_text(terminal.capture_pane(pane))
+    (case.harness.artifacts / "socrates-freeze-review.ansi").write_text(terminal.capture_pane(pane, ansi=True))
+    (case.harness.artifacts / "socrates-freeze-review-geometry.json").write_text(
+        json.dumps(next(item for item in terminal.pane_listing() if item["id"] == pane), indent=2) + "\n")
     terminal.send_to_pane(pane, "\r")
     terminal.until("frozen specification has a plan", lambda:
                    spec().get("status") == "frozen" and
@@ -570,7 +585,9 @@ def check_worker_reuse(case: Case, report: Report) -> None:
     manager, artifacts = case.harness.manager, case.harness.artifacts
     pi = root / "scripts/pi"
     extension = root / "extension.ts"
-    browser = shlex.join([str(pi), "--offline", "--no-session", "--no-mcp",
+    config = json.loads(Path(case.harness.env["STUDIO_CONFIG"]).read_text())
+    session = task_panel_session(case.harness.options.repository, case.harness.env, config["beadsService"], bead)
+    browser = shlex.join([str(pi), "--offline", "--session", session, "--no-mcp",
                           "--extension", str(extension), "--model", "openai-codex/gpt-6.1-sol"])
     terminal.send_to_pane(launcher_pane, browser + "\r")
     terminal.until("task browser Pi starts", lambda: "clear/exit" in pane_text(launcher_pane))

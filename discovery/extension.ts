@@ -8,10 +8,12 @@ import type {
 import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { Type } from "typebox";
+import { isDeepStrictEqual } from "node:util";
 import { selectorText } from "@lanej/pi-components";
 import { z } from "zod";
 import { registerSocratesControls } from "../socrates/controls.ts";
 import { SpecStatus, specText } from "../socrates/spec.ts";
+import { loadConfig } from "../config.ts";
 import { socratesGuidance } from "../socrates/guidance.ts";
 import {
   LeadMode,
@@ -23,7 +25,12 @@ import {
 } from "../lead-plan.ts";
 import { isEntry, PiEntryType } from "../runtime.ts";
 import { reviewPlan } from "../ui.ts";
-import { Discoveries, type Discovery } from "./store.ts";
+import {
+  saveDiscoveryPlan,
+  Discoveries,
+  handoffDraft,
+  type Discovery,
+} from "./store.ts";
 
 const selectionType = "studio:discovery";
 const markerSchema = z.object({
@@ -43,6 +50,7 @@ function discoveryStatus(record: Discovery): string {
 export function registerDiscovery(
   pi: ExtensionAPI,
   profile: () => string | undefined,
+  onSelectionChange?: () => void,
 ) {
   let pending = false;
   let runningDiscoveryCommand = false;
@@ -84,6 +92,7 @@ export function registerDiscovery(
       session: ctx.sessionManager.getSessionId(),
     });
     selected = record.id;
+    onSelectionChange?.();
   };
   const create = (ctx: ExtensionContext, title: string): void => {
     bind(
@@ -133,6 +142,12 @@ export function registerDiscovery(
       socrates.refresh(ctx);
     },
   });
+  const selectedRecord = (ctx: ExtensionContext): Discovery | undefined => {
+    const id = locate(ctx);
+    if (id === undefined) return undefined;
+    const record = storage((db) => db.find(id));
+    return record?.project === realpathSync(ctx.cwd) ? record : undefined;
+  };
   pi.on("session_start", (event, ctx) => {
     selected = undefined;
     if (event.reason === "fork")
@@ -143,29 +158,43 @@ export function registerDiscovery(
       });
   });
   pi.on("before_agent_start", async (event, ctx) => {
-    selected = locate(ctx);
-    const base =
-      "The Studio lead stays available for exploration, research, and conversation. Propose a work breakdown only when explicitly requested or after Socrates; await operator review before creating Beads tasks. Approved implementation belongs to independent runtime workers.";
-    if (selected === undefined)
-      return { systemPrompt: `${event.systemPrompt}\n\n${base}` };
-    const record = get();
-    const guidance =
-      record.specification === undefined ? "" : await socratesGuidance();
+    const record = selectedRecord(ctx);
+    selected = record?.id;
+    const directCoding =
+      "You are the coding agent in the current checkout. Carry out requested code changes directly, using your editing, shell, and verification tools. For a requested plan, plan locally. Socrates is an optional workflow started by the operator.";
+    if (record === undefined)
+      return { systemPrompt: `${event.systemPrompt}\n\n${directCoding}` };
+    if (record.handoff !== undefined || record.approved !== undefined)
+      return {
+        systemPrompt: [
+          event.systemPrompt,
+          directCoding,
+          "The operator has handed off the selected work. Leave its execution to the runtime and continue other work directly in this conversation.",
+        ].join("\n\n"),
+      };
+    if (record.specification === undefined)
+      return {
+        systemPrompt: [
+          event.systemPrompt,
+          directCoding,
+          ...(record.leadPlan.draft === null
+            ? []
+            : [
+                `Local proposal · ${record.title}`,
+                describePlan(record.leadPlan.draft, "proposal"),
+              ]),
+        ].join("\n\n"),
+      };
     return {
       systemPrompt: [
         event.systemPrompt,
-        base,
         `Selected discovery · ${record.title}`,
-        guidance,
-        record.specification === undefined
-          ? ""
-          : specText(record.specification),
-        record.leadPlan.draft === null
-          ? ""
-          : describePlan(record.leadPlan.draft),
-        record.approved === undefined
-          ? "No breakdown has been approved."
-          : "The approved work is owned by separate runtime workers. Continue discovery freely.",
+        await socratesGuidance(),
+        specText(record.specification),
+        "Develop the specification and its proposed beads together. Keep the decomposition current as answers change task scope, dependencies, acceptance, or verification. Use draft_implementation_plan to persist it locally. Actual beads and worker dispatch require the operator's final handoff approval.",
+        ...(record.leadPlan.draft === null
+          ? []
+          : [describePlan(record.leadPlan.draft, "proposal")]),
       ].join("\n\n"),
     };
   });
@@ -207,18 +236,27 @@ export function registerDiscovery(
       pending = active;
     },
     {
+      discovery: true,
       subject: "this discovery; Beads is not required",
       documents,
       identity: (record) => record.id,
       label: (record) => record.title,
-      snapshot: (ctx) => {
-        const id = locate(ctx);
-        return id === undefined ? undefined : storage((db) => db.get(id));
-      },
+      snapshot: selectedRecord,
       select: (argument, ctx) => {
         const title = argument.trim();
-        if (title !== "") create(ctx, title);
-        else if (locate(ctx) === undefined) create(ctx, "Discovery");
+        selected = locate(ctx);
+        if (title !== "" || selected === undefined)
+          create(ctx, title === "" ? "Discovery" : title);
+        else {
+          const record = get();
+          if (
+            record.specification === undefined &&
+            (record.handoff !== undefined || record.approved !== undefined)
+          )
+            throw new Error(
+              "This plan has already been handed off. Start a new discovery with /socrates TITLE.",
+            );
+        }
         return Promise.resolve();
       },
       check: (record, revision) => {
@@ -273,15 +311,45 @@ export function registerDiscovery(
       }
     },
   });
+  pi.registerCommand("socrates-end", {
+    description: "Save the discovery and return to direct coding",
+    handler(_argument, ctx) {
+      if (documentActionBusy() || !ctx.isIdle())
+        throw new Error("Wait for the lead turn to settle");
+      if (locate(ctx) !== undefined) {
+        pi.appendEntry(selectionType, {
+          id: null,
+          project: realpathSync(ctx.cwd),
+        });
+        selected = undefined;
+        onSelectionChange?.();
+        socrates.refresh(ctx);
+      }
+      ctx.ui.notify(
+        "Direct coding. Resume a saved discovery with /discoveries.",
+        "info",
+      );
+      return Promise.resolve();
+    },
+  });
   pi.registerCommand("spec-reopen", {
     description: "Preserve the frozen specification and reopen this discovery",
     async handler(_arg, ctx) {
       const record = await requireBinding(ctx);
-      if (!ctx.isIdle()) throw new Error("Wait for the lead turn to settle");
+      if (documents.pending() || !ctx.isIdle())
+        throw new Error("Wait for the lead turn to settle");
       storage((db) =>
         db.change(record.id, (row) => {
           if (row.specification?.status !== SpecStatus.Frozen)
             throw new Error("No frozen specification to reopen");
+          if (
+            row.approved !== undefined ||
+            row.handoff !== undefined ||
+            row.graph !== undefined
+          )
+            throw new Error(
+              "This discovery has been handed off. Use /tasks to track it or /socrates TITLE to start a separate discovery.",
+            );
           row.history.push(row.specification);
           row.revision = randomUUID();
           row.specification = {
@@ -292,11 +360,10 @@ export function registerDiscovery(
             approvalAt: undefined,
           };
           row.leadPlan = { mode: LeadMode.Planning, draft: null };
-          row.approved = undefined;
-          row.graph = undefined;
-          row.handoff = undefined;
+          row.planSpecificationRevision = undefined;
         }),
       );
+      onSelectionChange?.();
       socrates.refresh(ctx);
       pi.sendUserMessage(
         "Resume discovery. Preserve settled decisions and explain any changed scope before drafting a new specification.",
@@ -304,16 +371,22 @@ export function registerDiscovery(
     },
   });
   pi.registerCommand("plan-draft", {
-    description: "Request a work breakdown without requiring Socrates first",
+    description:
+      "Draft or revise a private work breakdown in this conversation",
     async handler(argument, ctx) {
-      if (!ctx.isIdle()) throw new Error("Wait for the lead turn to settle");
+      if (documents.pending() || !ctx.isIdle())
+        throw new Error("Wait for the lead turn to settle");
       if (locate(ctx) === undefined) {
         const title = argument.trim();
         create(ctx, title === "" ? "Work breakdown" : title);
       }
-      await requireBinding(ctx);
+      const record = await requireBinding(ctx);
+      if (record.handoff !== undefined || record.approved !== undefined)
+        throw new Error(
+          "This breakdown has been handed off. Use /socrates-end to start a separate plan.",
+        );
       pi.sendUserMessage(
-        `Draft a bounded work breakdown for operator review. Do not create tasks before /plan-approve. ${argument}`,
+        `Draft or revise the local work breakdown: proposed tasks, dependencies, acceptance criteria, and checks. ${argument}`,
       );
     },
   });
@@ -322,7 +395,7 @@ export function registerDiscovery(
     renderCall: renderPlanCall,
     label: "Draft work breakdown",
     description:
-      "When the operator explicitly requests a work breakdown, persist the proposal, starting a discovery for the current project if none is selected. No Beads tasks are created until the operator approves the exact proposal.",
+      "Save the proposed decomposition into beads: task scopes, requirements, dependencies, acceptance, and verification. During Socrates, develop it alongside the specification and revise it when an answer affects the work. Outside Socrates, use only for an explicitly requested local plan.",
     parameters: Type.Object({
       expectedRevision: Type.Optional(
         Type.String({
@@ -361,39 +434,22 @@ export function registerDiscovery(
             throw new Error(
               "This breakdown is already approved; create a new discovery",
             );
-          if (row.specification !== undefined) {
-            if (row.specification.status !== SpecStatus.Frozen)
-              throw new Error(
-                "Freeze the specification before drafting its breakdown",
-              );
-            const requirements =
-              row.specification.draft?.requirements.map((item) => item.id) ??
-              [];
-            if (
-              draft.tasks.some(
-                (task) =>
-                  task.requirements.length === 0 ||
-                  task.requirements.some((id) => !requirements.includes(id)),
-              ) ||
-              requirements.some(
-                (id) =>
-                  !draft.tasks.some((task) => task.requirements.includes(id)),
-              )
-            )
-              throw new Error(
-                "Cover every frozen requirement and link each task to known requirement IDs",
-              );
-          }
           documents.assertAgent(DocumentKind.Plan, row, ctx, expectedRevision);
-          row.leadPlan = { mode: LeadMode.Planning, draft };
+          saveDiscoveryPlan(row, draft);
         }),
       );
       documents.committed(DocumentKind.Plan, ctx);
+      const saved = get().specification;
       return {
         content: [
           {
             type: "text",
-            text: "Draft saved. /plan to inspect · /plan-delivery <task-key> <local|pull-request> to change delivery · /plan-approve to review",
+            text:
+              saved !== undefined && saved.coverageRevision === undefined
+                ? "Draft saved. Assess every applicable property against the updated plan with draft_socrates_specification before the next question, freeze, or handoff."
+                : saved?.status === SpecStatus.Frozen
+                  ? "Draft saved. /plan to inspect · /plan-approve to review the handoff"
+                  : "Draft saved. /plan to inspect the proposed work.",
           },
         ],
         details: {},
@@ -420,12 +476,15 @@ export function registerDiscovery(
             row.leadPlan.draft === null
           )
             throw new Error("No unapproved draft to revise");
-          row.leadPlan = {
-            ...row.leadPlan,
-            draft: reviseDelivery(row.leadPlan.draft, argument),
-          };
+          // Changing one delivery does not review the full plan against a newer specification.
+          saveDiscoveryPlan(
+            row,
+            reviseDelivery(row.leadPlan.draft, argument),
+            false,
+          );
         }),
       );
+      socrates.refresh(ctx);
       ctx.ui.notify(
         "Delivery proposal updated. Use /plan to review it.",
         "info",
@@ -441,26 +500,30 @@ export function registerDiscovery(
         throw new Error(
           "Use /plan-approve background or /plan-approve interactive",
         );
-      if (!ctx.isIdle()) throw new Error("Wait for the lead turn to settle");
+      if (documents.pending() || !ctx.isIdle())
+        throw new Error("Wait for the lead turn to settle");
       const record = await requireBinding(ctx);
-      const draft = record.leadPlan.draft;
-      if (draft === null || draft.tasks.length === 0)
-        throw new Error("Draft at least one executable task first");
+      const draft = handoffDraft(record);
       const digest = planDigest(draft);
       const selectedProfile = profile();
       if (selectedProfile === undefined)
         throw new Error(
           "Select /studio-profile work or personal before approving execution",
         );
-      const { prepareHandoff, approveHandoff, prepareInteractiveHandoff } =
-        await import("../execution/handoff.ts");
-      const target = await prepareHandoff(record, selectedProfile);
-      const interactive =
-        mode === "interactive"
-          ? await prepareInteractiveHandoff(record)
-          : undefined;
+      if (discoveryBusy()) throw new Error("Wait for the discovery command");
       pending = true;
       try {
+        const { handoffTarget, approveHandoff, prepareInteractiveHandoff } =
+          await import("../execution/handoff.ts");
+        const target = handoffTarget(
+          await loadConfig(),
+          record,
+          selectedProfile,
+        );
+        const interactive =
+          mode === "interactive"
+            ? await prepareInteractiveHandoff(record)
+            : undefined;
         if (
           !(await reviewPlan(
             ctx,
@@ -470,19 +533,9 @@ export function registerDiscovery(
                 ? "Execution · background"
                 : `Execution · interactive in Zellij ${interactive.session}, tab ${String(interactive.tab)}`,
               `Project · ${target.root}\nBeads · ${target.id}\nProfile · ${target.profile}`,
-              ...(interactive === undefined
-                ? [
-                    "Merge policy · project default and lead override are evaluated before delivery",
-                  ]
-                : []),
-              specText(
-                record.specification ?? {
-                  status: SpecStatus.Frozen,
-                  version: 1,
-                  draft: null,
-                  acceptedRevision: record.revision,
-                },
-              ),
+              record.specification === undefined
+                ? "Recovery of the previously approved handoff"
+                : specText(record.specification),
               describePlan(draft),
             ].join("\n\n"),
             "create tasks and implement",
@@ -491,9 +544,10 @@ export function registerDiscovery(
           return;
         const current = await requireBinding(ctx);
         if (
+          selectedProfile !== profile() ||
           current.id !== record.id ||
           current.revision !== record.revision ||
-          current.specification?.version !== record.specification?.version ||
+          !isDeepStrictEqual(current.specification, record.specification) ||
           current.leadPlan.draft === null ||
           planDigest(current.leadPlan.draft) !== digest
         )
@@ -517,16 +571,8 @@ export function registerDiscovery(
   );
   return {
     pending: documentActionBusy,
-    hasSelectedDraft(ctx: ExtensionContext): boolean {
-      const id = locate(ctx);
-      if (id === undefined) return false;
-      const record = storage((db) => db.find(id));
-      return (
-        record !== undefined &&
-        record.project === realpathSync(ctx.cwd) &&
-        record.approved === undefined &&
-        record.leadPlan.draft !== null
-      );
+    runtimeHandoff(ctx: ExtensionContext): Discovery["handoff"] {
+      return selectedRecord(ctx)?.handoff;
     },
   };
 }

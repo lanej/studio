@@ -23,13 +23,15 @@ The specification and plan are separate Markdown buffers. `:StudioDocuments` sel
 
 Use `:write` to submit the current document to Studio. Prose is ordinary Markdown, with small TOML blocks for structured fields such as task dependencies and verification arguments. Keep the generated section boundaries intact. Invalid content remains in the buffer with an error explaining why Studio could not accept it. Identity, approval, and execution metadata are managed by Studio.
 
+Discovery work breakdowns remain editable while the specification is being discussed. The documents retain the specification's PR-delivery decision and the plan's merge policy. Editor saves use the same requirement and delivery checks as Studio's drafting tools. Saving changed text invalidates the earlier assessment; ask Studio to reassess before freezing or approving it.
+
 Studio retains the authoritative planning state. Both editor saves and agent revisions check the version they were based on. A confirmed save clears the modified flag only if you have not typed more text while it was being accepted. A lost acknowledgment is reconciled using the same save operation before a new one is submitted.
 
 Clean buffers update directly when Studio changes a document. A buffer with unsaved edits keeps its text and holds the incoming revision for comparison. `:StudioCompare` opens the local and incoming versions. Merge the desired text into the local document, then use `:StudioResolve` to adopt the incoming version as the base for your next explicit save. `:StudioReload!` deliberately discards local edits and loads the incoming version.
 
 Frozen specifications and approved plans retain Studio's existing protection. Use the indicated Studio reopen command before revising protected content. Editing or saving never freezes a specification, approves a plan, or starts execution. Changes to settled decisions must retain their history through the existing successor-decision rules.
 
-Legacy specifications without current decision metadata open read-only. Ask Studio to redraft them with that metadata before editing; opening a document never silently migrates it.
+Saved specifications without current decision metadata or complete assessments open read-only. Ask Studio to redraft them with that information before editing; opening a document never silently migrates it.
 
 ## Send feedback on a selection
 

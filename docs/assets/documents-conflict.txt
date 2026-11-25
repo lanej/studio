@@ -1,20 +1,20 @@
                                                                                                                                                 
- The selection may contain unsaved text. Respond in this chat and        Studio · conflict · specification                                      
- revise only the bound Studio documents through their guarded tools.    ↻   1 # Specification   Answered · Clarified the acceptance check. · ori
- This is not a Socrates answer or approval. Call                            3                                                                   
- document_feedback_outcome with requestId 1231-27e779e4af509-1e and a       5 ## Objective                                                      
- concise outcome when finished.                                             6                                                                   
+ Description\n\nBind editable documents to their Studio                  Studio · conflict · specification                                      
+ conversation.\n<!-- /studio:f60abcb0c5ddfc4f -->\n\n<!--               ↻   1 # Specification   Answered · Clarified the acceptance check. · ori
+ studio:f60abcb0c5ddfc4f:tasks/1/acceptance -->\n### Acceptance\n\nThe      3                                                                   
+ full plan survives a save.\n<!-- /studio:f60abcb0c5ddfc4f                  5 ## Objective                                                      
+ -->\n","writable":true}]                                                   6                                                                   
                                                                             7 Local unsaved proposal survives.   Answered · Clarified the accept
                                                                             9                                                                   
                                                                            11 ## Scope 1                                                        
  draft_socrates_specification objective="Review the complete proposal      12                                                                   
  in Neovim." scope=["Specification and plan editing","Sele...              13 Specification and plan editing                                    
- Draft saved. The operator can inspect it with /socrates and freeze it     15                                                                   
- with /spec-freeze.                                                        17 ## Scope 2                                                        
+ Properties satisfied or accounted for. Update the proposed beads if       15                                                                   
+ the specification changed, then offer /spec-freeze for review.            17 ## Scope 2                                                        
                                                                            18                                                                   
                                                                            19 Selection feedback with outcomes                                  
                                                                            21                                                                   
- document_feedback_outcome requestId="1231-27e779e4af509-1e"               23 ## Requirement R1                                                 
+ document_feedback_outcome requestId="13037-2809b00b74b43-1f"              23 ## Requirement R1                                                 
  summary="Clarified the acceptance check."                                 24                                                                   
  Clarified the acceptance check.                                           26 id = "R1"                                                         
                                                                            29                                                                   
@@ -22,11 +22,11 @@
  I clarified the acceptance check. The full explanation stays here in      32                                                                   
  Studio chat.                                                              33 Keep the full document beside Studio chat.                        
                                                                            35                                                                   
-▸ Specification  ◇ Draft · v1  13 not assessed                             37 ### Acceptance                                                    
-  Implementation  ◇ Awaiting approval · spec v1  1 proposed                38                                                                   
+▸ Specification  ◇ Draft · v1  19 satisfied                                37 ### Acceptance                                                    
+  Implementation  ◇ Draft                                                  38                                                                   
   Review the complete proposal in Neovim.                                  39 Saving updates Studio; explicit Studio review alone freezes the sp
 ───────────────────────────────────────────────────────────────────────       ecification.                                                      
                                                                                                                                                 
 ─────────────────────────────────────────────────────────────────────── Studio: Compare and reconcile the incoming revision before saving       
- ▸ ~/project ↱ main                                           tiny ◔4%  Press ENTER or type command to continue                                 
+ ▸ ~/project ↱ main                                           tiny ◔9%  Press ENTER or type command to continue                                 
                                                                                                                                                 

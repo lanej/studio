@@ -1,7 +1,7 @@
 import { isAbsolute } from "node:path";
 import { z } from "zod";
 import type { LeadDraft } from "../lead-plan.ts";
-import type { LeadSpecification } from "../socrates/spec.ts";
+import type { LeadSpecification, assessedSpecDraft } from "../socrates/spec.ts";
 
 export enum DocumentKind {
   Specification = "specification",
@@ -24,6 +24,7 @@ export const documentRefSchema = z.strictObject({
 });
 export type DocumentRef = z.infer<typeof documentRefSchema>;
 export type SpecificationDraft = NonNullable<LeadSpecification["draft"]>;
+export type WritableSpecificationDraft = z.infer<typeof assessedSpecDraft>;
 export type PlanDraft = LeadDraft;
 
 export type EditableDocument =

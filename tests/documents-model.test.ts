@@ -13,11 +13,23 @@ import {
   DocumentOwnerKind,
   documentRefSchema,
   type DocumentRef,
+  type WritableSpecificationDraft,
 } from "../documents/model.ts";
 import { documentRevision } from "../documents/revisions.ts";
-import { TaskDelivery, draftSchema } from "../lead-plan.ts";
+import {
+  TaskDelivery,
+  draftSchema,
+  pullRequestMergeSchema,
+} from "../lead-plan.ts";
+import {
+  coverageDomains,
+  coveragePropertyCatalog,
+  coverageStatuses,
+} from "../socrates/assessment.ts";
+import { deliveryPolicySchema } from "../socrates/delivery-policy.ts";
 import {
   DecisionDisposition,
+  assessedSpecDraft,
   specDraft,
   specRecord,
 } from "../socrates/spec.ts";
@@ -146,6 +158,143 @@ await test("plan prose edits and task metadata preserve every supported plan fie
     "tests/documents-model.test.ts",
   ]);
   assert.deepEqual(decoded.tasks[1]?.blockedBy, ["documents"]);
+});
+
+await test("all delivery policy arrangements round-trip and survive ordinary specification edits", () => {
+  const policies = [
+    deliveryPolicySchema.parse({ decisionId: "D2", pullRequests: "none" }),
+    ...pullRequestMergeSchema.options.flatMap((merge) => [
+      deliveryPolicySchema.parse({
+        decisionId: "D2",
+        pullRequests: "per-bead",
+        merge,
+      }),
+      deliveryPolicySchema.parse({
+        decisionId: "D2",
+        pullRequests: "selected",
+        publish: ["feedback", "documents"],
+        merge,
+      }),
+    ]),
+  ];
+  for (const deliveryPolicy of policies) {
+    const draft = specDraft.parse({ ...specification, deliveryPolicy });
+    const markdown = renderSpecification(draft);
+    assert.match(markdown, /## Delivery policy\n\n```toml/u);
+    assert.deepEqual(parseSpecification(markdown), draft);
+    assert.deepEqual(
+      parseSpecification(
+        markdown.replace(
+          "Review detailed documents in Neovim",
+          "Review the delivery decision in Neovim",
+        ),
+      ),
+      { ...draft, objective: "Review the delivery decision in Neovim" },
+    );
+  }
+});
+
+await test("plan merge policy is editable and preserves both supported rules", () => {
+  for (const pullRequestMerge of pullRequestMergeSchema.options) {
+    const draft = draftSchema.parse({ ...plan, pullRequestMerge });
+    const markdown = renderPlan(draft);
+    assert.match(markdown, /## Pull request merge policy\n\n```toml/u);
+    assert.deepEqual(parsePlan(markdown), draft);
+    const replacement =
+      pullRequestMerge === "manual" ? "project-policy" : "manual";
+    assert.deepEqual(
+      parsePlan(
+        markdown.replace(
+          `pullRequestMerge = "${pullRequestMerge}"`,
+          `pullRequestMerge = "${replacement}"`,
+        ),
+      ),
+      { ...draft, pullRequestMerge: replacement },
+    );
+  }
+});
+
+await test("saved sparse coverage remains lossless while writable coverage retains its complete validation", () => {
+  const saved = parseSpecification(renderSpecification(specification));
+  assert.deepEqual(saved, specification);
+  assert.equal(assessedSpecDraft.safeParse(saved).success, false);
+  const writable: WritableSpecificationDraft = assessedSpecDraft.parse({
+    ...specification,
+    coverage: {
+      domains: coverageDomains,
+      focus: "robustness",
+      assessments: coveragePropertyCatalog.map(({ id }, index) => ({
+        propertyId: id,
+        status: coverageStatuses[index % coverageStatuses.length],
+        reason: `Evidence for ${id}: ${prose}`,
+      })),
+    },
+  });
+  const decoded = parseSpecification(renderSpecification(writable));
+  assert.deepEqual(assessedSpecDraft.parse(decoded), writable);
+  assert.throws(() =>
+    parseSpecification(
+      renderSpecification(specification).replace(
+        'status = "unknown"',
+        'status = "satisfied"',
+      ),
+    ),
+  );
+});
+
+await test("delivery and merge metadata reject unsupported, contradictory, and hidden authority fields", () => {
+  const local = renderSpecification({
+    ...specification,
+    deliveryPolicy: { decisionId: "D2", pullRequests: "none" },
+  });
+  for (const addition of [
+    'merge = "manual"',
+    'publish = [ "documents" ]',
+    "approved = true",
+  ]) {
+    assert.throws(() =>
+      parseSpecification(
+        local.replace(
+          'pullRequests = "none"',
+          `pullRequests = "none"\n${addition}`,
+        ),
+      ),
+    );
+  }
+  const selected = renderSpecification({
+    ...specification,
+    deliveryPolicy: {
+      decisionId: "D2",
+      pullRequests: "selected",
+      publish: ["documents"],
+      merge: "manual",
+    },
+  });
+  for (const changed of [
+    selected.replace('publish = [ "documents" ]', "publish = []"),
+    selected.replace(
+      'publish = [ "documents" ]',
+      'publish = [ "documents", "documents" ]',
+    ),
+    selected.replace('merge = "manual"', 'merge = "automatic"'),
+    selected.replace('decisionId = "D2"', 'decisionId = "untracked"'),
+  ]) {
+    assert.throws(() => parseSpecification(changed));
+  }
+  const merge = renderPlan({ ...plan, pullRequestMerge: "manual" });
+  for (const changed of [
+    merge.replace(
+      'pullRequestMerge = "manual"',
+      'pullRequestMerge = "automatic"',
+    ),
+    merge.replace('pullRequestMerge = "manual"', ""),
+    merge.replace(
+      'pullRequestMerge = "manual"',
+      'pullRequestMerge = "manual"\napproved = true',
+    ),
+  ]) {
+    assert.throws(() => parsePlan(changed));
+  }
 });
 
 await test("legacy specifications and empty optional collections do not acquire invented state", () => {
@@ -306,4 +455,57 @@ await test("revisions bind content and workflow state to the full owner identity
   assert.throws(() =>
     documentRevision(ref, specification, { count: Number.NaN }),
   );
+});
+
+await test("delivery policy, merge authority, and coverage changes invalidate document revisions", () => {
+  const local = {
+    ...specification,
+    deliveryPolicy: deliveryPolicySchema.parse({
+      decisionId: "D2",
+      pullRequests: "none",
+    }),
+  };
+  const manual = {
+    ...specification,
+    deliveryPolicy: deliveryPolicySchema.parse({
+      decisionId: "D2",
+      pullRequests: "selected",
+      publish: ["documents"],
+      merge: "manual",
+    }),
+  };
+  const policy = {
+    ...manual,
+    deliveryPolicy: deliveryPolicySchema.parse({
+      ...manual.deliveryPolicy,
+      merge: "project-policy",
+    }),
+  };
+  const revisions = [specification, local, manual, policy].map((draft) =>
+    documentRevision(ref, draft, null),
+  );
+  assert.equal(new Set(revisions).size, revisions.length);
+  assert.notEqual(
+    documentRevision(ref, specification, null),
+    documentRevision(
+      ref,
+      {
+        ...specification,
+        coverage: {
+          ...specification.coverage,
+          focus: "audience",
+        },
+      },
+      null,
+    ),
+  );
+  const planRef = { ...ref, kind: DocumentKind.Plan };
+  const planRevisions = [
+    plan,
+    ...pullRequestMergeSchema.options.map((pullRequestMerge) => ({
+      ...plan,
+      pullRequestMerge,
+    })),
+  ].map((draft) => documentRevision(planRef, draft, null));
+  assert.equal(new Set(planRevisions).size, planRevisions.length);
 });

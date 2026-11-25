@@ -109,6 +109,16 @@ export const executionSchema = z.object({
   controllerSession: z.string().optional(),
   controllerSessionFile: z.string().optional(),
   readyNotice: z.object({ id: z.string(), head: z.string() }).optional(),
+  manualMergeApproval: z
+    .object({
+      head: z.string(),
+      notice: z.string(),
+      pr: z.string(),
+      agent: z.string(),
+      actor: z.string(),
+      at: z.string(),
+    })
+    .optional(),
   worker: selection.optional(),
   reviewer: selection.optional(),
   sessions: z.array(z.string()).default([]),

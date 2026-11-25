@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { z } from "zod";
 import { draftSchema } from "../lead-plan.ts";
-import { coverageSchema } from "../socrates/assessment.ts";
+import { savedCoverageSchema } from "../socrates/assessment.ts";
+import { deliveryPolicySchema } from "../socrates/delivery-policy.ts";
 import { isTrackedDecision, specDraft, specRecord } from "../socrates/spec.ts";
 import {
   DocumentKind,
@@ -22,12 +23,15 @@ const decisionMetadata = specDraft.shape.decisions.element.omit({
 });
 const legacyDecisionMetadata = decisionMetadata.pick({ basis: true });
 const coverageMetadata = z.strictObject({
-  domains: coverageSchema.shape.domains,
-  focus: coverageSchema.shape.focus,
+  domains: savedCoverageSchema.shape.domains,
+  focus: savedCoverageSchema.shape.focus,
 });
 const assessmentMetadata = z.strictObject({
-  propertyId: coverageSchema.shape.assessments.element.shape.propertyId,
-  status: coverageSchema.shape.assessments.element.shape.status,
+  propertyId: savedCoverageSchema.shape.assessments.element.shape.propertyId,
+  status: savedCoverageSchema.shape.assessments.element.shape.status,
+});
+const planMergeMetadata = z.strictObject({
+  pullRequestMerge: draftSchema.shape.pullRequestMerge.unwrap(),
 });
 const taskMetadata = draftSchema.shape.tasks.element.omit({
   title: true,
@@ -53,6 +57,10 @@ function heading(path: string, table?: Record<string, unknown>): string {
       return `## Open question ${number ?? ""}`;
     case "coverage":
       return "## Property assessment scope";
+    case "delivery-policy":
+      return "## Delivery policy";
+    case "merge-policy":
+      return "## Pull request merge policy";
     case "requirements":
       if (field === "metadata") return `## Requirement ${id ?? ""}`;
       break;
@@ -306,6 +314,13 @@ export function renderSpecification(value: SpecificationDraft): string {
         decision.uncertainty,
       );
   });
+  if ("deliveryPolicy" in draft && draft.deliveryPolicy !== undefined)
+    add(
+      fields,
+      "delivery-policy",
+      "## Delivery policy",
+      metadata(draft.deliveryPolicy),
+    );
   draft.blockingQuestions.forEach((question, index) => {
     add(
       fields,
@@ -380,6 +395,11 @@ export function parseSpecification(markdown: string): SpecificationDraft {
   const blockingQuestions = fields
     .entries("questions", "")
     .map((index) => fields.text(`questions/${index}`));
+  const deliveryTable = fields.optionalTable("delivery-policy");
+  const deliveryPolicy =
+    deliveryTable === undefined
+      ? undefined
+      : deliveryPolicySchema.parse(deliveryTable);
   const coverageTable = fields.optionalTable("coverage");
   let coverage: unknown;
   if (coverageTable !== undefined) {
@@ -402,6 +422,7 @@ export function parseSpecification(markdown: string): SpecificationDraft {
     requirements,
     decisions,
     blockingQuestions,
+    ...(deliveryPolicy === undefined ? {} : { deliveryPolicy }),
     ...(coverage === undefined ? {} : { coverage }),
   });
 }
@@ -411,6 +432,13 @@ export function renderPlan(value: PlanDraft): string {
   const fields: Field[] = [
     { path: "summary", heading: "## Summary", body: draft.summary },
   ];
+  if (draft.pullRequestMerge !== undefined)
+    add(
+      fields,
+      "merge-policy",
+      "## Pull request merge policy",
+      metadata({ pullRequestMerge: draft.pullRequestMerge }),
+    );
   draft.tasks.forEach((task, index) => {
     const path = `tasks/${String(index + 1)}`;
     const { title, description, acceptance, ...options } = task;
@@ -430,6 +458,9 @@ export function renderPlan(value: PlanDraft): string {
 export function parsePlan(markdown: string): PlanDraft {
   const fields = new Fields(markdown, DocumentKind.Plan);
   const summary = fields.text("summary");
+  const mergeTable = fields.optionalTable("merge-policy");
+  const mergePolicy =
+    mergeTable === undefined ? {} : planMergeMetadata.parse(mergeTable);
   const tasks = fields.entries("tasks", "/metadata").map((index) => {
     const path = `tasks/${index}`;
     return {
@@ -440,7 +471,7 @@ export function parsePlan(markdown: string): PlanDraft {
     };
   });
   fields.finish();
-  return draftSchema.parse({ summary, tasks });
+  return draftSchema.parse({ summary, ...mergePolicy, tasks });
 }
 
 export function renderDocument(document: EditableDocument): string {

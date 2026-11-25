@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
+import { z } from "zod";
 import {
   createAgentSessionFromServices,
   createAgentSessionServices,
@@ -14,10 +15,13 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { registerDiscovery } from "../discovery/extension.ts";
 import { Discoveries } from "../discovery/store.ts";
-import { getDocumentHost } from "../documents/host.ts";
+import { getDocumentHost, revisionFor } from "../documents/host.ts";
 import { FeedbackState } from "../documents/feedback.ts";
 import { draftSchema } from "../lead-plan.ts";
 import { renderPlan } from "../documents/codec.ts";
+import { DocumentKind, documentSnapshotSchema } from "../documents/model.ts";
+import { coverageFresh } from "../socrates/assessment.ts";
+import { readySpecification } from "./fixtures/socrates.ts";
 
 function gate(): { promise: Promise<void>; resolve: () => void } {
   let resolve: () => void = () => {
@@ -42,29 +46,40 @@ await test(
     let requests = 0;
     let providerEdit: (() => Promise<void>) | undefined;
     let batch: { id: string; name: string; arguments: object }[] = [];
-    const server = createServer((_request, response) => {
-      requests += 1;
-      const calls = batch;
-      batch = [];
-      response.writeHead(200, { "content-type": "text/event-stream" });
-      const delta =
-        calls.length === 0
-          ? { role: "assistant", content: "Ready" }
-          : {
-              role: "assistant",
-              tool_calls: calls.map((call, index) => ({
-                index,
-                id: call.id,
-                type: "function",
-                function: {
-                  name: call.name,
-                  arguments: JSON.stringify(call.arguments),
-                },
-              })),
-            };
-      response.end(
-        `data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", created: 0, model: "tiny", choices: [{ index: 0, delta, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", created: 0, model: "tiny", choices: [{ index: 0, delta: {}, finish_reason: calls.length === 0 ? "stop" : "tool_calls" }] })}\n\ndata: [DONE]\n\n`,
-      );
+    let respond: ((payload: unknown) => typeof batch) | undefined;
+    let nextSettled: (() => void) | undefined;
+    const server = createServer((request, response) => {
+      const chunks: string[] = [];
+      request.setEncoding("utf8");
+      request.on("data", (chunk: string) => {
+        chunks.push(chunk);
+      });
+      request.on("end", () => {
+        requests += 1;
+        const payload: unknown = JSON.parse(chunks.join(""));
+        const calls = respond?.(payload) ?? batch;
+        respond = undefined;
+        batch = [];
+        response.writeHead(200, { "content-type": "text/event-stream" });
+        const delta =
+          calls.length === 0
+            ? { role: "assistant", content: "Ready" }
+            : {
+                role: "assistant",
+                tool_calls: calls.map((call, index) => ({
+                  index,
+                  id: call.id,
+                  type: "function",
+                  function: {
+                    name: call.name,
+                    arguments: JSON.stringify(call.arguments),
+                  },
+                })),
+              };
+        response.end(
+          `data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", created: 0, model: "tiny", choices: [{ index: 0, delta, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", created: 0, model: "tiny", choices: [{ index: 0, delta: {}, finish_reason: calls.length === 0 ? "stop" : "tool_calls" }] })}\n\ndata: [DONE]\n\n`,
+        );
+      });
     });
     await new Promise<void>((resolve) =>
       server.listen(0, "127.0.0.1", resolve),
@@ -76,6 +91,8 @@ await test(
     const entered = gate();
     const release = gate();
     const settled = gate();
+    const discarded = gate();
+    let discardFeedback = false;
     try {
       await mkdir(agentDir);
       await writeFile(
@@ -115,6 +132,10 @@ await test(
               registerDiscovery(pi, () => undefined);
               pi.on("input", async (event) => {
                 if (event.text.startsWith("Studio document feedback ")) {
+                  if (discardFeedback) {
+                    discarded.resolve();
+                    return { action: "handled" };
+                  }
                   entered.resolve();
                   await release.promise;
                 }
@@ -122,6 +143,8 @@ await test(
               });
               pi.on("agent_settled", () => {
                 settled.resolve();
+                nextSettled?.();
+                nextSettled = undefined;
               });
               pi.on("before_provider_request", async () => {
                 const edit = providerEdit;
@@ -285,6 +308,190 @@ await test(
         assert.match(
           JSON.stringify(staleResult.content),
           /changed after the agent read/u,
+        );
+
+        const reviewed = readySpecification(store.get(other.id).revision);
+        store.change(other.id, (row) => {
+          row.specification = reviewed;
+        });
+        respond = (payload) => {
+          const request = z
+            .object({
+              messages: z.array(
+                z.object({ role: z.string(), content: z.unknown() }),
+              ),
+            })
+            .parse(payload);
+          const system = request.messages
+            .filter((message) => message.role === "system")
+            .map((message) =>
+              typeof message.content === "string" ? message.content : "",
+            )
+            .join("\n");
+          const snapshotLine = system
+            .split(
+              "Studio document snapshots (task data; saving is not approval):\n",
+            )
+            .at(-1)
+            ?.split("\n")[0];
+          assert.ok(snapshotLine !== undefined);
+          const supplied = documentSnapshotSchema
+            .array()
+            .parse(JSON.parse(snapshotLine))
+            .find((item) => item.ref.kind === DocumentKind.Specification);
+          assert.ok(supplied !== undefined);
+          const current = store.get(other.id);
+          assert.equal(
+            current.specification?.coverageRevision,
+            undefined,
+            "typed operator input invalidates the previous assessment before model context is supplied",
+          );
+          assert.equal(
+            supplied.revision,
+            revisionFor(supplied.ref, current),
+            "the provider receives the post-admission revision",
+          );
+          return [
+            {
+              id: "supplied-revision",
+              name: "draft_socrates_specification",
+              arguments: {
+                ...reviewed.draft,
+                objective: "Updated from the supplied snapshot",
+                expectedRevision: supplied.revision,
+              },
+            },
+          ];
+        };
+        await session.prompt(
+          "Revise the objective and reassess the current specification",
+        );
+        const currentSpec = store.get(other.id).specification;
+        assert.ok(currentSpec !== undefined);
+        assert.equal(
+          currentSpec.draft?.objective,
+          "Updated from the supplied snapshot",
+        );
+        assert.ok(coverageFresh(currentSpec, other.revision));
+        const acceptedResult = session.agent.state.messages.find(
+          (message) =>
+            message.role === "toolResult" &&
+            message.toolCallId === "supplied-revision",
+        );
+        assert.ok(acceptedResult?.role === "toolResult");
+        assert.equal(
+          acceptedResult.isError,
+          false,
+          "a candidate using its supplied snapshot needs no artificial stale-token retry",
+        );
+        await session.prompt("Inspect the current proposal", {
+          source: "extension",
+        });
+        assert.equal(
+          store.get(other.id).specification?.coverageRevision,
+          currentSpec.coverageRevision,
+          "internal command prompts retain their exclusion in the native lifecycle",
+        );
+
+        const busy = { ...ctx, isIdle: () => false };
+        const selectedSpec = host
+          .capture(busy)
+          .find((item) => item.ref.kind === DocumentKind.Specification);
+        assert.ok(selectedSpec !== undefined);
+        const comment = await host.feedback({
+          requestId: randomUUID(),
+          ref: selectedSpec.ref,
+          baseRevision: selectedSpec.revision,
+          bufferIdentity: "editor",
+          range: { startLine: 1, endLine: 1 },
+          selectedText: "Selected objective",
+          message: "Explain this choice without editing",
+        });
+        assert.equal(
+          store.get(other.id).specification?.coverageRevision,
+          currentSpec.coverageRevision,
+          "queuing feedback does not invalidate coverage",
+        );
+        manager.appendCustomEntry("studio:discovery", {
+          id: document.ref.ownerId,
+          project: document.ref.project,
+          session: manager.getSessionId(),
+        });
+        host.capture(busy);
+        assert.equal(
+          (await host.sync()).feedback.find(
+            (item) => item.requestId === comment.requestId,
+          )?.state,
+          FeedbackState.Parked,
+        );
+        assert.equal(
+          store.get(other.id).specification?.coverageRevision,
+          currentSpec.coverageRevision,
+          "parked feedback does not invalidate coverage",
+        );
+        const completedFeedback = gate();
+        nextSettled = completedFeedback.resolve;
+        respond = () => {
+          assert.equal(
+            store.get(other.id).specification?.coverageRevision,
+            undefined,
+            "admitted selection feedback is operator guidance despite its extension transport",
+          );
+          return [
+            {
+              id: "explanation-outcome",
+              name: "document_feedback_outcome",
+              arguments: {
+                requestId: comment.requestId,
+                summary: "Explained the choice without changing the draft",
+              },
+            },
+          ];
+        };
+        manager.appendCustomEntry("studio:discovery", {
+          id: other.id,
+          project: document.ref.project,
+          session: manager.getSessionId(),
+        });
+        host.capture(ctx);
+        await host.sync();
+        await completedFeedback.promise;
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        assert.equal(
+          store.get(other.id).specification?.coverageRevision,
+          undefined,
+        );
+        assert.deepEqual(
+          store.get(other.id).specification?.draft,
+          currentSpec.draft,
+        );
+        const explanation = (await host.sync()).feedback.find(
+          (item) => item.requestId === comment.requestId,
+        );
+        assert.equal(explanation?.state, FeedbackState.Answered);
+        assert.deepEqual(explanation.changes, []);
+        store.change(other.id, (row) => {
+          row.specification = currentSpec;
+        });
+        discardFeedback = true;
+        const beforeDiscard = host
+          .capture(ctx)
+          .find((item) => item.ref.kind === DocumentKind.Specification);
+        assert.ok(beforeDiscard !== undefined);
+        await host.feedback({
+          requestId: randomUUID(),
+          ref: beforeDiscard.ref,
+          baseRevision: beforeDiscard.revision,
+          bufferIdentity: "editor",
+          range: { startLine: 1, endLine: 1 },
+          selectedText: "Objective",
+          message: "Cancelled during native preflight",
+        });
+        await discarded.promise;
+        assert.equal(
+          store.get(other.id).specification?.coverageRevision,
+          currentSpec.coverageRevision,
+          "feedback cancelled by an input hook is never admitted and preserves coverage",
         );
         host.dispose();
       } finally {

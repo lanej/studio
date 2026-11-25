@@ -14,10 +14,13 @@ import {
   type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import { registerDiscovery } from "../discovery/extension.ts";
-import { Discoveries } from "../discovery/store.ts";
-import { draftSchema } from "../lead-plan.ts";
+import { Discoveries, handoffDraft } from "../discovery/store.ts";
+import { draftSchema, TaskDelivery } from "../lead-plan.ts";
 import { getDocumentHost } from "../documents/host.ts";
-import { renderPlan } from "../documents/codec.ts";
+import { renderPlan, renderSpecification } from "../documents/codec.ts";
+import { DocumentKind } from "../documents/model.ts";
+import { coverageFresh, specificationToken } from "../socrates/assessment.ts";
+import { readySpecification } from "./fixtures/socrates.ts";
 import { SpecStatus } from "../socrates/spec.ts";
 import { FeedbackState } from "../documents/feedback.ts";
 
@@ -501,6 +504,195 @@ await test(
         }),
         /legacy specification.*redraft/u,
       );
+
+      const reviewed = readySpecification(store.get(other.id).revision);
+      const firstTask = original.tasks[0];
+      assert.ok(firstTask !== undefined);
+      const proposal = {
+        ...original,
+        tasks: [{ ...firstTask, requirements: ["R1"] }],
+      };
+      store.change(other.id, (row) => {
+        row.specification = reviewed;
+        row.leadPlan = { ...row.leadPlan, draft: proposal };
+      });
+      host.capture(busy);
+      const documents = (await host.sync()).documents;
+      const editablePlan = documents.find(
+        (item) => item.ref.kind === DocumentKind.Plan,
+      );
+      assert.ok(editablePlan !== undefined);
+      assert.equal(
+        editablePlan.writable,
+        true,
+        "a discovery proposal is editable before freeze",
+      );
+      const editedPlan = await host.save({
+        operationId: randomUUID(),
+        ref: editablePlan.ref,
+        expectedRevision: editablePlan.revision,
+        markdown: renderPlan({
+          ...proposal,
+          summary: "Operator revised the proposal",
+        }),
+      });
+      const afterPlan = store.get(other.id);
+      assert.equal(
+        afterPlan.planSpecificationRevision,
+        specificationToken(reviewed),
+      );
+      assert.equal(
+        afterPlan.leadPlan.draft?.tasks[0]?.delivery,
+        TaskDelivery.Local,
+      );
+      assert.equal(afterPlan.specification?.coverageRevision, undefined);
+      assert.ok(
+        afterPlan.specification !== undefined &&
+          !coverageFresh(afterPlan.specification, afterPlan.revision),
+      );
+      await assert.rejects(
+        host.save({
+          operationId: randomUUID(),
+          ref: editedPlan.ref,
+          expectedRevision: editedPlan.revision,
+          markdown: renderPlan({
+            ...proposal,
+            tasks: [{ ...firstTask, requirements: ["R99"] }],
+          }),
+        }),
+        /current specification/u,
+      );
+      await assert.rejects(
+        host.save({
+          operationId: randomUUID(),
+          ref: editedPlan.ref,
+          expectedRevision: editedPlan.revision,
+          markdown: renderPlan({
+            ...proposal,
+            tasks: [
+              {
+                ...firstTask,
+                requirements: ["R1"],
+                delivery: TaskDelivery.PullRequest,
+              },
+            ],
+          }),
+        }),
+        /conflicts with decision/u,
+      );
+      const staleAssessment = host
+        .capture(busy)
+        .find((item) => item.ref.kind === DocumentKind.Specification);
+      assert.ok(staleAssessment !== undefined);
+      await host.save({
+        operationId: randomUUID(),
+        ref: editedPlan.ref,
+        expectedRevision: editedPlan.revision,
+        markdown: renderPlan({
+          ...proposal,
+          summary: "Changed again while assessment was already stale",
+        }),
+      });
+      const currentAssessment = host
+        .capture(busy)
+        .find((item) => item.ref.kind === DocumentKind.Specification);
+      assert.ok(currentAssessment !== undefined);
+      assert.notEqual(
+        staleAssessment.revision,
+        currentAssessment.revision,
+        "plan contents fence coverage proposals even while coverageRevision is already unset",
+      );
+      const specificationTool = runner.getToolDefinition(
+        "draft_socrates_specification",
+      );
+      assert.ok(specificationTool !== undefined);
+      await assert.rejects(
+        specificationTool.execute(
+          "stale-assessment",
+          { ...reviewed.draft, expectedRevision: staleAssessment.revision },
+          undefined,
+          undefined,
+          busy,
+        ),
+        /changed after the agent read/u,
+      );
+      await specificationTool.execute(
+        "reassess",
+        { ...reviewed.draft, expectedRevision: currentAssessment.revision },
+        undefined,
+        undefined,
+        busy,
+      );
+      const editableSpec = host
+        .capture(busy)
+        .find((item) => item.ref.kind === DocumentKind.Specification);
+      assert.ok(editableSpec?.writable === true);
+      await assert.rejects(
+        host.save({
+          operationId: randomUUID(),
+          ref: editableSpec.ref,
+          expectedRevision: editableSpec.revision,
+          markdown: renderSpecification({
+            ...reviewed.draft,
+            coverage: undefined,
+          }),
+        }),
+        /coverage/u,
+      );
+      await host.save({
+        operationId: randomUUID(),
+        ref: editableSpec.ref,
+        expectedRevision: editableSpec.revision,
+        markdown: renderSpecification({
+          ...reviewed.draft,
+          scope: ["Operator revised the scope"],
+        }),
+      });
+      const afterSpec = store.get(other.id);
+      assert.ok(afterSpec.specification !== undefined);
+      assert.equal(
+        afterSpec.specification.coverageRevision,
+        undefined,
+        "editor prose edits never certify inherited coverage",
+      );
+      assert.notEqual(
+        afterSpec.planSpecificationRevision,
+        specificationToken(afterSpec.specification),
+        "a specification edit requires relinking the plan",
+      );
+      store.change(other.id, (row) => {
+        assert.ok(row.specification !== undefined);
+        row.specification.status = SpecStatus.Frozen;
+        row.specification.approvalAt = new Date().toISOString();
+      });
+      const frozenDocuments = host.capture(busy);
+      assert.equal(
+        frozenDocuments.find(
+          (item) => item.ref.kind === DocumentKind.Specification,
+        )?.writable,
+        false,
+      );
+      assert.equal(
+        frozenDocuments.find((item) => item.ref.kind === DocumentKind.Plan)
+          ?.writable,
+        true,
+      );
+      assert.throws(
+        () => handoffDraft(store.get(other.id)),
+        /Reassess properties/u,
+      );
+      store.change(other.id, (row) => {
+        row.specification = {
+          ...reviewed,
+          draft: { ...reviewed.draft, coverage: undefined },
+        };
+      });
+      const historical = host
+        .capture(busy)
+        .find((item) => item.ref.kind === DocumentKind.Specification);
+      assert.ok(historical !== undefined);
+      assert.equal(historical.writable, false);
+      assert.match(historical.reason ?? "", /complete property assessment/u);
       host.dispose();
     } finally {
       if (api !== undefined) getDocumentHost(api)?.dispose();

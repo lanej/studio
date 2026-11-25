@@ -7,10 +7,16 @@ import { isDeepStrictEqual } from "node:util";
 import { Type } from "typebox";
 import { stateDirectory, type Attempt } from "../attempts.ts";
 import { LeadMode, draftSchema } from "../lead-plan.ts";
-import { SpecStatus, preserveDecisions, specDraft } from "../socrates/spec.ts";
+import {
+  SpecStatus,
+  preserveDecisions,
+  specDraft,
+  assessedSpecDraft,
+} from "../socrates/spec.ts";
+import { saveDiscoveryPlan } from "../discovery/store.ts";
 import {
   DocumentKind,
-  type DocumentOwnerKind,
+  DocumentOwnerKind,
   type DocumentRef,
   type DocumentSnapshot,
 } from "./model.ts";
@@ -33,6 +39,7 @@ export interface DocumentState {
   revision: string | null;
   specification?: Attempt["specification"];
   leadPlan?: Attempt["leadPlan"];
+  planSpecificationRevision?: string | undefined;
   approved?: string | undefined;
   handoff?: { phase: string } | undefined;
 }
@@ -48,6 +55,11 @@ export interface DocumentOwner {
 export interface DocumentHostAdapter {
   current(ctx: ExtensionContext): DocumentOwner | undefined;
   changed?(ctx: ExtensionContext): void;
+}
+export interface DocumentPromptAdmission {
+  prompt: string;
+  feedback: boolean;
+  admitted: boolean;
 }
 const hosts = new WeakMap<ExtensionAPI, DocumentHost>();
 export function getDocumentHost(pi: ExtensionAPI): DocumentHost | undefined {
@@ -83,7 +95,8 @@ export function revisionFor(ref: DocumentRef, record: DocumentState): string {
     JSON.stringify({
       revision: record.revision,
       specification: record.specification,
-      planMode: record.leadPlan?.mode,
+      leadPlan: record.leadPlan,
+      planSpecificationRevision: record.planSpecificationRevision,
       approved: record.approved,
       handoff: record.handoff,
     }),
@@ -93,6 +106,7 @@ export function revisionFor(ref: DocumentRef, record: DocumentState): string {
 function protectedReason(
   record: DocumentState,
   kind: DocumentKind,
+  ownerKind: DocumentOwnerKind,
 ): string | undefined {
   if (record.handoff !== undefined && record.handoff.phase !== "complete")
     return "Reconcile the pending Studio handoff before editing";
@@ -107,6 +121,11 @@ function protectedReason(
       !specDraft.safeParse(record.specification.draft).success
     )
       return "This legacy specification is read-only; ask Studio to redraft it with current decision metadata before editing";
+    if (
+      record.specification?.draft != null &&
+      !assessedSpecDraft.safeParse(record.specification.draft).success
+    )
+      return "This specification needs a complete property assessment; ask Studio to reassess it before editing";
     if (record.specification?.status !== SpecStatus.Interrogating)
       return "Reopen the frozen specification in Studio before editing";
     if (record.specification.acceptedRevision !== record.revision)
@@ -114,8 +133,10 @@ function protectedReason(
     if (record.specification.exchange !== undefined)
       return "Resolve the pending Socrates exchange in Studio before editing";
   } else if (
+    ownerKind === DocumentOwnerKind.Attempt &&
     record.specification !== undefined &&
     (record.specification.status !== SpecStatus.Frozen ||
+      record.specification.draft === null ||
       record.specification.acceptedRevision !== record.revision)
   ) {
     return "Freeze the current specification in Studio before editing its plan";
@@ -128,7 +149,7 @@ export function snapshotFor(
   kind: DocumentKind,
 ): DocumentSnapshot | undefined {
   const ref = refFor(owner, kind);
-  const reason = protectedReason(record, kind);
+  const reason = protectedReason(record, kind, owner.kind);
   const draft =
     kind === DocumentKind.Specification
       ? record.specification?.draft
@@ -160,12 +181,13 @@ function applyDocument(
   record: DocumentState,
   kind: DocumentKind,
   markdown: string,
+  ownerKind: DocumentOwnerKind,
 ): void {
-  const reason = protectedReason(record, kind);
+  const reason = protectedReason(record, kind, ownerKind);
   if (reason !== undefined) throw new Error(reason);
   const parsed = parseDocument(kind, markdown);
   if (parsed.kind === DocumentKind.Specification) {
-    const draft = specDraft.parse(parsed.draft);
+    const draft = assessedSpecDraft.parse(parsed.draft);
     const spec = record.specification;
     if (spec === undefined) throw new Error("No specification exists");
     preserveDecisions(spec.draft, draft);
@@ -173,9 +195,16 @@ function applyDocument(
     record.specification = { ...spec, draft, coverageRevision: undefined };
   } else {
     const draft = draftSchema.parse(parsed.draft);
-    validatePlanRequirements(record, draft);
     if (record.leadPlan === undefined) throw new Error("No plan exists");
-    record.leadPlan = { ...record.leadPlan, draft };
+    if (ownerKind === DocumentOwnerKind.Discovery) {
+      const proposal = { ...record, leadPlan: record.leadPlan };
+      saveDiscoveryPlan(proposal, draft);
+      record.leadPlan = proposal.leadPlan;
+      record.planSpecificationRevision = proposal.planSpecificationRevision;
+    } else {
+      validatePlanRequirements(record, draft);
+      record.leadPlan = { ...record.leadPlan, draft };
+    }
   }
 }
 function validatePlanRequirements(
@@ -192,9 +221,10 @@ function validatePlanRequirements(
         task.requirements.length === 0 ||
         task.requirements.some((id) => !requirements.includes(id)),
     ) ||
-    requirements.some(
-      (id) => !draft.tasks.some((task) => task.requirements.includes(id)),
-    )
+    (draft.tasks.length > 0 &&
+      requirements.some(
+        (id) => !draft.tasks.some((task) => task.requirements.includes(id)),
+      ))
   )
     throw new Error(
       "Cover every frozen requirement and link each task to known requirement IDs",
@@ -219,6 +249,9 @@ export class DocumentHost {
     { ref: DocumentRef; revision: string; markdown?: string }
   >();
   private listeners = new Set<() => void>();
+  private promptListeners = new Set<
+    (admission: DocumentPromptAdmission, ctx: ExtensionContext) => void
+  >();
   private dialogs = 0;
   private active: ActiveFeedback | undefined;
   private dispatching = false;
@@ -282,6 +315,29 @@ export class DocumentHost {
         this.blockedRun =
           "A document feedback delivery is already pending; wait for it to settle before changing documents";
         ctx.abort();
+      }
+      if (event.messageType === "user") {
+        try {
+          for (const listener of this.promptListeners)
+            listener(
+              {
+                prompt: event.prompt,
+                feedback: request !== undefined,
+                admitted: this.blockedRun === undefined,
+              },
+              ctx,
+            );
+        } catch (error) {
+          this.blockedRun =
+            error instanceof Error ? error.message : String(error);
+          if (request !== undefined)
+            this.store().change(request.requestId, (row) => {
+              row.state = FeedbackState.Uncertain;
+              row.reason =
+                "Studio could not prepare the admitted feedback; inspect its chat before retrying";
+            });
+          ctx.abort();
+        }
       }
       const documents = this.capture(ctx);
       this.emit();
@@ -411,6 +467,18 @@ export class DocumentHost {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
+    };
+  }
+  /** Apply user-admission state changes before supplying revision-bound model context. */
+  onPromptAdmission(
+    listener: (
+      admission: DocumentPromptAdmission,
+      ctx: ExtensionContext,
+    ) => void,
+  ): () => void {
+    this.promptListeners.add(listener);
+    return () => {
+      this.promptListeners.delete(listener);
     };
   }
   pending(): boolean {
@@ -676,7 +744,7 @@ export class DocumentHost {
         accepted = current;
         return;
       }
-      applyDocument(record, request.ref.kind, request.markdown);
+      applyDocument(record, request.ref.kind, request.markdown, owner.kind);
       accepted = snapshotFor(owner, record, request.ref.kind);
     });
     if (accepted === undefined)
