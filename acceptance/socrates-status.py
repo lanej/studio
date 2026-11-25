@@ -30,6 +30,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 root = Path(__file__).resolve().parents[1]
 palette = json.loads((root / "resources/colors.json").read_text())
+data_change_planning = (root / "resources/socrates/references/data-change-planning.md").read_text()
 request_started = Event()
 release_response = Event()
 guidance_received = Event()
@@ -85,8 +86,11 @@ class Provider(BaseHTTPRequestHandler):
         )
         user_messages = [str(m.get("content", "")) for m in request["messages"] if m["role"] == "user"]
         resumed_answer = any("recorded operator answer" in message for message in user_messages[-1:])
-        if resumed_answer and "Harmony" not in system:
-            provider_errors.append("Native lead did not load Socrates guidance")
+        if resumed_answer:
+            if "Harmony" not in system:
+                provider_errors.append("Native lead did not load Socrates guidance")
+            if data_change_planning not in system:
+                provider_errors.append("Native lead did not deliver the bundled data and interface guidance")
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.end_headers()
