@@ -7,7 +7,6 @@ import {
 import { selectorText } from "@lanej/pi-components";
 import { taskReviewFields, TaskDelivery, type LeadDraft } from "./lead-plan.ts";
 import { planGraph, planGraphColor, renderGraphPrefix } from "./plan-graph.ts";
-import { taskWaves } from "./smart-plan-graph.ts";
 
 interface ReviewField {
   label: string;
@@ -122,19 +121,7 @@ export function renderPlanReview(
 
   const details: string[] = [];
   if (graph.length > 0) details.push(...section("Task details", detailsWidth));
-  const waves = taskWaves(draft.tasks);
-  let displayedWave: number | undefined;
   for (const { task } of graph) {
-    const wave = waves.get(task.key);
-    if (wave !== undefined && wave !== displayedWave) {
-      details.push(
-        ...wrapTextWithAnsi(
-          theme.fg("accent", `Wave ${String(wave)}`),
-          detailsWidth,
-        ),
-      );
-      displayedWave = wave;
-    }
     const heading = `${task.key} · ${oneLine(task.title)}`;
     const fields: ReviewField[] = taskReviewFields(task).map(
       ({ label, value }) => ({
