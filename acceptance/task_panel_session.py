@@ -17,7 +17,7 @@ const session = SessionManager.create(project);
 const store = new Discoveries();
 const record = store.create(project, session.getSessionId(), 'Handed-off work');
 const draft = draftSchema.parse({summary: message, tasks: [{key: 'work', title: message, description: message, acceptance: 'Reviewed'}]});
-const target = runtimeProjectSchema.parse({root: project, source, profile: 'personal', base: 'main', beadsWorkspace: project, beadsDatabase: 'fixture'});
+const target = runtimeProjectSchema.parse({root: record.project, source, profile: 'personal', base: 'main', beadsWorkspace: record.project, beadsDatabase: 'fixture'});
 store.change(record.id, row => {
   row.leadPlan.draft = draft;
   row.approved = planDigest(draft);
@@ -26,7 +26,7 @@ store.change(record.id, row => {
 });
 store.close();
 session.appendMessage({role:'user', content:message, timestamp:Date.now()});
-session.appendCustomEntry('studio:discovery', {id:record.id, project});
+session.appendCustomEntry('studio:discovery', {id:record.id, project:record.project});
 console.log(session.getSessionFile());
 """
     return subprocess.run(["bun", "--no-env-file", "-e", script, str(project), json.dumps(source), task, message],
