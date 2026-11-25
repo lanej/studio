@@ -126,8 +126,11 @@ export default function(pi) {{
                     captured_details = True
             else:
                 raise AssertionError("Approval action never became available\n" + terminal.text())
-            for field in ("Execution", "background", "Project", "event-export", "Beads", "a937016c", "Includes event-schema, json-export", "Acceptance", "Requirements", "Owns", "Admission", "on hold", "Delivery", "Verification", "schema/events.json", "Blocked by", "R1", "Merge manually"):
+            for field in ("Execution", "background", "Project", "Beads", "a937016c", "Includes event-schema, json-export", "Acceptance", "Requirements", "Owns", "Admission", "on hold", "Delivery", "Verification", "schema/events.json", "Blocked by", "R1", "Merge manually"):
                 assert field in seen, f"Review lost {field!r}"
+            # A path can wrap inside a word at different places on Linux and
+            # macOS. Verify every path character across terminal rows.
+            assert "".join(str(project).split()) in "".join(seen.split()), f"Review lost project path {project!s}"
             assert not receipt.exists(), "Scrolling submitted the plan"
             terminal.capture("plan-review-end")
             terminal.send("\r")
