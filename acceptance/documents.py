@@ -517,12 +517,16 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                 keys(studio, "/quit\r")
                 terminal.until("Studio closed without closing Neovim", lambda:
                                len(terminal.terminals()) == 1 and terminal.terminals()[0]["id"] == editor)
-                # Neovim can ask for acknowledgement when the disconnect notice
-                # wraps in the narrow pane. Its remote evaluator waits behind it.
-                terminal.until("visible disconnect notice", lambda:
-                               "disconnected" in terminal.capture_pane(editor) or
-                               "Cannot reach the bound host session" in terminal.capture_pane(editor))
-                if "Press ENTER" in terminal.capture_pane(editor):
+                # A poll racing shutdown can receive EOF instead of a connect error.
+                # Dismiss Neovim's hit-enter prompt before the RPC status assertion.
+                def disconnect_screen():
+                    screen = terminal.capture_pane(editor)
+                    if "Press ENTER" in screen or "disconnected" in screen:
+                        return screen
+                    return None
+
+                screen = terminal.until("disconnect status or hit-enter prompt", disconnect_screen)
+                if "Press ENTER" in screen:
                     keys(editor, "\r")
                 terminal.until("visible disconnected editor status", lambda: "disconnected" in lua("vim.wo.winbar"))
                 assert "Local plan survives Studio disconnect." in lines() and lua("vim.bo.modified")
