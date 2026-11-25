@@ -154,7 +154,7 @@
   "lead-plan.ts",
   "package-resources.ts",
   "package.json",
-  "patches/pi-coding-agent-1.4.0.patch",
+  "patches/pi-coding-agent-1.6.0.patch",
   "patches/pi-tui-right-column.patch",
   "pi-models.ts",
   "plan-graph.ts",

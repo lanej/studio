@@ -23,6 +23,8 @@ import {
   SettingsManager,
   ProjectTrustStore,
   initTheme,
+  keyText,
+  keyHint,
 } from "@earendil-works/pi-coding-agent";
 import {
   registerCodeIntelligence,
@@ -180,6 +182,8 @@ try {
   assert.ok(rendered?.renderResult !== undefined);
   const renderOptions = { expanded: false, isPartial: false };
   const renderContext = {
+    keyText,
+    keyHint,
     ...renderOptions,
     args: editArgs,
     toolCallId: written.toolCall.id,

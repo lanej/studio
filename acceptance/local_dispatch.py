@@ -201,6 +201,40 @@ def exercise_interactive_dispatch(fixture: Fixture, terminal: Terminal, lead: in
             assert transcript.count(GUIDANCE) == 1 and "Guidance after the worker settled" not in transcript
             assert no_pane(pane)
             (fixture.artifacts / "interactive-transcript.jsonl").write_text(transcript)
+            # A completed pane cannot receive another turn or steer its independent reader.
+            stale = "Stale guidance for the completed worker"
+            try:
+                terminal.send_to_pane(pane, stale)
+            except subprocess.CalledProcessError as error:
+                assert "pane" in error.stderr.lower(), error.stderr
+            assert stale not in capture(lead)
+            assert Path(first["workerSessionFile"]).read_text() == transcript
+            reviewer_requests = [request for request in DispatchProvider.requests
+                                 if any(tool["function"]["name"] == "review_context"
+                                        for tool in request["tools"])]
+            assert reviewer_requests
+            assert all("Guidance after the worker settled" not in json.dumps(request)
+                       and stale not in json.dumps(request) for request in reviewer_requests)
+
+            def refused_replacement(key: str, retained: dict) -> dict:
+                panes_before = {item["id"] for item in terminal.terminals()}
+                result = fixture.execute(
+                    [fixture.driver, "runtime", "retry", retained["id"]], check=False,
+                )
+                assert {item["id"] for item in terminal.terminals()} == panes_before
+                assert result.returncode != 0, result
+                assert "Interactive attempts retain their original pane binding" in result.stderr, result.stderr
+                current = attempt(key)
+                for field in ("id", "phase", "pane", "launchToken", "checkout", "workerSessionFile"):
+                    assert current.get(field) == retained.get(field), (field, current, retained)
+                matches = [item for item in state()["attempts"]
+                           if item.get("bead", {}).get("id") == retained["bead"]["id"]]
+                assert len(matches) == 1, matches
+                return {"attempt": retained["id"], "phase": retained["phase"],
+                        "exitCode": result.returncode, "reason": result.stderr.strip(),
+                        "sameBinding": True, "attemptCount": len(matches)}
+
+            completed_retry = refused_replacement("first", first)
             second_pane = second["pane"]
             fixture.execute([fixture.binary, "--session", fixture.name, "action", "close-pane",
                              "--pane-id", f"terminal_{second_pane}"])
@@ -209,6 +243,7 @@ def exercise_interactive_dispatch(fixture: Fixture, terminal: Terminal, lead: in
             assert parked["id"] == second["id"] and parked["launchToken"] == second["launchToken"]
             assert parked["checkout"] == second["checkout"] and no_pane(second_pane)
             assert get("issues/" + second["bead"]["id"])["status"] == "in_progress"
+            parked_retry = refused_replacement("second", parked)
             # Retain the verified result on the fixture's main ref before the manager prunes.
             fixture.execute(["git", "merge", "--ff-only", first["integration"]])
             held_id = first["bead"]["id"].rsplit(".", 1)[0] + ".held"
@@ -223,6 +258,9 @@ def exercise_interactive_dispatch(fixture: Fixture, terminal: Terminal, lead: in
             assert diagnostics.read_text().count("Withheld launch acknowledgement") == 2
             report["interactive_dispatch"] = {
                 "first": first, "parked": parked, "unavailable": unavailable, "lostAcknowledgements": 2,
+                "replacementRejections": [completed_retry, parked_retry],
+                "sameTaskSuccessor": "unavailable: supported retry preserves the original interactive binding",
+                "completedPaneInputIsolated": True, "reviewerNotSteered": True,
             }
         except Exception:
             try:
