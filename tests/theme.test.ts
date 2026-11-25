@@ -123,9 +123,26 @@ await test("native terminal captures use the installed Studio palette", () => {
     "status.success": theme.colors.success,
     "status.warning": theme.colors.warning,
     "status.error": theme.colors.error,
+    focus: theme.colors.thinkingHigh,
     link: theme.colors.mdLink,
   };
   const captureColors = new Map(Object.entries(roles));
   for (const [role, hex] of Object.entries(pairs))
     assert.equal(captureColors.get(role), hex, role);
+});
+
+await test("the five Socrates state colors remain distinct in truecolor and 256-color terminals", () => {
+  const colors = [
+    theme.colors.error,
+    theme.colors.warning,
+    theme.colors.success,
+    theme.colors.thinkingHigh,
+    theme.colors.muted,
+  ];
+  for (const mode of ["truecolor", "256color"] as const) {
+    const foregrounds = colors.map((hex) =>
+      foregroundAnsi(parseColor(hex), mode),
+    );
+    assert.equal(new Set(foregrounds).size, colors.length, mode);
+  }
 });

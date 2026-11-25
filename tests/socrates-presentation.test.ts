@@ -103,6 +103,60 @@ await test("working through a property does not change its saved assessment", ()
   assert.match(resting.summary, /1 not applicable/u);
 });
 
+await test("property marks, folded groups, and counts share state colors across both views", () => {
+  const spec = specification({
+    ...coverage,
+    assessments: [
+      ...coverage.assessments,
+      {
+        propertyId: "risk",
+        status: "partial",
+        reason:
+          "Recovery handles missing files but still needs a corruption check.",
+      },
+    ],
+  });
+  const fresh = present(spec);
+  for (const [column] of [fresh.columns, fresh.dockColumns]) {
+    assert.ok(column !== undefined);
+    const items = column.groups.flatMap((group) => group.items);
+    for (const [id, label, tone] of [
+      ["verification", "open", "error"],
+      ["risk", "partial", "warning"],
+      ["problem-first", "satisfied", "success"],
+      ["stakeholders", "N/A", "muted"],
+    ]) {
+      assert.equal(items.find((item) => item.id === id)?.status.tone, tone, id);
+      assert.equal(
+        column.counts?.find((count) => count.label === label)?.tone,
+        tone,
+        label,
+      );
+    }
+    assert.equal(
+      column.groups.find((group) => group.id === "satisfied")?.tone,
+      "success",
+    );
+    assert.equal(
+      column.groups.find((group) => group.id === "na")?.tone,
+      "muted",
+    );
+  }
+  const stale = present({ ...spec, coverageRevision: undefined });
+  for (const [column] of [stale.columns, stale.dockColumns]) {
+    assert.ok(column !== undefined);
+    const group = column.groups.find((item) => item.id === "attention");
+    assert.equal(
+      group?.items.find((item) => item.id === "problem-first")?.status.tone,
+      "review",
+    );
+    assert.equal(
+      column.counts?.find((count) => count.label === "recheck")?.tone,
+      "review",
+    );
+  }
+});
+
 await test("a saved focus cannot animate an idle, paused or frozen specification", () => {
   const spec = specification();
   const paused = present(spec, { working: false, paused: true });

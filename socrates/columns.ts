@@ -32,6 +32,15 @@ function count(label: string, value: number, tone: StatusTone): StatusCount {
   return { label, value, tone };
 }
 
+function propertyCount(
+  value: number,
+  condition: Parameters<typeof conditionMark>[0],
+  label?: string,
+): StatusCount {
+  const mark = conditionMark(condition);
+  return count(label ?? mark.label.toLowerCase(), value, mark.tone);
+}
+
 export interface AssessedCondition extends Condition {
   readonly state: Exclude<ConditionState, ConditionState.Unknown>;
   readonly details: string;
@@ -41,7 +50,7 @@ function propertyGroups(
   conditions: readonly AssessedCondition[],
 ): StatusGroup[] {
   const groups: StatusGroup[] = [
-    { id: "attention", label: "Needs attention", tone: "warning", items: [] },
+    { id: "attention", label: "Needs attention", tone: "muted", items: [] },
     {
       id: "satisfied",
       label: "Satisfied",
@@ -207,11 +216,15 @@ export function specificationColumn(
     };
   const c = conditionCounts(conditions);
   const counts = [
-    count("recheck", c.stale, "warning"),
-    count("open", c.open, "warning"),
-    count("partial", c.partial, "warning"),
-    count("satisfied", c.satisfied, "success"),
-    count("N/A", c.notApplicable, "muted"),
+    propertyCount(c.stale, { stale: true }),
+    propertyCount(c.open, { state: ConditionState.Open }),
+    propertyCount(c.partial, { state: ConditionState.Partial }),
+    propertyCount(c.satisfied, { state: ConditionState.Satisfied }),
+    propertyCount(
+      c.notApplicable,
+      { state: ConditionState.NotApplicable },
+      "N/A",
+    ),
   ].filter((entry) => entry.value > 0);
   const version = `v${String(spec.version)}`;
   const phase =

@@ -6,6 +6,7 @@ import {
 import {
   renderStatusMark,
   selectorText,
+  statusPaint,
   type StatusColumn,
   type StatusItem,
   type StatusTheme,
@@ -49,16 +50,13 @@ export function renderSidebarGraph(
   const tasks = implementation.rows.map((task) => ({ ...task, key: task.id }));
   for (const row of planGraph(tasks)) {
     const mark = taskMarks[row.task.state];
-    const prefix = renderGraphPrefix(
-      row.prefix,
-      theme.lane,
-      theme[mark.tone](mark.glyph),
-    );
+    const paint = statusPaint(theme, mark.tone);
+    const prefix = renderGraphPrefix(row.prefix, theme.lane, paint(mark.glyph));
     const title = inline(row.task.label);
     const selected =
       selectedBeadId !== undefined && selectedBeadId === row.task.beadId;
     const subject = selected ? `${prefix} › ${title}` : `${prefix}  ${title}`;
-    const state = theme[mark.tone](mark.label);
+    const state = paint(mark.label);
     // In a dense graph keep enough of the title to recognize the task.
     const titleSpace = width - visibleWidth(prefix) - visibleWidth(state) - 3;
     const showState =
@@ -177,7 +175,7 @@ function propertyTitle(
   theme: StatusTheme,
   width: number,
 ): string[] {
-  const mark = theme[item.status.tone];
+  const mark = statusPaint(theme, item.status.tone);
   const label = inline(item.label);
   const glyph = mark(inline(item.status.glyph));
   const state = mark(inline(item.status.label));
@@ -275,9 +273,10 @@ function specificationRows(
   }
   for (const group of groups.slice(0, footerHeight)) {
     rows.push(
-      theme[group.tone ?? "muted"](
-        `▸ ${inline(group.label)} ${String(group.items.length)}`,
-      ),
+      statusPaint(
+        theme,
+        group.tone ?? "muted",
+      )(`▸ ${inline(group.label)} ${String(group.items.length)}`),
     );
   }
   return rows;

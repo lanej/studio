@@ -321,11 +321,12 @@ export function registerStudio(
     description:
       "Show live Beads tasks without taking focus; use /tasks close to dismiss",
     handler: async (argument, ctx) => {
-      if (argument.trim() === "close") {
+      const beadId = argument.trim();
+      if (beadId === "close") {
         tasks.close();
         return;
       }
-      await openTasks(argument.trim() || undefined, ctx);
+      await openTasks(beadId.length === 0 ? undefined : beadId, ctx);
     },
   });
   async function openTasks(

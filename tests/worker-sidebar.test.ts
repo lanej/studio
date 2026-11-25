@@ -92,9 +92,9 @@ await test("workers show the question, phase and attempt alongside the graph; fo
     /Implementation[\s\S]*› Verify focus handling[\s\S]*Workers/u,
   );
   assert.match(output, /1 active · 1 needs you/u);
-  assert.match(output, /Needs input  Worker · abfa56/u);
+  assert.match(output, /Needs input {2}Worker · abfa56/u);
   assert.match(output, /Should the parent keep focus\?/u);
-  assert.match(output, /Reviewing  Reviewer · b22445/u);
+  assert.match(output, /Reviewing {2}Reviewer · b22445/u);
   const folded = render({ ...view, collapsed: true });
   assert.match(folded, /▸ Workers[^\n]*1 needs you/u);
   assert.doesNotMatch(folded, /abfa56|Should the parent/u);
@@ -120,7 +120,7 @@ await test("compact workers reserve space for intervention, preserve selected at
   };
   assert.match(
     renderWorkerCompact(focused, theme, 30, 3, true).join(" "),
-    /Reviewing  Reviewer · b22445/u,
+    /Reviewing {2}Reviewer · b22445/u,
   );
   for (const width of [12, 24, 33, 56]) {
     for (const height of [1, 2, 3, 5, 8, 20]) {

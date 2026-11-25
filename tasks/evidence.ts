@@ -18,9 +18,8 @@ export function readTaskEvidence(
 } {
   // The sidebar polls only the current owners. The task inspector also reads history.
   const owners = attemptIds === undefined ? [] : [JSON.stringify(attemptIds)];
-  const filter = owners.length
-    ? " AND id IN (SELECT value FROM json_each(?))"
-    : "";
+  const filter =
+    owners.length > 0 ? " AND id IN (SELECT value FROM json_each(?))" : "";
   const interactive = readInteractiveEvidence(
     project,
     directory,

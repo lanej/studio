@@ -8,6 +8,7 @@ import {
   renderStatusCounts,
   renderStatusMark,
   selectorText,
+  statusPaint,
   type StatusTheme,
 } from "@lanej/pi-components";
 import { planGraph, planGraphColor, renderGraphPrefix } from "../plan-graph.ts";
@@ -108,7 +109,7 @@ export function createPlanInspector(
           const prefix = renderGraphPrefix(
             graph.prefix,
             color,
-            options.theme[mark.tone](mark.glyph),
+            statusPaint(options.theme, mark.tone)(mark.glyph),
           );
           const label = oneLine(item.label);
           const current = index === selected;
