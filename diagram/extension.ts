@@ -1,6 +1,7 @@
-import type {
-  ExtensionAPI,
-  SessionEntry,
+import {
+  keyText,
+  type ExtensionAPI,
+  type SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
 import { selectorText } from "@lanej/pi-components";
@@ -52,11 +53,11 @@ function latestDiagram(entries: SessionEntry[]) {
 export function registerDiagrams(pi: ExtensionAPI): void {
   pi.registerTool<typeof diagramParameters, DiagramReceipt | undefined>({
     name: diagramTool,
-    label: "Show diagram",
+    label: "Show architecture",
     description:
-      "Show a directed graph in the conversation. Use short labels, optional node details, and labeled edges for branches or loops. Include a question only when you need the user to choose a node. A selection is a conversational answer.",
+      "Explain system design or interoperability with an inspectable C4 architecture diagram. Model one focal software system, its users and external systems. Add applications and data stores as containers to enable zoom. Label directed relationships with responsibilities or exchanged information and supply known protocols on concrete connections. Use context for the landscape and container for internal design. Only include a question to ask for a selection.",
     promptSnippet:
-      "Show an inspectable diagram or ask the user to choose a node.",
+      "Show a C4 system context or container diagram and explore architecture boundaries or interfaces.",
     exposure: "model-only",
     annotations: { readOnlyHint: true },
     executionMode: "sequential",
@@ -112,10 +113,22 @@ export function registerDiagrams(pi: ExtensionAPI): void {
           card.addChild(new Text(theme.bold(diagram.question), 0, 0));
           return card;
         } catch {
-          // The execution result carries the validation error.
+          // Previously recorded tool calls may predate the architecture schema.
+          if (!context.isPartial && !context.isError) {
+            const shortcut = keyText("app.tools.expand");
+            const content = context.expanded
+              ? selectorText(JSON.stringify(args, null, 2))
+              : [
+                  "Recorded diagram",
+                  shortcut.length === 0 ? "" : `${shortcut} to inspect input`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ");
+            return new Text(theme.fg("muted", content), 0, 0);
+          }
         }
       }
-      return new Text(theme.fg("toolTitle", theme.bold("Diagram")), 0, 0);
+      return new Text(theme.fg("toolTitle", theme.bold("Architecture")), 0, 0);
     },
     renderResult(result, _options, theme, context) {
       if (!context.isError && result.details?.status === "displayed")
@@ -134,7 +147,7 @@ export function registerDiagrams(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("diagram", {
-    description: "Inspect the latest diagram in this conversation",
+    description: "Explore the latest C4 architecture in this conversation",
     async handler(_args, ctx) {
       if (ctx.mode !== "tui") return;
       const diagram = latestDiagram(ctx.sessionManager.getBranch());

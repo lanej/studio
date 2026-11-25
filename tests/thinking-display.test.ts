@@ -87,7 +87,10 @@ await test("expanded thinking preserves Markdown and reflows independently of th
         .join(" "),
       prose,
     );
-    assert.ok(body.every((line) => visibleWidth(line) <= Math.min(width, 93)));
+    assert.ok(lines.every((line) => visibleWidth(line) <= width));
+    if (width === 160) {
+      assert.ok(body.some((line) => visibleWidth(line.trimEnd()) > 100));
+    }
     assert.ok(lines.every((line) => !line.includes("\u001b[3m")));
     assert.ok(plain.some((line) => line.trim() === "The answer follows."));
   }
@@ -97,7 +100,7 @@ await test("expanded thinking preserves Markdown and reflows independently of th
   assert.ok(!folded.join("").includes("Inspecting"));
   assert.deepEqual(
     transformed,
-    [88, 28].map((width) => ({
+    [154, 28].map((width) => ({
       markdown: `**Inspecting the screenshot**\n\n${prose}`,
       width,
       streaming: true,
