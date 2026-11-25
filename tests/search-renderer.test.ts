@@ -7,6 +7,8 @@ import {
   createAgentSessionFromServices,
   createAgentSessionServices,
   initTheme,
+  keyText,
+  keyHint,
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
@@ -135,6 +137,8 @@ await test("registered Bash renderer styles compound command positions without c
       const args = { command, timeout: 30 };
       const state: { startedAt?: number } = {};
       const context = {
+        keyText,
+        keyHint,
         args,
         toolCallId: "fixture",
         invalidate() {},
