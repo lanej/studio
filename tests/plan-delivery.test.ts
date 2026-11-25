@@ -61,20 +61,20 @@ test("an older background handoff resolves the approved graph and rejects change
   const discoveries = new Discoveries(directory);
   try {
     const id = randomUUID();
+    const discovery = discoveries.create(
+      directory,
+      "session",
+      "Original handoff",
+    );
     const project = projectSchema.parse({
       id,
-      root: directory,
+      root: discovery.project,
       source: { url: "http://127.0.0.1:9", projectId: id },
       profile: StudioProfile.Personal,
       base: "main",
       beadsWorkspace: directory,
       beadsDatabase: "test",
     });
-    const discovery = discoveries.create(
-      directory,
-      "session",
-      "Original handoff",
-    );
     const draft = draftSchema.parse({
       summary: "Publish one",
       tasks: [
