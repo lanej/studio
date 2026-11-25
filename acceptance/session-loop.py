@@ -60,7 +60,24 @@ def run(output):
         env = {**os.environ, "HOME": str(home), "PI_CODING_AGENT_DIR": str(agent), "STUDIO_CONFIG": str(home / "config.json"), "STUDIO_STATE_DIR": str(home / "state"), "TERM": "xterm-256color", "COLORTERM": "truecolor", "PI_TELEMETRY": "0", "PI_SKIP_VERSION_CHECK": "1"}
         subprocess.run([sys.executable, str(root / "scripts/configure.py"), str(root), str(agent)], env=env, check=True, stdout=subprocess.DEVNULL, timeout=30)
         fixture = home / "fixture.ts"
-        fixture.write_text('export default function(pi) { let settled = 0; pi.on("agent_settled", (_event, ctx) => { pi.appendEntry("fixture:settled", {session: ctx.sessionManager.getSessionId(), sequence: ++settled}); }); pi.registerCommand("fixture-dialog", {handler: async (_arg, ctx) => { await ctx.ui.input("Loop admission dialog", "Leave open to verify admission"); }}); }')
+        probe_file = home / "editor-probe.json"
+        fixture.write_text("""import { writeFileSync } from "node:fs";
+export default function(pi) {
+  let settled = 0;
+  let timer;
+  pi.on("session_start", (_event, ctx) => {
+    let previous;
+    timer = setInterval(() => {
+      const snapshot = JSON.stringify({ session: ctx.sessionManager.getSessionId(), text: ctx.ui.getEditorText(), idle: ctx.isIdle() });
+      if (snapshot !== previous) { writeFileSync(PROBE_FILE, snapshot); previous = snapshot; }
+    }, 10);
+    timer.unref();
+  });
+  pi.on("session_shutdown", () => { clearInterval(timer); });
+  pi.on("agent_settled", (_event, ctx) => { pi.appendEntry("fixture:settled", {session: ctx.sessionManager.getSessionId(), sequence: ++settled}); });
+  pi.registerCommand("fixture-dialog", {handler: async (_arg, ctx) => { await ctx.ui.input("Loop admission dialog", "Leave open to verify admission"); }});
+}
+""".replace("PROBE_FILE", json.dumps(str(probe_file))))
         settings = json.loads((agent / "settings.json").read_text())
         settings.setdefault("extensions", []).append(str(fixture))
         (agent / "settings.json").write_text(json.dumps(settings))
@@ -83,9 +100,25 @@ console.log(JSON.stringify({session:session.getSessionFile(),point,discovery:dis
         Thread(target=provider.serve_forever, daemon=True).start()
         terminal = ui.Terminal(project, env, output, session, columns=120, rows=42)
 
+        def editor():
+            try:
+                return json.loads(probe_file.read_text())
+            except (FileNotFoundError, json.JSONDecodeError):
+                return {}
+
+        def wait_for_editor(text, session_id=None):
+            terminal.wait(lambda: editor().get("text") == text and (session_id is None or editor().get("session") == session_id), f"Public editor state did not become {text!r} in session {session_id!r}; observed {editor()!r}")
+
         def command(text):
-            terminal.send(text + "\r")
-            terminal.pump(.2)
+            if text.startswith("/"):
+                # Clear through the native editor: forks can restore selected
+                # text after their session-start widgets have already rendered.
+                terminal.send("\x15")
+                wait_for_editor("")
+            terminal.send(text)
+            wait_for_editor(text)
+            terminal.send("\r")
+            wait_for_editor("")
 
         def start():
             if record()["needsInspection"]:
@@ -117,6 +150,16 @@ console.log(JSON.stringify({session:session.getSessionFile(),point,discovery:dis
             terminal.contains("Original later continuation")
             terminal.send("\r")
             terminal.contains("Fork parent:")
+            # session_start widgets precede Pi's selected-message restoration.
+            # Observe that restoration in the child's public editor before typing.
+            children = []
+            def child_created():
+                nonlocal children
+                children = [path for path in Path(session).parent.glob("*.jsonl") if path != Path(session) and json.loads(path.read_text().splitlines()[0]).get("parentSession") == session]
+                return len(children) == 1
+            terminal.wait(child_created, "Fork did not create exactly one child session")
+            child_id = entries(children[0])[0]["id"]
+            wait_for_editor("Original later continuation", child_id)
             terminal.send("\x15Child independent continuation\r")
             terminal.contains("Fixture response 1 settled.")
             children = [path for path in Path(session).parent.glob("*.jsonl") if path != Path(session) and json.loads(path.read_text().splitlines()[0]).get("parentSession") == session]
@@ -132,6 +175,10 @@ console.log(JSON.stringify({session:session.getSessionFile(),point,discovery:dis
             # Rendered response text can precede final agent settlement. Starting
             # a command earlier can send it as queued conversational input.
             wait_for_settled(children[0], 1)
+            # Recreate a late selected-message prefill through native typing.
+            # Command admission must clear it rather than append a slash command.
+            terminal.send("Original later continuation")
+            wait_for_editor("Original later continuation", child_id)
             command("/plan-draft Child fork discovery")
             try:
                 terminal.wait(lambda: len(discoveries()) == 2 and any(row["id"] != seed["discovery"] and row["conversation"] == child_entries[0]["id"] and "approved" not in row for row in discoveries()), "Child /plan-draft did not create exactly one isolated durable discovery")
@@ -142,6 +189,14 @@ console.log(JSON.stringify({session:session.getSessionFile(),point,discovery:dis
                 raise AssertionError(f"{error}\nChild discovery diagnostic: {json.dumps(diagnostic)}") from error
             records = discoveries()
             assert len(records) == 2, records
+            expected_plan_prompt = "Draft a bounded work breakdown for operator review. Do not create tasks before /plan-approve. Child fork discovery"
+            def user_text(message):
+                content = message["content"]
+                return content if isinstance(content, str) else "".join(item.get("text", "") for item in content)
+            assert user_text(requests[0]["messages"][-1]) == "Child independent continuation"
+            assert user_text(requests[1]["messages"][-1]) == expected_plan_prompt, requests[1]["messages"][-1]
+            child_users = [user_text(entry["message"]) for entry in entries(children[0]) if entry.get("type") == "message" and entry["message"]["role"] == "user"]
+            assert child_users == ["Original start", "Child independent continuation", expected_plan_prompt], child_users
             child_record = next(row for row in records if row["id"] != seed["discovery"])
             assert child_record["conversation"] == child_entries[0]["id"]
             assert "approved" not in child_record
