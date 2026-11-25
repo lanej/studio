@@ -61,8 +61,10 @@ class DiagramProvider(Provider):
         if any(message.get("tool_call_id") == "webhook" for message in request["messages"]):
             return {"role": "assistant", "content": "The webhook sequence is ready."}
         if last["role"] == "user" and message_text(last) == mermaid_prompt:
-            assert "render_mermaid" in {tool["function"]["name"] for tool in request["tools"]}
-            return tool_delta("webhook", "render_mermaid", {
+            render_tool = "RenderMermaid" if request["model"] == "claude-sonnet-4-6" else "render_mermaid"
+            names = {tool["function"]["name"] for tool in request["tools"]}
+            assert names.intersection({"render_mermaid", "RenderMermaid"}) == {render_tool}, names
+            return tool_delta("webhook", render_tool, {
                 "title": "Webhook redelivery", "source": mermaid_source.read_text(),
             })
         if last["role"] == "user":
@@ -212,6 +214,8 @@ def run(output, *, mermaid=False):
                 "Studio lead did not initialize", timeout=30,
             )
             if mermaid:
+                terminal.send("/model fixture/claude-sonnet-4-6\r")
+                wait_for_turn(terminal, "Model: claude-sonnet-4-6")
                 verify_mermaid(terminal, session, home / "state", output)
                 return
             submit_prompt(terminal, overview)

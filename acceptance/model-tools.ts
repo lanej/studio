@@ -8,11 +8,19 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { Type } from "typebox";
 import { z } from "zod";
 import { Attempts, attemptSchema, Phase } from "../attempts.ts";
 import { registerCodeIntelligence } from "../code-intelligence/extension.ts";
@@ -137,9 +145,34 @@ const transportAcceptance =
 await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), "studio-model-tools-"));
   t.after(() => rm(cwd, { force: true, recursive: true }));
+  const previousState = process.env["STUDIO_STATE_DIR"];
+  const state = join(cwd, "studio-state");
+  process.env["STUDIO_STATE_DIR"] = state;
+  t.after(() => {
+    if (previousState === undefined) delete process.env["STUDIO_STATE_DIR"];
+    else process.env["STUDIO_STATE_DIR"] = previousState;
+  });
   const file = join(cwd, "message.txt");
   const deniedCommand = "touch forbidden.txt";
   const shellDenial = "The session denied this shell command";
+  const diagramDenial = "The session denied this diagram export";
+  const diagramAudit = "Inspected parcel tracking";
+  const auditUsage = {
+    input: 7,
+    output: 3,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 10,
+    cost: {
+      input: 0.01,
+      output: 0.02,
+      cacheRead: 0,
+      cacheWrite: 0,
+      total: 0.03,
+    },
+  };
+  const emptyRender = { title: "Empty draft", source: " " };
+  const blockedExports: (string | undefined)[] = [];
   const deniedShellInputs: unknown[] = [];
   const requests: unknown[] = [];
   const replies: string[] = [];
@@ -255,6 +288,56 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
           registerDiagrams(pi);
           registerMermaidTool(pi);
           registerModelTools(pi);
+        },
+        (pi) => {
+          pi.registerTool({
+            name: "inspect_callable_tools",
+            label: "Inspect callable tools",
+            description:
+              "Report diagram tools callable by an independent extension.",
+            parameters: Type.Object({}),
+            async execute(_id, _args, _signal, _update, ctx) {
+              const names = [...canonicalDiagrams, ...claudeDiagrams];
+              const visible = ctx.tools
+                .map((tool) => tool.name)
+                .filter((name) => names.includes(name));
+              const direct = await ctx.executeTool(
+                "render_mermaid",
+                emptyRender,
+              );
+              return {
+                content: [
+                  { type: "text", text: JSON.stringify(visible) },
+                  ...direct.result.content,
+                ],
+                details: undefined,
+              };
+            },
+          });
+          pi.on("tool_call", (event) => {
+            if (
+              event.toolName === "render_mermaid" &&
+              event.input["title"] === "Restricted export"
+            ) {
+              blockedExports.push(event.parentToolCallId);
+              return { block: true, reason: diagramDenial };
+            }
+            return undefined;
+          });
+          pi.on("tool_result", (event) => {
+            if (
+              event.toolName === "show_diagram" &&
+              event.parentToolCallId === "toolu_ShowDiagram"
+            )
+              return {
+                content: [
+                  ...event.content,
+                  { type: "text", text: diagramAudit },
+                ],
+                usage: auditUsage,
+              };
+            return undefined;
+          });
         },
       ],
     },
@@ -386,7 +469,6 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
 
   await session.setModel(claude);
   requests.length = 0;
-  const emptyRender = { title: "Empty draft", source: " " };
   replies.push(
     messagesReply({ name: "Read", input: { file_path: file } }),
     messagesReply({
@@ -435,10 +517,15 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
       name: "render_mermaid",
       input: emptyRender,
     }),
+    messagesReply({
+      name: "RenderMermaid",
+      input: { title: "Restricted export", source: "flowchart TD\n  A --> B" },
+    }),
+    messagesReply({ name: "inspect_callable_tools", input: {} }),
     messagesReply(),
   );
   await session.prompt("Change the greeting");
-  assert.equal(requests.length, 8);
+  assert.equal(requests.length, 10);
   const claudeTools = payload.parse(requests[0]).tools;
   assert.deepEqual(diagramToolNames(requests[0]), claudeDiagrams);
   for (const name of ["Read", "Edit", "Write", "Bash"])
@@ -465,12 +552,39 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
   const rpcDiagram = lastClaudeToolResult(requests[5], "toolu_ShowDiagram");
   assert.notEqual(rpcDiagram.is_error, true);
   assert.match(rpcDiagram.content, /diagram viewer is unavailable/u);
+  assert.ok(rpcDiagram.content.includes(diagramAudit));
+  const savedDiagramUsage = session.sessionManager
+    .getBranch()
+    .flatMap((entry) =>
+      entry.type === "message" &&
+      entry.message.role === "toolResult" &&
+      entry.message.toolCallId === "toolu_ShowDiagram"
+        ? [entry.message.usage]
+        : [],
+    );
+  assert.partialDeepStrictEqual(savedDiagramUsage, [auditUsage]);
   const emptyDraft = lastClaudeToolResult(requests[6], "toolu_RenderMermaid");
   assert.equal(emptyDraft.is_error, true);
   assert.match(emptyDraft.content, /Mermaid diagrams must contain/u);
   const hiddenTool = lastClaudeToolResult(requests[7], "toolu_render_mermaid");
   assert.equal(hiddenTool.is_error, true);
   assert.match(hiddenTool.content, /Use RenderMermaid/u);
+  const blockedExport = lastClaudeToolResult(
+    requests[8],
+    "toolu_RenderMermaid",
+  );
+  assert.equal(blockedExport.is_error, true);
+  assert.ok(blockedExport.content.includes(diagramDenial));
+  assert.deepEqual(blockedExports, ["toolu_RenderMermaid"]);
+  await assert.rejects(access(join(state, "artifacts", "mermaid")), {
+    code: "ENOENT",
+  });
+  const callableTools = lastClaudeToolResult(
+    requests[9],
+    "toolu_inspect_callable_tools",
+  );
+  assert.match(callableTools.content, /^\[\]/u);
+  assert.match(callableTools.content, /Tool render_mermaid not found/u);
   const expectedShellInput = { command: deniedCommand, timeout: 2.5 };
   assert.deepEqual(deniedShellInputs, [expectedShellInput, expectedShellInput]);
   await assert.rejects(readFile(join(cwd, "forbidden.txt")), {

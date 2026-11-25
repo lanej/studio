@@ -172,5 +172,8 @@ export function mermaidDefinition(name = mermaidTool) {
 }
 
 export function registerMermaidTool(pi: ExtensionAPI): void {
-  pi.registerTool(mermaidDefinition());
+  pi.registerTool({
+    ...mermaidDefinition(),
+    modelOnlyAliases: [claudeMermaidTool],
+  });
 }

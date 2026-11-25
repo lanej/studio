@@ -77,6 +77,7 @@ function diagramSource(entry: DiagramAlias, tools: readonly ToolInfo[]) {
     (info) =>
       info.name === entry.canonical &&
       info.exposure === "model-only" &&
+      info.modelOnlyAliases?.includes(entry.tool.name) === true &&
       info.parameters === entry.tool.parameters,
   );
 }
@@ -197,6 +198,17 @@ export function registerModelTools(
             throw new Error(
               `${tool.name} is unavailable for the current model and active tools.`,
             );
+          if (entry.operation === "diagram") {
+            const nested = await context.executeTool(
+              entry.canonical,
+              args,
+              update === undefined ? {} : { onUpdate: update },
+            );
+            const result = { ...nested.result, isError: nested.isError };
+            // Pi already charges the canonical call's usage to this alias.
+            delete result.usage;
+            return result;
+          }
           return tool.execute(id, args, signal, update, context);
         },
       });
@@ -210,6 +222,7 @@ export function registerModelTools(
   });
   // A hidden declaration stays active in Pi. Reject a stale canonical call while its alias is selected.
   pi.on("tool_call", (event, ctx) => {
+    if (event.parentToolCallId !== undefined) return;
     const entry = diagramAliases.find(
       (alias) => alias.canonical === event.toolName,
     );

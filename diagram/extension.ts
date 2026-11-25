@@ -150,7 +150,10 @@ export function diagramDefinition(name = diagramTool) {
 }
 
 export function registerDiagrams(pi: ExtensionAPI): void {
-  pi.registerTool(diagramDefinition());
+  pi.registerTool({
+    ...diagramDefinition(),
+    modelOnlyAliases: [claudeDiagramTool],
+  });
   pi.registerCommand("diagram", {
     description: "Explore the latest C4 architecture in this conversation",
     async handler(_args, ctx) {
