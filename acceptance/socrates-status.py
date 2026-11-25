@@ -157,13 +157,13 @@ Should the native test change R1 and check both views?""")
 
 
 class Terminal:
-    def __init__(self, project, env, output, session, mode="fullscreen", columns=wide_columns, rows=wide_rows):
+    def __init__(self, project, env, output, session, mode="fullscreen", columns=wide_columns, rows=wide_rows, model="fixture/tiny"):
         print(f"Starting the {mode} lead in a {columns}×{rows} terminal", flush=True)
         self.output = output
         self.master, slave = os.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0))
         self.process = subprocess.Popen(
-            [str(root / "scripts/studio"), "lead", "--", "--offline", "--no-mcp", "--model", "fixture/tiny", "--tui-mode", mode, "--session", session],
+            [str(root / "scripts/studio"), "lead", "--", "--offline", "--no-mcp", "--model", model, "--tui-mode", mode, "--session", session],
             env=env, cwd=project, stdin=slave, stdout=slave, stderr=slave, start_new_session=True,
         )
         os.close(slave)
@@ -587,6 +587,7 @@ def check_publication_review(project, env, output, source_url):
     }))
     source = """
 import { Discoveries, applyDeliveryPolicy, handoffDraft } from './discovery/store.ts';
+import { directoryProfileType } from './directory.ts';
 import { coverageToken, specificationToken } from './socrates/assessment.ts';
 import { SpecStatus } from './socrates/spec.ts';
 import { draftSchema } from './lead-plan.ts';
@@ -638,12 +639,15 @@ turn('assistant','The exporter and the guide each have their own PR. The guide i
 turn('user','Freeze this specification. I want to review the graph and both PRs together before creating tasks.');
 turn('assistant','The frozen specification and the five beads are ready for handoff review.');
 session.appendCustomEntry('studio:discovery',{id:record.id,project:record.project});
+// Restore the selected profile through the same session entries that Studio writes when changing directory.
+session.appendModelChange('openai-codex','local-review');
+session.appendCustomEntry(directoryProfileType,'personal');
 console.log(JSON.stringify({id:record.id,session:session.getSessionFile()}));store.close();
 """
     seeded = subprocess.run(["bun", "--no-env-file", "-e", source, str(project)], env=env, cwd=root,
                             text=True, capture_output=True, check=True, timeout=30)
     record = json.loads(seeded.stdout)
-    terminal = Terminal(project, env, output, record["session"], columns=132, rows=36)
+    terminal = Terminal(project, env, output, record["session"], columns=132, rows=36, model="openai-codex/local-review")
     before = list(bead_reads)
     try:
         def frame():
@@ -665,8 +669,9 @@ console.log(JSON.stringify({id:record.id,session:session.getSessionFile()}));sto
             terminal.send("\x1b")
             terminal.wait(lambda: not frame(), "Escape did not dismiss the approval")
 
+        # The transcript is restored after extension and shortcut binding. The rail alone can paint before then.
+        terminal.contains("The frozen specification and the five beads are ready for handoff review.")
         terminal.wait_for_rail()
-        terminal.send("/studio-profile personal\r")
         terminal.contains("local-review")
         open_review()
         first_page = frame()
