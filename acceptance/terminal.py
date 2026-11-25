@@ -690,26 +690,24 @@ interactive.close();
             for char in "Archive run":
                 os.write(master, char.encode())
                 pump(.03)
-            wait_until(lambda: "Archive run" in "\n".join(screen.display) and
+            wait_until(lambda: any("→ Archive run" in line for line in screen.display) and
                        "Damaged entry" not in "\n".join(screen.display))
             capture("archives")
             os.write(master, b"\r")
-            pump(.5)
-            assert "Preserved dialogue" in "\n".join(screen.display), screen.display
+            wait_text("Preserved dialogue")
             capture("archive-preview")
             os.write(master, b"\x1b")
-            pump(.35)
+            wait_text("→ Archive run")
             os.write(master, b"\x1b")
-            pump(.35)
+            wait_until(lambda: "→ Archive run" not in "\n".join(screen.display))
             os.write(master, b"/archives Damaged\r")
-            pump(.5)
+            wait_text("→ Damaged entry")
             os.write(master, b"\r")
-            pump(.5)
-            assert "corrupt" in "\n".join(screen.display), screen.display
+            wait_text("corrupt")
             os.write(master, b"\x1b")
-            pump(.35)
+            wait_text("→ Damaged entry")
             os.write(master, b"\x1b")
-            pump(.35)
+            wait_until(lambda: "→ Damaged entry" not in "\n".join(screen.display))
             assert archive_file.read_bytes() == archive_before
             os.write(master, b"!echo remember-cobalt\r")
             wait_text("remember-cobalt")
