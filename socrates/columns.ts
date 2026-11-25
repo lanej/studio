@@ -80,16 +80,10 @@ function propertyGroups(
             id: property.id,
             label: property.label,
             status: conditionMark(property),
-            details: [
-              ...(property.stale === true
-                ? [
-                    `Previous assessment: ${conditionMark({ ...property, stale: false }).label}`,
-                  ]
-                : []),
-              property.details,
-            ]
-              .filter((part) => part !== undefined)
-              .join("\n\n"),
+            details:
+              property.stale === true
+                ? `Previous assessment: ${conditionMark({ ...property, stale: false }).label}\n\n${property.details}`
+                : property.details,
           }),
         ),
     }))

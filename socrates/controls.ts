@@ -495,7 +495,7 @@ export function registerSocratesControls<T extends SocratesState>(
           );
         if (
           !isDeepStrictEqual(record.specification, specification) ||
-          !isDeepStrictEqual(record.leadPlan?.draft, row.leadPlan?.draft)
+          !isDeepStrictEqual(record.leadPlan?.draft, row.leadPlan.draft)
         )
           throw new Error(
             "The specification or work breakdown changed. Reassess the current draft before saving.",

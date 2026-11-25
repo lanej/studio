@@ -240,7 +240,7 @@ await test("legacy and undrafted specifications surface every missing property a
       ({ id }) => id === "attention",
     );
     assert.equal(group?.items.length, 13);
-    assert.equal(group?.collapsed, undefined);
+    assert.equal(group.collapsed, undefined);
   }
   assert.equal(
     present({ ...legacy, draft: null }).activity.label,
