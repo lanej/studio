@@ -245,6 +245,7 @@ function statusTheme(theme: Theme): StatusTheme {
     success: (text) => theme.fg("success", text),
     warning: (text) => theme.fg("warning", text),
     error: (text) => theme.fg("error", text),
+    review: (text) => theme.fg("thinkingHigh", text),
     bold: (text) => theme.bold(text),
     selected: (text) => theme.bg("selectedBg", text),
   };

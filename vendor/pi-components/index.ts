@@ -17,6 +17,7 @@ export {
   conditionSummary,
   renderStatusMark,
   renderStatusCounts,
+  statusPaint,
   type Activity,
   type Condition,
   type ConditionCounts,

@@ -40,6 +40,8 @@ export interface StatusTheme {
   success: (text: string) => string;
   warning: (text: string) => string;
   error: (text: string) => string;
+  /** Color for stale evidence. Themes without one use the accent color. */
+  review?: (text: string) => string;
   selected: (text: string) => string;
 }
 
@@ -56,7 +58,7 @@ interface Appearance {
   glyph: string;
   ascii: string;
   label: string;
-  tone: "accent" | "muted" | "success" | "warning";
+  tone: StatusTone;
 }
 
 const conditionAppearance = {
@@ -76,7 +78,7 @@ const conditionAppearance = {
     glyph: "○",
     ascii: "!",
     label: "Open",
-    tone: "warning",
+    tone: "error",
   },
   [ConditionState.Partial]: {
     glyph: "◐",
@@ -96,7 +98,7 @@ const staleAppearance: Appearance = {
   glyph: "↺",
   ascii: "~",
   label: "Recheck",
-  tone: "warning",
+  tone: "review",
 };
 
 const activityAppearance = {
@@ -142,7 +144,7 @@ export function conditionStatus(
 }
 
 export function conditionMark(
-  condition: Pick<Condition, "state" | "stale">,
+  condition: Pick<Condition, "state" | "stale"> | { readonly stale: true },
 ): StatusMark {
   return {
     ...(condition.stale === true
@@ -177,7 +179,20 @@ export function activityIndicator(
   );
 }
 
-export type StatusTone = "muted" | "accent" | "success" | "warning" | "error";
+export type StatusTone =
+  | "muted"
+  | "accent"
+  | "success"
+  | "warning"
+  | "error"
+  | "review";
+
+export function statusPaint(
+  theme: StatusTheme,
+  tone: StatusTone,
+): (text: string) => string {
+  return theme[tone] ?? theme.accent;
+}
 
 export interface StatusMark {
   readonly label: string;
@@ -200,7 +215,10 @@ export function renderStatusMark(
   const glyph = statusText(
     presentation.ascii === true ? (mark.ascii ?? "*") : mark.glyph,
   );
-  return theme[mark.tone](`${glyph} ${statusText(mark.label)}`.trim());
+  return statusPaint(
+    theme,
+    mark.tone,
+  )(`${glyph} ${statusText(mark.label)}`.trim());
 }
 
 export function renderStatusCounts(
@@ -212,9 +230,10 @@ export function renderStatusCounts(
     .map((count) => {
       if (!Number.isSafeInteger(count.value) || count.value < 0)
         throw new RangeError("Status counts must be nonnegative safe integers");
-      return theme[count.tone](
-        `${theme.bold(String(count.value))} ${statusText(count.label)}`,
-      );
+      return statusPaint(
+        theme,
+        count.tone,
+      )(`${theme.bold(String(count.value))} ${statusText(count.label)}`);
     })
     .join(theme.muted(presentation.ascii === true ? " - " : " · "));
 }

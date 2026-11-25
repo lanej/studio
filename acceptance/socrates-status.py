@@ -310,6 +310,12 @@ class Terminal:
                   "The rail omitted the verification gap before the plan was ready")
         if self.screen.columns == wide_columns:
             assert all(gap in property_text() for gap in (scope_gap, risk_gap, harmony_gap)), self.rail_text()
+            start = self.rail_start()
+            self.assert_mark("Scope", "○", "status.error")
+            self.assert_foreground("Open", "status.error", start)
+            self.assert_foreground("Partial", "status.warning", start)
+            self.assert_foreground("Satisfied 9", "status.success", start)
+            self.assert_foreground("Question and resume are covered.", "text.muted", start)
         rail = self.rail_text()
         spec, _, plan = rail.partition("Implementation")
         assert spec.count("\n") > len([line for line in plan.splitlines() if line.strip()]), rail
@@ -331,6 +337,15 @@ class Terminal:
             if x >= 0 and self.screen.buffer[y][x].bg.upper() == palette["roles"][role].lstrip("#").upper():
                 return
         raise AssertionError(f"Missing {role} behind {text!r}\n{self.text()}")
+
+    def assert_foreground(self, text, role, start=0):
+        expected = palette["roles"][role].lstrip("#").upper()
+        for y, line in enumerate(self.screen.display):
+            x = line.find(text, start)
+            if x >= 0 and all(self.screen.buffer[y][x+i].fg.upper() == expected
+                              for i, char in enumerate(text) if not char.isspace()):
+                return
+        raise AssertionError(f"Missing {role} on {text!r}\n{self.text()}")
 
     def check_dependency_graph(self):
         path = ("Record property evidence", "├─╮", "Keep the lead available",
@@ -626,6 +641,7 @@ def run(output):
                           "The submitted prompt lost its contents or cursor position")
             terminal.wait(guidance_received.is_set, "Studio did not deliver the operator's guidance")
             terminal.wait(lambda: "Recheck" in terminal.rail_text(), "Previous evidence still appeared current after operator input")
+            terminal.assert_foreground("Recheck", "focus", terminal.rail_start())
             release_reassessment.set()
             terminal.check_lead_wrap(review_sentence)
             terminal.check_property_focus()
@@ -641,12 +657,15 @@ def run(output):
                           "Implementation" in terminal.text(), "The narrow console did not restore the status dock")
             terminal.contains("What evidence still needs a decision?")
             terminal.contains("▸ Specification")
+            terminal.assert_foreground("2 open", "status.error")
+            terminal.assert_foreground("2 partial", "status.warning")
             terminal.capture("status-narrow-dock")
             terminal.send("\x1bs")
             terminal.contains("▾ Specification")
             terminal.contains("What evidence still needs a decision?")
             dock = terminal.text().rpartition("▾ Specification")[2].partition("Implementation")[0]
             assert "share a draft" in " ".join(dock.split()), dock
+            terminal.assert_mark("Scope", "○", "status.error")
             terminal.capture("status-narrow-properties")
             terminal.send("\x1bs")
             terminal.contains("▸ Specification")
@@ -665,6 +684,9 @@ def run(output):
             terminal.contains("Wave 2")
             terminal.wait(lambda: any("Specification" in line and "Implementation" in line for line in terminal.screen.display), "Wide inspector did not show parallel columns")
             assert "Problem First" not in terminal.text(), terminal.text()
+            terminal.assert_foreground("2 open", "status.error")
+            terminal.assert_foreground("2 partial", "status.warning")
+            terminal.assert_foreground("9 satisfied", "status.success")
             terminal.select_row("Satisfied 9")
             terminal.send("\r")
             terminal.contains("Problem First")
@@ -673,9 +695,10 @@ def run(output):
             terminal.contains("▸ Satisfied 9")
             terminal.select_row("Verification")
             terminal.assert_mark("Verification", "◐", "status.warning")
-            terminal.assert_mark("Harmony", "○", "status.warning")
+            terminal.assert_mark("Harmony", "○", "status.error")
             terminal.send("\r")
             terminal.contains("Question and resume are covered.")
+            terminal.assert_foreground("◐ Partial", "status.warning")
             terminal.close_detail()
             terminal.send("\t")
             terminal.select_row("Keep the lead available")
@@ -729,9 +752,11 @@ def run(output):
             terminal.contains("Awaiting incorporation")
             terminal.send("/socrates-status inspect\r")
             terminal.contains("13 recheck")
+            terminal.assert_foreground("13 recheck", "focus")
             terminal.select_row("Problem First")
             terminal.send("\r")
             terminal.contains("Previous assessment: Satisfied")
+            terminal.assert_foreground("↺ Recheck", "focus")
             terminal.capture("status-board-recheck")
             terminal.close_detail()
             terminal.send("\x1b")
@@ -752,7 +777,7 @@ def run(output):
             terminal.send("/socrates-status inspect\r")
             terminal.contains("13 open")
             terminal.select_row("Problem First")
-            terminal.assert_mark("Problem First", "○", "status.warning")
+            terminal.assert_mark("Problem First", "○", "status.error")
             terminal.capture("status-board-legacy-open")
             terminal.send("\x1b")
             resume_discovery("Specification and linked work", 0)
@@ -847,7 +872,7 @@ def run(output):
             terminal.wait_for_rail()
             terminal.contains("Not planned")
             terminal.contains("Problem First")
-            terminal.assert_mark("Problem First", "○", "status.warning")
+            terminal.assert_mark("Problem First", "○", "status.error")
             assert "Review changes in the dock" not in terminal.rail_text(), terminal.rail_text()
         finally:
             terminal.close()
