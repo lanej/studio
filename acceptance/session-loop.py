@@ -356,7 +356,7 @@ console.log(JSON.stringify({session:session.getSessionFile(),point,discovery:dis
                 raise AssertionError(f"{error}\nChild discovery diagnostic: {json.dumps(diagnostic)}") from error
             records = discoveries()
             assert len(records) == 2, records
-            expected_plan_prompt = "Draft a bounded work breakdown for operator review. Do not create tasks before /plan-approve. Child fork discovery"
+            expected_plan_prompt = "Draft or revise the local work breakdown: proposed tasks, dependencies, acceptance criteria, and checks. Child fork discovery"
             def user_text(message):
                 content = message["content"]
                 return content if isinstance(content, str) else "".join(item.get("text", "") for item in content)

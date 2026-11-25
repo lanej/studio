@@ -81,11 +81,18 @@ export default function studioExtension(
   let lifecycle = 0;
   let selectedProfile = managed?.profile;
 
-  if (managed === undefined) registerProjectPolicy(pi);
   const discovery =
     managed === undefined
-      ? registerDiscovery(pi, () => selectedProfile)
+      ? registerDiscovery(
+          pi,
+          () => selectedProfile,
+          () => {
+            tasks.close();
+          },
+        )
       : undefined;
+  if (discovery !== undefined)
+    registerProjectPolicy(pi, (ctx) => discovery.runtimeHandoff(ctx)?.target);
   const delegation = registerDelegation(
     pi,
     () => selectedProfile,
@@ -263,7 +270,10 @@ export default function studioExtension(
     tasks.close();
     release();
   });
-  pi.on(PiEvent.SessionTree, async (_event, ctx) => initialize(ctx));
+  pi.on(PiEvent.SessionTree, async (_event, ctx) => {
+    tasks.close();
+    await initialize(ctx);
+  });
   pi.on(PiEvent.SessionCompact, async (_event, ctx) => initialize(ctx));
   pi.on(PiEvent.ModelSelect, () => {
     selectedProfile = managed?.profile;
@@ -302,20 +312,30 @@ export default function studioExtension(
         tasks.close();
         return;
       }
+      const handoff = discovery?.runtimeHandoff(ctx);
+      if (discovery !== undefined && handoff === undefined) {
+        ctx.ui.notify(
+          "Approve a Socrates plan to open its task runtime.",
+          "info",
+        );
+        return;
+      }
       const generation = lifecycle;
       const config = await loadConfig();
-      if (generation !== lifecycle) return;
-      if (config.beads === undefined && config.beadsService === undefined) {
+      if (
+        generation !== lifecycle ||
+        discovery?.runtimeHandoff(ctx)?.operation !== handoff?.operation
+      )
+        return;
+      const source = handoff?.target.source ?? config.beadsService;
+      if (config.beads === undefined && source === undefined) {
         ctx.ui.notify(
           "Configure a Beads service or read-only workspace in your Studio configuration. Run studio config --example for a service example.",
           "warning",
         );
         return;
       }
-      const service =
-        config.beadsService === undefined
-          ? undefined
-          : new TaskBeads(config.beadsService);
+      const service = source === undefined ? undefined : new TaskBeads(source);
       const reader =
         service !== undefined
           ? {
@@ -328,11 +348,11 @@ export default function studioExtension(
             ? undefined
             : new BeadsReader(config.beads);
       if (reader === undefined) return;
-      const projectId = config.beadsService?.projectId;
+      const projectId = source?.projectId;
       const project = config.runtime.projects.find(
         (item) =>
           item.source.projectId === projectId &&
-          item.source.url === config.beadsService?.url,
+          item.source.url === source?.url,
       );
       await tasks.open(
         ctx,
@@ -340,28 +360,20 @@ export default function studioExtension(
           key: JSON.stringify([
             ctx.sessionManager.getSessionId(),
             ctx.cwd,
-            config.beadsService,
+            source,
             config.beads,
           ]),
           focusPane: async (id) => {
-            if (config.beadsService !== undefined)
-              await focusTaskPane(config.beadsService, id);
+            if (source !== undefined) await focusTaskPane(source, id);
           },
           label:
             project === undefined
-              ? config.beadsService === undefined
+              ? source === undefined
                 ? basename(config.beads?.workspace ?? ctx.cwd)
                 : "Beads"
               : basename(project.root),
           identity: projectId ?? config.beads?.database ?? "",
-          emptyHint:
-            discovery !== undefined &&
-            config.beadsService !== undefined &&
-            config.beadsService.reviewOnly !== true
-              ? discovery.hasSelectedDraft(ctx)
-                ? "Review your draft with /plan."
-                : "Draft a plan with /plan-draft <description>."
-              : "Tasks added in Beads will appear here.",
+          emptyHint: "Tasks added in Beads will appear here.",
           show: (id) => reader.show(id),
           ...(project === undefined
             ? {}

@@ -211,6 +211,10 @@ export class ExecutionBeads extends TaskBeads {
   ): Promise<Record<string, string>> {
     this.requireWritable();
     const root = z.string().parse(ids["root"]);
+    const mergePolicy =
+      draft.pullRequestMerge === undefined
+        ? {}
+        : { "studio.pullRequestMerge": draft.pullRequestMerge };
     const items: components["schemas"]["ApplyItem"][] = [
       {
         kind: "create",
@@ -226,6 +230,7 @@ export class ExecutionBeads extends TaskBeads {
             "studio.graph": id,
             "studio.approval": digest,
             "studio.container": true,
+            ...mergePolicy,
           },
           ephemeral: false,
           no_history: false,
@@ -251,6 +256,7 @@ export class ExecutionBeads extends TaskBeads {
               "studio.graph": id,
               "studio.approval": digest,
               "studio.task": task,
+              ...mergePolicy,
               ...(profile === undefined ? {} : { "studio.profile": profile }),
               ...(interactive
                 ? { "studio.interactive": true, "studio.graph": id }

@@ -16,6 +16,12 @@ import {
   type ImplementationSource,
   type ImplementationObservation,
 } from "../socrates/implementation.ts";
+import {
+  fitSidebarGraph,
+  renderSidebarGraph,
+  renderStatusSidebar,
+} from "../socrates/sidebar.ts";
+import { implementationColumn } from "../socrates/columns.ts";
 import { createImplementationWatch } from "../socrates/implementation-watch.ts";
 
 const revision = randomUUID();
@@ -93,7 +99,7 @@ function observed(key: string, status: string) {
 await test("a frozen specification and proposed breakdown never imply execution", () => {
   const display = implementationPresentation(proposed);
   assert.equal(display.phase, ImplementationPhase.Proposed);
-  assert.equal(display.label, "Awaiting approval");
+  assert.equal(display.label, "Review properties");
   assert.equal(display.counts[ImplementationState.Proposed], 2);
   assert.equal(display.counts[ImplementationState.InProgress], 0);
   assert.equal(implementationRead(proposed), undefined);
@@ -103,6 +109,79 @@ await test("a frozen specification and proposed breakdown never imply execution"
   );
   assert.match(display.rows[1]?.details ?? "", /Requirements · R1/u);
   assert.match(display.rows[1]?.details ?? "", /Depends on · restore/u);
+});
+
+await test("sidebar draws dependency forks and joins, clipping at task boundaries", () => {
+  const plain = (value: string) => value;
+  const theme = {
+    accent: plain,
+    bold: plain,
+    muted: plain,
+    success: plain,
+    error: plain,
+    warning: plain,
+    selected: plain,
+    lane: (_lane: number, value: string) => value,
+  };
+  const tasks = [
+    { key: "merge", title: "Verify together", blockedBy: ["mac", "linux"] },
+    { key: "setup", title: "Prepare", blockedBy: [] },
+    { key: "mac", title: "Run on macOS", blockedBy: ["setup"] },
+    { key: "linux", title: "Run on Linux", blockedBy: ["setup"] },
+  ].map((task) => ({
+    ...task,
+    description: task.title,
+    acceptance: task.title,
+  }));
+  const implementation = implementationPresentation({
+    revision,
+    leadPlan: {
+      mode: LeadMode.Planning,
+      draft: draftSchema.parse({ summary: "Portability check", tasks }),
+    },
+  });
+  const graph = renderSidebarGraph(implementation, theme, 35);
+  assert.deepEqual(
+    graph.lines.map((line) => line.trimEnd()),
+    [
+      "◇    Prepare",
+      "├─╮",
+      "◇ │  Run on macOS",
+      "│ │",
+      "│ ◇  Run on Linux",
+      "├─╯",
+      "◇    Verify together",
+    ],
+  );
+  assert.deepEqual(graph.nodeLines, [0, 2, 4, 6]);
+  // If the next task cannot fit with its connector and overflow count,
+  // stop at the previous task. At seven rows the whole graph fits exactly.
+  for (const [height, expected] of [
+    [0, []],
+    [1, graph.lines.slice(0, 1)],
+    [2, [...graph.lines.slice(0, 1), "+3 more · /plan"]],
+    [3, [...graph.lines.slice(0, 1), "+3 more · /plan"]],
+    [4, [...graph.lines.slice(0, 3), "+2 more · /plan"]],
+    [5, [...graph.lines.slice(0, 3), "+2 more · /plan"]],
+    [6, [...graph.lines.slice(0, 5), "+1 more · /plan"]],
+    [7, graph.lines],
+  ] as const) {
+    assert.deepEqual(fitSidebarGraph(graph, height, theme), expected);
+  }
+  const snapshot = {
+    implementation,
+    dockColumns: [implementationColumn(implementation)],
+    prioritizeSpecification: false,
+  };
+  const sidebar = renderStatusSidebar(snapshot, theme, 35, 24).join("\n");
+  assert.match(sidebar, /├─╮/u);
+  assert.match(sidebar, /├─╯/u);
+  assert.doesNotMatch(sidebar, /Wave|Local integration/u);
+  for (const row of implementation.rows) row.state = ImplementationState.Closed;
+  const live = renderSidebarGraph(implementation, theme, 35);
+  assert.match(live.lines[2] ?? "", /^● │ {2}Run on macOS +Closed$/u);
+  assert.equal(live.lines[1], graph.lines[1]);
+  assert.equal(live.lines[5], graph.lines[5]);
 });
 
 await test("linked native bead states remain independent of approval and dependencies", () => {

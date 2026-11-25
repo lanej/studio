@@ -35,6 +35,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
   const root = `${prefix}-${graph.replaceAll("-", "")}`;
   const draft = draftSchema.parse({
     summary: "Approved fixture graph",
+    pullRequestMerge: "manual",
     tasks: [
       {
         key: "first",
@@ -80,6 +81,10 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     "Runtime fixture",
     draft,
     ids,
+  );
+  assert.equal(
+    (await service.get(ids.second)).metadata["studio.pullRequestMerge"],
+    "manual",
   );
   const replay = () =>
     service.createGraph(

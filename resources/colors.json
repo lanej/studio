@@ -5,34 +5,34 @@
     "surface": "#2E3440",
     "surface.raised": "#3B4252",
     "surface.selected": "#434C5E",
-    "border": "#4C566A",
-    "text": "#D8DEE9",
+    "border": "#88C0D0",
+    "text": "#ECEFF4",
     "text.strong": "#ECEFF4",
-    "text.muted": "#81A1C1",
+    "text.muted": "#D8DEE9",
     "text.inverse": "#2E3440",
-    "accent": "#88C0D0",
-    "accent.secondary": "#8FBCBB",
-    "focus": "#B48EAD",
-    "status.success": "#A3BE8C",
+    "accent": "#ECEFF4",
+    "accent.secondary": "#E5E9F0",
+    "focus": "#EDC2E5",
+    "status.success": "#A9C492",
     "status.warning": "#EBCB8B",
-    "status.error": "#BF616A",
-    "status.info": "#88C0D0",
-    "status.attention": "#D08770",
-    "status.idle": "#81A1C1",
-    "status.off": "#4C566A",
-    "syntax.comment": "#4C566A",
-    "syntax.keyword": "#81A1C1",
-    "syntax.function": "#88C0D0",
-    "syntax.string": "#A3BE8C",
-    "syntax.type": "#8FBCBB",
-    "syntax.number": "#B48EAD",
-    "syntax.constant": "#D8DEE9",
-    "syntax.operator": "#81A1C1",
+    "status.error": "#FFA2A8",
+    "status.info": "#ECEFF4",
+    "status.attention": "#F5A991",
+    "status.idle": "#D8DEE9",
+    "status.off": "#D8DEE9",
+    "syntax.comment": "#D8DEE9",
+    "syntax.keyword": "#F5A991",
+    "syntax.function": "#ECEFF4",
+    "syntax.string": "#A9C492",
+    "syntax.type": "#EBCB8B",
+    "syntax.number": "#EDC2E5",
+    "syntax.constant": "#ECEFF4",
+    "syntax.operator": "#D8DEE9",
     "syntax.special": "#EBCB8B",
-    "syntax.variable": "#D8DEE9",
-    "diff.add": "#A3BE8C",
+    "syntax.variable": "#ECEFF4",
+    "diff.add": "#A9C492",
     "diff.change": "#EBCB8B",
-    "diff.delete": "#BF616A",
+    "diff.delete": "#FFA2A8",
     "diff.add.bg": "#414A4C",
     "diff.change.bg": "#4C4C4C",
     "diff.delete.bg": "#453B47",
@@ -41,75 +41,75 @@
     "diff.delete.dim": "#7E4D57",
     "selection.bg": "#434C5E",
     "selection.fg": "#ECEFF4",
-    "match": "#A3BE8C",
+    "match": "#A9C492",
     "tab.active.bg": "#B48EAD",
     "tab.active.fg": "#2E3440",
     "tab.inactive.bg": "#2E3440",
-    "tab.inactive.fg": "#81A1C1",
+    "tab.inactive.fg": "#D8DEE9",
     "frame.inactive.fg": "#979DA9",
-    "keyhint": "#88C0D0",
-    "heading": "#88C0D0",
-    "link": "#88C0D0",
-    "prompt": "#88C0D0",
+    "keyhint": "#ECEFF4",
+    "heading": "#ECEFF4",
+    "link": "#ECEFF4",
+    "prompt": "#ECEFF4",
     "diff.add.emph.bg": "#515D57",
     "diff.delete.emph.bg": "#5A424D",
-    "git.file.conflicted": "#BF616A",
+    "git.file.conflicted": "#FFA2A8",
     "git.file.stashed": "#E5E9F0",
-    "git.file.deleted": "#BF616A",
-    "git.file.renamed": "#88C0D0",
+    "git.file.deleted": "#FFA2A8",
+    "git.file.renamed": "#ECEFF4",
     "git.file.modified": "#EBCB8B",
-    "git.file.staged": "#A3BE8C",
-    "git.file.untracked": "#81A1C1",
-    "git.file.typechanged": "#B48EAD",
-    "git.file.ahead": "#A3BE8C",
+    "git.file.staged": "#A9C492",
+    "git.file.untracked": "#D8DEE9",
+    "git.file.typechanged": "#EDC2E5",
+    "git.file.ahead": "#A9C492",
     "git.file.behind": "#EBCB8B",
-    "git.file.branch": "#81A1C1",
+    "git.file.branch": "#D8DEE9",
     "git.file.conflicted.dim": "#8C515B",
     "git.file.stashed.dim": "#A5AAB2",
     "git.file.deleted.dim": "#8C515B",
-    "git.file.renamed.dim": "#688F9E",
+    "git.file.renamed.dim": "#D8DEE9",
     "git.file.modified.dim": "#A99671",
     "git.file.staged.dim": "#7A8E71",
-    "git.file.untracked.dim": "#647B94",
+    "git.file.untracked.dim": "#D8DEE9",
     "git.file.typechanged.dim": "#856E87",
     "git.file.ahead.dim": "#7A8E71",
     "git.file.behind.dim": "#A99671",
-    "git.file.branch.dim": "#647B94",
-    "file.directory": "#81A1C1",
-    "file.executable": "#A3BE8C",
-    "file.special": "#B48EAD",
-    "file.archive": "#D08770",
+    "git.file.branch.dim": "#D8DEE9",
+    "file.directory": "#D8DEE9",
+    "file.executable": "#A9C492",
+    "file.special": "#EDC2E5",
+    "file.archive": "#F5A991",
     "file.project": "#EBCB8B"
   },
   "components": {
     "text": {
-      "fg": "#D8DEE9"
+      "fg": "#ECEFF4"
     },
     "text.muted": {
-      "fg": "#81A1C1"
+      "fg": "#D8DEE9"
     },
     "heading": {
-      "fg": "#88C0D0",
+      "fg": "#ECEFF4",
       "bold": true
     },
     "keyhint": {
-      "fg": "#88C0D0"
+      "fg": "#ECEFF4"
     },
     "selection": {
       "fg": "#ECEFF4",
       "bg": "#434C5E"
     },
     "status.success": {
-      "fg": "#A3BE8C"
+      "fg": "#A9C492"
     },
     "status.warning": {
       "fg": "#EBCB8B"
     },
     "status.error": {
-      "fg": "#BF616A"
+      "fg": "#FFA2A8"
     },
     "status.attention": {
-      "fg": "#D08770",
+      "fg": "#F5A991",
       "bold": true
     },
     "tab.active": {
@@ -118,29 +118,29 @@
       "bold": true
     },
     "tab.inactive": {
-      "fg": "#81A1C1",
+      "fg": "#D8DEE9",
       "bg": "#2E3440"
     },
     "input": {
-      "fg": "#D8DEE9",
+      "fg": "#ECEFF4",
       "bg": "#3B4252"
     },
     "preview": {
-      "fg": "#D8DEE9",
+      "fg": "#ECEFF4",
       "bg": "#2E3440"
     },
     "operation": {
-      "fg": "#D8DEE9"
+      "fg": "#ECEFF4"
     },
     "code": {
-      "fg": "#D8DEE9"
+      "fg": "#ECEFF4"
     },
     "diff": {
-      "fg": "#D8DEE9"
+      "fg": "#ECEFF4"
     },
     "git.file.conflicted": {
       "symbol": "\uf071",
-      "fg": "#BF616A",
+      "fg": "#FFA2A8",
       "bold": true,
       "dim": false,
       "dim_fg": "#8C515B"
@@ -154,17 +154,17 @@
     },
     "git.file.deleted": {
       "symbol": "\uf1f8",
-      "fg": "#BF616A",
+      "fg": "#FFA2A8",
       "bold": false,
       "dim": false,
       "dim_fg": "#8C515B"
     },
     "git.file.renamed": {
       "symbol": "\uf02b",
-      "fg": "#88C0D0",
+      "fg": "#ECEFF4",
       "bold": false,
       "dim": false,
-      "dim_fg": "#688F9E"
+      "dim_fg": "#D8DEE9"
     },
     "git.file.modified": {
       "symbol": "\uf040",
@@ -175,28 +175,28 @@
     },
     "git.file.staged": {
       "symbol": "",
-      "fg": "#A3BE8C",
+      "fg": "#A9C492",
       "bold": false,
       "dim": false,
       "dim_fg": "#7A8E71"
     },
     "git.file.untracked": {
       "symbol": "\uf059",
-      "fg": "#81A1C1",
+      "fg": "#D8DEE9",
       "bold": false,
       "dim": false,
-      "dim_fg": "#647B94"
+      "dim_fg": "#D8DEE9"
     },
     "git.file.typechanged": {
       "symbol": "\uf074",
-      "fg": "#B48EAD",
+      "fg": "#EDC2E5",
       "bold": false,
       "dim": false,
       "dim_fg": "#856E87"
     },
     "git.file.ahead": {
       "symbol": "\uf062",
-      "fg": "#A3BE8C",
+      "fg": "#A9C492",
       "bold": false,
       "dim": false,
       "dim_fg": "#7A8E71"
@@ -210,14 +210,14 @@
     },
     "git.file.branch": {
       "symbol": "\uf418",
-      "fg": "#81A1C1",
+      "fg": "#D8DEE9",
       "bold": false,
       "dim": false,
-      "dim_fg": "#647B94"
+      "dim_fg": "#D8DEE9"
     },
     "git.hunk.add": {
       "symbol": "\u2503",
-      "fg": "#A3BE8C"
+      "fg": "#A9C492"
     },
     "git.hunk.change": {
       "symbol": "\u2503",
@@ -225,11 +225,11 @@
     },
     "git.hunk.delete": {
       "symbol": "\u2581",
-      "fg": "#BF616A"
+      "fg": "#FFA2A8"
     },
     "git.hunk.topdelete": {
       "symbol": "^",
-      "fg": "#BF616A"
+      "fg": "#FFA2A8"
     },
     "git.hunk.changedelete": {
       "symbol": "~",
@@ -237,7 +237,7 @@
     },
     "git.hunk.untracked": {
       "symbol": "\u2506",
-      "fg": "#A3BE8C"
+      "fg": "#A9C492"
     },
     "git.staged_hunk.add": {
       "symbol": "\u2503",

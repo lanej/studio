@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, TypedDict
 
+from task_panel_session import task_panel_session
 from local_fixture import Allocation, Fixture, Report, Scenario, TaskSnapshot
 from local_provider import ADMITTED_MODEL, Provider
 from socrates_fixture import ARCHIVE, RECEIPT
@@ -570,7 +571,9 @@ def check_worker_reuse(case: Case, report: Report) -> None:
     manager, artifacts = case.harness.manager, case.harness.artifacts
     pi = root / "scripts/pi"
     extension = root / "extension.ts"
-    browser = shlex.join([str(pi), "--offline", "--no-session", "--no-mcp",
+    config = json.loads(Path(case.harness.env["STUDIO_CONFIG"]).read_text())
+    session = task_panel_session(case.harness.options.repository, case.harness.env, config["beadsService"], bead)
+    browser = shlex.join([str(pi), "--offline", "--session", session, "--no-mcp",
                           "--extension", str(extension), "--model", "openai-codex/gpt-6.1-sol"])
     terminal.send_to_pane(launcher_pane, browser + "\r")
     terminal.until("task browser Pi starts", lambda: "clear/exit" in pane_text(launcher_pane))
