@@ -34,6 +34,8 @@ on:
       - 'acceptance/runtime-beads.ts'
       - 'acceptance/runtime-worker.ts'
       - 'acceptance/task-recovery.py'
+      - 'acceptance/operator-decision.ts'
+      - 'acceptance/operator-decision-ui.py'
       - 'acceptance/verification-control.ts'
       - 'acceptance/install-worktree-manager'
       - 'source-files.json'
@@ -70,6 +72,8 @@ on:
       - 'acceptance/runtime-beads.ts'
       - 'acceptance/runtime-worker.ts'
       - 'acceptance/task-recovery.py'
+      - 'acceptance/operator-decision.ts'
+      - 'acceptance/operator-decision-ui.py'
       - 'acceptance/verification-control.ts'
       - 'acceptance/install-worktree-manager'
       - 'source-files.json'
@@ -114,6 +118,8 @@ jobs:
           git clone --no-checkout https://github.com/lanej/dotfiles.git "$RUNNER_TEMP/dotfiles"
           git -C "$RUNNER_TEMP/dotfiles" checkout 9b4ea91344ec854c1463569e84b37ce12b1248ea -- bootstrap/tools.toml tools/beads config/beads
           python3 "$RUNNER_TEMP/dotfiles/tools/beads/beads-service.py" install --no-start
+      - name: Install native terminal capture dependencies
+        run: python3 -m pip install --disable-pip-version-check uv
       - name: Verify native admission and completion
         run: |
           manifest="$HOME/.local/share/beads-service/runtime.json"
@@ -123,3 +129,6 @@ jobs:
             --bd "$(jq -er .bd "$manifest")" --dolt "$(jq -er .dolt "$manifest")"
           bun run test:runtime-worker-native -- \
             --bd "$(jq -er .bd "$manifest")" --dolt "$(jq -er .dolt "$manifest")"
+          bun acceptance/operator-decision.ts \
+            --bd "$(jq -er .bd "$manifest")" --dolt "$(jq -er .dolt "$manifest")" \
+            --output "$RUNNER_TEMP/operator-decision"

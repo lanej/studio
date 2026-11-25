@@ -40,7 +40,9 @@ export default function runtimeHost(pi: ExtensionAPI): void {
       store.change(id, (record) => {
         if (
           record.launchToken === token &&
-          record.phase === ExecutionPhase.Complete
+          [ExecutionPhase.Complete, ExecutionPhase.AwaitingDecision].includes(
+            record.phase,
+          )
         )
           record.launchSettled = true;
       });

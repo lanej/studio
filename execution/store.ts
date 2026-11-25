@@ -32,6 +32,7 @@ export enum ExecutionPhase {
   Integrating = "integrating",
   Delivery = "delivery-pending",
   Waiting = "correction-pending",
+  AwaitingDecision = "awaiting-decision",
   Complete = "complete",
   Parked = "needs-review",
   Uncertain = "uncertain",
@@ -61,6 +62,23 @@ export const handoffIntentSchema = z.object({
   project: z.uuid().optional(),
   draft: draftSchema.optional(),
 });
+export const operatorDecisionSchema = z.object({
+  id: z.uuid(),
+  question: z.string().trim().min(1).max(2000),
+  at: z.string(),
+  binding: z.object({
+    project: z.uuid(),
+    bead: z.string().min(1),
+    revision: z.string().min(1),
+    launchToken: z.uuid(),
+    contract: z.string().regex(/^[a-f0-9]{64}$/u),
+  }),
+  answer: z
+    .object({ text: z.string().min(1).max(4000), at: z.string() })
+    .optional(),
+  appliedHead: z.string().optional(),
+});
+export type OperatorDecision = z.infer<typeof operatorDecisionSchema>;
 export const executionSchema = z.object({
   id: z.uuid(),
   project: z.uuid(),
@@ -106,6 +124,7 @@ export const executionSchema = z.object({
     })
     .optional(),
   verification: verificationSchema.optional(),
+  operatorDecisions: z.array(operatorDecisionSchema).max(8).optional(),
   summary: z.string().default(""),
   review: z.string().optional(),
   reviewFinding: z.string().optional(),
@@ -121,6 +140,20 @@ export const executionSchema = z.object({
   message: z.string(),
 });
 export type Execution = z.infer<typeof executionSchema>;
+export const latestDecision = (
+  record: Execution,
+): OperatorDecision | undefined => record.operatorDecisions?.at(-1);
+export function pendingDecision(
+  record: Execution,
+): OperatorDecision | undefined {
+  const latest = latestDecision(record);
+  return latest?.answer === undefined ? latest : undefined;
+}
+export const hasUnappliedAnswer = (record: Execution): boolean =>
+  record.operatorDecisions?.some(
+    (decision) =>
+      decision.answer !== undefined && decision.appliedHead === undefined,
+  ) === true;
 export const mergeOverrideSchema = z.object({
   enabled: z.boolean(),
   actor: z.string(),
