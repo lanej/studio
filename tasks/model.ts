@@ -15,6 +15,8 @@ import {
 import {
   ExecutionPhase,
   completedWithoutExecutable,
+  latestDecision,
+  pendingDecision,
   type Execution,
 } from "../execution/store.ts";
 import { retainedConflicts } from "../execution/supervisor.ts";
@@ -29,6 +31,7 @@ export interface TaskSnapshot {
   focusable: Set<string>;
   limitReached: boolean;
   retryBlocked?: Map<string, string>;
+  answerBlocked?: Map<string, string>;
 }
 
 export function plain(value: string): string {
@@ -63,6 +66,32 @@ export function ownedAttempt(
   );
 }
 
+/** Only explicit records describe an operator decision; historical evidence never authorizes an answer. */
+export function decisionDetails(
+  task: Task,
+  snapshot: TaskSnapshot,
+): string | undefined {
+  const attempt = selectedAttempt(task, snapshot);
+  const current = attempt === undefined ? undefined : latestDecision(attempt);
+  if (attempt === undefined || current === undefined) return undefined;
+  return [
+    ownedAttempt(task, snapshot)?.id === attempt.id
+      ? "Operator decision evidence"
+      : "Historical operator decision evidence; not the current owner",
+    ...(attempt.operatorDecisions ?? []).flatMap((entry) => [
+      `Question ${entry.id}: ${entry.question}`,
+      entry.answer === undefined
+        ? "Awaiting an answer; verification and independent review have not been waived."
+        : `Answer: ${entry.answer.text}`,
+      entry.appliedHead === undefined
+        ? "No resulting reviewed revision recorded for this answer."
+        : `Applied at independently reviewed revision ${entry.appliedHead}`,
+    ]),
+    pendingDecision(attempt) === undefined
+      ? "No unanswered operator request remains."
+      : `Last evidenced step: operator question recorded at ${current.at}.`,
+  ].join("\n");
+}
 export function parkedDetails(
   task: Task,
   snapshot: TaskSnapshot,
@@ -373,6 +402,8 @@ const phaseNarrative = {
     "Studio last recorded integration of the reviewed result.",
   [ExecutionPhase.Delivery]:
     "Studio last recorded a wait for delivery confirmation.",
+  [ExecutionPhase.AwaitingDecision]:
+    "Studio is awaiting an explicit operator decision; its claim and checkout remain retained.",
   [ExecutionPhase.Waiting]: "Studio last recorded a wait for a correction.",
   [ExecutionPhase.Complete]: "Studio completed this local attempt.",
   [ExecutionPhase.Parked]: "Studio retained this attempt for review.",
@@ -456,7 +487,8 @@ export function needsAttention(task: Task, snapshot: TaskSnapshot): boolean {
   return (
     currentReviewFinding(task, snapshot) !== undefined ||
     (attempt !== undefined &&
-      (attempt.phase === ExecutionPhase.Parked ||
+      (attempt.phase === ExecutionPhase.AwaitingDecision ||
+        attempt.phase === ExecutionPhase.Parked ||
         attempt.phase === ExecutionPhase.Uncertain ||
         (attempt.verification !== undefined &&
           attempt.verification.exitCode !== null &&

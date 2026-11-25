@@ -1,7 +1,11 @@
 import { basename } from "node:path";
+import { selectorText } from "@lanej/pi-components";
+import { ExtensionInputComponent } from "@earendil-works/pi-coding-agent";
 import { registerHistoryBindings } from "./keybindings.ts";
 import { TaskPanel } from "./tasks/panel.ts";
 import { readTaskEvidence } from "./tasks/evidence.ts";
+import { answerDecision } from "./execution/decisions.ts";
+import { pendingDecision, ExecutionPhase } from "./execution/store.ts";
 import { retryAttempt } from "./execution/cli.ts";
 import { safeGit } from "./execution/git.ts";
 import { retryWriterFence } from "./execution/recovery.ts";
@@ -351,6 +355,33 @@ export default function studioExtension(
             ? {}
             : {
                 retry: retryAttempt,
+                answer: async (
+                  id: string,
+                  request: string,
+                  question: string,
+                ) => {
+                  const text = await ctx.ui.custom<string | undefined>(
+                    (tui, _theme, _keys, done) =>
+                      new ExtensionInputComponent(
+                        "Answer operator decision",
+                        undefined,
+                        done,
+                        () => {
+                          done(undefined);
+                        },
+                        {
+                          tui,
+                          description: selectorText(question).replace(
+                            /\p{Cc}/gu,
+                            " ",
+                          ),
+                        },
+                      ),
+                  );
+                  if (text === undefined) return false;
+                  await answerDecision(id, request, text);
+                  return true;
+                },
                 diff: async (
                   attempt: import("./execution/store.ts").Execution,
                 ) => {
@@ -379,6 +410,33 @@ export default function studioExtension(
             const tasks = await reader.list();
             const evidence = readTaskEvidence(projectId);
             const retryBlocked = new Map<string, string>();
+            const answerBlocked = new Map<string, string>();
+            for (const attempt of evidence.attempts) {
+              if (pendingDecision(attempt) === undefined) continue;
+              if (
+                attempt.phase !== ExecutionPhase.AwaitingDecision ||
+                attempt.interactive !== undefined ||
+                attempt.bead === undefined ||
+                attempt.revision === undefined
+              )
+                answerBlocked.set(
+                  attempt.id,
+                  "the admitted request is not in a settled background decision wait",
+                );
+              else
+                try {
+                  if (await retryWriterFence(attempt))
+                    answerBlocked.set(
+                      attempt.id,
+                      "the prior host/verifier is live or uncertain; wait for positive settlement",
+                    );
+                } catch {
+                  answerBlocked.set(
+                    attempt.id,
+                    "writer state could not be confirmed",
+                  );
+                }
+            }
             for (const attempt of evidence.attempts) {
               if (!["needs-review", "uncertain"].includes(attempt.phase))
                 continue;
@@ -410,6 +468,7 @@ export default function studioExtension(
               tasks,
               ...evidence,
               retryBlocked,
+              answerBlocked,
               observedAt: new Date().toLocaleTimeString(),
               focusable: new Set(
                 tasks
