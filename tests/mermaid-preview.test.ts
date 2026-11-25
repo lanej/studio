@@ -1,12 +1,18 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import {
   getCapabilities,
+  Image,
   needsZellijImageProbe,
   resetCapabilitiesCache,
+  ScrollView,
+  setCapabilities,
   setCapabilityOverrides,
   setZellijKittySupport,
+  TuiAltScreen,
+  visibleWidth,
 } from "@earendil-works/pi-tui";
 import { queryPaneGraphics } from "../diagram/mermaid-preview.ts";
 
@@ -62,6 +68,65 @@ await test("the Zellij query consumes only its own reply, including late replies
   closed.dispose();
   assert.equal(await closed.supported, false);
   assert.equal(closed.reply("OK"), undefined);
+});
+
+await test("a split fullscreen viewport paints a cropped Kitty image and its sidebar on the same row", async (t) => {
+  const saved = getCapabilities();
+  t.after(() => {
+    setCapabilities(saved);
+  });
+  setCapabilities({ ...saved, images: "kitty" });
+  const data = await readFile(
+    new URL("../docs/assets/diagram-containers.png", import.meta.url),
+    "base64",
+  );
+  const image = new Image(data, "image/png", { fallbackColor: (s) => s });
+  let output = "";
+  const noop = () => undefined;
+  const ui = new TuiAltScreen({
+    columns: 60,
+    rows: 4,
+    kittyProtocolActive: false,
+    write: (value) => {
+      output += value;
+    },
+    start: noop,
+    stop: noop,
+    moveBy: noop,
+    hideCursor: noop,
+    showCursor: noop,
+    clearLine: noop,
+    clearFromCursor: noop,
+    clearScreen: noop,
+    setTitle: noop,
+    setProgress: noop,
+    setProgramStatus: noop,
+  });
+  const scroll = new ScrollView(image, { follow: "none", scrollbar: "hidden" });
+  ui.setLayoutRoot(scroll);
+  ui.setRightColumn({ render: () => ["Socrates"], invalidate: noop }, () => 12);
+  ui.start();
+  t.after(() => {
+    ui.stop();
+  });
+  ui.renderNow();
+  const verifySidebar = () => {
+    const row = ui.getScreenLines()[0] ?? "";
+    const sidebarStart = row.indexOf("Socrates");
+    assert.ok(sidebarStart >= 0);
+    assert.equal(visibleWidth(row.slice(0, sidebarStart)), 48);
+    assert.ok(output.indexOf("Socrates") < output.lastIndexOf("\x1b_Ga="));
+  };
+  verifySidebar();
+  assert.ok(output.includes(data.slice(0, 4096)));
+  assert.ok(output.includes(data.slice(-128)));
+  assert.match(output, /a=T,[^;]*y=0,h=\d+,r=4/u);
+  output = "";
+  scroll.scrollBy(2);
+  ui.renderNow();
+  verifySidebar();
+  assert.match(output, /a=p,[^\x1b]*y=[1-9]\d*,h=\d+,r=4/u);
+  assert.ok(!output.includes(data.slice(0, 4096)));
 });
 
 await test("Zellij auto-detection precedes leaked host hints and preserves explicit settings", (t) => {

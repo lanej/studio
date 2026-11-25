@@ -5,7 +5,7 @@
 """Exercise C4 context, container inspection, selection, and replay in a native lead."""
 import argparse
 import base64
-from contextlib import ExitStack
+from contextlib import closing, ExitStack
 from http.server import ThreadingHTTPServer
 from importlib import import_module
 import json
@@ -193,6 +193,16 @@ def run(output, *, mermaid=False):
             for name in ("TMUX", "ZELLIJ", "ZELLIJ_PANE_ID", "PI_IMAGE_PROTOCOL"):
                 env.pop(name, None)
             env["TERM_PROGRAM"] = "kitty"
+            # A Socrates discovery puts the transcript in a narrower layout box.
+            # Verify the Kitty upload while the live sidebar owns the adjacent columns.
+            records = ui.seed(project, env, f"http://127.0.0.1:{provider.server_port}")
+            sidebar_session = Path(records["session"])
+            with closing(ui.Terminal(project, env, output, sidebar_session, columns=128, rows=38)) as sidebar:
+                sidebar.wait_for_session()
+                verify_mermaid(sidebar, sidebar_session, home / "state", None)
+                # Pyte does not parse Kitty graphics. Check the rail below the image's anchor row.
+                sidebar.wait(lambda: any("Implementation" in row[sidebar.screen.columns // 2:] for row in sidebar.screen.display),
+                             "Socrates sidebar disappeared while the lead displayed an image")
         terminal = ui.Terminal(project, env, output, session, columns=100, rows=36 if mermaid else 20)
         try:
             terminal.wait(
