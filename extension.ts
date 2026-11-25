@@ -1,3 +1,7 @@
+import {
+  registerSessionForks,
+  registerPromptLoops,
+} from "./sessions/extension.ts";
 import { basename } from "node:path";
 import { TaskPanel } from "./tasks/panel.ts";
 import { readTaskEvidence } from "./tasks/evidence.ts";
@@ -62,6 +66,7 @@ export default function studioExtension(
   },
 ): void {
   registerActivationAdmission(pi);
+  registerSessionForks(pi);
   const intelligence = registerCodeIntelligence(pi);
   const idle = new IdleSession();
   const tasks = new TaskPanel();
@@ -87,6 +92,13 @@ export default function studioExtension(
       discovery?.pending() === true ||
       managed?.approvalPending() === true ||
       managed?.activationBlocked?.() === true ||
+      delegation.blocks(ctx.sessionManager.getSessionId()),
+  );
+  registerPromptLoops(
+    pi,
+    (ctx) =>
+      managed !== undefined ||
+      discovery?.pending() === true ||
       delegation.blocks(ctx.sessionManager.getSessionId()),
   );
   registerArchives(pi);
