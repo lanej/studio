@@ -67,58 +67,71 @@ function renderFields(
 export function renderPlanReview(
   { draft, context = [], publications = [], specification }: PlanReview,
   theme: ReviewTheme,
-  width: number,
-): string[] {
-  if (width < 1) return [];
+  overviewWidth: number,
+  detailsWidth = overviewWidth,
+): { overview: string[]; details: string[] } {
+  if (overviewWidth < 1 || detailsWidth < 1)
+    return { overview: [], details: [] };
   const graph = planGraph(draft.tasks);
   const color = planGraphColor(theme);
-  const wrap = (value: string) => wrapTextWithAnsi(clean(value), width);
-  const section = (value: string) =>
+  const wrap = (value: string, width: number) =>
+    wrapTextWithAnsi(clean(value), width);
+  const section = (value: string, width: number) =>
     wrapTextWithAnsi(theme.fg("accent", theme.bold(value)), width);
-  const lines: string[] = [];
+  const overview: string[] = [];
   if (context.length > 0)
-    lines.push(...renderFields(context, theme, width, true), "");
+    overview.push(...renderFields(context, theme, overviewWidth, true), "");
 
-  lines.push(...section("Task dependencies"));
-  if (graph.length === 0) lines.push(...wrap("No child tasks"));
+  overview.push(...section("Task dependencies", overviewWidth));
+  if (graph.length === 0)
+    overview.push(...wrap("No child tasks", overviewWidth));
   for (const { task, prefix, connectors } of graph) {
     const hold = task.hold === true ? theme.fg("warning", "  on hold") : "";
-    lines.push(
+    overview.push(
       `${renderGraphPrefix(prefix, color)}  ${theme.fg("text", oneLine(task.title))}${hold}`,
       ...connectors.map((line) => renderGraphPrefix(line, color).trimEnd()),
     );
   }
 
   if (publications.length > 0)
-    lines.push(
+    overview.push(
       "",
-      ...section("PR publication"),
-      ...renderFields(publications, theme, width),
+      ...section("PR publication", overviewWidth),
+      ...renderFields(publications, theme, overviewWidth),
     );
 
-  lines.push("", ...section("Plan summary"), ...wrap(draft.summary));
+  overview.push(
+    "",
+    ...section("Plan summary", overviewWidth),
+    ...wrap(draft.summary, overviewWidth),
+  );
   if (draft.pullRequestMerge !== undefined)
-    lines.push(
+    overview.push(
       ...renderFields(
         [{ label: "PR merge", value: draft.pullRequestMerge }],
         theme,
-        width,
+        overviewWidth,
       ),
     );
-  lines.push(
+  overview.push(
     ...wrap(
       "Change a proposal before approval: /plan-delivery <task-key> <local|pull-request>",
+      overviewWidth,
     ),
   );
 
-  if (graph.length > 0) lines.push("", ...section("Task details"));
+  const details: string[] = [];
+  if (graph.length > 0) details.push(...section("Task details", detailsWidth));
   const waves = taskWaves(draft.tasks);
   let displayedWave: number | undefined;
   for (const { task } of graph) {
     const wave = waves.get(task.key);
     if (wave !== undefined && wave !== displayedWave) {
-      lines.push(
-        ...wrapTextWithAnsi(theme.fg("accent", `Wave ${String(wave)}`), width),
+      details.push(
+        ...wrapTextWithAnsi(
+          theme.fg("accent", `Wave ${String(wave)}`),
+          detailsWidth,
+        ),
       );
       displayedWave = wave;
     }
@@ -135,19 +148,26 @@ export function renderPlanReview(
           : {}),
       }),
     );
-    lines.push(
-      ...wrapTextWithAnsi(theme.fg("toolTitle", theme.bold(heading)), width),
-      ...wrap(task.description),
-      ...renderFields(fields, theme, width),
+    details.push(
+      ...wrapTextWithAnsi(
+        theme.fg("toolTitle", theme.bold(heading)),
+        detailsWidth,
+      ),
+      ...wrap(task.description, detailsWidth),
+      ...renderFields(fields, theme, detailsWidth),
       "",
     );
   }
 
-  if (specification !== undefined) {
-    if (lines.at(-1) !== "") lines.push("");
-    lines.push(...section("Specification"), ...wrap(specification.trimEnd()));
-  } else if (lines.at(-1) === "") {
-    lines.pop();
-  }
-  return lines.map((line) => truncateToWidth(line, width, "…"));
+  if (specification !== undefined)
+    details.push(
+      ...section("Specification", detailsWidth),
+      ...wrap(specification.trimEnd(), detailsWidth),
+    );
+  else if (details.at(-1) === "") details.pop();
+
+  return {
+    overview: overview.map((line) => truncateToWidth(line, overviewWidth, "…")),
+    details: details.map((line) => truncateToWidth(line, detailsWidth, "…")),
+  };
 }

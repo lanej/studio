@@ -80,6 +80,12 @@ export default function(pi) {{
             terminal.contains("Approve Event export and guide")
             terminal.contains("Define the event schema")
             terminal.contains("Export events as JSON")
+            terminal.contains("Task details")
+            terminal.contains("Acceptance")
+            graph_column = next(line.index("Task dependencies") for line in terminal.screen.display if "Task dependencies" in line)
+            detail_column = next(line.index("Task details") for line in terminal.screen.display if "Task details" in line)
+            assert graph_column < detail_column and detail_column > 30, terminal.text()
+            terminal.wait(lambda: terminal.screen.display[0].lstrip().startswith("Approve Event export") and "Esc cancel" in terminal.screen.display[-1], "Approval did not use the terminal height")
             terminal.capture("plan-review-graph")
             # Graph lanes must carry real terminal colors, not plain glyphs.
             colored = {cell.fg for line in terminal.screen.buffer.values() for cell in line.values() if cell.data in "│├┤┬┴┼╭╮╰╯●"}
@@ -97,14 +103,24 @@ export default function(pi) {{
             terminal.resize(100, 32)
             terminal.send("/review-plan\r")
             terminal.contains("Approve Event export and guide")
-            seen = terminal.text()
+            def review_text():
+                lines = terminal.screen.display
+                # Read wrapped columns separately so adjacent task text does not
+                # interrupt a publication scope that spans two terminal rows.
+                counts = {column: sum(line[column] == "│" for line in lines) for column in range(terminal.screen.columns)}
+                divider = max(counts, key=counts.get)
+                if counts[divider] >= terminal.screen.lines - 4:
+                    return " ".join(" ".join(line[:divider] for line in lines).split()) + "\n" + " ".join(" ".join(line[divider + 1:] for line in lines).split())
+                return " ".join(terminal.text().split())
+
+            seen = review_text()
             captured_details = False
             # Scroll every review row, including the metadata and specification.
             for _ in range(800):
                 if "Enter create tasks and implement" in terminal.text():
                     break
                 terminal.send("j")
-                seen += "\n" + terminal.text()
+                seen += "\n" + review_text()
                 if not captured_details and all(field in terminal.text() for field in ("Acceptance", "Requirements", "Owns", "Verification")):
                     terminal.capture("plan-review-details")
                     captured_details = True
