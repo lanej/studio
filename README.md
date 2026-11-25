@@ -61,6 +61,10 @@ Run `studio config --example` to see a full JSON configuration example. Studio r
 
 Run `studio` or `studio lead` from the directory where you want to work. Studio opens its bundled Pi host in the current terminal and loads the Studio extension. A bead, Zellij, and the worktree manager are not required. Pi retains its normal session persistence, project trust checks, provider authentication, and model selection. Use `/studio-profile work` or `/studio-profile personal` inside the session to select a configured lead profile.
 
+In the prompt editor, **Ctrl+P** recalls the previous submitted prompt and **Ctrl+N** moves forward through prompt history. These defaults use Pi's native history actions and leave the selected model unchanged. **Ctrl+L** opens Pi's normal model picker. Explicit entries in Pi's `keybindings.json` remain authoritative: an empty history-action array disables that action, and a key claimed by another authored action is not assigned a Studio history default. Studio applies these defaults in memory when the session starts and after `/reload`; it does not rewrite your keybinding file.
+
+![A previous prompt recalled with the same selected model, rendered from native terminal output](docs/assets/prompt-history.png)
+
 Use `studio lead` to pass native Pi options or an initial prompt. Place Pi options after `--` so they reach Pi, including its own help:
 
 ```sh
@@ -237,6 +241,8 @@ The tools command explicitly installs the pinned quality dependencies from their
 CI exercises the declared Bun minimum on Linux and macOS, and the latest stable Bun on Linux. The standalone acceptance checks use the same environment runtime for the installed CLI and Pi host, reject missing or insufficient runtimes, and preserve the previous installation when validation fails. For an installation change, `bun run test:standalone --installation-only` runs export, runtime preflight, staged installation, rollback, and native host checks. The default command additionally reruns quality and unit checks from the exported source.
 
 The package retains the canonical compiler and typed lint rules under `.typescript-quality/`. Declaration checking stays enabled. Bundler resolution matches Pi's native TypeScript loader and the CLI's Bun runtime. The Biome profile retains the previous recommended lint rules alongside the canonical correctness rules; only its stylistic `useLiteralKeys` rule is disabled because strict `noPropertyAccessFromIndexSignature` requires bracket access. Runtime modes, events, session/message kinds, navigation keys, profiles, roles, reasoning levels, task states and relationships use enums. External data is validated before enum-specific decisions; custom provider IDs, task states and relationship types remain representable.
+
+Run `uv run --script acceptance/history.py` for native prompt-history acceptance. It uses a disposable Pi directory and two available loopback models to check history navigation, normal model selection, first-key behavior after `/reload`, explicit disabled and conflicting bindings, and repeated reloads. Screenshots, actual terminal bytes, and state observations are retained under `.aot/history` by default; pass `--output PATH` to select another destination.
 
 The native Beads probe uses a disposable service to race claims, edit the accepted fields using native Beads tools and verify that a stale closing PATCH is refused. The [interactive acceptance fixture](acceptance/local-run.md) runs real Pi, Zellij, the worktree manager and Beads with a loopback model. It checks same-pane steering and refocus, tool-driven completion, failed verification, edited scope and independent inspection after Pi exits.
 

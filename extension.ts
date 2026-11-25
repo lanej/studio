@@ -1,4 +1,5 @@
 import { basename } from "node:path";
+import { registerHistoryBindings } from "./keybindings.ts";
 import { TaskPanel } from "./tasks/panel.ts";
 import { readTaskEvidence } from "./tasks/evidence.ts";
 import { retryAttempt } from "./execution/cli.ts";
@@ -62,6 +63,7 @@ export default function studioExtension(
     trackedPullRequest: () => string | undefined;
   },
 ): void {
+  registerHistoryBindings(pi);
   registerActivationAdmission(pi);
   const intelligence = registerCodeIntelligence(pi);
   const idle = new IdleSession();
