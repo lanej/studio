@@ -2,6 +2,7 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import {
   renderStatusCounts,
   renderStatusMark,
+  statusPaint,
   statusText,
   type StatusCount,
   type StatusMark,
@@ -111,7 +112,8 @@ function itemRow(
   presentation: StatusPresentation,
   selected = false,
 ): string {
-  const glyph = theme[item.status.tone](
+  const paint = statusPaint(theme, item.status.tone);
+  const glyph = paint(
     statusText(
       presentation.ascii === true
         ? (item.status.ascii ?? "*")
@@ -127,7 +129,7 @@ function itemRow(
   const state =
     group.showStatusLabels === false
       ? ""
-      : theme[item.status.tone](statusText(item.status.label));
+      : paint(statusText(item.status.label));
   const summary =
     item.summary === undefined ? "" : theme.muted(statusText(item.summary));
   // The current status and subject outrank secondary IDs at narrow widths.
@@ -222,9 +224,10 @@ export function renderRow(
   const cursor = selected ? (presentation.ascii === true ? "> " : "› ") : "";
   const count =
     group.collapsed === undefined ? "" : ` ${String(group.items.length)}`;
-  const text = theme[group.tone ?? "muted"](
-    `${cursor}${fold}${statusText(group.label)}${count}`,
-  );
+  const text = statusPaint(
+    theme,
+    group.tone ?? "muted",
+  )(`${cursor}${fold}${statusText(group.label)}${count}`);
   return selected
     ? theme.selected(fit(text, width))
     : truncateToWidth(text, width);
@@ -285,7 +288,10 @@ function dockRows(
     (focused === undefined || focused.group.id === first.group.id)
   )
     excerpt.push(
-      theme[first.group.tone ?? "muted"](statusText(first.group.label)),
+      statusPaint(
+        theme,
+        first.group.tone ?? "muted",
+      )(statusText(first.group.label)),
     );
   const spare = height - excerpt.length;
   const n = Math.min(

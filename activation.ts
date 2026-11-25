@@ -284,6 +284,10 @@ globalThis.studioActivationAdmissionState ??= {
   apis: new WeakSet<ExtensionAPI>(),
 };
 const admission = globalThis.studioActivationAdmissionState;
+export function activationAdmissionBlocked(): boolean {
+  return admission.fenced() || admission.pending > 0;
+}
+
 export function registerActivationAdmission(pi: ExtensionAPI): void {
   if (admission.apis.has(pi)) return;
   admission.apis.add(pi);

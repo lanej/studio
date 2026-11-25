@@ -7,6 +7,7 @@ import argparse
 import importlib.util
 import json
 from pathlib import Path
+from task_panel_session import task_panel_session
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--input", required=True, type=Path)
@@ -17,7 +18,9 @@ spec = importlib.util.spec_from_file_location("native_terminal", root / "accepta
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 fixture = json.loads(args.input.read_text())
-terminal = module.Terminal(Path(fixture["project"]), fixture["env"], args.output, fixture["session"], columns=100, rows=36)
+project = Path(fixture["project"])
+session = task_panel_session(project, fixture["env"], fixture["source"], fixture["task"], "operator-decision-fixture-ready")
+terminal = module.Terminal(project, fixture["env"], args.output, session, columns=100, rows=36)
 try:
     terminal.contains("operator-decision-fixture-ready")
     terminal.send(f"/tasks {fixture['task']}\r")

@@ -118,7 +118,7 @@ index 45c3ce8c5659c7f3373b4ff365659f7b3ef0b83b..a1293bd3b7e4840981dc595d9648c32b
      })),
      clearOnShrink: Type.Optional(Type.Boolean({
 diff --git a/dist/modes/interactive/components/assistant-message.js b/dist/modes/interactive/components/assistant-message.js
-index 4789d613cd1fe3cd60e21f40b78a88075f673b1b..8c1fff4a6a425f7f6502117785586da2f433c28c 100644
+index 4789d613cd1fe3cd60e21f40b78a88075f673b1b..349e605b8674a7090707045999273e618d183cac 100644
 --- a/dist/modes/interactive/components/assistant-message.js
 +++ b/dist/modes/interactive/components/assistant-message.js
 @@ -1,9 +1,32 @@
@@ -130,7 +130,7 @@ index 4789d613cd1fe3cd60e21f40b78a88075f673b1b..8c1fff4a6a425f7f6502117785586da2
  const OSC133_ZONE_END = "\x1b]133;B\x07";
  const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
 +export const DEFAULT_THINKING_LABEL = "\u{F09D1}"; // Nerd Fonts: nf-md-brain
-+// Keep prose readable in wide lead consoles while letting Pi lay out the original Markdown.
++// Let Pi reflow the original Markdown to the conversation width.
 +class ExpandedThinkingBlock extends Markdown {
 +    constructor(text, outputPad, markdownTheme, transform) {
 +        super(text, 0, 0, markdownTheme, { color: (value) => theme.fg("text", value) }, { transform });
@@ -142,7 +142,7 @@ index 4789d613cd1fe3cd60e21f40b78a88075f673b1b..8c1fff4a6a425f7f6502117785586da2
 +        // Reserve the marker before Markdown reflow so its first row keeps its full text.
 +        const marker = available >= 5 ? "▾ " + DEFAULT_THINKING_LABEL + " " : available >= 2 ? "▾" : "";
 +        const markerWidth = visibleWidth(marker);
-+        const body = super.render(Math.max(1, Math.min(88, available - markerWidth)));
++        const body = super.render(Math.max(1, available - markerWidth));
 +        if (body.length === 0 || available <= 0)
 +            return [];
 +        const first = body.findIndex((line) => stripTerminalSequences(line).trim().length > 0);

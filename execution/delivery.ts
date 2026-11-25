@@ -3,8 +3,18 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { z } from "zod";
 import { octo } from "../delivery.ts";
+import { draftSchema } from "../lead-plan.ts";
 import { safeGit, networkGit } from "./git.ts";
+import {
+  assertPublicationHead,
+  fetchPublicationTarget,
+  publicationTarget,
+} from "./publication-base.ts";
 import { mergePolicy } from "./policy.ts";
+import {
+  hasManualMergeApproval,
+  requireManualMergeAuthority,
+} from "./manual-merge.ts";
 import {
   type ExecutionStore,
   ExecutionPhase,
@@ -88,12 +98,14 @@ export interface DeliveryDependencies {
   networkGit: typeof networkGit;
   safeGit: typeof safeGit;
   mergePolicy(project: string): Promise<{ enabled: boolean }>;
+  requireManualMergeAuthority: typeof requireManualMergeAuthority;
   wait(signal: AbortSignal): Promise<void>;
 }
 const deliveryDependencies: DeliveryDependencies = {
   networkGit,
   safeGit,
   mergePolicy,
+  requireManualMergeAuthority,
   wait: (signal) =>
     new Promise<void>((resolve) => {
       if (signal.aborted) {
@@ -121,6 +133,10 @@ export async function deliverAssignment(
   octoCall: OctoCall = octo,
   adapters: DeliveryDependencies = deliveryDependencies,
 ): Promise<void> {
+  // The claimed brief is retained across restarts. An older graph has no per-plan restriction.
+  const mergeMode = draftSchema.shape.pullRequestMerge.parse(
+    initial.bead?.metadata["studio.pullRequestMerge"],
+  );
   const cwd = initial.checkout?.path;
   if (
     cwd === undefined ||
@@ -175,6 +191,21 @@ export async function deliverAssignment(
     },
   };
 
+  const mayRequestMerge = async (target: { id: string; head: string }) => {
+    const current = store.attempt(initial.id);
+    if (mergeMode === "manual") {
+      if (!hasManualMergeApproval(current, target)) return false;
+      await adapters.requireManualMergeAuthority(project);
+    } else if (!(await adapters.mergePolicy(project.id)).enabled) return false;
+    await assertPublicationHead(
+      store,
+      project,
+      current,
+      target.head,
+      dependencies,
+    );
+    return true;
+  };
   let attempt = store.attempt(initial.id);
   if (attempt.agent === undefined) {
     const registration = z
@@ -261,10 +292,19 @@ export async function deliverAssignment(
       );
     const body = join(directory, "body.md");
     await writeFile(body, saved.body, { mode: 0o600 });
+    await assertPublicationHead(
+      store,
+      project,
+      store.attempt(initial.id),
+      initial.head,
+      dependencies,
+    );
     await dependencies.networkGit(project.root, [
       "push",
       "origin",
       `${initial.head}:refs/heads/${initial.checkout?.branch ?? ""}`,
+      "--no-follow-tags",
+      "--recurse-submodules=no",
     ]);
     await call(
       authority,
@@ -279,7 +319,7 @@ export async function deliverAssignment(
       "--head",
       initial.checkout?.branch ?? "",
       "--base",
-      project.base.replace(/^origin\//u, ""),
+      publicationTarget(project),
     );
     store.change(initial.id, (row) => {
       row.phase = ExecutionPhase.Delivery;
@@ -302,7 +342,7 @@ export async function deliverAssignment(
         "--head",
         initial.checkout?.branch ?? "",
         "--base",
-        project.base.replace(/^origin\//u, ""),
+        publicationTarget(project),
         "--request-id",
         initial.id,
         "--track",
@@ -359,7 +399,9 @@ export async function deliverAssignment(
         row.url = observed.pr.url;
         row.phase = ExecutionPhase.Delivery;
         row.message =
-          "Published; processing durable Octo inbox independently of the lead";
+          mergeMode === "manual"
+            ? "Published; the approved plan reserves merging for the operator"
+            : "Published; processing durable Octo inbox independently of the lead";
       });
       if (
         observed.pr.observation?.lifecycle !== "merged" &&
@@ -382,31 +424,42 @@ export async function deliverAssignment(
       if (observed.pr.observation?.lifecycle === "merged") {
         if (
           attempt.mergeReceipt === undefined ||
-          z
-            .object({ state: z.string() })
-            .parse(JSON.parse(attempt.mergeReceipt)).state === "blocked" ||
           observed.pr.observation.headSha !== attempt.head
         )
           throw new Error(
             "PR merged outside the retained exact-head delivery intent; assess task criteria before completion",
           );
-        await dependencies.networkGit(project.root, [
-          "fetch",
-          "origin",
-          project.base.replace(/^origin\//u, ""),
-        ]);
-        const merged = (
-          await dependencies.networkGit(project.root, [
-            "rev-parse",
-            "FETCH_HEAD",
-          ])
-        ).trim();
+        const mergedIntent = z
+          .object({
+            state: z.string(),
+            notice: z.string(),
+            head: z.string(),
+          })
+          .parse(JSON.parse(attempt.mergeReceipt));
+        if (
+          mergedIntent.state === "blocked" ||
+          mergedIntent.head !== attempt.head ||
+          (mergeMode === "manual" &&
+            !hasManualMergeApproval(attempt, {
+              id: mergedIntent.notice,
+              head: mergedIntent.head,
+            }))
+        )
+          throw new Error(
+            "The merged PR has no matching authorized exact-head intent; assess task criteria before completion",
+          );
+        const merged = await fetchPublicationTarget(
+          project,
+          initial.id,
+          dependencies.networkGit,
+        );
         const paths = (
           await dependencies.safeGit(project.root, cwd, [
             "diff",
+            "--no-renames",
             "--name-only",
             "-z",
-            z.string().parse(attempt.base),
+            z.string().parse(attempt.publicationBase?.remote ?? attempt.base),
             z.string().parse(attempt.head),
           ])
         )
@@ -419,7 +472,7 @@ export async function deliverAssignment(
             z.string().parse(attempt.head),
             merged,
             "--",
-            ...paths,
+            ...paths.map((path) => `:(literal)${path}`),
           ]);
         store.change(initial.id, (row) => {
           row.merged = merged;
@@ -439,9 +492,14 @@ export async function deliverAssignment(
           })
           .parse(JSON.parse(attempt.mergeReceipt));
         if (retained.state === "requested") {
+          const target = {
+            id: z.string().parse(retained.notice),
+            head: z.string().parse(retained.head),
+          };
           if (
-            (await dependencies.mergePolicy(project.id)).enabled &&
-            retained.head === attempt.head
+            target.head === attempt.head &&
+            observed.pr.observation?.headSha === target.head &&
+            (await mayRequestMerge(target))
           ) {
             await requestMerge(
               store,
@@ -449,10 +507,7 @@ export async function deliverAssignment(
               directory,
               authority,
               observed.pr.url,
-              {
-                id: z.string().parse(retained.notice),
-                head: z.string().parse(retained.head),
-              },
+              target,
               identity,
               call,
             );
@@ -516,7 +571,7 @@ export async function deliverAssignment(
             );
             store.change(initial.id, (row) => {
               row.mergeReceipt = undefined;
-              row.readyNotice = undefined;
+              clearReadiness(row);
               row.message =
                 "Octo confirms no active merge; retained assignment can assess new feedback";
             });
@@ -528,6 +583,7 @@ export async function deliverAssignment(
       }
       // Include delivered notices: read is a transport receipt, not proof of owner assessment.
       // A restart between read and assessment must see the same item again.
+      let currentReady: Execution["readyNotice"];
       let after = 0;
       for (;;) {
         const inbox = z
@@ -618,12 +674,7 @@ export async function deliverAssignment(
             entry.readyHead === current.head &&
             !current.events.includes(`blocked:${entry.id}:${entry.readyHead}`)
           ) {
-            store.change(initial.id, (row) => {
-              row.readyNotice = {
-                id: entry.id,
-                head: z.string().parse(entry.readyHead),
-              };
-            });
+            currentReady = { id: entry.id, head: entry.readyHead };
           }
           store.change(initial.id, (row) => {
             if (!row.events.includes(entry.id)) row.events.push(entry.id);
@@ -758,6 +809,8 @@ export async function deliverAssignment(
         observation.feedback?.state !== "complete" ||
         observation.reviews?.state !== "complete"
       ) {
+        if (attempt.readyNotice !== undefined)
+          store.change(initial.id, clearReadiness);
         await dependencies.wait(signal);
         continue;
       }
@@ -784,17 +837,31 @@ export async function deliverAssignment(
         );
         store.change(initial.id, (row) => {
           row.events.push(assessment);
-          row.readyNotice = undefined;
+          clearReadiness(row);
         });
         await dependencies.wait(signal);
         continue;
       }
-      const policy = await dependencies.mergePolicy(project.id);
-      const target = attempt.readyNotice;
+      // Expose an operator prompt only after assessing this poll's applicable Ready receipt.
+      const target = currentReady;
+      store.change(initial.id, (row) => {
+        if (
+          target?.id !== row.readyNotice?.id ||
+          target?.head !== row.readyNotice?.head
+        )
+          clearReadiness(row);
+        row.readyNotice = target;
+        if (
+          mergeMode === "manual" &&
+          target !== undefined &&
+          !hasManualMergeApproval(row, target)
+        )
+          row.message = `Ready for operator approval: studio runtime approve-merge ${row.id} --head ${target.head}`;
+      });
       if (
-        policy.enabled &&
         target !== undefined &&
-        target.head === attempt.head
+        target.head === attempt.head &&
+        (await mayRequestMerge(target))
       ) {
         await requestMerge(
           store,
@@ -814,6 +881,11 @@ export async function deliverAssignment(
     "Delivery interrupted; retained receipts must be reconciled before retry",
   );
 }
+function clearReadiness(row: Execution): void {
+  row.readyNotice = undefined;
+  row.manualMergeApproval = undefined;
+}
+
 async function requestMerge(
   store: ExecutionStore,
   id: string,
@@ -883,7 +955,7 @@ async function requestMerge(
     store.change(id, (row) => {
       row.events.push(`blocked:${target.id}:${target.head}`);
       row.mergeReceipt = undefined;
-      row.readyNotice = undefined;
+      clearReadiness(row);
       row.message =
         "Pinned merge rejected; waiting for fresh Octo readiness evidence";
     });
@@ -909,13 +981,16 @@ async function pushCorrection(
     throw new Error(
       "Correction is not independently reviewed at the reported head",
     );
+  await assertPublicationHead(store, project, record, draft.head, dependencies);
   await dependencies.networkGit(project.root, [
     "push",
     "origin",
     `${draft.head}:refs/heads/${record.checkout.branch}`,
+    "--no-follow-tags",
+    "--recurse-submodules=no",
   ]);
   store.change(id, (row) => {
-    row.readyNotice = undefined;
+    clearReadiness(row);
     row.mergeReceipt = undefined;
     row.message =
       "Reviewed correction pushed on the same PR; waiting for fresh check evidence";

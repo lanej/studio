@@ -10,7 +10,7 @@ import {
 } from "../lead-plan.ts";
 import { taskWaves } from "../smart-plan-graph.ts";
 import { TaskBeads, sameBrief, type NativeBead } from "../task-service.ts";
-import { SpecStatus, type LeadSpecification } from "./spec.ts";
+import { propertyGaps, SpecStatus, type LeadSpecification } from "./spec.ts";
 
 type BeadsAuthority = NonNullable<StudioConfig["beadsService"]>;
 
@@ -273,8 +273,23 @@ export function implementationPresentation(
     plan?.mode !== LeadMode.Implementing
   ) {
     phase = ImplementationPhase.Proposed;
-    label = "Awaiting approval";
-    detail = "Proposed breakdown";
+    if (
+      source.bead === undefined &&
+      source.specification?.status !== SpecStatus.Frozen
+    ) {
+      label = source.specification === undefined ? "Local plan" : "Draft";
+      detail = "Draft work breakdown";
+    } else if (
+      source.bead === undefined &&
+      source.specification !== undefined &&
+      propertyGaps(source.specification, source.revision).length > 0
+    ) {
+      label = "Review properties";
+      detail = "Reassess this breakdown before approval.";
+    } else {
+      label = "Awaiting approval";
+      detail = "Proposed breakdown";
+    }
   } else if (request === undefined) {
     phase = ImplementationPhase.LinkChanged;
     label = "Plan link needs review";
@@ -360,6 +375,13 @@ export function implementationPresentation(
       }
     } else if (phase === ImplementationPhase.Tracking)
       issue = "No current observation for this bead.";
+    const unassigned =
+      task.delivery === undefined &&
+      phase === ImplementationPhase.Proposed &&
+      source.bead === undefined;
+    const delivery = unassigned
+      ? "To be decided"
+      : `${deliveryOutcome(task.delivery)}${task.delivery === undefined ? " (default)" : ""}`;
     const evidence = [
       task.description,
       `Acceptance · ${task.acceptance}`,
@@ -371,14 +393,14 @@ export function implementationPresentation(
         : [`Depends on · ${task.blockedBy.join(", ")}`]),
       `Owns · ${task.owns.length === 0 ? "Entire isolated checkout" : task.owns.join(", ")}`,
       ...(task.hold === true ? ["Admission · On hold"] : []),
-      `Delivery · ${deliveryOutcome(task.delivery)}${task.delivery === undefined ? " (default)" : ""}`,
+      `Delivery · ${delivery}`,
       `Verification · ${task.check === undefined || task.check.length === 0 ? "Independent criterion review; no executable agreed" : JSON.stringify(task.check)}`,
       ...(beadId === undefined ? [] : [`Bead · ${beadId}`]),
       ...(issue === undefined ? [] : [issue]),
     ].join("\n\n");
     return {
       id: task.key,
-      label: `${task.title} · ${deliveryOutcome(task.delivery)}${task.delivery === undefined ? " (default)" : ""}`,
+      label: task.title,
       state,
       status: statusLabels[state],
       wave: waves.get(task.key) ?? 1,

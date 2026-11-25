@@ -3,7 +3,11 @@ import { isDeepStrictEqual } from "node:util";
 import { realpathSync } from "node:fs";
 import { z } from "zod";
 import { InteractiveMode } from "@earendil-works/pi-coding-agent";
-import { loadConfig, studioProfileSchema } from "../config.ts";
+import {
+  loadConfig,
+  studioProfileSchema,
+  type StudioConfig,
+} from "../config.ts";
 import { planDigest, TaskDelivery } from "../lead-plan.ts";
 import { requireIntegration } from "../integrations.ts";
 import { octo } from "../delivery.ts";
@@ -47,18 +51,17 @@ export async function prepareInteractiveHandoff(
   return await currentInteractiveTarget();
 }
 
-export async function prepareHandoff(
+export function handoffTarget(
+  config: StudioConfig,
   record: Discovery,
   profile: string,
-): Promise<RuntimeProject> {
-  const config = await loadConfig();
+): RuntimeProject {
   if (!config.runtime.enabled)
     throw new Error(
       "Enable runtime and configure this project before approving unattended execution",
     );
   if (!config.integrations.worktrees.enabled)
     throw new Error("Enable the native worktree integration for execution");
-  await requireIntegration(config, "worktrees");
   const project = config.runtime.projects.find(
     (item) => realpathSync(item.root) === record.project,
   );
@@ -73,11 +76,19 @@ export async function prepareHandoff(
     throw new Error(
       "Review-only Beads authority does not permit unattended task creation or completion",
     );
-  const enrolled = projectSchema.parse({
+  return projectSchema.parse({
     ...project,
     root: record.project,
     id: project.source.projectId,
   });
+}
+
+async function verifyHandoff(
+  record: Discovery,
+  config: StudioConfig,
+  enrolled: RuntimeProject,
+): Promise<void> {
+  await requireIntegration(config, "worktrees");
   if (
     record.leadPlan.draft?.tasks.some(
       (task) => task.delivery === TaskDelivery.PullRequest,
@@ -98,8 +109,8 @@ export async function prepareHandoff(
     enrolled.root,
     enrolled.verificationReadPaths,
   );
-  return enrolled;
 }
+
 export async function approveHandoff(
   record: Discovery,
   profile: string,
@@ -135,11 +146,13 @@ export async function approveHandoff(
   let submitted = false;
   let project: RuntimeProject;
   try {
-    project = await prepareHandoff(record, profile);
+    const config = await loadConfig();
+    project = handoffTarget(config, locked, profile);
     if (!isDeepStrictEqual(project, target))
       throw new Error(
         "Runtime project authority changed after the displayed approval",
       );
+    await verifyHandoff(locked, config, project);
     if (interactive !== undefined) {
       if (
         !isDeepStrictEqual(await prepareInteractiveHandoff(record), interactive)
@@ -186,10 +199,11 @@ export async function approveHandoff(
         entries.push([task.key, `${root}.${task.key}`]);
       intent = {
         digest,
+        project: project.id,
+        target: project,
+        draft,
         ids: Object.fromEntries(entries),
-        ...(interactive === undefined
-          ? {}
-          : { interactive, project: project.id, draft }),
+        ...(interactive === undefined ? {} : { interactive }),
       };
       store.saveIntent(record.revision, intent);
     }

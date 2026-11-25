@@ -14,8 +14,10 @@ import { test } from "node:test";
 import { randomUUID } from "node:crypto";
 import { registerDiscovery } from "../discovery/extension.ts";
 import { Discoveries, HandoffPhase } from "../discovery/store.ts";
+import { readySpecification } from "./fixtures/socrates.ts";
+import { specificationToken } from "../socrates/assessment.ts";
 import { SpecStatus } from "../socrates/spec.ts";
-import { draftSchema, reviseDelivery } from "../lead-plan.ts";
+import { draftSchema } from "../lead-plan.ts";
 import {
   configSchema,
   runtimeProjectSchema,
@@ -197,7 +199,11 @@ await test("daily-driver Socrates starts by title and resumes the picker selecti
       await picker.handler("", ctx);
       const picked = session.getLeafEntry();
       assert.ok(picked?.type === "custom");
-      assert.deepEqual(picked.data, { id: record.id, project: record.project });
+      assert.deepEqual(picked.data, {
+        id: record.id,
+        project: record.project,
+        session: session.getSessionId(),
+      });
     }
 
     choice = options.findIndex((label) => label.includes("answer saved"));
@@ -215,7 +221,11 @@ await test("daily-driver Socrates starts by title and resumes the picker selecti
     await picker.handler("", ctx);
     const marker = session.getLeafEntry();
     assert.ok(marker?.type === "custom");
-    assert.deepEqual(marker.data, { id: first.id, project: first.project });
+    assert.deepEqual(marker.data, {
+      id: first.id,
+      project: first.project,
+      session: session.getSessionId(),
+    });
     await picker.handler("", ctx);
     assert.equal(session.getLeafId(), marker.id, "Reselecting is a no-op");
     choice = undefined;
@@ -267,7 +277,9 @@ await test("discovery approval freezes the displayed version before effects and 
           key: "first",
           title: "First",
           description: "Bounded task",
+          delivery: "local",
           acceptance: "Verified result",
+          requirements: ["R1"],
         },
       ],
     });
@@ -280,6 +292,13 @@ await test("discovery approval freezes the displayed version before effects and 
       /reserved/u,
     );
     const displayed = store.change(discovery.id, (record) => {
+      const specification = readySpecification(record.revision);
+      record.specification = {
+        ...specification,
+        status: SpecStatus.Frozen,
+        approvalAt: "2026-11-24T00:00:00Z",
+      };
+      record.planSpecificationRevision = specificationToken(specification);
       record.leadPlan.draft = draft;
     });
     const authorityId = randomUUID();
@@ -295,7 +314,10 @@ await test("discovery approval freezes the displayed version before effects and 
       id: authorityId,
     };
     peer.change(discovery.id, (record) => {
-      record.leadPlan.draft = reviseDelivery(draft, "first pull-request");
+      record.leadPlan.draft = {
+        ...draft,
+        summary: "Revised scope for approval",
+      };
     });
     assert.throws(
       () => store.beginHandoff(displayed, authority),

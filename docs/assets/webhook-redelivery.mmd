@@ -1,0 +1,16 @@
+sequenceDiagram
+    title Webhook delivery and retry
+    participant E as Event processor
+    participant W as Merchant webhook
+    participant S as Event store
+    E->>W: Deliver event 42
+    W->>S: Apply update and record event 42
+    S-->>W: Committed
+    alt Acknowledged
+        W-->>E: 204 No Content
+    else Response lost
+        E->>W: Retry event 42
+        W->>S: Check event 42
+        S-->>W: Already processed
+        W-->>E: 204 No Content
+    end

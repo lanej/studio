@@ -3,6 +3,14 @@ import { isDeepStrictEqual } from "node:util";
 
 // The declarations also power offline completion. Load execution dependencies
 // only inside actions so inspection cannot initialize the runtime graph.
+export async function approveManualMerge(
+  id: string,
+  head: string,
+): Promise<void> {
+  const { recordManualMergeApproval } = await import("./manual-merge.ts");
+  await recordManualMergeApproval(id, head);
+}
+
 export async function retryAttempt(id: string): Promise<void> {
   const { retryWriterFence } = await import("./recovery.ts");
   const { ExecutionStore, ExecutionPhase, pendingDecision } = await import(
@@ -172,6 +180,21 @@ export function registerRuntimeCommands(program: Command): void {
       }
       console.log(
         "Scheduling stop recorded. Existing task hosts continue; inspect status before stopping any task.",
+      );
+    });
+  runtime
+    .command("approve-merge <attempt>")
+    .description(
+      "Approve the current reviewed head of one manual-merge pull request",
+    )
+    .requiredOption(
+      "--head <sha>",
+      "Full commit SHA shown by the ready attempt",
+    )
+    .action(async (id: string, options: { head: string }) => {
+      await approveManualMerge(id, options.head);
+      console.log(
+        `Merge approval recorded for ${options.head}. The delivery controller will check current readiness before submitting it.`,
       );
     });
   runtime

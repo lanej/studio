@@ -5,9 +5,22 @@ import { mkdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { stateDirectory } from "../attempts.ts";
-import { LeadMode, leadPlanSchema, planDigest } from "../lead-plan.ts";
+import {
+  LeadMode,
+  TaskDelivery,
+  leadPlanSchema,
+  planDigest,
+  type LeadDraft,
+} from "../lead-plan.ts";
 import { runtimeProjectSchema } from "../config.ts";
-import { specRecord } from "../socrates/spec.ts";
+import {
+  draftDeliveryPolicy,
+  specRecord,
+  SpecStatus,
+  specificationGaps,
+  type DeliveryPolicy,
+} from "../socrates/spec.ts";
+import { specificationToken } from "../socrates/assessment.ts";
 
 export enum HandoffPhase {
   Pending = "pending",
@@ -23,6 +36,7 @@ export const discoverySchema = z.object({
   specification: specRecord.optional(),
   history: z.array(specRecord).default([]),
   leadPlan: leadPlanSchema,
+  planSpecificationRevision: z.string().optional(),
   handoff: z
     .object({
       operation: z.uuid(),
@@ -44,6 +58,100 @@ export const discoverySchema = z.object({
   graph: z.record(z.string(), z.string()).optional(),
 });
 export type Discovery = z.infer<typeof discoverySchema>;
+
+/** Resolve each proposed bead against the same publication decision shown at freeze. */
+export function applyDeliveryPolicy(
+  draft: LeadDraft,
+  policy: DeliveryPolicy,
+): LeadDraft {
+  const tasks = draft.tasks.map((task) => {
+    const publishes =
+      policy.pullRequests === "per-bead" ||
+      (policy.pullRequests === "selected" && policy.publish.includes(task.key));
+    const delivery = publishes ? TaskDelivery.PullRequest : TaskDelivery.Local;
+    if (task.delivery !== undefined && task.delivery !== delivery)
+      throw new Error(
+        `Delivery for ${task.key} conflicts with decision ${policy.decisionId}. Revise the proposal or revisit the Socrates delivery decision.`,
+      );
+    return { ...task, delivery };
+  });
+  const { pullRequestMerge: previousMerge, ...proposal } = draft;
+  if (
+    previousMerge !== undefined &&
+    (policy.pullRequests === "none" || previousMerge !== policy.merge)
+  )
+    throw new Error(
+      "The proposed merge rule conflicts with the Socrates delivery decision",
+    );
+  return policy.pullRequests === "none"
+    ? { ...proposal, tasks }
+    : { ...proposal, tasks, pullRequestMerge: policy.merge };
+}
+
+/** A proposal is editable throughout discovery. Only this reviewed form may reach the runtime. */
+export function handoffDraft(record: Discovery): LeadDraft {
+  const draft = record.leadPlan.draft;
+  if (draft === null || draft.tasks.length === 0)
+    throw new Error("Draft at least one executable task first");
+  const retained = record.handoff;
+  if (retained !== undefined) {
+    if (
+      retained.digest !== planDigest(draft) ||
+      retained.revision !== record.revision
+    )
+      throw new Error(
+        "Reconcile the original handoff with its recorded draft and revision",
+      );
+    return draft;
+  }
+  const spec = record.specification;
+  if (
+    spec?.status !== SpecStatus.Frozen ||
+    spec.approvalAt === undefined ||
+    spec.draft === null
+  )
+    throw new Error(
+      "Start /socrates and freeze the reviewed specification with /spec-freeze before handing work to the runtime",
+    );
+  const gaps = specificationGaps(spec, record.revision);
+  if (gaps.length > 0) throw new Error(gaps.join("\n"));
+  if (record.planSpecificationRevision !== specificationToken(spec))
+    throw new Error(
+      "Update the work breakdown against the current frozen specification before approval",
+    );
+  const policy = draftDeliveryPolicy(spec.draft);
+  if (
+    policy === undefined ||
+    !isDeepStrictEqual(draft, applyDeliveryPolicy(draft, policy))
+  )
+    throw new Error(
+      "Update the proposed beads to match the settled delivery policy",
+    );
+  if (policy.pullRequests === "selected") {
+    const missing = policy.publish.filter(
+      (key) => !draft.tasks.some((task) => task.key === key),
+    );
+    if (missing.length > 0)
+      throw new Error(
+        `The delivery decision names missing publishing beads: ${missing.join(", ")}`,
+      );
+  }
+  const requirements = spec.draft.requirements.map(({ id }) => id);
+  if (
+    draft.tasks.some(
+      (task) =>
+        task.requirements.length === 0 ||
+        task.requirements.some((id) => !requirements.includes(id)),
+    ) ||
+    requirements.some(
+      (id) => !draft.tasks.some((task) => task.requirements.includes(id)),
+    )
+  )
+    throw new Error(
+      "Cover every frozen requirement and link each task to known requirement IDs",
+    );
+  return draft;
+}
 
 /** Discovery is private conversational state, not another task backlog. */
 export class Discoveries {
@@ -73,23 +181,23 @@ export class Discoveries {
         if (
           row.revision !== expected.revision ||
           row.project !== expected.project ||
-          row.specification?.version !== expected.specification?.version ||
+          !isDeepStrictEqual(row.specification, expected.specification) ||
           row.leadPlan.draft === null ||
           planDigest(row.leadPlan.draft) !== digest
         )
           throw new Error(
             "The displayed draft changed before approval; review it again",
           );
+        handoffDraft(row);
         const retained = row.handoff;
         if (
           retained !== undefined &&
-          retained.phase !== HandoffPhase.Complete &&
           (!isDeepStrictEqual(retained.target, target) ||
             retained.digest !== digest ||
             retained.revision !== row.revision)
         )
           throw new Error(
-            "The uncertain handoff retains its original project authority and draft; reconcile that target first",
+            "The handoff retains its original project authority and draft; reconcile that target first",
           );
         if (
           retained?.phase === HandoffPhase.Pending &&
