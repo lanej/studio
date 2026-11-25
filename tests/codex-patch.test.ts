@@ -171,8 +171,46 @@ function plain(component: ToolExecutionComponent, width: number) {
   return stripTerminalSequences(component.render(width).join("\n"));
 }
 
+await test("dialect tools keep their invoked names in conversation headings", async (t) => {
+  const { component } = await conversationFixture(t);
+  const path = "README.md";
+  const command = "pwd";
+  const cases = [
+    { name: "Read", args: { file_path: path }, subject: path },
+    {
+      name: "Write",
+      args: { file_path: path, content: "sample" },
+      subject: path,
+    },
+    { name: "Bash", args: { command }, subject: command },
+    { name: "shell_command", args: { command }, subject: command },
+  ];
+  for (const { name, args, subject } of cases) {
+    const call = component(name, args);
+    call.setArgsComplete();
+    const heading = plain(call, 80).trimStart();
+    assert.ok(heading.startsWith(name), heading);
+    assert.ok(heading.includes(subject), heading);
+  }
+});
+
+// Compare the colored rows so this also covers syntax/token colors and gutter alignment.
+function codeRows(component: ToolExecutionComponent, width: number) {
+  return component
+    .render(width)
+    .filter((row) =>
+      /computeRate|value \+=|return value/u.test(stripTerminalSequences(row)),
+    );
+}
+
+function assertPatchTitle(view: string) {
+  assert.match(view.trimStart(), /^apply_patch\b/u);
+  assert.equal(view.match(/\bapply_patch\b/gu)?.length, 1);
+  assert.doesNotMatch(view, /^\s*(?:edit|Edit)\s/mu);
+}
+
 await test(
-  "the conversation shows the same contextual edit for a Codex patch and Claude Edit",
+  "apply_patch and Edit show the invoked name above the same contextual diff",
   processDeadline,
   async (t) => {
     const { cwd, ctx, component } = await conversationFixture(t);
@@ -189,11 +227,12 @@ await test(
     ].join("\n");
     const file = join(cwd, path);
     await writeFile(file, original);
-    const claude = component("Edit", {
+    const replacement = {
       file_path: path,
       old_string: before,
       new_string: after,
-    });
+    };
+    const claude = component("Edit", replacement);
     const edit = await replaceText(ctx, {
       path,
       oldText: before,
@@ -219,6 +258,7 @@ await test(
     });
     codex.setExpanded(true);
     const preview = plain(codex, 62);
+    assertPatchTitle(preview);
     assert.match(preview, /rates\.ts/u);
     assert.doesNotMatch(preview, /\*\*\* (?:Begin Patch|Update File)|25 → 50/u);
     codex.updateArgs({ patch });
@@ -235,22 +275,19 @@ await test(
       for (const width of [62, 132]) {
         const view = plain(codex, width);
         const canonical = plain(claude, width);
-        const sourceRows = (text: string) =>
-          text
-            .split("\n")
-            .map((row) => row.trim())
-            .filter((line) => /computeRate|value \+=|return value/u.test(line));
+        assertPatchTitle(view);
+        assert.match(view, /rates\.ts/u);
+        assert.match(canonical.trimStart(), /^Edit\s+rates\.ts/u);
         assert.match(canonical, /╭ function computeRate/u);
         assert.match(canonical, /~\s*9 .*25 → 50/u);
         assert.match(canonical, /10 +return value/u);
-        assert.deepEqual(sourceRows(view), sourceRows(canonical));
+        assert.deepEqual(codeRows(codex, width), codeRows(claude, width));
         assert.ok(
           codex.render(width).every((row) => visibleWidth(row) <= width),
         );
-        assert.match(view, /edit rates\.ts/u);
         assert.doesNotMatch(
           view,
-          /\*\*\* (?:Begin Patch|Update File|End Patch)|apply_patch/u,
+          /\*\*\* (?:Begin Patch|Update File|End Patch)/u,
         );
       }
     }
@@ -286,6 +323,29 @@ await test(
         },
       },
     });
+    const editDetails: unknown = edit.details;
+    assert.ok(typeof editDetails === "object" && editDetails !== null);
+    const annotatedEdit = component("Edit", replacement);
+    annotatedEdit.setArgsComplete();
+    annotatedEdit.updateResult({
+      ...edit,
+      content: [...edit.content, { type: "text", text: annotation }],
+      details: {
+        ...editDetails,
+        studioDiagnostics: {
+          snapshot: issue,
+          contentIndex: edit.content.length,
+        },
+      },
+    });
+    for (const width of [62, 132]) {
+      assert.deepEqual(
+        codeRows(diagnostic, width),
+        codeRows(annotatedEdit, width),
+      );
+    }
+    assert.match(plain(diagnostic, 132), /-\s*9 .*25;.*│.*\+\s*9 .*50;/u);
+    assert.doesNotMatch(plain(diagnostic, 62), /│/u);
     const annotated = plain(diagnostic, 100);
     assert.equal(annotated.match(/Rate exceeds limit/gu)?.length, 1);
     assert.match(
@@ -323,11 +383,17 @@ await test(
     );
     multi.updateResult(multiple);
     const applied = plain(multi, 100);
-    assert.match(applied, /active\.ts/u);
-    assert.match(applied, /archived\.ts/u);
+    assertPatchTitle(applied);
+    assert.match(applied, /^ *active\.ts *$/mu);
+    assert.match(applied, /^ *archived\.ts *$/mu);
     assert.match(applied, /export const active = true/u);
     assert.match(applied, /export const archived = false/u);
     assert.doesNotMatch(applied, /\*\*\* (?:Add File|Delete File|End Patch)/u);
+
+    const legacy = component("apply_patch", { patch: multiFile });
+    legacy.setArgsComplete();
+    legacy.updateResult({ ...multiple, details: undefined });
+    assertPatchTitle(plain(legacy, 100));
 
     // Replay the request after the deletion. Its failed preflight must stay visible.
     const failed = await applyPatch(ctx, multiFile);
@@ -336,6 +402,7 @@ await test(
     error.setArgsComplete();
     error.updateResult(failed);
     const failure = plain(error, 100);
+    assertPatchTitle(failure);
     assert.match(failure, /Cannot delete missing file 'archived\.ts'/u);
     assert.doesNotMatch(
       failure,

@@ -37,14 +37,22 @@ export interface ToolDisplay {
   arguments?: (raw: unknown, cwd: string) => unknown;
   resultText?: (modelText: string) => string;
   // A batch can present each of its files through the resolved single-file renderer.
-  compose?: (renderer: ToolRenderers) => ToolRenderers;
+  compose?: (renderer: ToolRenderers, toolName: string) => ToolRenderers;
 }
 
 // Pi renders the model call, not the nested canonical call. Reuse the same
 // renderer chain and tool result, translating only what the operator sees.
 export function modelToolRenderers(
   pi: RendererHost,
-  { operation, display }: { operation: CodingOperation; display?: ToolDisplay },
+  {
+    operation,
+    tool,
+    display,
+  }: {
+    operation: CodingOperation;
+    tool: { name: string };
+    display?: ToolDisplay;
+  },
 ): ToolRenderers {
   const native = nativeRenderers[operation]();
   const base: ToolRenderers = native;
@@ -53,7 +61,8 @@ export function modelToolRenderers(
     (next, resolve) => resolve(native.name, () => next) ?? next,
     base,
   );
-  if (display?.compose !== undefined) return display.compose(renderer);
+  if (display?.compose !== undefined)
+    return display.compose(renderer, tool.name);
   const call = renderer.renderCall;
   const result = renderer.renderResult;
   return {
@@ -65,7 +74,11 @@ export function modelToolRenderers(
       : {
           renderCall(args, theme, ctx) {
             const mapped = display?.arguments?.(args, ctx.cwd) ?? args;
-            return call(mapped, theme, { ...ctx, args: mapped });
+            return call(mapped, theme, {
+              ...ctx,
+              args: mapped,
+              displayToolName: tool.name,
+            });
           },
         }),
     ...(result === undefined
@@ -94,6 +107,7 @@ export function modelToolRenderers(
             return result(displayResult, options, theme, {
               ...ctx,
               args: mapped,
+              displayToolName: tool.name,
             });
           },
         }),

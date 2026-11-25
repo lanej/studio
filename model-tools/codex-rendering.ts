@@ -30,32 +30,39 @@ const feedback = z.object({
   }),
 });
 
-function title(theme: Theme, path: string) {
-  return (
-    theme.fg("toolTitle", theme.bold("edit")) +
-    (path === "" ? "" : ` ${theme.fg("accent", selectorText(path))}`)
-  );
+function fileHeading(theme: Theme, toolName: string, path: string) {
+  const label = theme.fg("accent", selectorText(path));
+  return toolName === ""
+    ? label
+    : `${theme.fg("toolTitle", theme.bold(toolName))} ${label}`;
 }
 
 // While arguments are arriving, only show context supplied in the call. Absolute
 // line numbers and enclosing scopes come from the executor's saved file images.
-function preview(raw: unknown, theme: Theme, context: RenderContext) {
+function preview(
+  raw: unknown,
+  theme: Theme,
+  context: RenderContext,
+  toolName: string,
+) {
   const args = patchArgs.safeParse(raw);
   const patch = args.success ? args.data.patch : "";
   const limit = context.argsComplete && context.expanded ? 65536 : 4096;
   const source = selectorText(patch.slice(0, limit).replaceAll("\r\n", "\n"));
   const lines: string[] = [];
+  let fileCount = 0;
   for (const line of source.split("\n")) {
     const file = /^\*\*\* (Add|Delete|Update) File: (.+)/u.exec(line);
     if (file !== null) {
-      lines.push(title(theme, file[2] ?? ""));
+      fileCount++;
+      lines.push(theme.fg("accent", file[2] ?? ""));
       if (file[1] === "Add") lines.push(theme.fg("muted", "Add file"));
       if (file[1] === "Delete") lines.push(theme.fg("muted", "Delete file"));
-    } else if (line.startsWith("*** Move to: ")) {
+    } else if (fileCount > 0 && line.startsWith("*** Move to: ")) {
       lines.push(
         theme.fg("muted", `Move to ${line.slice("*** Move to: ".length)}`),
       );
-    } else if (lines.length > 0 && !context.isError) {
+    } else if (fileCount > 0 && !context.isError) {
       if (line.startsWith("@@ "))
         lines.push(theme.fg("accent", `╭ ${line.slice(3)}`));
       if (line.startsWith("+")) lines.push(theme.fg("toolDiffAdded", line));
@@ -63,7 +70,9 @@ function preview(raw: unknown, theme: Theme, context: RenderContext) {
       if (line.startsWith(" ")) lines.push(theme.fg("toolDiffContext", line));
     }
   }
-  if (lines.length === 0) lines.push(title(theme, ""));
+  const title = theme.fg("toolTitle", theme.bold(toolName));
+  if (fileCount === 1) lines[0] = `${title} ${lines[0] ?? ""}`;
+  else lines.unshift(title);
   const folded = !context.expanded && lines.length > 10;
   if (folded) lines.splice(10);
   if (patch.length > limit || folded) lines.push(theme.fg("muted", "…"));
@@ -119,9 +128,11 @@ function diagnosticComponent(
   };
 }
 
-// Display a batch as a sequence of ordinary edit conversations, with independent
-// renderer state per file. Nothing here replays an edit or reads the current file.
-export function patchEditRenderers(edit: ToolRenderers): ToolRenderers {
+// Keep one invocation heading while each file owns its diff and diagnostic state.
+export function patchEditRenderers(
+  edit: ToolRenderers,
+  toolName: string,
+): ToolRenderers {
   const call = edit.renderCall;
   const result = edit.renderResult;
   if (call === undefined || result === undefined)
@@ -130,7 +141,7 @@ export function patchEditRenderers(edit: ToolRenderers): ToolRenderers {
     renderShell: "self",
     renderCall(args, theme, context) {
       return context.isPartial
-        ? preview(args, theme, context)
+        ? preview(args, theme, context, toolName)
         : new Container();
     },
     renderResult(outcome, options, theme, context) {
@@ -165,7 +176,21 @@ export function patchEditRenderers(edit: ToolRenderers): ToolRenderers {
       );
       const visible = options.expanded ? files : files.slice(0, 3);
       if (files.length === 0 && !options.isPartial)
-        body.addChild(preview(context.args, theme, context));
+        body.addChild(preview(context.args, theme, context, toolName));
+      const batch = files.length > 1;
+      if (batch) {
+        const count = lastEdit.size;
+        const header = new Box(context.outputPad, 0, (row) =>
+          theme.bg("toolSuccessBg", row),
+        );
+        const title = theme.fg("toolTitle", theme.bold(toolName));
+        const countLabel = theme.fg(
+          "muted",
+          `${String(count)} ${count === 1 ? "file" : "files"}`,
+        );
+        header.addChild(new Text(`\n${title}  ${countLabel}`, 0, 0));
+        body.addChild(header);
+      }
       for (const [i, file] of visible.entries()) {
         const path = file.moveTo ?? file.path;
         const reason = changeReason(file);
@@ -177,6 +202,7 @@ export function patchEditRenderers(edit: ToolRenderers): ToolRenderers {
           ...context,
           args,
           toolCallId: id,
+          displayToolName: batch ? "" : toolName,
           lastComponent: undefined,
           state: {},
         };
@@ -187,7 +213,9 @@ export function patchEditRenderers(edit: ToolRenderers): ToolRenderers {
           const box = new Box(context.outputPad, 1, (row) =>
             theme.bg("toolSuccessBg", row),
           );
-          box.addChild(new Text(title(theme, path), 0, 0));
+          box.addChild(
+            new Text(fileHeading(theme, child.displayToolName, path), 0, 0),
+          );
           const note = [
             reason,
             file.diff === undefined ? "Diff unavailable" : "",
@@ -217,12 +245,13 @@ export function patchEditRenderers(edit: ToolRenderers): ToolRenderers {
           ),
         );
       }
-      if (visible.length < files.length)
+      const hidden = files.length - visible.length;
+      if (hidden > 0)
         body.addChild(
           new Text(
             theme.fg(
               "muted",
-              `… ${String(files.length - visible.length)} more files · ${context.keyHint("app.tools.expand", "to expand")}`,
+              `… ${String(hidden)} more ${hidden === 1 ? "file" : "files"} · ${context.keyHint("app.tools.expand", "to expand")}`,
             ),
             context.outputPad,
             0,

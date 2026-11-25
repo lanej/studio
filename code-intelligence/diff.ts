@@ -135,6 +135,7 @@ export function syntaxDiffRows(
   diagnostics: DiagnosticSnapshot["diagnostics"] = [],
   details: {
     reason?: string;
+    displayToolName?: string | undefined;
     scopes?: readonly DiffScope[];
     replacements?: readonly SyntaxReplacement[];
   } = {},
@@ -404,12 +405,14 @@ export function syntaxDiffRows(
     ? hyperlink(label, pathToFileURL(rawPath).href)
     : label;
   const reason = displayEditReason(details.reason ?? "");
+  const toolName = details.displayToolName ?? "edit";
+  const header =
+    toolName === ""
+      ? pathLabel
+      : `${theme.fg("toolTitle", theme.bold(toolName))} ${pathLabel}`;
   return [
     "",
-    ...wrapTextWithAnsi(
-      `${theme.fg("toolTitle", theme.bold("edit"))} ${pathLabel}`,
-      inner,
-    ),
+    ...wrapTextWithAnsi(header, inner),
     ...(reason.length > 0
       ? wrapTextWithAnsi(theme.fg("muted", reason), inner)
       : [""]),

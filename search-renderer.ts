@@ -346,7 +346,10 @@ export function registerSearchRendering(pi: ExtensionAPI): void {
                 Buffer.byteLength(command) > MAX_HIGHLIGHT_BYTES
               )
                 return component;
-              const prompt = theme.fg("toolTitle", theme.bold("$"));
+              const prompt = theme.fg(
+                "toolTitle",
+                theme.bold(context.displayToolName ?? "$"),
+              );
               const syntax = highlightShellCommand(command, theme);
               const suffix =
                 timeout !== undefined && timeout !== 0

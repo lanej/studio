@@ -154,6 +154,7 @@ export function registerDiagnosticRendering(
                     diffDisplay(),
                     views.get(context.toolCallId)?.snapshot.diagnostics,
                     {
+                      displayToolName: context.displayToolName,
                       scopes: value.scopes,
                       replacements: value.replacements,
                       reason,

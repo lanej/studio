@@ -514,3 +514,149 @@ index cc28afe3a71e57f933fffe7bcf9fc0ec399e5332..fce3f21553be2a671044c6510883e3ae
          },
          "clearOnShrink": {
            "type": "boolean",
+diff --git a/dist/core/extensions/types.d.ts b/dist/core/extensions/types.d.ts
+index f784e083e2644e0fb14fe023c94ec7c8605b819a..2c6c86045223dce9b5574cd1b39b6b016b63f948 100644
+--- a/dist/core/extensions/types.d.ts
++++ b/dist/core/extensions/types.d.ts
+@@ -365,6 +365,8 @@ export interface ToolRenderResultOptions {
+ }
+ /** Context passed to tool renderers. */
+ export interface ToolRenderContext<TState = any, TArgs = any> extends KeybindingHints {
++    /** Visible tool name when reusing a native renderer. An empty edit name shows only its file path. */
++    displayToolName?: string;
+     /** Current tool call arguments. Shared across call/result renders for the same tool call. */
+     args: TArgs;
+     /** Unique id for this tool execution. Stable across call/result renders for the same tool call. */
+diff --git a/dist/core/tools/renderers/bash.js b/dist/core/tools/renderers/bash.js
+index 43430f16caa03ec9b2c57a5e105b257f4b11416b..dabb4e6914085175b8ee4331acb3b9e0562b2824 100644
+--- a/dist/core/tools/renderers/bash.js
++++ b/dist/core/tools/renderers/bash.js
+@@ -74,7 +74,7 @@ export function createShellRenderers(prompt) {
+         renderCall(args, _theme, context) {
+             startToolTimer(context);
+             const text = context.lastComponent ?? new Text("", 0, 0);
+-            text.setText(formatShellCall(args, prompt));
++            text.setText(formatShellCall(args, context.displayToolName ?? prompt));
+             return text;
+         },
+         renderResult(result, options, _theme, context) {
+diff --git a/dist/core/tools/renderers/edit.js b/dist/core/tools/renderers/edit.js
+index a64a3d1da0d346cf6df32489c5f1346ad1e173b9..f155c0fcec395a19f9e6cef80d048bbfe158ca39 100644
+--- a/dist/core/tools/renderers/edit.js
++++ b/dist/core/tools/renderers/edit.js
+@@ -48,9 +48,9 @@ function getRenderablePreviewInput(args) {
+     }
+     return null;
+ }
+-function formatEditCall(args, theme, cwd) {
++function formatEditCall(args, theme, cwd, toolName = "edit") {
+     const pathDisplay = renderToolPath(str(args?.file_path ?? args?.path), theme, cwd);
+-    return `${theme.fg("toolTitle", theme.bold("edit"))} ${pathDisplay}`;
++    return toolName === "" ? pathDisplay : `${theme.fg("toolTitle", theme.bold(toolName))} ${pathDisplay}`;
+ }
+ function formatEditResult(args, preview, result, theme, isError) {
+     const rawPath = str(args?.file_path ?? args?.path);
+@@ -84,11 +84,11 @@ function getEditHeaderBg(preview, settledError, theme) {
+     }
+     return (text) => theme.bg("toolPendingBg", text);
+ }
+-function buildEditCallComponent(component, args, theme, cwd, outputPad) {
++function buildEditCallComponent(component, args, theme, cwd, outputPad, toolName) {
+     component.setBgFn(getEditHeaderBg(component.preview, component.settledError, theme));
+     component.setPaddingX(outputPad);
+     component.clear();
+-    component.addChild(new Text(formatEditCall(args, theme, cwd), 0, 0));
++    component.addChild(new Text(formatEditCall(args, theme, cwd, toolName), 0, 0));
+     if (!component.preview) {
+         return component;
+     }
+@@ -132,7 +132,7 @@ export const editRenderers = {
+                 }
+             });
+         }
+-        return buildEditCallComponent(component, args, theme, context.cwd, context.outputPad);
++        return buildEditCallComponent(component, args, theme, context.cwd, context.outputPad, context.displayToolName);
+     },
+     renderResult(result, _options, theme, context) {
+         const callComponent = context.state.callComponent;
+@@ -151,7 +151,7 @@ export const editRenderers = {
+                 changed = true;
+             }
+             if (changed) {
+-                buildEditCallComponent(callComponent, context.args, theme, context.cwd, context.outputPad);
++                buildEditCallComponent(callComponent, context.args, theme, context.cwd, context.outputPad, context.displayToolName);
+             }
+         }
+         const output = formatEditResult(context.args, callComponent?.preview, typedResult, theme, context.isError);
+diff --git a/dist/core/tools/renderers/read.js b/dist/core/tools/renderers/read.js
+index 1aaa89c22d5354bec15340c54011f15899c52e01..71b162f38be29c92d3c7a9073a7103275fa40a40 100644
+--- a/dist/core/tools/renderers/read.js
++++ b/dist/core/tools/renderers/read.js
+@@ -19,9 +19,9 @@ function styledReadLineRange(args, theme) {
+     const range = formatReadLineRange(args?.offset, args?.limit);
+     return range ? theme.fg("warning", range) : "";
+ }
+-function formatReadCall(args, theme, cwd) {
++function formatReadCall(args, theme, cwd, toolName = "read") {
+     const pathDisplay = renderToolPath(str(args?.file_path ?? args?.path), theme, cwd);
+-    return `${theme.fg("toolTitle", theme.bold("read"))} ${pathDisplay}${styledReadLineRange(args, theme)}`;
++    return `${theme.fg("toolTitle", theme.bold(toolName))} ${pathDisplay}${styledReadLineRange(args, theme)}`;
+ }
+ function trimTrailingEmptyLines(lines) {
+     let end = lines.length;
+@@ -65,15 +65,16 @@ function getCompactReadClassification(args, cwd) {
+     }
+     return undefined;
+ }
+-function formatCompactReadCall(classification, args, theme) {
++function formatCompactReadCall(classification, args, theme, toolName) {
+     const expandHint = theme.fg("dim", ` (${keyText("app.tools.expand")} to expand)`);
+     if (classification.kind === "skill") {
+-        return (theme.fg("customMessageLabel", `\x1b[1m[skill]\x1b[22m `) +
++        const prefix = toolName === undefined ? "" : `${theme.fg("toolTitle", theme.bold(toolName))} `;
++        return (prefix + theme.fg("customMessageLabel", `\x1b[1m[skill]\x1b[22m `) +
+             theme.fg("customMessageText", classification.label) +
+             styledReadLineRange(args, theme) +
+             expandHint);
+     }
+-    return (theme.fg("toolTitle", theme.bold(`read ${classification.kind}`)) +
++    return (theme.fg("toolTitle", theme.bold(`${toolName ?? "read"} ${classification.kind}`)) +
+         " " +
+         theme.fg("accent", classification.label) +
+         styledReadLineRange(args, theme) +
+@@ -118,7 +119,7 @@ export const readRenderers = {
+         const args = rawArgs;
+         const text = context.lastComponent ?? new Text("", 0, 0);
+         const classification = !context.expanded ? getCompactReadClassification(args, context.cwd) : undefined;
+-        text.setText(classification ? formatCompactReadCall(classification, args, theme) : formatReadCall(args, theme, context.cwd));
++        text.setText(classification ? formatCompactReadCall(classification, args, theme, context.displayToolName) : formatReadCall(args, theme, context.cwd, context.displayToolName));
+         return text;
+     },
+     renderResult(result, options, theme, context) {
+diff --git a/dist/core/tools/renderers/write.js b/dist/core/tools/renderers/write.js
+index 58828fe68da77a2aaf324e3fbfff74071e5d9ee2..77bb8fb880a7e2bb2a2983cc962d8cf877ceaab5 100644
+--- a/dist/core/tools/renderers/write.js
++++ b/dist/core/tools/renderers/write.js
+@@ -87,11 +87,11 @@ function trimTrailingEmptyLines(lines) {
+     }
+     return lines.slice(0, end);
+ }
+-function formatWriteCall(args, options, theme, cache, highlighter, cwd) {
++function formatWriteCall(args, options, theme, cache, highlighter, cwd, toolName = "write") {
+     const rawPath = str(args?.file_path ?? args?.path);
+     const fileContent = str(args?.content);
+     const pathDisplay = renderToolPath(rawPath, theme, cwd);
+-    let text = `${theme.fg("toolTitle", theme.bold("write"))} ${pathDisplay}`;
++    let text = `${theme.fg("toolTitle", theme.bold(toolName))} ${pathDisplay}`;
+     if (fileContent === null) {
+         text += `\n\n${theme.fg("error", "[invalid content arg - expected string]")}`;
+     }
+@@ -135,7 +135,7 @@ export const writeRenderers = {
+             fileContent !== null && !context.argsComplete
+                 ? updateWriteHighlightCacheIncremental(component.cache, rawPath, fileContent, component.highlighter)
+                 : undefined;
+-        component.setText(formatWriteCall(renderArgs, { expanded: context.expanded, isPartial: context.isPartial }, theme, component.cache, component.highlighter, context.cwd));
++        component.setText(formatWriteCall(renderArgs, { expanded: context.expanded, isPartial: context.isPartial }, theme, component.cache, component.highlighter, context.cwd, context.displayToolName));
+         return component;
+     },
+     renderResult(result, _options, theme, context) {
