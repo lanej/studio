@@ -108,7 +108,11 @@ await test("registered draft tool starts only valid fresh proposals and preserve
     assert.equal(first.handoff, undefined);
     const marker = session.getLeafEntry();
     assert.ok(marker?.type === "custom");
-    assert.deepEqual(marker.data, { id: first.id, project: first.project });
+    assert.deepEqual(marker.data, {
+      id: first.id,
+      project: first.project,
+      session: session.getSessionId(),
+    });
     const revised = {
       ...draft,
       summary: "Revised proposal for operator review",
@@ -180,6 +184,41 @@ await test("registered draft tool starts only valid fresh proposals and preserve
     });
     await assert.rejects(save(), /Unknown discovery/u);
     assert.equal(store.list(project).length, 2);
+
+    // A fork can navigate before its tombstone without reviving parent authority.
+    const parentRecord = store.get(first.id);
+    session.newSession({ parentSession: "fixture-parent.jsonl" });
+    const inherited = session.appendCustomEntry("studio:discovery", {
+      id: first.id,
+      project: first.project,
+    });
+    await runner.emit({
+      type: "session_start",
+      reason: "fork",
+      previousSessionFile: "fixture-parent.jsonl",
+    });
+    const tombstone = session.getLeafEntry();
+    assert.ok(tombstone?.type === "custom");
+    assert.deepEqual(tombstone.data, {
+      id: null,
+      project: first.project,
+      session: session.getSessionId(),
+    });
+    session.branch(inherited);
+    await save(revised);
+    const child = store.list(project)[0];
+    assert.ok(child !== undefined);
+    assert.notEqual(child.id, first.id);
+    assert.equal(child.conversation, session.getSessionId());
+    assert.deepEqual(store.get(first.id), parentRecord);
+    // An explicit child-session selection follows normal approval rules.
+    session.appendCustomEntry("studio:discovery", {
+      id: first.id,
+      project: first.project,
+      session: session.getSessionId(),
+    });
+    await assert.rejects(save(), /already approved/u);
+    assert.deepEqual(store.get(first.id), parentRecord);
   } finally {
     if (previousState === undefined) delete process.env["STUDIO_STATE_DIR"];
     else process.env["STUDIO_STATE_DIR"] = previousState;

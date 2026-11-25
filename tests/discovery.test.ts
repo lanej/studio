@@ -197,7 +197,11 @@ await test("daily-driver Socrates starts by title and resumes the picker selecti
       await picker.handler("", ctx);
       const picked = session.getLeafEntry();
       assert.ok(picked?.type === "custom");
-      assert.deepEqual(picked.data, { id: record.id, project: record.project });
+      assert.deepEqual(picked.data, {
+        id: record.id,
+        project: record.project,
+        session: session.getSessionId(),
+      });
     }
 
     choice = options.findIndex((label) => label.includes("answer saved"));
@@ -215,7 +219,11 @@ await test("daily-driver Socrates starts by title and resumes the picker selecti
     await picker.handler("", ctx);
     const marker = session.getLeafEntry();
     assert.ok(marker?.type === "custom");
-    assert.deepEqual(marker.data, { id: first.id, project: first.project });
+    assert.deepEqual(marker.data, {
+      id: first.id,
+      project: first.project,
+      session: session.getSessionId(),
+    });
     await picker.handler("", ctx);
     assert.equal(session.getLeafId(), marker.id, "Reselecting is a no-op");
     choice = undefined;

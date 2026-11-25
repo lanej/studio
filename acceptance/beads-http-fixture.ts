@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { once } from "node:events";
-import { createServer } from "node:net";
+import { spawn, type ChildProcess } from "node:child_process";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import {
@@ -13,6 +11,155 @@ import {
 export interface BeadsHttpSource {
   url: string;
   projectId: string;
+}
+
+function announcedAddress(
+  service: ChildProcess,
+  deadline: number,
+  diagnostics: () => string,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let pending = "";
+    let bytes = 0;
+    const finish = (error: Error | undefined, url?: string) => {
+      clearTimeout(timer);
+      service.stdout?.off("data", data);
+      service.off("error", failed);
+      service.off("close", closed);
+      if (error !== undefined) reject(error);
+      else if (url !== undefined) resolve(url);
+    };
+    const failed = (error: Error) => {
+      finish(new Error(`Could not start Beads HTTP fixture: ${error.message}`));
+    };
+    const closed = () => {
+      finish(
+        new Error(
+          `Beads HTTP fixture exited before announcing its address (code ${String(service.exitCode)}, signal ${String(service.signalCode)}): ${diagnostics()}`,
+        ),
+      );
+    };
+    const data = (chunk: Buffer) => {
+      bytes += chunk.length;
+      if (bytes > 8000) {
+        finish(
+          new Error("Beads HTTP fixture startup output exceeded 8000 bytes"),
+        );
+        return;
+      }
+      pending += chunk.toString();
+      for (;;) {
+        const newline = pending.indexOf("\n");
+        if (newline < 0) return;
+        const line = pending.slice(0, newline).replace(/\r$/u, "");
+        pending = pending.slice(newline + 1);
+        if (!line.startsWith("bd serve: listening on ")) continue;
+        const parsed =
+          /^bd serve: listening on (http:\/\/127\.0\.0\.1:([1-9]\d{0,4}))$/u.exec(
+            line,
+          );
+        if (
+          parsed?.[1] === undefined ||
+          parsed[2] === undefined ||
+          Number(parsed[2]) > 65535
+        ) {
+          finish(
+            new Error(
+              `Invalid Beads HTTP fixture address announcement: ${line}`,
+            ),
+          );
+          return;
+        }
+        finish(undefined, parsed[1]);
+        return;
+      }
+    };
+    const timer = setTimeout(
+      () => {
+        finish(
+          new Error(
+            `Beads HTTP fixture did not announce its bound address: ${diagnostics()}`,
+          ),
+        );
+      },
+      Math.max(0, deadline - Date.now()),
+    );
+    service.stdout?.on("data", data);
+    service.once("error", failed);
+    service.once("close", closed);
+  });
+}
+
+/** The owned service binds its ephemeral port atomically; no listener hands off a reservation. */
+export async function withBeadsServer<T>(
+  bd: string,
+  options: { cwd: string; env: NodeJS.ProcessEnv },
+  use: (server: {
+    url: string;
+    deadline: number;
+    assertRunning: () => void;
+    diagnostics: () => string;
+  }) => Promise<T>,
+  startupMs = 20_000,
+): Promise<T> {
+  const deadline = Date.now() + startupMs;
+  const service = spawn(bd, ["serve", "--addr", "127.0.0.1:0"], {
+    ...options,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const closed = new Promise<void>((resolve) => {
+    service.once("close", () => {
+      resolve();
+    });
+  });
+  let diagnostics = "";
+  let startupError: Error | undefined;
+  const record = (chunk: Buffer) => {
+    diagnostics = (diagnostics + chunk.toString()).slice(-8000);
+  };
+  service.stdout.on("data", record);
+  service.stderr.on("data", record);
+  service.on("error", (error) => {
+    startupError = error;
+  });
+  const assertRunning = () => {
+    if (startupError !== undefined)
+      throw new Error(
+        `Could not start Beads HTTP fixture: ${startupError.message}`,
+      );
+    assert.equal(service.exitCode, null, diagnostics);
+    assert.equal(service.signalCode, null, diagnostics);
+    assert(service.pid !== undefined, `Could not start ${bd} serve`);
+  };
+  try {
+    const url = await announcedAddress(service, deadline, () => diagnostics);
+    assertRunning();
+    const result = await use({
+      url,
+      deadline,
+      assertRunning,
+      diagnostics: () => diagnostics,
+    });
+    assertRunning();
+    return result;
+  } finally {
+    if (
+      service.exitCode === null &&
+      service.signalCode === null &&
+      service.pid !== undefined
+    ) {
+      service.kill("SIGTERM");
+      const timer = setTimeout(() => {
+        if (service.exitCode === null && service.signalCode === null)
+          service.kill("SIGKILL");
+      }, 5000);
+      try {
+        await closed;
+      } finally {
+        clearTimeout(timer);
+      }
+    } else await closed;
+  }
 }
 
 export async function withBeadsHttp<T>(
@@ -38,76 +185,34 @@ export async function withBeadsHttp<T>(
       GIT_CONFIG_GLOBAL: "/dev/null",
       GIT_CONFIG_NOSYSTEM: "1",
     };
-    const listener = createServer();
-    listener.listen(0, "127.0.0.1");
-    await once(listener, "listening");
-    const address = listener.address();
-    assert(address !== null && typeof address !== "string");
-    const port = address.port;
-    await new Promise<void>((resolve, reject) => {
-      listener.close((error) => {
-        if (error !== undefined) reject(error);
-        else resolve();
-      });
-    });
-    const service = spawn(
+    return await withBeadsServer(
       bd,
-      ["serve", "--addr", `127.0.0.1:${String(port)}`],
-      {
-        cwd: fixture.workspace,
-        env,
-        stdio: ["ignore", "ignore", "pipe"],
+      { cwd: fixture.workspace, env },
+      async ({ url, deadline, assertRunning, diagnostics }) => {
+        let projectId: string | undefined;
+        while (Date.now() < deadline && projectId === undefined) {
+          assertRunning();
+          try {
+            const response = await fetch(`${url}/v0/beads/context`, {
+              signal: AbortSignal.timeout(1000),
+            });
+            if (response.ok)
+              projectId = z
+                .object({ project_id: z.string().min(1) })
+                .parse(await response.json()).project_id;
+          } catch {
+            // The bound service may still be preparing its project context.
+          }
+          assertRunning();
+          if (projectId === undefined)
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        assert(
+          projectId !== undefined && projectId.length > 0,
+          `Beads HTTP fixture project context did not become ready: ${diagnostics()}`,
+        );
+        return await use(fixture, { url, projectId });
       },
     );
-    let diagnostics = "";
-    service.stderr.on("data", (chunk: Buffer) => {
-      diagnostics = (diagnostics + chunk.toString()).slice(-8000);
-    });
-    service.on("error", (error) => {
-      diagnostics += error.message;
-    });
-    try {
-      const url = `http://127.0.0.1:${String(port)}`;
-      let projectId: string | undefined;
-      const deadline = Date.now() + 20_000;
-      while (Date.now() < deadline && projectId === undefined) {
-        try {
-          const response = await fetch(`${url}/v0/beads/context`, {
-            signal: AbortSignal.timeout(1000),
-          });
-          if (response.ok) {
-            projectId = z
-              .object({ project_id: z.string().min(1) })
-              .parse(await response.json()).project_id;
-          }
-        } catch {
-          // rationale(acceptance): The private HTTP listener may not be bound yet.
-        }
-        assert.equal(service.exitCode, null, diagnostics);
-        assert.equal(service.signalCode, null, diagnostics);
-        assert(service.pid !== undefined, `Could not start ${bd} serve`);
-        if (projectId === undefined)
-          await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-      assert(
-        projectId !== undefined && projectId.length > 0,
-        `Beads HTTP fixture did not start: ${diagnostics}`,
-      );
-      return await use(fixture, { url, projectId });
-    } finally {
-      if (
-        service.exitCode === null &&
-        service.signalCode === null &&
-        service.pid !== undefined
-      ) {
-        service.kill("SIGTERM");
-        const timer = setTimeout(() => service.kill("SIGKILL"), 5000);
-        try {
-          await once(service, "close");
-        } finally {
-          clearTimeout(timer);
-        }
-      }
-    }
   });
 }
