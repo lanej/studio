@@ -1,4 +1,6 @@
-import type { InspectWorkerTask } from "./tasks/panel.ts";
+import type { OpenTasks } from "./tasks/panel.ts";
+import { diagramTool } from "./diagram/extension.ts";
+import { mermaidTool } from "./diagram/mermaid-tool.ts";
 import { renderPlanCall } from "./plan-renderer.ts";
 import { lspTool, renameTool } from "./code-intelligence/extension.ts";
 import { githubLink, renderReferences } from "./github-links.ts";
@@ -37,6 +39,8 @@ const inspectTools = new Set([
   lspTool,
   delegateTool,
   planTool,
+  diagramTool,
+  mermaidTool,
 ]);
 const implementationTools = new Set([
   "write",
@@ -82,7 +86,7 @@ export function registerLeadControls(
   id: string,
   requireBinding: (ctx: ExtensionContext) => Promise<Attempt>,
   approvalPending: (active: boolean) => void,
-  inspectWorkerTask?: InspectWorkerTask,
+  openTasks?: OpenTasks,
 ) {
   const mode = () => db.get(id).leadPlan?.mode;
   const socrates = registerSocrates(
@@ -91,7 +95,7 @@ export function registerLeadControls(
     id,
     requireBinding,
     approvalPending,
-    inspectWorkerTask,
+    openTasks,
   );
   const permits = (tool: string) => {
     const spec = db.get(id).specification;

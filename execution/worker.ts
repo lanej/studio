@@ -33,6 +33,8 @@ import { packageRoot } from "../package-resources.ts";
 import { writableTools } from "./tools.ts";
 import { safeGit, networkGit } from "./git.ts";
 import { deliverAssignment } from "./delivery.ts";
+import { preparePublicationBase } from "./publication-base.ts";
+import { approvedHandoffTask } from "./publication-graph.ts";
 import { octo } from "../delivery.ts";
 import {
   recordDecision,
@@ -174,6 +176,9 @@ export async function executeAssignment(
     if (attempt.bead === undefined || attempt.revision === undefined)
       throw new Error("Missing admitted task identity");
     requireUnattendedTask(attempt.bead);
+    const handoff = store.taskHandoffIntent(project.id, attempt.bead.id);
+    if (handoff !== undefined)
+      approvedHandoffTask(store, project, attempt.bead, handoff);
     if (ctx.cwd !== project.root || !ctx.isProjectTrusted())
       throw new Error(
         "Approve Pi project trust for the enrolled repository before execution",
@@ -492,6 +497,13 @@ export async function executeAssignment(
             row.reviewFinding ?? "Worker implementing the admitted task";
         });
         const base = (await git(["rev-parse", "HEAD"])).trim();
+        if (metadata.delivery === TaskDelivery.PullRequest) {
+          const previous = store.attempt(id);
+          if (base !== (previous.head ?? previous.base))
+            throw new Error(
+              "PR worker checkout moved outside its admitted commit history",
+            );
+        }
         const repair =
           feedback.length === 0
             ? ""
@@ -562,6 +574,11 @@ export async function executeAssignment(
           { timeout: 90000 },
         );
         head = (await git(["rev-parse", "HEAD"])).trim();
+        if (
+          metadata.delivery === TaskDelivery.PullRequest &&
+          (await git(["rev-parse", `${head}^@`])).trim() !== base
+        )
+          throw new Error("PR worker commit has an unapproved parent");
         const verified = store.attempt(id).verification;
         const committedTree = (await git(["rev-parse", "HEAD^{tree}"])).trim();
         const actual = await gitState(checkout.path, checkout.branch, git);
@@ -746,14 +763,25 @@ async function prepareCheckout(
   }
   let base = attempt.base;
   if (base === undefined) {
-    const frontier = `refs/studio/projects/${project.id}`;
-    base = await networkGit(project.root, ["rev-parse", "--verify", frontier])
-      .then((text) => text.trim())
-      .catch(() => undefined);
-    if (base === undefined)
-      base = (
-        await networkGit(project.root, ["rev-parse", "--verify", project.base])
-      ).trim();
+    const task = taskMetadata.parse(
+      attempt.bead?.metadata["studio.task"] ?? {},
+    );
+    if (task.delivery === TaskDelivery.PullRequest) {
+      base = await preparePublicationBase(store, project, attempt);
+    } else {
+      const frontier = `refs/studio/projects/${project.id}`;
+      base = await networkGit(project.root, ["rev-parse", "--verify", frontier])
+        .then((text) => text.trim())
+        .catch(() => undefined);
+      if (base === undefined)
+        base = (
+          await networkGit(project.root, [
+            "rev-parse",
+            "--verify",
+            project.base,
+          ])
+        ).trim();
+    }
     store.change(attempt.id, (row) => {
       row.base = base;
       row.phase = ExecutionPhase.Allocating;

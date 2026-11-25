@@ -1,5 +1,6 @@
 import { processFailure, run } from "../process.ts";
 import { isDeepStrictEqual } from "node:util";
+import { approvedHandoffTask } from "./publication-graph.ts";
 import { sameBrief } from "../task-service.ts";
 import {
   loadConfig,
@@ -98,11 +99,18 @@ export async function retainClaim(
       `Configure the approved ${profile} profile; another profile will not be substituted`,
     );
   const metadata = bound.metadata["studio.task"];
+  const intent = store.taskHandoffIntent(admission.project, bound.id);
   const task =
-    metadata === undefined
-      ? undefined
-      : draftSchema.shape.tasks.element.parse(metadata);
-  const intent = store.interactiveIntent(bound.id);
+    intent !== undefined
+      ? approvedHandoffTask(
+          store,
+          store.project(admission.project),
+          bound,
+          intent,
+        ).task
+      : metadata === undefined
+        ? undefined
+        : draftSchema.shape.tasks.element.parse(metadata);
   const interactive = intent?.interactive;
   if (
     (interactive !== undefined ||
@@ -110,17 +118,6 @@ export async function retainClaim(
     (interactive === undefined ||
       intent?.project !== admission.project ||
       profile !== admission.profile ||
-      intent.id !== bound.metadata["studio.graph"] ||
-      intent.digest !== bound.metadata["studio.approval"] ||
-      task === undefined ||
-      intent.ids[task.key] !== bound.id ||
-      !isDeepStrictEqual(
-        intent.draft?.tasks.find((item) => item.key === task.key),
-        task,
-      ) ||
-      task.title !== bound.title ||
-      task.description !== bound.description ||
-      task.acceptance !== bound.acceptance_criteria ||
       bound.metadata["studio.interactive"] !== true)
   )
     throw new Error(

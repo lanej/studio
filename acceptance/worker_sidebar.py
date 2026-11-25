@@ -97,6 +97,11 @@ discoveries.close();
         assert "2 active · 1 needs you" in roster(), roster()
         console.send(worker_prompt + "\r")
         console.wait(lambda: "while you decide." in console.text(), "The lead did not finish its reply")
+        # The retired per-pane Alt shortcuts must leave the lead and its rail alone.
+        for retired in ("\x1bw", "\x1bt", "\x1bs"):
+            console.send(retired)
+            assert console.rail_start() is not None and "Enter inspect" not in console.text(), console.text()
+        console.send("\x15")
         console.send(draft)
         console.contains(draft)
 
@@ -106,7 +111,7 @@ discoveries.close();
             return rail
 
         def open_workers():
-            console.send("\x1bw")
+            console.choose_pane("w")
             console.contains("Enter inspect")
             # The active selection is inside a pane laid over the middle of the lead.
             # Neither the bottom dock nor the right sidebar can satisfy these bounds.
@@ -141,10 +146,21 @@ discoveries.close();
         # Place the cursor before the period. Moving the pane selection and
         # dismissing the pane must preserve both the draft and its insertion point.
         console.send("\x1b[D")
+        # The legacy terminal encoding of Ctrl+Space is NUL. Closing the picker
+        # itself must preserve a cursor that is partway through the lead draft.
+        console.open_pane_picker("\x00")
+        console.capture("studio-pane-picker")
+        console.send("\x1b")
+        console.wait(lambda: "Studio panes" not in console.text(), "Escape did not dismiss the picker")
+        console.send("?")
+        console.contains(draft[:-1] + "?.")
+        console.send("\x7f")
         open_workers()
         console.contains("worker-restore")
         check_question_preview()
         console.capture("worker-float")
+        console.send("\x1bw")
+        console.framed_pane("Workers")
         top, bottom, left, right = console.framed_pane("Workers")
         transcript_before = console.screen.display[:top] + console.screen.display[bottom + 1:]
         console.send(f"\x1b[<64;{(left + right) // 2 + 1};{(top + bottom) // 2 + 1}M")
@@ -251,14 +267,14 @@ discoveries.close();
 
         console.resize(128, 34)
         console.wait_for_rail()
-        console.send("\x1bs")
-        console.wait(lambda: console.rail_start() is None, "Alt+S did not hide the status column")
         console.send("\x15")
+        console.send("/socrates-status min\r")
+        console.wait(lambda: console.rail_start() is None, "The status command did not hide the status column")
         console.send("/workers\r")
         console.contains("Enter inspect")
         console.framed_pane("Workers")
-        console.send("\x1bw")
-        console.wait(lambda: "Enter inspect" not in console.text(), "Alt+W did not close the command-opened pane")
+        console.send("\x1b")
+        console.wait(lambda: "Enter inspect" not in console.text(), "Escape did not close the command-opened pane")
         console.send("Back in the lead.")
         console.contains("Back in the lead.")
         assert console.rail_start() is None, console.text()

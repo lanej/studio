@@ -1,17 +1,35 @@
-import { syntaxDiffRows } from "../code-intelligence/diff.ts";
+import { editFileHeading, syntaxDiffRows } from "../code-intelligence/diff.ts";
 import type { SyntaxReplacement } from "../code-intelligence/syntax-analysis.ts";
+import studioTheme from "../resources/theme.json" with { type: "json" };
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { ThemeBg, ThemeColor } from "@earendil-works/pi-coding-agent";
-import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
+import type {
+  ThemeBg,
+  ThemeColor,
+  ThemeStyle,
+} from "@earendil-works/pi-coding-agent";
+import {
+  parseColor,
+  styleText,
+  stripTerminalSequences,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
 import {
   diagnosticRows,
   type DiagnosticSnapshot,
 } from "../code-intelligence/diagnostics.ts";
 const plain = {
+  appearance: "dark" as const,
   bg: (_tone: ThemeBg, value: string) => value,
   fg: (_tone: ThemeColor, value: string) => value,
   bold: (value: string) => value,
+  colors: {
+    text: parseColor("#D8DEE9"),
+    toolSuccessBg: parseColor("#3B4252"),
+    toolDiffRemoved: parseColor("#BF616A"),
+    toolDiffAdded: parseColor("#A3BE8C"),
+  },
+  style: (value: string) => value,
 };
 await test("inline diagnostics distinguish pending and reported results, wrap, and expand", () => {
   const value: DiagnosticSnapshot = {
@@ -230,6 +248,196 @@ await test("changing an operator or whitespace with a value preserves both expre
   assert.match(
     renderDiff("-1 retries: 2\n+1 retries:  4", 120),
     /-1 retries: 2\s*│\s*\+1 retries: {2}4/u,
+  );
+});
+
+await test("file reasons share the heading and a creation marks the file once", () => {
+  const render = (width: number, addedFile: boolean) =>
+    syntaxDiffRows(
+      "+1 export const x = 2;\n+2 done();",
+      "src/retry.ts",
+      plain,
+      width,
+      "/project",
+      (text) => text.split("\n"),
+      undefined,
+      [],
+      { displayToolName: "", addedFile, reason: "Cover the retry boundary." },
+    ).map(stripTerminalSequences);
+  const lines = render(72, true);
+  assert.match(
+    lines[0] ?? "",
+    /\+ src\/retry.ts {2}· Cover the retry boundary/u,
+  );
+  assert.match(lines[1] ?? "", /^\s*1 export/u);
+  assert.doesNotMatch(lines.join("\n"), /\+\s*\d/u);
+  const inFile = render(72, false);
+  assert.match(inFile.join("\n"), /\+1 export/u);
+  for (const width of [12, 18, 33]) {
+    const narrow = render(width, true);
+    assert.ok(narrow.every((row) => visibleWidth(row) <= width));
+    assert.match(
+      narrow.join(" ").replace(/\s+/gu, " "),
+      /Cover the retry boundary\./u,
+    );
+  }
+  assert.equal(
+    editFileHeading(plain, "Edit", "f", "\x1b[31m reason\x1b[0m"),
+    "Edit f  · reason",
+  );
+  assert.equal(editFileHeading(plain, "Edit", "f", " "), "Edit f");
+});
+
+await test("token fills and gutter roles survive compact, paired and wrapped diffs", () => {
+  const theme = {
+    ...plain,
+    name: studioTheme.name,
+    colors: {
+      ...plain.colors,
+      toolSuccessBg: parseColor(studioTheme.colors.toolSuccessBg),
+      toolDiffRemoved: parseColor(studioTheme.colors.toolDiffRemoved),
+      toolDiffAdded: parseColor(studioTheme.colors.toolDiffAdded),
+    },
+    fg(role: ThemeColor, text: string) {
+      const ansi =
+        role === "warning"
+          ? "\x1b[33m"
+          : role === "toolDiffContext"
+            ? "\x1b[34m"
+            : "";
+      return ansi + text + (ansi === "" ? "" : "\x1b[39m");
+    },
+    style(text: string, options: ThemeStyle) {
+      assert.ok(typeof options.fg === "object");
+      assert.ok(options.bg === undefined || typeof options.bg === "object");
+      return styleText(
+        text,
+        {
+          fg: options.fg,
+          ...(options.bg === undefined ? {} : { bg: options.bg }),
+          bold: options.bold === true,
+        },
+        "truecolor",
+      );
+    },
+  };
+  const gray = "\x1b[38;2;177;177;177m";
+  const reason = "Allow another attempt";
+  assert.ok(
+    editFileHeading(theme, "Edit", "retry.ts", reason).includes(
+      `${gray}  · ${reason}`,
+    ),
+  );
+  const light = {
+    ...theme,
+    name: "custom-light",
+    appearance: "light" as const,
+    colors: {
+      ...theme.colors,
+      toolSuccessBg: parseColor("#F2F2F2"),
+      text: parseColor("#202020"),
+    },
+  };
+  assert.ok(
+    editFileHeading(light, "Edit", "retry.ts", reason).includes(
+      "\x1b[38;2;85;85;85m",
+    ),
+  );
+  const diff = "-12 return attempts < 2;\n+12 return attempts < 4;";
+  const change = { row: 1, start: 18, original: "2", updated: "4" };
+  for (const [width, withIssue] of [
+    [80, false],
+    [120, true],
+    [19, true],
+  ] as const) {
+    const issue: DiagnosticSnapshot["diagnostics"] = withIssue
+      ? [
+          {
+            line: 12,
+            column: 19,
+            endLine: 12,
+            endColumn: 20,
+            severity: "error",
+            message: "Out of range",
+          },
+        ]
+      : [];
+    const rows = syntaxDiffRows(
+      diff,
+      "retry.ts",
+      theme,
+      width,
+      "/project",
+      (text) => text.split("\n"),
+      undefined,
+      issue,
+      { replacements: [change] },
+    );
+    const view = rows.join("\n");
+    assert.ok(rows.every((row) => visibleWidth(row) <= width));
+    assert.ok(view.includes("\x1b[48;2;71;52;63m"), "dark rose removal tint");
+    assert.ok(view.includes("\x1b[48;2;48;70;57m"), "dark green addition tint");
+    assert.ok(
+      view.includes("\x1b[38;2;191;97;106m"),
+      "original red removal ink",
+    );
+    assert.ok(
+      view.includes("\x1b[38;2;163;190;140m"),
+      "original green addition ink",
+    );
+    if (withIssue && width === 120)
+      assert.ok(view.includes(`${gray}Out of range`));
+    if (!withIssue) {
+      assert.ok(view.includes("\x1b[33m~\x1b[39m\x1b[34m12 "));
+      assert.ok(view.includes("\x1b[38;2;191;97;106m\x1b[48;2;71;52;63m2"));
+      assert.ok(view.includes("\x1b[38;2;163;190;140m\x1b[48;2;48;70;57m4"));
+      assert.match(stripTerminalSequences(view), /return attempts < 2 → 4;/u);
+    } else {
+      assert.ok(view.includes("\x1b[4:3m"));
+    }
+    const custom = syntaxDiffRows(
+      diff,
+      "retry.ts",
+      light,
+      width,
+      "/project",
+      (text) => text.split("\n"),
+      {
+        min_split_columns: 40,
+        inline_diagnostics: true,
+        removed_background: "#080808",
+        added_background: "#f0f0f0",
+      },
+      issue,
+      { replacements: [change] },
+    ).join("\n");
+    assert.ok(
+      custom.includes("\x1b[38;2;255;162;168m\x1b[48;2;8;8;8m"),
+      "readable custom theme ink survives a configured dark fill",
+    );
+    assert.ok(
+      custom.includes("\x1b[38;2;0;0;0m\x1b[48;2;240;240;240m"),
+      "unreadable diff ink adapts to a configured light fill",
+    );
+  }
+  const otherDark = syntaxDiffRows(
+    diff,
+    "retry.ts",
+    { ...theme, name: "custom-dark" },
+    80,
+    "/project",
+    (text) => text.split("\n"),
+    undefined,
+    [],
+    { replacements: [change] },
+  ).join("\n");
+  assert.ok(
+    otherDark.includes("\x1b[38;2;255;162;168m\x1b[48;2;71;52;63m2"),
+    "other dark themes retain their removal ink",
+  );
+  assert.ok(
+    otherDark.includes("\x1b[38;2;169;196;146m\x1b[48;2;48;70;57m4"),
+    "other dark themes retain their addition ink",
   );
 });
 

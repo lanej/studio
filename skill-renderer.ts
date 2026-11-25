@@ -1,3 +1,4 @@
+import { registerCodingRenderer } from "./model-tools/rendering.ts";
 import { basename } from "node:path";
 import { z } from "zod";
 import {
@@ -19,7 +20,7 @@ export function registerSkillRendering(
   pi: Pick<ExtensionAPI, "registerToolRenderer">,
 ): void {
   const painted = new WeakSet<Component>();
-  pi.registerToolRenderer((name, next) => {
+  registerCodingRenderer(pi, (name, next) => {
     const base = next();
     if (name !== "read") return base;
     const render = base?.renderResult;

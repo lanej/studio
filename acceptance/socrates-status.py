@@ -227,6 +227,14 @@ class Terminal:
         for key in keys:
             self.send(key)
 
+    def open_pane_picker(self, chord="\x1b[32;5u"):
+        self.send(chord)
+        self.contains("Studio panes")
+
+    def choose_pane(self, key):
+        self.open_pane_picker()
+        self.send(key)
+
     def centered_lines(self):
         """Read the overlay's viewport without the lead or sidebar alongside it."""
         width = min(100, self.screen.columns - 4)
@@ -400,8 +408,7 @@ class Terminal:
         assert "Wave 1" not in rail and "Wave 2" not in rail, rail
 
     def wait_for_session(self):
-        # Pi mounts widgets during session_start and restores the transcript
-        # after binding extension shortcuts. Only then can we exercise Alt+S.
+        # Wait until both the restored transcript and its status widget are visible.
         self.contains(initial_prompt)
         self.wait_for_rail()
 
@@ -654,8 +661,8 @@ def run(output):
             )
             terminal.wait_for_session()
             terminal.check_property_focus()
-            terminal.send("\x1bs")
-            terminal.wait(lambda: terminal.rail_start() is None, "Alt+S did not collapse the sidebar")
+            terminal.send("/socrates-status min\r")
+            terminal.wait(lambda: terminal.rail_start() is None, "The status command did not collapse the sidebar")
             terminal.send("/socrates\r")
             terminal.wait_for_rail()
             terminal.check_property_focus()
@@ -667,10 +674,10 @@ def run(output):
             terminal.check_lead_wrap(draft)
             terminal.send("\x1b[D")
             terminal.send("\x1b[D")
-            terminal.send("\x1bs")
+            terminal.choose_pane("s")
             terminal.wait(lambda: terminal.rail_start() is None and any(draft in line for line in terminal.screen.display),
                           "Collapsing the sidebar did not restore the full editor width")
-            terminal.send("\x1bs")
+            terminal.choose_pane("s")
             terminal.wait_for_rail()
             terminal.check_lead_wrap(draft)
             terminal.send(" request")  # Insert before 's.' to prove the mid-draft cursor survived.
@@ -710,15 +717,15 @@ def run(output):
             terminal.assert_foreground("2 open", "status.error")
             terminal.assert_foreground("2 partial", "status.warning")
             terminal.capture("status-narrow-dock")
-            terminal.send("\x1bs")
+            terminal.choose_pane("s")
             terminal.contains("share a draft")
             terminal.contains("What evidence still needs a decision?")
             dock = terminal.text().rpartition("Specification")[2].partition("Implementation")[0]
             assert "share a draft" in " ".join(dock.split()), dock
             terminal.assert_mark("Scope", "○", "status.error")
             terminal.capture("status-narrow-properties")
-            terminal.send("\x1bs")
-            terminal.wait(compact_dock, "Alt+S did not collapse the detail in the dock")
+            terminal.choose_pane("s")
+            terminal.wait(compact_dock, "Choosing Toggle status did not collapse the dock")
             terminal.send("\x15")
             terminal.send("/socrates\r")
             terminal.contains("share a draft")
@@ -844,7 +851,7 @@ def run(output):
             terminal.assert_mark('Record property evidence', '●', 'status.success')
             terminal.send('What would unblock verification?')
             terminal.capture('status-sidebar-linked')
-            terminal.send('\x1bs')
+            terminal.choose_pane("s")
             terminal.wait(lambda: terminal.rail_start() is None and any(linked_sentence in line for line in terminal.screen.display),
                           'Hiding the sidebar did not restore the transcript to its full width')
             terminal.contains('What would unblock verification?')
@@ -857,6 +864,8 @@ def run(output):
             terminal.assert_mark('Verify the handoff', '×', 'status.error')
             terminal.capture('status-board-linked')
             terminal.send('\x1b')
+            terminal.wait(lambda: not any(line.strip() == "? keys" for line in terminal.centered_lines()),
+                          "The evidence board did not close before opening the plan")
             terminal.send('/plan\r')
             terminal.contains('Enter details')
             def selected_task(title):
@@ -901,10 +910,10 @@ def run(output):
             regular_draft = "Confirm that reviewing a standalone task and its requirements preserves my unsent message in regular mode."
             terminal.send(regular_draft)
             terminal.check_lead_wrap(regular_draft)
-            terminal.send("\x1bs")
+            terminal.choose_pane("s")
             terminal.wait(lambda: terminal.rail_start() is None and any(regular_draft in line for line in terminal.screen.display),
                           "Regular mode did not restore the full editor width")
-            terminal.send("\x1bs")
+            terminal.choose_pane("s")
             terminal.wait_for_rail()
             terminal.send("\x15")
             terminal.send("/plan\r")
@@ -922,7 +931,7 @@ def run(output):
             terminal.send("\x1b")
             terminal.resize(wide_columns, wide_rows)
             terminal.wait_for_rail()
-            terminal.send("\x1bs")
+            terminal.send("/socrates-status min\r")
             terminal.wait(lambda: terminal.rail_start() is None, "The old plan's sidebar did not close")
             terminal.send("/socrates Fresh discovery\r")
             terminal.wait_for_rail()

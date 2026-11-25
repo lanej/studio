@@ -15,10 +15,10 @@ import {
   type BrowserSource,
 } from "./browser.ts";
 
-export type InspectWorkerTask = (
+export type OpenTasks = (
   ctx: ExtensionContext,
-  authority: NonNullable<StudioConfig["beadsService"]>,
-  beadId: string,
+  beadId?: string,
+  authority?: StudioConfig["beadsService"],
 ) => Promise<void>;
 
 export interface PanelSource extends BrowserSource {

@@ -82,7 +82,7 @@ export default function managedWorker(pi: ExtensionAPI): void {
   let approvalPending = false;
   let applyLeadTools: ((ctx: ExtensionContext) => void) | undefined;
   if (lead.leadPlan !== undefined) {
-    const inspectWorkerTask = registerStudio(pi, {
+    const openTasks = registerStudio(pi, {
       profile: lead.profile,
       approvalPending: () => approvalPending,
       activationBlocked: () =>
@@ -111,7 +111,7 @@ export default function managedWorker(pi: ExtensionAPI): void {
       (active) => {
         approvalPending = active;
       },
-      inspectWorkerTask,
+      openTasks,
     );
   }
   registerActivation(

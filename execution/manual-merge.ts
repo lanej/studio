@@ -24,6 +24,7 @@ export async function requireManualMergeAuthority(
     !config.integrations.octo.enabled ||
     configured === undefined ||
     realpathSync(configured.root) !== project.root ||
+    configured.base !== project.base ||
     configured.source.reviewOnly === true ||
     !isDeepStrictEqual(project.source, configured.source)
   )

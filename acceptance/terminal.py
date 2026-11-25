@@ -386,7 +386,9 @@ interactive.close();
                 before_read = provider.issue_reads
                 provider.allow_issue_reads.clear()
                 try:
-                    os.write(master, b"\x1bt")
+                    os.write(master, b"\x1b[32;5u")
+                    wait_text("Studio panes")
+                    os.write(master, b"t")
                     wait_text("Loading…")
                     wait_until(lambda: provider.issue_reads > before_read)
                     os.write(master, b"j\r")
@@ -399,16 +401,21 @@ interactive.close();
                 assert "preserved lead draft" in "\n".join(screen.display), screen.display
                 assert provider.responses == before_response
                 assert "Enter inspect" not in "\n".join(screen.display), screen.display
-                os.write(master, b"\x1bt")
+                os.write(master, b"\x1b[32;5u")
+                wait_text("Studio panes")
+                os.write(master, b"t")
                 wait_text("Diff presentation")
                 wait_text("Enter inspect")
                 assert any("›" in line and "Diff presentation" in line for line in screen.display), screen.display
                 capture("task-status-panel")
+                os.write(master, b"\x1bt")
+                pump(.1)
+                assert "Enter inspect" in "\n".join(screen.display), screen.display
                 completed = [dict(task, status="closed") if task["id"] == "ui-12.1" else task for task in review_tasks]
                 provider.issue_listing = (200, {"items": completed, "has_more": False})
                 wait_until(lambda: any("● Inline replacements" in line for line in screen.display), timeout=8)
                 capture("task-status-updated")
-                os.write(master, b"\x1bt")
+                os.write(master, b"\x1b")
                 wait_text("preserved lead draft")
                 wait_until(lambda: "Enter inspect" not in "\n".join(screen.display))
                 os.write(master, b"\x15")

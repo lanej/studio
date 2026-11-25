@@ -1,4 +1,4 @@
-import type { InspectWorkerTask } from "../tasks/panel.ts";
+import type { OpenTasks } from "../tasks/panel.ts";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -54,11 +54,11 @@ export function registerSocrates(
   id: string,
   requireBinding: (ctx: ExtensionContext) => Promise<Attempt>,
   approvalPending: (active: boolean) => void,
-  inspectWorkerTask?: InspectWorkerTask,
+  openTasks?: OpenTasks,
 ) {
   return registerSocratesControls(pi, db, id, requireBinding, approvalPending, {
     subject: "the accepted Beads task",
-    inspectWorkerTask,
+    openTasks,
     identity: (record) => record.id,
     label: (record) => record.bead.id,
     snapshot: (ctx) =>
@@ -84,7 +84,7 @@ export function registerSocratesControls<T extends SocratesState>(
   approvalPending: (active: boolean) => void,
   scope: {
     subject: string;
-    inspectWorkerTask?: InspectWorkerTask | undefined;
+    openTasks?: OpenTasks | undefined;
     identity(record: T): string;
     label(record: T): string;
     snapshot?(ctx: ExtensionContext): T | undefined;
@@ -121,7 +121,7 @@ export function registerSocratesControls<T extends SocratesState>(
           };
     },
     viewSpecification,
-    scope.inspectWorkerTask,
+    scope.openTasks,
   );
   // Pi emits user messages only when delivered, including queued guidance. Its own
   // command prompts also use the user role, but do not change the operator's brief.

@@ -932,7 +932,7 @@ await test("a loading task float owns input immediately and ignores reads that s
     focusPane: () => Promise.resolve(),
   };
   const opened = panel.open(ctx, () => Promise.resolve(source));
-  send("j"); // Same terminal read as Alt+T, before the native mount microtask.
+  send("j"); // The opening command and another key arrive in one terminal read.
   assert.equal(lead.getValue(), "unsent");
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
   assert.match(view(), /Loading/u);

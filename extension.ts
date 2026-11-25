@@ -3,12 +3,9 @@ import {
   registerPromptLoops,
 } from "./sessions/extension.ts";
 import { basename } from "node:path";
+import { registerModelTools } from "./model-tools/extension.ts";
 import { registerHistoryBindings } from "./keybindings.ts";
-import {
-  TaskPanel,
-  type InspectWorkerTask,
-  type PanelSource,
-} from "./tasks/panel.ts";
+import { TaskPanel, type OpenTasks, type PanelSource } from "./tasks/panel.ts";
 import { isDeepStrictEqual } from "node:util";
 import { readTaskEvidence } from "./tasks/evidence.ts";
 import { answerDecision } from "./execution/decisions.ts";
@@ -24,6 +21,9 @@ import {
 } from "./activation.ts";
 import { registerCodeIntelligence } from "./code-intelligence/extension.ts";
 import { inspectIntegrations } from "./integrations.ts";
+import { registerDiagrams } from "./diagram/extension.ts";
+import { registerMermaidPreview } from "./diagram/mermaid-preview.ts";
+import { registerMermaidTool } from "./diagram/mermaid-tool.ts";
 import { registerSearchRendering } from "./search-renderer.ts";
 import { registerSkillRendering } from "./skill-renderer.ts";
 import { installFooter } from "./footer.ts";
@@ -48,6 +48,7 @@ import {
   DefaultProvider,
   StudioProfile,
   studioProfileSchema,
+  type StudioConfig,
   knownProvider,
   loadConfig,
 } from "./config.ts";
@@ -82,19 +83,18 @@ export default function studioExtension(
 export function registerStudio(
   pi: ExtensionAPI,
   managed?: ManagedLead,
-): InspectWorkerTask {
+): OpenTasks {
   registerHistoryBindings(pi);
   registerActivationAdmission(pi);
   registerSessionForks(pi);
   const intelligence = registerCodeIntelligence(pi);
+  if (managed === undefined) registerModelTools(pi);
   const idle = new IdleSession();
   const tasks = new TaskPanel();
   let removeInputListener: (() => void) | undefined;
   let lifecycle = 0;
   let selectedProfile = managed?.profile;
 
-  const inspectWorkerTask: InspectWorkerTask = (ctx, authority, beadId) =>
-    openTasks(beadId, ctx, authority);
   const discovery =
     managed === undefined
       ? registerDiscovery(
@@ -103,7 +103,7 @@ export function registerStudio(
           () => {
             tasks.close();
           },
-          inspectWorkerTask,
+          openTasks,
         )
       : undefined;
   if (discovery !== undefined)
@@ -137,6 +137,9 @@ export function registerStudio(
       delegation.blocks(sessionId) || discovery?.pending() === true,
     () => selectedProfile,
   );
+  registerDiagrams(pi);
+  registerMermaidPreview(pi);
+  registerMermaidTool(pi);
   registerSearchRendering(pi);
   registerSkillRendering(pi);
   if (managed !== undefined)
@@ -313,10 +316,6 @@ export function registerStudio(
     else idle.toolStart(event.toolName);
   });
 
-  pi.registerShortcut("alt+t", {
-    description: "Open the task browser",
-    handler: (ctx) => openTasks(undefined, ctx),
-  });
   pi.registerCommand("tasks", {
     description: "Open the task browser or inspect a Beads task by ID",
     handler: async (argument, ctx) => {
@@ -325,13 +324,13 @@ export function registerStudio(
         tasks.close();
         return;
       }
-      await openTasks(beadId.length === 0 ? undefined : beadId, ctx);
+      await openTasks(ctx, beadId.length === 0 ? undefined : beadId);
     },
   });
   async function openTasks(
-    beadId: string | undefined,
     ctx: ExtensionContext,
-    authority?: Parameters<InspectWorkerTask>[1],
+    beadId?: string,
+    authority?: StudioConfig["beadsService"],
   ): Promise<void> {
     const handoff = discovery?.runtimeHandoff(ctx);
     if (
@@ -365,7 +364,7 @@ export function registerStudio(
 
   async function taskSource(
     ctx: ExtensionContext,
-    authority: Parameters<InspectWorkerTask>[1] | undefined,
+    authority: StudioConfig["beadsService"],
     current: () => boolean,
   ): Promise<PanelSource | undefined> {
     const config = await loadConfig();
@@ -642,5 +641,5 @@ export function registerStudio(
       );
     },
   });
-  return inspectWorkerTask;
+  return openTasks;
 }

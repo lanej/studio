@@ -1,4 +1,5 @@
-import type { InspectWorkerTask } from "../tasks/panel.ts";
+import { pickLeadPane } from "../floating-pane-picker.ts";
+import type { OpenTasks } from "../tasks/panel.ts";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -292,7 +293,7 @@ export function registerSocratesPresentation(
   pi: ExtensionAPI,
   read: (ctx: ExtensionContext) => SocratesObservation | undefined,
   viewSpecification: (ctx: ExtensionContext) => Promise<void>,
-  inspectWorkerTask?: InspectWorkerTask,
+  openTasks?: OpenTasks,
 ) {
   const live: SocratesActivity = { working: false, paused: false };
   const tools = new Map<string, string>();
@@ -605,7 +606,7 @@ export function registerSocratesPresentation(
     };
     workerPane.open(layoutTui, ctx.ui.theme, {
       inspect: (row) => {
-        inspectWorkerTask?.(ctx, request.authority, row.beadId).catch(report);
+        openTasks?.(ctx, row.beadId, request.authority).catch(report);
       },
       focusPane: (row, signal) =>
         focusTaskPane(request.authority, row.beadId, row.attemptId, signal),
@@ -619,16 +620,20 @@ export function registerSocratesPresentation(
       return Promise.resolve();
     },
   });
-  pi.registerShortcut("alt+w", {
-    description: "Open or close the worker assignment pane",
-    handler: (ctx) => {
-      if (workerPane.focused) workerPane.close();
-      else openWorkers(ctx);
+  pi.registerShortcut("ctrl+space", {
+    description: "Choose a Studio pane without leaving the lead draft",
+    async handler(ctx) {
+      if (!ctx.hasUI || inspecting) return;
+      const choice = await pickLeadPane(
+        ctx,
+        openTasks === undefined
+          ? ["workers", "status"]
+          : ["workers", "tasks", "status"],
+      );
+      if (choice === "workers") openWorkers(ctx);
+      if (choice === "tasks") await openTasks?.(ctx);
+      if (choice === "status") toggle(ctx);
     },
-  });
-  pi.registerShortcut("alt+s", {
-    description: "Show or collapse lead status",
-    handler: toggle,
   });
   pi.registerCommand("socrates-status", {
     description:

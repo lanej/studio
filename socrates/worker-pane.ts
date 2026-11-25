@@ -198,11 +198,7 @@ export class WorkerPane {
   }
 
   private handleInput(key: string, actions: WorkerActions): void {
-    if (
-      matchesKey(key, "escape") ||
-      matchesKey(key, "ctrl+c") ||
-      matchesKey(key, "alt+w")
-    ) {
+    if (matchesKey(key, "escape") || matchesKey(key, "ctrl+c")) {
       this.close();
       return;
     }

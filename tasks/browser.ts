@@ -56,7 +56,6 @@ export function closesTaskBrowser(input: string): boolean {
   return (
     matchesKey(input, NavigationKey.Escape) ||
     matchesKey(input, NavigationKey.Cancel) ||
-    matchesKey(input, "alt+t") ||
     input === "q"
   );
 }
