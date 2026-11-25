@@ -71,7 +71,7 @@ jobs:
             bun: minimum
           - os: ubuntu-latest
             bun: latest
-    timeout-minutes: 15
+    timeout-minutes: ${{ matrix.os == 'macos-latest' && 25 || 15 }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
