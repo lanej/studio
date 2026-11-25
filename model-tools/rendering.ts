@@ -8,8 +8,7 @@ import {
   type ToolRendererResolver,
   type ToolRenderers,
 } from "@earendil-works/pi-coding-agent";
-import { z } from "zod";
-import { shellCommandText } from "./shell.ts";
+import type { CodingOperation } from "./policy.ts";
 
 type RendererHost = Pick<ExtensionAPI, "registerToolRenderer">;
 const studioRenderers = new WeakMap<RendererHost, ToolRendererResolver[]>();
@@ -24,76 +23,27 @@ export function registerCodingRenderer(
   studioRenderers.set(pi, existing);
 }
 
-function builtin(name: string) {
-  switch (name) {
-    case "Read":
-      return defineTool(createReadToolDefinition("."));
-    case "Write":
-      return defineTool(createWriteToolDefinition("."));
-    case "Edit":
-      return defineTool(createEditToolDefinition("."));
-    case "Bash":
-    case "shell_command":
-      return defineTool(createBashToolDefinition("."));
-    default:
-      return undefined;
-  }
-}
+const nativeRenderers = {
+  read: () => defineTool(createReadToolDefinition(".")),
+  write: () => defineTool(createWriteToolDefinition(".")),
+  replace: () => defineTool(createEditToolDefinition(".")),
+  shell: () => defineTool(createBashToolDefinition(".")),
+};
 
-const streamedArgs = z.looseObject({
-  file_path: z.string().optional(),
-  old_string: z.string().optional(),
-  new_string: z.string().optional(),
-  replace_all: z.boolean().optional(),
-  command: z.string().optional(),
-  workdir: z.string().optional(),
-  timeout: z.number().optional(),
-  timeout_ms: z.number().optional(),
-});
-
-function displayArgs(name: string, args: unknown, cwd: string) {
-  const parsed = streamedArgs.safeParse(args);
-  if (!parsed.success) return {};
-  const input = parsed.data;
-  switch (name) {
-    case "Bash":
-      return {
-        command: input.command,
-        timeout:
-          input.timeout === undefined
-            ? undefined
-            : Math.min(input.timeout, 600000) / 1000,
-      };
-    case "shell_command":
-      return {
-        command:
-          input.command === undefined
-            ? undefined
-            : shellCommandText(cwd, input.command, input.workdir),
-        timeout:
-          input.timeout_ms === undefined ? undefined : input.timeout_ms / 1000,
-      };
-    case "Edit":
-      // A single-match preview is inaccurate for replace_all. The settled diff covers every replacement.
-      return {
-        path: input.file_path,
-        ...(input.replace_all === true
-          ? {}
-          : { oldText: input.old_string, newText: input.new_string }),
-      };
-    default:
-      return { ...input, path: input.file_path };
-  }
+export interface ToolDisplay {
+  // The TUI can ask for a preview before all arguments arrive.
+  arguments: (raw: unknown, cwd: string) => unknown;
+  resultText?: (modelText: string) => string;
 }
 
 // Pi renders the model call, not the nested canonical call. Reuse the same
 // renderer chain and tool result, translating only what the operator sees.
 export function modelToolRenderers(
   pi: RendererHost,
-  name: string,
+  { operation, display }: { operation: CodingOperation; display?: ToolDisplay },
 ): ToolRenderers {
-  const native = builtin(name);
-  if (native === undefined) return {};
+  if (operation === "patch") return {};
+  const native = nativeRenderers[operation]();
   const base: ToolRenderers = native;
   const chain = studioRenderers.get(pi) ?? [];
   const renderer = chain.reduceRight<ToolRenderers>(
@@ -110,7 +60,7 @@ export function modelToolRenderers(
       ? {}
       : {
           renderCall(args, theme, ctx) {
-            const mapped = displayArgs(name, args, ctx.cwd);
+            const mapped = display?.arguments(args, ctx.cwd) ?? args;
             return call(mapped, theme, { ...ctx, args: mapped });
           },
         }),
@@ -118,26 +68,29 @@ export function modelToolRenderers(
       ? {}
       : {
           renderResult(outcome, options, theme, ctx) {
-            const mapped = displayArgs(name, ctx.args, ctx.cwd);
+            const mapped = display?.arguments(ctx.args, ctx.cwd) ?? ctx.args;
             const [first] = outcome.content;
-            const numbered =
-              name === "Read" &&
+            const formatText = display?.resultText;
+            const displayResult =
+              formatText !== undefined &&
               !ctx.isError &&
               outcome.isError !== true &&
               outcome.content.length === 1 &&
-              first?.type === "text";
-            const display = numbered
-              ? {
-                  ...outcome,
-                  content: [
-                    {
-                      type: "text" as const,
-                      text: first.text.replaceAll(/^\d+\t/gmu, ""),
-                    },
-                  ],
-                }
-              : outcome;
-            return result(display, options, theme, { ...ctx, args: mapped });
+              first?.type === "text"
+                ? {
+                    ...outcome,
+                    content: [
+                      {
+                        type: "text" as const,
+                        text: formatText(first.text),
+                      },
+                    ],
+                  }
+                : outcome;
+            return result(displayResult, options, theme, {
+              ...ctx,
+              args: mapped,
+            });
           },
         }),
   };

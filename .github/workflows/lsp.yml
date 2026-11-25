@@ -17,7 +17,7 @@ on:
       - 'model-tools/patch-diagnostics.ts'
       - 'model-tools/codex-patch-runner.mjs'
       - 'model-tools/codex-patch-runner.d.mts'
-      - 'model-tools/shell.ts'
+      - 'model-tools/policy.ts'
       - 'config.ts'
       - 'acceptance/lsp.ts'
   pull_request:
@@ -34,7 +34,7 @@ on:
       - 'model-tools/patch-diagnostics.ts'
       - 'model-tools/codex-patch-runner.mjs'
       - 'model-tools/codex-patch-runner.d.mts'
-      - 'model-tools/shell.ts'
+      - 'model-tools/policy.ts'
       - 'config.ts'
       - 'acceptance/lsp.ts'
   workflow_dispatch:

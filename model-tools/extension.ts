@@ -4,74 +4,52 @@ import type {
   ToolDefinition,
   ToolInfo,
 } from "@earendil-works/pi-coding-agent";
-import { isStudioEdit } from "../code-intelligence/edit-tool.ts";
-import { claudeTools } from "./claude.ts";
-import { codexPatchTool } from "./codex.ts";
-import { modelToolRenderers } from "./rendering.ts";
-import { shellCommand } from "./shell.ts";
+import { claudeDialect } from "./dialects/claude.ts";
+import { codexDialect } from "./dialects/codex.ts";
+import {
+  type CodingOperation,
+  operationAvailable,
+  replacedTools,
+} from "./policy.ts";
+import { modelToolRenderers, type ToolDisplay } from "./rendering.ts";
 
 type Dialect = "claude" | "codex";
-
-// Catalog IDs keep the model vendor even on Bedrock regional and OpenRouter routes.
-// An OpenAI-compatible endpoint alone says nothing about the model behind it.
-export function toolDialect(modelId: string | undefined): Dialect | undefined {
-  if (modelId === undefined) return undefined;
-  if (/^(?:(?:[a-z]{2}|global)\.)?(?:anthropic[./])?claude-/iu.test(modelId))
-    return "claude";
-  if (
-    /^(?:(?:[a-z]{2}|global)\.)?(?:openai[./])?(?:gpt-\d|codex(?:-|$)|o[134](?:-|$))/iu.test(
-      modelId,
-    )
-  )
-    return "codex";
-  return undefined;
-}
-
-interface ModelTool {
+interface Binding {
+  operation: CodingOperation;
   tool: ToolDefinition;
-  dialect: Dialect;
-  requires: string[];
-  hides: string[];
+  display?: ToolDisplay;
 }
 
-const modelTools: ModelTool[] = [
-  ...claudeTools.map((tool) => ({
-    tool,
-    dialect: "claude" as const,
-    requires: [tool.name.toLowerCase()],
-    hides: [tool.name.toLowerCase()],
-  })),
-  { tool: shellCommand, dialect: "codex", requires: ["bash"], hides: ["bash"] },
-  // The patch format includes file moves and deletes. Offer it only in a local
-  // coding session that already admits shell, reads, and both mutation tools.
-  {
-    tool: codexPatchTool(),
-    dialect: "codex",
-    requires: ["read", "edit", "write", "bash"],
-    hides: ["edit", "write"],
-  },
+const dialects: {
+  name: Dialect;
+  matches: RegExp;
+  tools: readonly Binding[];
+}[] = [
+  { name: "claude", ...claudeDialect },
+  { name: "codex", ...codexDialect },
 ];
 
-function admitted(
+// Catalog IDs identify the model even when the provider is a Bedrock or OpenRouter route.
+export function toolDialect(modelId: string | undefined): Dialect | undefined {
+  return modelId === undefined
+    ? undefined
+    : dialects.find((dialect) => dialect.matches.test(modelId))?.name;
+}
+
+type ModelTool = Binding & { dialect: Dialect };
+const modelTools: ModelTool[] = dialects.flatMap((dialect) =>
+  dialect.tools.map((binding) => ({ ...binding, dialect: dialect.name })),
+);
+
+function available(
   entry: ModelTool,
   dialect: Dialect | undefined,
-  selected: ReadonlySet<string>,
+  active: ReadonlySet<string>,
   tools: readonly ToolInfo[],
 ): boolean {
   return (
-    dialect === entry.dialect &&
-    entry.requires.every((name) => {
-      if (!selected.has(name)) return false;
-      const tool = tools.find((info) => info.name === name);
-      if (tool === undefined || tool.exposure !== "direct") return false;
-      if (name === "edit" && isStudioEdit(tool)) return true;
-      if (entry.tool.name === "Edit") return false;
-      // SDK base-tool overrides also report builtin:<name>, but omit Pi's native prompt guidelines.
-      return (
-        tool.sourceInfo.path === `builtin:${name}` &&
-        tool.promptGuidelines !== undefined
-      );
-    })
+    entry.dialect === dialect &&
+    operationAvailable(entry.operation, active, tools)
   );
 }
 
@@ -92,7 +70,7 @@ export function registerModelTools(pi: ExtensionAPI): void {
         info.parameters !== entry.tool.parameters
       )
         continue;
-      if (admitted(entry, dialect, active, tools)) next.add(entry.tool.name);
+      if (available(entry, dialect, active, tools)) next.add(entry.tool.name);
       else next.delete(entry.tool.name);
     }
     if (
@@ -109,25 +87,25 @@ export function registerModelTools(pi: ExtensionAPI): void {
       if (existing.has(tool.name)) continue;
       pi.registerTool({
         ...tool,
-        ...modelToolRenderers(pi, tool.name),
+        ...modelToolRenderers(pi, entry),
         exposure: "model-only",
         defaultActive: false,
         prepareLoadout(loadout) {
           const active = new Set(loadout.declared.map((item) => item.name));
           return {
-            hiddenDeclarations: admitted(
+            hiddenDeclarations: available(
               entry,
               dialect,
               active,
               pi.getAllTools(),
             )
-              ? entry.hides
+              ? [...replacedTools[entry.operation]]
               : [tool.name],
           };
         },
         async execute(id, args, signal, update, context) {
           if (
-            !admitted(
+            !available(
               entry,
               toolDialect(context.model?.id),
               new Set(pi.getActiveTools()),

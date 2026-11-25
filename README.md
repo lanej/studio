@@ -180,7 +180,7 @@ In an ordinary coding session, Studio selects the core tool names and arguments 
 | GPT and Codex | `shell_command(command, workdir?, timeout_ms?)` and `apply_patch` for file additions, changes, moves, and deletions. Pi sends the raw patch on transports that advertise grammar support. A JSON function carries the same text in `patch` on other transports, including the generated Bedrock Mantle profile. Pi’s bounded `read` also supports images. |
 | Other models | The session’s configured Pi tools. |
 
-Claude operations call the matching Pi tool, and both Codex operations run through Pi’s shell permission hooks. The patch tool is available when local read, edit, write, and shell access are all active. Custom executors, restricted workers, and snapshot reviewers retain their configured tools. Studio-specific operations such as Socrates planning and LSP navigation keep their own names across models.
+The dialects in `model-tools/dialects/` translate model-facing arguments and results. Both `Bash` and `shell_command` call `runShell` in `model-tools/operations.ts`, so their timeouts, output, and permissions go through the same Pi shell executor after translation. Claude `Edit` uses exact text replacement. Codex `apply_patch` uses a batch operation that preflights its hunks and runs through the same shell permission hook. The patch tool is available when local read, edit, write, and shell access are all active. Custom executors, restricted workers, and snapshot reviewers retain their configured tools. Studio-specific operations such as Socrates planning and LSP navigation keep their own names across models.
 
 ## Run a bead locally
 

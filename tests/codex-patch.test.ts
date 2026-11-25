@@ -9,7 +9,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { codexPatchTool } from "../model-tools/codex.ts";
+import { applyPatch } from "../model-tools/operations.ts";
 
 await test("Codex patches use the session Bash hooks, preserve literal input, and report failed hunks", async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), "studio-codex-'"));
@@ -76,9 +76,7 @@ await test("Codex patches use the session Bash hooks, preserve literal input, an
     },
   });
   const ctx = session.extensionRunner.createToolContext("codex", undefined);
-  const tool = codexPatchTool();
-  const apply = (patch: string) =>
-    tool.execute("codex", { patch }, undefined, undefined, ctx);
+  const apply = (patch: string) => applyPatch(ctx, patch);
   const literal = [`'\`$(exit 17)' `, "x".repeat(160_000)].join("");
   const add = `*** Begin Patch\n*** Add File: large.txt\n+${literal}\n*** Delete File: obsolete.txt\n*** End Patch`;
   const denied = await apply(add);

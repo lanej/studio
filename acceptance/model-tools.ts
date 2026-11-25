@@ -86,6 +86,26 @@ function messagesReply(call?: { name: string; input: object }): string {
   );
 }
 
+function lastClaudeToolResult(request: unknown, callId: string) {
+  const last = z
+    .object({ messages: z.array(z.object({ content: z.unknown() })) })
+    .parse(request)
+    .messages.at(-1);
+  const blocks = z
+    .array(
+      z.object({
+        type: z.literal("tool_result"),
+        tool_use_id: z.string(),
+        content: z.string(),
+        is_error: z.boolean().optional(),
+      }),
+    )
+    .parse(last?.content);
+  const result = blocks.find((block) => block.tool_use_id === callId);
+  assert.ok(result !== undefined);
+  return result;
+}
+
 const declaration = z.looseObject({ name: z.string() });
 const payload = z.looseObject({ tools: z.array(declaration) });
 
@@ -93,6 +113,9 @@ await test("Pi sends native tool contracts, executes calls and restores the acti
   const cwd = await mkdtemp(join(tmpdir(), "studio-model-tools-"));
   t.after(() => rm(cwd, { force: true, recursive: true }));
   const file = join(cwd, "message.txt");
+  const deniedCommand = "touch forbidden.txt";
+  const shellDenial = "The session denied this shell command";
+  const deniedShellInputs: unknown[] = [];
   const requests: unknown[] = [];
   const replies: string[] = [];
   const http = createServer((request, response) => {
@@ -186,6 +209,17 @@ await test("Pi sends native tool contracts, executes calls and restores the acti
       noThemes: true,
       extensionFactories: [
         (pi) => {
+          pi.on("tool_call", (event) => {
+            if (
+              event.toolName === "bash" &&
+              event.parentToolCallId !== undefined &&
+              event.input["command"] === deniedCommand
+            ) {
+              deniedShellInputs.push(event.input);
+              return { block: true, reason: shellDenial };
+            }
+            return undefined;
+          });
           // A result observer may redact patch input after the real mutation.
           // The diagnostic refresh must still use the executor's receipt.
           pi.on("tool_result", (event) => {
@@ -236,10 +270,17 @@ await test("Pi sends native tool contracts, executes calls and restores the acti
       id: "fc_shell",
       arguments: JSON.stringify({ command: "pwd", workdir, timeout_ms: 2000 }),
     }),
+    responsesReply({
+      type: "function_call",
+      name: "shell_command",
+      call_id: "call_denied",
+      id: "fc_denied",
+      arguments: JSON.stringify({ command: deniedCommand, timeout_ms: 2500 }),
+    }),
     responsesReply(),
   );
   await session.prompt("Create message.txt and check the working directory");
-  assert.equal(requests.length, 3);
+  assert.equal(requests.length, 4);
   const codexTools = payload.parse(requests[0]).tools;
   const patchTool = z
     .object({
@@ -274,6 +315,14 @@ await test("Pi sends native tool contracts, executes calls and restores the acti
       item.type === "function_call_output" && item["call_id"] === "call_shell",
   );
   assert.ok(z.string().parse(shellResult?.["output"]).includes(workdir));
+  const codexDenial = resultInput
+    .parse(requests[3])
+    .input.find(
+      (item) =>
+        item.type === "function_call_output" &&
+        item["call_id"] === "call_denied",
+    );
+  assert.ok(z.string().parse(codexDenial?.["output"]).includes(shellDenial));
   assert.equal(await readFile(file, "utf8"), "hello\n");
 
   await session.setModel(claude);
@@ -284,10 +333,14 @@ await test("Pi sends native tool contracts, executes calls and restores the acti
       name: "Edit",
       input: { file_path: file, old_string: "hello", new_string: "goodbye" },
     }),
+    messagesReply({
+      name: "Bash",
+      input: { command: deniedCommand, timeout: 2500 },
+    }),
     messagesReply(),
   );
   await session.prompt("Change the greeting");
-  assert.equal(requests.length, 3);
+  assert.equal(requests.length, 4);
   const claudeTools = payload.parse(requests[0]).tools;
   for (const name of ["Read", "Edit", "Write", "Bash"])
     assert.ok(
@@ -302,22 +355,16 @@ await test("Pi sends native tool contracts, executes calls and restores the acti
     .parse(claudeTools.find(({ name }) => name === "Edit"));
   for (const key of ["file_path", "old_string", "new_string"])
     assert.ok(edit.input_schema.required.includes(key), key);
-  const readResult = z
-    .object({
-      messages: z.array(z.object({ content: z.unknown() })),
-    })
-    .parse(requests[1])
-    .messages.at(-1);
-  const content = z
-    .array(
-      z.object({
-        type: z.literal("tool_result"),
-        tool_use_id: z.literal("toolu_Read"),
-        content: z.string(),
-      }),
-    )
-    .parse(readResult?.content);
-  assert.ok(content.some((block) => block.content.includes("1\thello")));
+  const claudeRead = lastClaudeToolResult(requests[1], "toolu_Read");
+  assert.ok(claudeRead.content.includes("1\thello"));
+  const claudeDenial = lastClaudeToolResult(requests[3], "toolu_Bash");
+  assert.equal(claudeDenial.is_error, true);
+  assert.ok(claudeDenial.content.includes(shellDenial));
+  const expectedShellInput = { command: deniedCommand, timeout: 2.5 };
+  assert.deepEqual(deniedShellInputs, [expectedShellInput, expectedShellInput]);
+  await assert.rejects(readFile(join(cwd, "forbidden.txt")), {
+    code: "ENOENT",
+  });
   assert.equal(await readFile(file, "utf8"), "goodbye\n");
 
   await session.setModel(mantle);

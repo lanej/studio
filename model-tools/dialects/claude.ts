@@ -1,30 +1,20 @@
-import {
-  defineTool,
-  type AgentToolUpdateCallback,
-  type ExtensionToolContext,
-} from "@earendil-works/pi-coding-agent";
+import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { z } from "zod";
+import { readFile, replaceText, runShell, writeFile } from "../operations.ts";
+import { piShellArguments, type ShellRequest } from "../shell.ts";
+
+export function claudeShellRequest(
+  command: string,
+  timeout?: number,
+): ShellRequest {
+  return { command, timeoutMs: Math.min(timeout ?? 120_000, 600_000) };
+}
 
 const filePath = Type.String({
   minLength: 1,
   description: "Path to the file, preferably absolute.",
 });
-
-async function call(
-  ctx: ExtensionToolContext,
-  name: string,
-  args: unknown,
-  onUpdate?: AgentToolUpdateCallback<unknown>,
-) {
-  // Pi inherits the parent's abort signal and runs its ordinary tool hooks.
-  const outcome = await ctx.executeTool(
-    name,
-    args,
-    onUpdate === undefined ? {} : { onUpdate },
-  );
-  return { ...outcome.result, isError: outcome.isError };
-}
 
 const truncation = z.object({
   truncation: z.object({ outputLines: z.number() }),
@@ -48,7 +38,7 @@ const read = defineTool({
     { additionalProperties: false },
   ),
   async execute(_id, { file_path, offset, limit }, _signal, _update, ctx) {
-    const result = await call(ctx, "read", { path: file_path, offset, limit });
+    const result = await readFile(ctx, { path: file_path, offset, limit });
     const [first] = result.content;
     if (result.isError || result.content.length !== 1 || first?.type !== "text")
       return result;
@@ -93,7 +83,7 @@ const write = defineTool({
     { additionalProperties: false },
   ),
   execute(_id, { file_path, content }, _signal, onUpdate, ctx) {
-    return call(ctx, "write", { path: file_path, content }, onUpdate);
+    return writeFile(ctx, file_path, content, onUpdate);
   },
 });
 
@@ -112,13 +102,13 @@ const edit = defineTool({
     { additionalProperties: false },
   ),
   execute(_id, args, _signal, onUpdate, ctx) {
-    return call(
+    return replaceText(
       ctx,
-      "edit",
       {
         path: args.file_path,
-        edits: [{ oldText: args.old_string, newText: args.new_string }],
-        matchMode: args.replace_all === true ? "all" : "exact",
+        oldText: args.old_string,
+        newText: args.new_string,
+        replaceAll: args.replace_all === true,
         reason: "No rationale supplied with this Edit.",
       },
       onUpdate,
@@ -148,9 +138,76 @@ const bash = defineTool({
     { additionalProperties: false },
   ),
   execute(_id, { command, timeout }, _signal, onUpdate, ctx) {
-    const seconds = Math.min(timeout ?? 120_000, 600_000) / 1000;
-    return call(ctx, "bash", { command, timeout: seconds }, onUpdate);
+    return runShell(ctx, claudeShellRequest(command, timeout), onUpdate);
   },
 });
 
-export const claudeTools = [read, write, edit, bash] as const;
+// Pi can render an in-progress tool call before the model supplies all required fields.
+const streamedFile = z
+  .looseObject({
+    file_path: z.string(),
+    old_string: z.string(),
+    new_string: z.string(),
+    replace_all: z.boolean(),
+  })
+  .partial()
+  .catch({});
+const streamedShell = z
+  .object({ command: z.string(), timeout: z.number() })
+  .partial()
+  .catch({});
+
+function fileArguments(raw: unknown) {
+  const input = streamedFile.parse(raw);
+  return { ...input, path: input.file_path };
+}
+
+export const claudeTools = [
+  {
+    operation: "read",
+    tool: read,
+    display: {
+      arguments: fileArguments,
+      resultText: (text: string) => text.replaceAll(/^\d+\t/gmu, ""),
+    },
+  },
+  { operation: "write", tool: write, display: { arguments: fileArguments } },
+  {
+    operation: "replace",
+    tool: edit,
+    display: {
+      arguments(raw: unknown) {
+        const input = streamedFile.parse(raw);
+        // A single-match preview is inaccurate for replace_all. The settled diff covers every replacement.
+        return {
+          path: input.file_path,
+          ...(input.replace_all === true
+            ? {}
+            : { oldText: input.old_string, newText: input.new_string }),
+        };
+      },
+    },
+  },
+  {
+    operation: "shell",
+    tool: bash,
+    display: {
+      arguments(raw: unknown, cwd: string) {
+        const { command, timeout } = streamedShell.parse(raw);
+        const shell = piShellArguments(
+          cwd,
+          claudeShellRequest(command ?? "", timeout),
+        );
+        return {
+          command,
+          timeout: timeout === undefined ? undefined : shell.timeout,
+        };
+      },
+    },
+  },
+] as const;
+
+export const claudeDialect = {
+  matches: /^(?:(?:[a-z]{2}|global)\.)?(?:anthropic[./])?claude-/iu,
+  tools: claudeTools,
+};

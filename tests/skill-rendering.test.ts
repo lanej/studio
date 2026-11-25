@@ -20,6 +20,7 @@ import {
   ProcessTerminal,
   TuiMainScreen,
 } from "@earendil-works/pi-tui";
+import { claudeTools } from "../model-tools/dialects/claude.ts";
 import { modelToolRenderers } from "../model-tools/rendering.ts";
 import { registerSkillRendering } from "../skill-renderer.ts";
 
@@ -221,12 +222,14 @@ await test("Claude's numbered Read renders the same expanded skill Markdown as a
   registerSkillRendering(host);
   assert.ok(canonical !== undefined);
   const ui = new TuiMainScreen(new ProcessTerminal());
+  const binding = claudeTools.find(({ operation }) => operation === "read");
+  assert.ok(binding !== undefined);
   const read = new ToolExecutionComponent(
     "Read",
     "skill",
     { file_path: "example/SKILL.md" },
     { showImages: false },
-    modelToolRenderers(host, "Read"),
+    modelToolRenderers(host, binding),
     ui,
     process.cwd(),
   );
