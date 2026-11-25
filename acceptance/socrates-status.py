@@ -44,19 +44,19 @@ bead_reads = []
 initial_prompt = "Let me inspect this proposal while keeping our conversation open."
 # A native Markdown paragraph that fits the full terminal, but wraps in the lead column.
 resume_sentence = "The same property evidence feeds both the sidebar and its revision history before the two results are compared."
-review_sentence = "Changing one requirement should mark its old assessment stale while keeping the original evidence available in the inspector."
+review_sentence = "Changing one requirement should update the assessments that depend on it and preserve the evidence for the other properties."
 linked_sentence = "The handoff check can start once the lead sidebar is complete and its linked dependency has closed."
 wide_columns, wide_rows = 128, 34
-resolve_prompt = "Check that revising R1 marks its evidence stale. Keep all four beads local."
+resolve_prompt = "Check that revising R1 updates the affected evidence. Keep all four beads local."
 review_ready = "The specification is ready to freeze. Review the four beads and their dependencies before handoff."
 scope_gap = "The lead and its dock share a draft. Decide whether another session sees those changes."
 risk_gap = "Results are tagged by project. Verify a delayed poll cannot update a different session."
-verification_gap = "Question and resume are covered. A stale assessment still needs a native check."
+verification_gap = "Question and resume are covered. Check how revising R1 affects the evidence."
 harmony_gap = "The dock and inspector read the same draft. Confirm they flag the same property after a revision."
 ownership_prompt = "Let's settle who owns assessment freshness when an operator edits a requirement."
 ownership_question = "Which component owns assessment freshness after a requirement changes?"
 ownership_answer = "The discovery store"
-ownership_criterion = "After a requirement changes, reopening the sidebar shows the stale assessment recorded by the discovery store."
+ownership_criterion = "After a requirement changes, reopening the sidebar shows the revised evidence recorded by the discovery store."
 release_diagram = Event()
 
 
@@ -78,7 +78,7 @@ def ownership_turn(request, draft):
                     "uncertainty": "None" if resolved else ownership_question}
         scope = {"propertyId": "scope", "status": "satisfied" if resolved else "open",
                  "reason": ownership_answer if resolved else ownership_question}
-        coverage = {**draft["coverage"], "focus": "verification" if resolved else "scope", "assessments": [
+        coverage = {**draft["coverage"], "focus": "verification" if resolved else "scope", "assessments": [scope] if resolved else [
             scope if item["propertyId"] == "scope" else item for item in draft["coverage"]["assessments"]
         ]}
         return tool_delta("record-owner" if resolved else "draft-ownership", "draft_socrates_specification", {
@@ -170,7 +170,7 @@ The blocked bead can run after the sidebar produces its accepted result.""" if l
 
 {resume_sentence}
 
-One decision remains: how should we verify that an assessment is marked stale when its requirement changes?""" if resuming
+How should we verify which assessments change when the operator revises a requirement?""" if resuming
                  else f"""Verification is partial. We can save a question and resume it. We still need to exercise a change to the underlying requirement.
 
 {review_sentence}
@@ -187,20 +187,28 @@ Should the native test change R1 and check both views?""")
                 guidance_received.set()
                 if not release_reassessment.wait(20):
                     provider_errors.append("The property reassessment was not released")
-                delta = tool_delta("review-open-properties", "draft_socrates_specification", self.server.in_progress_draft)
+                delta = tool_delta("review-open-properties", "draft_socrates_specification",
+                                   {"coverage": {"domains": [], "assessments": []}})
             elif last.get("tool_call_id") == "review-open-properties" and "Draft saved" not in str(last["content"]):
                 provider_errors.append(str(last["content"]))
         elif user_messages and resolve_prompt in user_messages[-1]:
             if last["role"] == "user":
-                delta = tool_delta("close-properties", "draft_socrates_specification", self.server.ready_draft)
+                draft = self.server.ready_draft
+                revised = [item for item in draft["coverage"]["assessments"]
+                           if item["propertyId"] in {"scope", "risk", "verification", "harmony"}]
+                delta = tool_delta("close-properties", "draft_socrates_specification",
+                                   {**draft, "coverage": {**draft["coverage"], "assessments": revised}})
             elif last.get("tool_call_id") == "close-properties":
                 if "Properties satisfied" not in str(last["content"]):
                     provider_errors.append(str(last["content"]))
                 delta = tool_delta("confirm-graph", "draft_implementation_plan", self.server.graph_draft)
             elif last.get("tool_call_id") == "confirm-graph":
-                if "Assess every applicable property" not in str(last["content"]):
+                if "draft_socrates_specification" not in message_text(last):
                     provider_errors.append(str(last["content"]))
-                delta = tool_delta("assess-final-graph", "draft_socrates_specification", self.server.ready_draft)
+                readiness = {"propertyId": "execution-readiness", "status": "satisfied",
+                             "reason": "All four reviewed beads use local integration and link to R1."}
+                delta = tool_delta("assess-final-graph", "draft_socrates_specification",
+                                   {"coverage": {"domains": [], "assessments": [readiness]}})
             elif last.get("tool_call_id") == "assess-final-graph":
                 if "Properties satisfied" not in str(last["content"]):
                     provider_errors.append(str(last["content"]))
@@ -460,7 +468,7 @@ class Terminal:
         os.killpg(self.process.pid, signal.SIGWINCH)
         self.pump(0.3)
 
-    def capture(self, name, *, rail_image=False):
+    def capture(self, name, *, rail_image=None):
         if self.output is None:
             return
         self.output.mkdir(parents=True, exist_ok=True)
@@ -509,7 +517,7 @@ class Terminal:
             assert start is not None, self.text()
             divider = self.screen.display[0].rfind("│", 0, start)
             assert divider >= 0, self.text()
-            image.crop((divider * cell_width, 0, image.width, image.height)).save(self.output / "socrates-property-sidebar.png")
+            image.crop((divider * cell_width, 0, image.width, image.height)).save(self.output / rail_image)
         (self.output / f"{name}-{self.screen.columns}.txt").write_text(self.text() + "\n")
         (self.output / f"{name}-{self.screen.columns}.ansi").write_bytes(self.raw)
 
@@ -572,10 +580,10 @@ const readyDraft={{...draft,
     context:'The lead remains usable while the sidebar shows progress.',
     parsimony:'The sidebar renders the same dependency graph as the plan inspector.',
     success:'Both surfaces identify the unresolved property after a revision.',
-    verification:'D1 specifies a native check that revising R1 invalidates its assessment.',
+    verification:'D1 specifies a native check that revising R1 updates the affected assessments.',
     constraints:'Planning preserves the unsent prompt and performs no Beads operations.',
     stakeholders:'The operator reviews the assessment and approves handoff.',
-    risk:'Revising a requirement invalidates its prior assessment.',
+    risk:'The review checks which stored assessments are affected by a changed requirement.',
     'execution-readiness':'Each bead has a requirement, acceptance criterion and dependency list.',
     harmony:'The same assessment supplies both surfaces and the two graphs show the same dependencies.'
   }}).map(([propertyId,reason])=>({{propertyId,status:'satisfied',reason}}))}}
@@ -704,12 +712,15 @@ def run(output):
                                       for request in received_requests for m in request["messages"] if m["role"] == "user"),
                           "The submitted prompt lost its contents or cursor position")
             terminal.wait(guidance_received.is_set, "Studio did not deliver the operator's guidance")
-            terminal.wait(lambda: "Recheck" in terminal.rail_text(), "Previous evidence still appeared current after operator input")
-            terminal.assert_foreground("Recheck", "focus", terminal.rail_start())
+            terminal.wait(lambda: "Reviewing new input" in terminal.rail_text(),
+                          "The sidebar did not show that the operator's input is under review")
+            terminal.check_property_focus()
+            assert "Recheck" not in terminal.rail_text(), terminal.rail_text()
+            terminal.capture("socrates-input-review", rail_image="socrates-input-review.png")
             release_reassessment.set()
             terminal.check_lead_wrap(review_sentence)
             terminal.check_property_focus()
-            terminal.capture("socrates-sidebar-properties", rail_image=True)
+            terminal.capture("socrates-sidebar-properties", rail_image="socrates-property-sidebar.png")
             terminal.resize(104, 26)
             terminal.check_property_focus()
             terminal.capture("socrates-sidebar-properties")
@@ -815,13 +826,15 @@ def run(output):
             release_response.set()
             terminal.contains("Awaiting incorporation")
             terminal.send("/socrates-status inspect\r")
-            terminal.contains("13 recheck")
-            terminal.assert_foreground("13 recheck", "focus")
-            terminal.select_row("Problem First")
+            terminal.contains("9 satisfied")
+            terminal.assert_foreground("2 open", "status.error")
+            terminal.assert_foreground("2 partial", "status.warning")
+            assert "recheck" not in terminal.text().lower(), terminal.text()
+            terminal.select_row("Verification")
             terminal.send("\r")
-            terminal.contains("Previous assessment: Satisfied")
-            terminal.assert_foreground("↺ Recheck", "focus")
-            terminal.capture("status-board-recheck")
+            terminal.contains("Question and resume are covered.")
+            terminal.assert_foreground("◐ Partial", "status.warning")
+            terminal.capture("status-board-answer-evidence")
             terminal.close_detail()
             terminal.send("\x1b")
             terminal.wait_for_rail()
@@ -829,6 +842,7 @@ def run(output):
             with sqlite3.connect(home / "state/discoveries.sqlite") as db:
                 saved = json.loads(db.execute("SELECT record FROM discoveries WHERE id=?", (records["question"],)).fetchone()[0])
             assert saved["specification"]["exchange"]["answer"]["text"] == "Focused native check", saved
+            assert saved["specification"]["draft"]["coverage"] == pending["specification"]["draft"]["coverage"], saved
             assert saved["specification"]["status"] == "interrogating", saved
             assert "graph" not in saved and "approved" not in saved, saved
 

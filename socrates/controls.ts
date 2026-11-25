@@ -9,6 +9,7 @@ import type { Attempt, Attempts } from "../attempts.ts";
 import { LeadMode } from "../lead-plan.ts";
 import {
   assessedSpecDraft,
+  applyDraftUpdate,
   DecisionDisposition,
   SpecStatus,
   isTrackedDecision,
@@ -32,6 +33,7 @@ import {
   coveragePropertyIds,
   coverageStatuses,
   coverageToken,
+  pendingCoverageReview,
   specificationToken,
 } from "./assessment.ts";
 import { registerSocratesPresentation } from "./presentation.ts";
@@ -152,7 +154,10 @@ export function registerSocratesControls<T extends SocratesState>(
         row.handoff === undefined &&
         row.leadPlan?.mode === LeadMode.Planning
       )
-        row.specification.coverageRevision = undefined;
+        row.specification.pendingReview = pendingCoverageReview(
+          row.specification,
+          "input",
+        );
     });
     presentation.refresh(ctx);
   });
@@ -275,7 +280,7 @@ export function registerSocratesControls<T extends SocratesState>(
         !assessedSpecDraft.safeParse(spec.draft).success
       )
         throw new Error(
-          "Save current assessments for every applicable property before asking a new question",
+          "Save current assessments before asking a new question. Review recent changes and update the affected properties.",
         );
       if (
         spec.draft?.blockingQuestions.includes(prompt.question) !== true ||
@@ -363,7 +368,7 @@ export function registerSocratesControls<T extends SocratesState>(
           propertyGaps(spec, record.revision).length > 0
         ) {
           pi.sendUserMessage(
-            "Reassess all properties of the frozen specification against the current work breakdown. Preserve the frozen specification and save only updated coverage. Revise the plan to resolve remaining gaps, or offer /spec-reopen if the specification itself must change.",
+            "Review changes since the last assessment and update the affected properties of the frozen specification. Revise the plan to resolve remaining gaps, or offer /spec-reopen if the specification itself must change.",
           );
           return;
         }
@@ -404,42 +409,48 @@ export function registerSocratesControls<T extends SocratesState>(
     name: specTool,
     label: "Draft Socrates specification",
     description:
-      "Save the current Socrates specification, outstanding questions, and evidence-backed property assessments. Assess every universal and selected-domain property against this draft and the current work breakdown. For missing evidence, use open and name the gap. After freeze a daily-driver discovery accepts coverage-only updates against a revised plan. The operator freezes it in /spec-freeze.",
+      "Save the specification and property evidence. Supply the complete specification fields when drafting or incorporating an answer. For a coverage-only review, supply just coverage. Start with all applicable assessments, then send only those affected by changes to the brief, decisions, evidence, or plan. The operator freezes the specification in /spec-freeze.",
     executionMode: "sequential",
     parameters: Type.Object({
-      objective: Type.String(),
-      scope: Type.Array(Type.String()),
-      requirements: Type.Array(
-        Type.Object({
-          id: Type.String(),
-          outcome: Type.String(),
-          acceptance: Type.String(),
-        }),
-      ),
-      decisions: Type.Array(
-        Type.Object({
-          id: Type.String(),
-          decision: Type.String(),
-          disposition: Type.Enum(DecisionDisposition),
-          uncertainty: Type.String({
-            description:
-              "Remaining uncertainty, consequence, and check, or None",
+      objective: Type.Optional(Type.String()),
+      scope: Type.Optional(Type.Array(Type.String())),
+      requirements: Type.Optional(
+        Type.Array(
+          Type.Object({
+            id: Type.String(),
+            outcome: Type.String(),
+            acceptance: Type.String(),
           }),
-          supersedes: Type.Optional(Type.String()),
-          basis: Type.Union([
-            Type.Literal("observed"),
-            Type.Literal("decided"),
-            Type.Literal("assumed"),
-          ]),
-          evidence: Type.String(),
-        }),
+        ),
       ),
-      blockingQuestions: Type.Array(Type.String()),
+      decisions: Type.Optional(
+        Type.Array(
+          Type.Object({
+            id: Type.String(),
+            decision: Type.String(),
+            disposition: Type.Enum(DecisionDisposition),
+            uncertainty: Type.String({
+              description:
+                "Remaining uncertainty, consequence, and check, or None",
+            }),
+            supersedes: Type.Optional(Type.String()),
+            basis: Type.Union([
+              Type.Literal("observed"),
+              Type.Literal("decided"),
+              Type.Literal("assumed"),
+            ]),
+            evidence: Type.String(),
+          }),
+        ),
+      ),
+      blockingQuestions: Type.Optional(Type.Array(Type.String())),
       deliveryPolicy: deliveryPolicyParameter,
       coverage: Type.Object(
         {
-          domains: Type.Array(
-            Type.Union(coverageDomains.map((domain) => Type.Literal(domain))),
+          domains: Type.Optional(
+            Type.Array(
+              Type.Union(coverageDomains.map((domain) => Type.Literal(domain))),
+            ),
           ),
           assessments: Type.Array(
             Type.Object({
@@ -464,13 +475,12 @@ export function registerSocratesControls<T extends SocratesState>(
         },
         {
           description:
-            "Replace all assessments on every draft. Include each universal property and each property in the selected domains exactly once, with a reason. Focus identifies the next property to address.",
+            "List the applicable domains when supplying specification fields. Coverage-only updates inherit the saved domains. Assess all applicable properties on the first draft or a new baseline, and all new properties when adding a domain. Otherwise send only changed assessments. An empty assessments array records a review with no property changes. Focus identifies the next property to address.",
         },
       ),
     }),
     async execute(_call, params, _signal, _update, ctx) {
       const record = await requireBinding(ctx);
-      const draft = assessedSpecDraft.parse(params);
       if (record.revision === null)
         throw new Error("The accepted revision is missing");
       await checkCurrent(record, record.revision, ctx);
@@ -501,8 +511,18 @@ export function registerSocratesControls<T extends SocratesState>(
           throw new Error(
             "The specification or work breakdown changed. Reassess the current draft before saving.",
           );
+        const draft = applyDraftUpdate(
+          specification,
+          specification.acceptedRevision,
+          params,
+        );
         preserveDecisions(specification.draft, draft);
-        const next = { ...specification, draft, exchange: undefined };
+        const next = {
+          ...specification,
+          draft,
+          exchange: undefined,
+          pendingReview: undefined,
+        };
         if (specification.status === SpecStatus.Frozen) {
           // The freeze protects the brief, requirements, decisions, delivery policy and applicable domains.
           const previousDomains =
@@ -534,7 +554,10 @@ export function registerSocratesControls<T extends SocratesState>(
             : propertyGaps(spec, saved.revision);
       const [firstGap] = gaps;
       let message: string;
-      if (scope.discovery !== true && draft.blockingQuestions.length > 0)
+      if (
+        scope.discovery !== true &&
+        (spec?.draft?.blockingQuestions.length ?? 0) > 0
+      )
         message =
           "Draft saved. Resolve the blocking questions with the operator.";
       else if (firstGap !== undefined)

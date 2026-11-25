@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  applyDraftUpdate,
   assessedSpecDraft,
   DecisionDisposition,
   SpecStatus,
@@ -236,7 +237,7 @@ await test("assessments require evidence and cannot hide outside the selected pr
   );
 });
 
-await test("new draft writes require every universal and selected-domain property, with a rationale", () => {
+await test("complete coverage requires every universal and selected-domain property, with a rationale", () => {
   const ready = readySpecification("brief-v1").draft;
   assert.ok(assessedSpecDraft.safeParse(ready).success);
   assert.ok(
@@ -271,6 +272,46 @@ await test("new draft writes require every universal and selected-domain propert
         }).success,
       );
   }
+});
+
+await test("a substantive draft edit updates affected evidence and preserves other properties", () => {
+  const spec = readySpecification("brief-v1");
+  const [requirement] = spec.draft.requirements;
+  const initial = spec.draft.coverage;
+  assert.ok(requirement !== undefined && initial !== undefined);
+  const verification = {
+    propertyId: "verification",
+    status: "partial",
+    reason:
+      "R1 now includes timestamps. The test only compares transcript bytes.",
+  };
+  const draft = {
+    ...spec.draft,
+    requirements: [
+      {
+        ...requirement,
+        acceptance: "Both timestamps and transcript bytes match.",
+      },
+    ],
+    coverage: { domains: initial.domains, assessments: [verification] },
+  };
+  const updated = applyDraftUpdate(spec, spec.acceptedRevision, draft);
+  assert.deepEqual(updated.requirements, draft.requirements);
+  assert.deepEqual(
+    updated.coverage.assessments,
+    initial.assessments.map((item) =>
+      item.propertyId === "verification" ? verification : item,
+    ),
+  );
+  for (const baseline of [
+    { ...spec, version: spec.version + 1 },
+    { ...spec, coverageRevision: undefined },
+    assessedSpecification(),
+  ])
+    assert.throws(
+      () => applyDraftUpdate(baseline, spec.acceptedRevision, draft),
+      /Assess every property/u,
+    );
 });
 
 await test("coverage follows the draft and brief instead of a reusable lifecycle version", () => {
@@ -331,7 +372,7 @@ await test("coverage follows the draft and brief instead of a reusable lifecycle
   );
 });
 
-await test("an answer invalidates assessments until it is incorporated in a saved draft", () => {
+await test("a recorded answer blocks readiness until it is incorporated in a saved draft", () => {
   const spec = assessedSpecification();
   const exchange = {
     prompt: {
@@ -350,7 +391,17 @@ await test("an answer invalidates assessments until it is incorporated in a save
     },
   });
   assert.equal(coverageFresh(answered, "brief-v1"), false);
-  assert.match(specText(answered), /Needs review/u);
+  assert.throws(
+    () =>
+      applyDraftUpdate(answered, "brief-v1", {
+        coverage: { domains: ["engineering"], assessments: [] },
+      }),
+    /recorded answer/u,
+  );
+  assert.match(
+    specText(answered),
+    /Operator answer · The original session transcript/u,
+  );
   assert.match(specText(answered), /R1 needs an observable check/u);
   assert.match(specText(answered), /Harmony · open · Check/u);
 

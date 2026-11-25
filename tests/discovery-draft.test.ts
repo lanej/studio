@@ -112,6 +112,15 @@ async function discoveryFixture(t: TestContext) {
     session.appendCustomEntry(type, data);
   };
   runtime.getThinkingLevel = () => "off";
+  const send = (text: string) =>
+    runner.emit({
+      type: "message_start",
+      message: {
+        role: "user",
+        content: [{ type: "text", text }],
+        timestamp: Date.now(),
+      },
+    });
   const ctx = runner.createCommandContext();
   assert.ok(discovery !== undefined);
   const prompt = async () => {
@@ -174,6 +183,7 @@ async function discoveryFixture(t: TestContext) {
     session,
     prompt,
     toolContext,
+    send,
     save,
     firstTask,
     draft,
@@ -242,46 +252,53 @@ await test("a daily lead codes directly and can save and revise a private plan w
   assert.equal(discovery.runtimeHandoff(ctx), undefined);
 });
 
-await test("the draft tool requires a complete assessment before asking or freezing after work changes", async (t) => {
-  const { project, store, runner, toolContext, save, draft, firstTask, ctx } =
-    await discoveryFixture(t);
+await test("Socrates requires a complete baseline and merges affected assessments after a plan change", async (t) => {
+  const {
+    project,
+    store,
+    runner,
+    toolContext,
+    save,
+    assess,
+    draft,
+    firstTask,
+    ctx,
+  } = await discoveryFixture(t);
   await save();
   const record = store.list(project)[0];
   assert.ok(record !== undefined);
   const first = readySpecification(record.revision);
+  const initial = first.draft.coverage;
+  assert.ok(initial !== undefined);
   store.change(record.id, (row) => {
     row.specification = { ...first, draft: null, coverageRevision: undefined };
   });
-  const tool = runner.getToolDefinition("draft_socrates_specification");
-  const ask = runner.getToolDefinition("ask_user_question");
-  const freeze = runner.getCommand("spec-freeze");
-  assert.ok(tool !== undefined && ask !== undefined && freeze !== undefined);
-  const write = (value: unknown) =>
-    tool.execute("spec", value, undefined, undefined, toolContext);
   const snapshot = () => {
     const spec = store.get(record.id).specification;
     assert.ok(spec !== undefined);
     return spec;
   };
-  await assert.rejects(write({ ...first.draft, coverage: undefined }));
-  assert.equal(snapshot().draft, null);
-  await write(first.draft);
-  const before = snapshot();
-  assert.ok(coverageFresh(before, record.revision));
-  assert.ok(first.draft.coverage !== undefined);
-  const partialCoverage = {
-    ...first.draft.coverage,
-    assessments: first.draft.coverage.assessments.slice(1),
-  };
+  const ask = runner.getToolDefinition("ask_user_question");
+  const freeze = runner.getCommand("spec-freeze");
+  assert.ok(ask !== undefined && freeze !== undefined);
+  await assert.rejects(assess({ ...first.draft, coverage: undefined }));
   await assert.rejects(
-    write({ ...first.draft, coverage: partialCoverage }),
+    assess({
+      ...first.draft,
+      coverage: { ...initial, assessments: initial.assessments.slice(1) },
+    }),
     /problem-first/u,
   );
-  assert.deepEqual(snapshot(), before);
+  assert.equal(snapshot().draft, null);
+  await assess(first.draft);
+  const before = snapshot();
   const linked = { ...draft, tasks: [{ ...firstTask, requirements: ["R1"] }] };
   await save(linked);
-  assert.ok(!coverageFresh(snapshot(), record.revision));
-  await assert.rejects(freeze.handler("", ctx), /Reassess properties/u);
+  const pending = snapshot();
+  assert.equal(pending.pendingReview?.cause, "plan");
+  assert.deepEqual(pending.draft, before.draft);
+  assert.ok(!coverageFresh(pending, record.revision));
+  await assert.rejects(freeze.handler("", ctx), /review|assess/iu);
   await assert.rejects(
     ask.execute(
       "ask",
@@ -290,49 +307,80 @@ await test("the draft tool requires a complete assessment before asking or freez
       undefined,
       { ...toolContext, hasUI: true },
     ),
-    /current assessments/u,
+    /review|assessment/iu,
   );
-  await write(first.draft);
-  assert.ok(coverageFresh(snapshot(), record.revision));
+  const verification = {
+    propertyId: "verification",
+    status: "partial",
+    reason:
+      "The linked task checks R1 in CI. A restored-session check is still missing.",
+  };
+  const coverage = { domains: initial.domains, assessments: [verification] };
+  await assert.rejects(
+    assess({ coverage: { ...coverage, domains: ["engineering", "writing"] } }),
+    /audience/u,
+  );
+  await assert.rejects(
+    assess({
+      coverage: { ...coverage, assessments: [verification, verification] },
+    }),
+  );
+  assert.deepEqual(snapshot(), pending);
+  await assess({ coverage });
+  const revised = snapshot();
+  assert.ok(coverageFresh(revised, record.revision));
+  const expected = initial.assessments.map((property) =>
+    property.propertyId === verification.propertyId ? verification : property,
+  );
+  assert.deepEqual(revised.draft, {
+    ...first.draft,
+    coverage: { ...initial, assessments: expected },
+  });
+  assert.equal(revised.pendingReview, undefined);
   await save(linked);
-  assert.ok(coverageFresh(snapshot(), record.revision));
+  assert.deepEqual(snapshot(), revised);
 });
 
-await test("delivered operator messages invalidate coverage while inspection, internal prompts and discarded input preserve it", async (t) => {
-  const { project, store, runner, save, assess } = await discoveryFixture(t);
+await test("delivered operator input keeps property evidence and requires a disposition before freeze", async (t) => {
+  const { project, store, runner, send, save, assess, ctx } =
+    await discoveryFixture(t);
   await save();
   const record = store.list(project)[0];
   assert.ok(record !== undefined);
   const spec = readySpecification(record.revision);
+  assert.ok(spec.draft.coverage !== undefined);
+  spec.draft.coverage.focus = "verification";
   store.change(record.id, (row) => {
     row.specification = spec;
   });
-  const current = () => store.get(record.id).specification?.coverageRevision;
-  const send = (text: string) =>
-    runner.emit({
-      type: "message_start",
-      message: {
-        role: "user",
-        content: [{ type: "text", text }],
-        timestamp: Date.now(),
-      },
-    });
+  const snapshot = () => store.get(record.id).specification;
   await runner.emitInput("Possible change", undefined, "interactive", "steer");
-  assert.equal(current(), spec.coverageRevision);
+  assert.deepEqual(snapshot(), spec);
   await runner.emitInput("Review the proposed beads", undefined, "extension");
   await send("Review the proposed beads");
-  assert.equal(current(), spec.coverageRevision);
+  assert.deepEqual(snapshot(), spec);
   for (const kind of ["interactive", "rpc"] as const) {
-    await runner.emitInput(
-      "Save the original bytes instead",
-      undefined,
-      kind,
-      "steer",
+    const question = "Which properties remain open?";
+    await runner.emitInput(question, undefined, kind, "steer");
+    await send(question);
+    const pending = snapshot();
+    assert.equal(pending?.pendingReview?.cause, "input");
+    assert.deepEqual(pending.draft, spec.draft);
+    await send(question);
+    assert.notEqual(snapshot()?.pendingReview?.id, pending.pendingReview.id);
+    assert.equal(pending.coverageRevision, spec.coverageRevision);
+    const freeze = runner.getCommand("spec-freeze");
+    assert.ok(freeze !== undefined);
+    await assert.rejects(
+      freeze.handler("", ctx),
+      /review|incorporate|assess/iu,
     );
-    await send("Save the original bytes instead");
-    assert.equal(current(), undefined);
-    await assess(spec.draft);
-    assert.equal(current(), spec.coverageRevision);
+    await assert.rejects(
+      assess({ coverage: { domains: [], assessments: [] } }),
+      /removing a property domain/u,
+    );
+    await assess({ coverage: { assessments: [] } });
+    assert.deepEqual(snapshot(), spec);
   }
 });
 
@@ -346,6 +394,7 @@ await test("only the current assessed specification and linked plan can reach ha
     ctx,
     runner,
     prompt,
+    send,
     save,
     assess,
     firstTask,
@@ -390,7 +439,12 @@ await test("only the current assessed specification and linked plan can reach ha
     /current frozen specification/u,
   );
   await save();
-  await assert.rejects(approve.handler("", ctx), /Reassess properties/u);
+  await send("Check how the revised plan verifies R1.");
+  assert.equal(
+    store.get(first.id).specification?.pendingReview?.cause,
+    "input-and-plan",
+  );
+  await assert.rejects(approve.handler("", ctx), /review|assess/iu);
   const frozen = store.get(first.id).specification;
   assert.ok(frozen?.draft !== null && frozen?.draft !== undefined);
   await assert.rejects(
@@ -528,6 +582,10 @@ await test("a legacy assessment cannot authorize a plan revised after freeze bef
     changedPlan,
   );
 
+  await assert.rejects(
+    assess({ coverage: { domains: ["engineering"], assessments: [] } }),
+  );
+  assert.deepEqual(store.get(record.id), saved);
   await assess(frozen.draft);
   const refreshed = store.get(record.id);
   assert.equal(refreshed.planSpecificationRevision, legacyStamp);

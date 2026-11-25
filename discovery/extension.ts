@@ -11,7 +11,10 @@ import { selectorText } from "@lanej/pi-components";
 import { z } from "zod";
 import { registerSocratesControls } from "../socrates/controls.ts";
 import { draftDeliveryPolicy, SpecStatus, specText } from "../socrates/spec.ts";
-import { specificationToken } from "../socrates/assessment.ts";
+import {
+  pendingCoverageReview,
+  specificationToken,
+} from "../socrates/assessment.ts";
 import { loadConfig } from "../config.ts";
 import { socratesGuidance } from "../socrates/guidance.ts";
 import {
@@ -54,10 +57,13 @@ function saveDiscoveryPlan(row: Discovery, proposal: LeadDraft): void {
   const draft =
     policy === undefined ? proposal : applyDeliveryPolicy(proposal, policy);
   if (
-    row.specification !== undefined &&
+    row.specification?.coverageRevision !== undefined &&
     !isDeepStrictEqual(draft, row.leadPlan.draft)
   )
-    row.specification.coverageRevision = undefined;
+    row.specification.pendingReview = pendingCoverageReview(
+      row.specification,
+      "plan",
+    );
   row.leadPlan = { ...row.leadPlan, mode: LeadMode.Planning, draft };
 }
 
@@ -432,8 +438,10 @@ export function registerDiscovery(
           {
             type: "text",
             text:
-              saved !== undefined && saved.coverageRevision === undefined
-                ? "Draft saved. Assess every applicable property against the updated plan with draft_socrates_specification before the next question, freeze, or handoff."
+              saved !== undefined &&
+              (saved.pendingReview !== undefined ||
+                saved.coverageRevision === undefined)
+                ? "Draft saved. Review the updated plan with draft_socrates_specification before the next question, freeze, or handoff. Update the affected properties."
                 : saved?.status === SpecStatus.Frozen
                   ? "Draft saved. /plan to inspect · /plan-approve to review the handoff"
                   : "Draft saved. /plan to inspect the proposed work.",
