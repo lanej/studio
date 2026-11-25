@@ -3,9 +3,16 @@ import type {
   Theme,
   ThemeColor,
 } from "@earendil-works/pi-coding-agent";
-import { matchesKey, Text, truncateToWidth } from "@earendil-works/pi-tui";
+import {
+  matchesKey,
+  Text,
+  truncateToWidth,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
+import { selectorText } from "@lanej/pi-components";
 import { knownTaskStatus, TaskStatus } from "./beads.ts";
 import { NavigationKey } from "./runtime.ts";
+import { renderPlanReview, type PlanReview } from "./plan-review.ts";
 
 const statusTones = {
   [TaskStatus.Open]: { glyph: "○", tone: "muted" },
@@ -69,36 +76,54 @@ export async function showTask(
   });
 }
 
-// Wave details use the existing themed terminal surface. The action stays
-// reachable at narrow widths after scrolling through the exact approval text.
 export async function reviewPlan(
   ctx: ExtensionContext,
   heading: string,
-  details: string,
+  details: string | PlanReview,
   action: string,
 ): Promise<boolean> {
   return ctx.ui.custom<boolean>((tui, theme, _keys, done) => {
-    const text = new Text(details.replace(/[^\P{Cc}\n\t]/gu, " "), 0, 0);
+    const title = selectorText(heading).replace(/\s+/gu, " ");
+    const content =
+      typeof details === "string"
+        ? new Text(selectorText(details), 0, 0)
+        : {
+            render: (width: number) => renderPlanReview(details, theme, width),
+          };
+    let rendered: { width: number; lines: readonly string[] } | undefined;
     let offset = 0;
     let maximum = 0;
+    let endDisplayed = false;
     return {
       invalidate() {
-        text.invalidate();
+        rendered = undefined;
+        endDisplayed = false;
       },
       render(width) {
-        const lines = text.render(width);
+        if (width < 1) {
+          endDisplayed = false;
+          return [];
+        }
+        if (rendered?.width !== width)
+          rendered = { width, lines: content.render(width) };
+        const { lines } = rendered;
         const height = Math.max(3, tui.terminal.rows - 7);
         maximum = Math.max(0, lines.length - height);
         offset = Math.min(offset, maximum);
+        endDisplayed = offset === maximum;
+        const hint = endDisplayed
+          ? `Enter ${action} · Esc cancel`
+          : "↑↓ scroll · Enter next page · Esc cancel";
+        const compact = endDisplayed
+          ? "Enter confirm · Esc cancel"
+          : "↓ More · Esc cancel";
         return [
-          truncateToWidth(theme.fg("accent", heading), width),
+          truncateToWidth(theme.fg("accent", theme.bold(title)), width),
           ...lines.slice(offset, offset + height),
           truncateToWidth(
             theme.fg(
-              "dim",
-              offset < maximum
-                ? "↓ More · Esc cancel"
-                : `Enter ${action} · Esc cancel`,
+              endDisplayed ? "accent" : "dim",
+              visibleWidth(hint) <= width ? hint : compact,
             ),
             width,
           ),
@@ -111,7 +136,8 @@ export async function reviewPlan(
         )
           done(false);
         else if (matchesKey(input, NavigationKey.Enter)) {
-          if (offset === maximum) done(true);
+          // Wait for the final viewport to appear before accepting approval.
+          if (endDisplayed && offset === maximum) done(true);
           else
             offset = Math.min(
               maximum,

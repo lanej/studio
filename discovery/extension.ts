@@ -508,16 +508,25 @@ export function registerDiscovery(
           !(await reviewPlan(
             ctx,
             `Approve ${record.title}`,
-            [
-              interactive === undefined
-                ? "Execution · background"
-                : `Execution · interactive in Zellij ${interactive.session}, tab ${String(interactive.tab)}`,
-              `Project · ${target.root}\nBeads · ${target.id}\nProfile · ${target.profile}`,
-              record.specification === undefined
-                ? "Recovery of the previously approved handoff"
-                : specText(record.specification),
-              describePlan(draft),
-            ].join("\n\n"),
+            {
+              draft,
+              context: [
+                {
+                  label: "Execution",
+                  value:
+                    interactive === undefined
+                      ? "background"
+                      : `interactive in Zellij ${interactive.session}, tab ${String(interactive.tab)}`,
+                },
+                { label: "Project", value: target.root },
+                { label: "Beads", value: target.id },
+                { label: "Profile", value: target.profile },
+              ],
+              specification:
+                record.specification === undefined
+                  ? "Recovery of the previously approved handoff"
+                  : specText(record.specification),
+            },
             "create tasks and implement",
           ))
         )
