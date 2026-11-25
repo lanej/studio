@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import { selectorText } from "@lanej/pi-components";
 import { ExtensionInputComponent } from "@earendil-works/pi-coding-agent";
+import { registerHistoryBindings } from "./keybindings.ts";
 import { TaskPanel } from "./tasks/panel.ts";
 import { readTaskEvidence } from "./tasks/evidence.ts";
 import { answerDecision } from "./execution/decisions.ts";
@@ -66,6 +67,7 @@ export default function studioExtension(
     trackedPullRequest: () => string | undefined;
   },
 ): void {
+  registerHistoryBindings(pi);
   registerActivationAdmission(pi);
   const intelligence = registerCodeIntelligence(pi);
   const idle = new IdleSession();
