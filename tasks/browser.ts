@@ -167,11 +167,13 @@ export class TaskBrowser {
 
   private wrapped(text: string, width: number): string[] {
     // Provider text is data: terminal control sequences must never reach the renderer.
-    return new Text(
-      selectorText(text).replace(/[^\P{Cc}\n]/gu, " "),
-      0,
-      0,
-    ).render(Math.max(1, width));
+    return [
+      ...new Text(
+        selectorText(text).replace(/[^\P{Cc}\n]/gu, " "),
+        0,
+        0,
+      ).render(Math.max(1, width)),
+    ];
   }
 
   private details(width: number): DetailLine[] {
