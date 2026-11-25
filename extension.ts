@@ -13,6 +13,7 @@ import {
 import { registerCodeIntelligence } from "./code-intelligence/extension.ts";
 import { inspectIntegrations } from "./integrations.ts";
 import { registerSearchRendering } from "./search-renderer.ts";
+import { registerSkillRendering } from "./skill-renderer.ts";
 import { installFooter } from "./footer.ts";
 import type {
   ExtensionAPI,
@@ -97,6 +98,7 @@ export default function studioExtension(
     () => selectedProfile,
   );
   registerSearchRendering(pi);
+  registerSkillRendering(pi);
   if (managed !== undefined)
     pi.on("session_start", () => {
       delegation.activate();
