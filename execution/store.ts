@@ -17,6 +17,7 @@ import {
 } from "../config.ts";
 import { verificationSchema, beadSchema, owner } from "../task-service.ts";
 import { draftSchema } from "../lead-plan.ts";
+import { sha } from "../delivery-record.ts";
 import {
   worktreeReservation,
   worktreeAllocation,
@@ -60,6 +61,7 @@ export const handoffIntentSchema = z.object({
   ids: z.record(z.string(), z.string()),
   interactive: interactiveTargetSchema.optional(),
   project: z.uuid().optional(),
+  target: projectSchema.optional(),
   draft: draftSchema.optional(),
 });
 export const operatorDecisionSchema = z.object({
@@ -97,6 +99,14 @@ export const executionSchema = z.object({
   integrationReview: z.string().optional(),
   integrationExpected: z.string().optional(),
   base: z.string().optional(),
+  publicationBase: z
+    .object({
+      remote: sha,
+      prerequisites: z.array(
+        z.object({ id: z.uuid(), before: sha, after: sha, commit: sha }),
+      ),
+    })
+    .optional(),
   head: z.string().optional(),
   pid: z.number().int().positive().optional(),
   started: z.string().optional(),
@@ -435,13 +445,16 @@ export class ExecutionStore {
   intent(id: string): unknown {
     return this.read("handoff", id);
   }
-  interactiveIntent(bead: string) {
-    const row = this.db
+  taskHandoffIntent(project: string, bead: string) {
+    const rows = this.db
       .query(
-        "SELECT id, record FROM records WHERE kind='handoff' AND json_type(record,'$.interactive')='object' AND EXISTS (SELECT 1 FROM json_each(record,'$.ids') WHERE key!='root' AND value=?)",
+        "SELECT id, record FROM records WHERE kind='handoff' AND (json_extract(record,'$.project') IS NULL OR json_extract(record,'$.project')=?) AND EXISTS (SELECT 1 FROM json_each(record,'$.ids') WHERE key!='root' AND value=?)",
       )
-      .get(bead);
-    if (row === null) return undefined;
+      .all(project, bead);
+    if (rows.length > 1)
+      throw new Error("Multiple handoff receipts identify this bead");
+    const row = rows[0];
+    if (row === undefined) return undefined;
     const { id, record } = z
       .object({ id: z.uuid(), record: z.string() })
       .parse(row);

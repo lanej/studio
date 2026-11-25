@@ -134,6 +134,30 @@ export function orderedTasks(draft: LeadDraft): LeadDraft["tasks"] {
   );
 }
 
+/** An already merged prerequisite carries its own ancestors on the target branch. */
+export function publicationPrerequisites(
+  draft: LeadDraft,
+  publisher: LeadDraft["tasks"][number],
+): LeadDraft["tasks"] {
+  const ordered = orderedTasks(draft);
+  const required = new Set(publisher.blockedBy);
+  const includedByPullRequest = new Set<string>();
+  for (const task of ordered.toReversed()) {
+    if (!required.has(task.key)) continue;
+    for (const key of task.blockedBy) {
+      required.add(key);
+      if (
+        task.delivery === TaskDelivery.PullRequest ||
+        includedByPullRequest.has(task.key)
+      )
+        includedByPullRequest.add(key);
+    }
+  }
+  return ordered.filter(
+    (task) => required.has(task.key) && !includedByPullRequest.has(task.key),
+  );
+}
+
 export function taskReviewLines(
   task: LeadDraft["tasks"][number],
   intent: "proposal" | "execution" = "execution",

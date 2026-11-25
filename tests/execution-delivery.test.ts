@@ -51,6 +51,13 @@ async function fixture() {
     project: projectId,
     profile: StudioProfile.Personal,
     phase: ExecutionPhase.Delivery,
+    bead: {
+      id: "fixture-task",
+      title: "Implement accepted work",
+      status: "in_progress",
+      revision: "accepted",
+      assignee: `pi:${id}`,
+    },
     base: "0".repeat(40),
     head: firstHead,
     review: "Independent exact-head approval",
@@ -784,6 +791,38 @@ await test("a changed-base rejection is retained and only a fresh Ready offer ca
     );
   } finally {
     await f.close();
+  }
+});
+
+await test("an already published branch with unproven ancestry cannot merge or replay a lost merge request", async () => {
+  for (const replay of [false, true]) {
+    const f = await fixture();
+    try {
+      const suppliedGit = f.dependencies.safeGit;
+      const blockAncestry = () => {
+        f.dependencies.safeGit = (...args) =>
+          args[2][0] === "merge-base"
+            ? Promise.reject(
+                Object.assign(new Error("Not an ancestor"), { code: 1 }),
+              )
+            : suppliedGit(...args);
+      };
+      if (replay) {
+        f.configure({ lostQueuedMerge: true });
+        await assert.rejects(f.run(), /Queued merge response lost/u);
+        blockAncestry();
+      } else {
+        f.configure({ onWait: blockAncestry });
+      }
+      await assert.rejects(f.run(), /PR publication ancestry/u);
+      assert.ok(f.store.attempt(f.initial.id).publication !== undefined);
+      assert.equal(
+        f.calls.filter((call) => call[0] === "merge").length,
+        replay ? 1 : 0,
+      );
+    } finally {
+      await f.close();
+    }
   }
 });
 
