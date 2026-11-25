@@ -78,7 +78,11 @@ async function fixture(
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => {
     server.closeAllConnections();
-    return new Promise<void>((resolve) => server.close(() => resolve()));
+    return new Promise<void>((resolve) =>
+      server.close(() => {
+        resolve();
+      }),
+    );
   });
   const address = server.address();
   assert.ok(address !== null && typeof address !== "string");
@@ -175,9 +179,9 @@ async function fixture(
 }
 
 await test("the Studio child uses its parent's provider and a fresh restricted reviewer session", async (t) => {
-  const child = await fixture(t, (res, count) =>
-    reply(res, count === 1 ? "tool_calls" : "stop"),
-  );
+  const child = await fixture(t, (res, count) => {
+    reply(res, count === 1 ? "tool_calls" : "stop");
+  });
   const result = await child.run();
   assert.equal(result.aborted, false);
   assert.equal(result.failure, undefined);
@@ -196,7 +200,9 @@ await test(
   "cancelling a running Studio child interrupts the in-flight provider request",
   { timeout: 10000 },
   async (t) => {
-    const child = await fixture(t, () => child.controller.abort());
+    const child = await fixture(t, () => {
+      child.controller.abort();
+    });
     const result = await child.run();
     assert.equal(result.aborted, true);
     assert.equal(child.authorizations.length, 1);
@@ -204,9 +210,9 @@ await test(
 );
 
 await test("a child can finish after its turn-budget reminder", async (t) => {
-  const child = await fixture(t, (res, count) =>
-    reply(res, count === 1 ? "tool_calls" : "stop"),
-  );
+  const child = await fixture(t, (res, count) => {
+    reply(res, count === 1 ? "tool_calls" : "stop");
+  });
   const result = await child.run(1);
   assert.equal(result.failure, undefined);
   assert.equal(result.aborted, false);
@@ -216,9 +222,9 @@ await test("a child can finish after its turn-budget reminder", async (t) => {
 });
 
 await test("repeated truncated tool calls stop after the five wrap-up turns", async (t) => {
-  const child = await fixture(t, (res, count) =>
-    reply(res, count <= 6 ? "length" : "stop", count <= 6),
-  );
+  const child = await fixture(t, (res, count) => {
+    reply(res, count <= 6 ? "length" : "stop", count <= 6);
+  });
   const result = await child.run(1);
   assert.match(result.failure ?? "", /turn limit/u);
   assert.equal(result.aborted, false);
@@ -228,7 +234,9 @@ await test("repeated truncated tool calls stop after the five wrap-up turns", as
 });
 
 await test("a truncated final answer cannot complete the child assignment", async (t) => {
-  const child = await fixture(t, (res) => reply(res, "length"));
+  const child = await fixture(t, (res) => {
+    reply(res, "length");
+  });
   const result = await child.run();
   assert.ok(result.failure !== undefined);
   assert.equal(result.responseText, "");

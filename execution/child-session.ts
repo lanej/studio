@@ -11,7 +11,8 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
-import { AgentRole, type ReasoningLevel } from "../config.ts";
+import { z } from "zod";
+import { AgentRole, ReasoningLevel } from "../config.ts";
 import { packageRoot } from "../package-resources.ts";
 import { coldReadInstructions } from "../review-contract.ts";
 
@@ -96,7 +97,9 @@ export async function createRoleSession(options: RoleSessionOptions) {
     tools: tools.map((tool) => tool.name),
     customTools: tools,
   });
-  const actualReasoning: string = created.session.thinkingLevel;
+  const actualReasoning = z
+    .enum(ReasoningLevel)
+    .safeParse(created.session.thinkingLevel).data;
   if (
     created.session.model?.provider !== model.provider ||
     created.session.model.id !== model.id ||
@@ -137,19 +140,22 @@ export async function runChild(
   options: ChildOptions,
 ): Promise<ChildResult> {
   const { signal, maxTurns } = options;
+  const isCancelled = () => signal.aborted;
   const cancelled = { responseText: "", aborted: true };
-  if (signal.aborted) return cancelled;
-  const manager = SessionManager.create(options.cwd, options.sessionDir, {
-    parentSession: parent.sessionManager.getSessionFile(),
-  });
+  if (isCancelled()) return cancelled;
+  const parentSession = parent.sessionManager.getSessionFile();
+  const manager = SessionManager.create(
+    options.cwd,
+    options.sessionDir,
+    parentSession === undefined ? {} : { parentSession },
+  );
   const { session } = await createRoleSession({
     ...options,
     role,
     sessionManager: manager,
     modelRuntime: parent.modelRegistry.runtime,
   });
-  let turns = 0;
-  let exhausted = false;
+  const budget = { turns: 0, exhausted: false };
   const abort = () => {
     session.agent.abort();
   };
@@ -157,41 +163,42 @@ export async function runChild(
     session.setSessionName(`${role}#${options.agentId.slice(0, 8)}`);
     options.onSessionCreated(session);
     signal.addEventListener("abort", abort, { once: true });
-    if (signal.aborted) return cancelled;
+    if (isCancelled()) return cancelled;
     session.subscribe((event) => {
       // A cancellation during the SDK's prompt preflight precedes its abort controller.
       if (event.type === "agent_start" && signal.aborted) abort();
       if (event.type !== "turn_end") return;
-      turns++;
+      budget.turns++;
       if (event.toolResults.length === 0) return;
-      if (turns === maxTurns) {
+      if (budget.turns === maxTurns) {
         session.agent.steer({
           role: "user",
           content:
             "You have reached your turn limit. Wrap up now and return your final answer.",
           timestamp: Date.now(),
         });
-      } else if (turns >= maxTurns + wrapUpTurns) {
-        exhausted = true;
+      } else if (budget.turns >= maxTurns + wrapUpTurns) {
+        budget.exhausted = true;
         abort();
       }
     });
     await session.prompt(prompt, { expandPromptTemplates: false });
-    if (signal.aborted) return cancelled;
-    if (exhausted)
+    if (isCancelled()) return cancelled;
+    if (budget.exhausted)
       return {
         responseText: "",
         aborted: false,
-        failure: `The ${role} reached its turn limit after ${String(turns)} turns`,
+        failure: `The ${role} reached its turn limit after ${String(budget.turns)} turns`,
       };
     const last = session.messages.findLast(
       (message) => message.role === "assistant",
     );
     const responseText = session.getLastAssistantText()?.trim();
     if (
-      last?.role !== "assistant" ||
+      last === undefined ||
       last.stopReason !== "stop" ||
-      !responseText
+      responseText === undefined ||
+      responseText.length === 0
     )
       return {
         responseText: "",
