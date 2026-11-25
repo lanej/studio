@@ -92,6 +92,7 @@ await test("a split fullscreen viewport paints a cropped Kitty image and its sid
     },
     start: noop,
     stop: noop,
+    drainInput: () => Promise.resolve(),
     moveBy: noop,
     hideCursor: noop,
     showCursor: noop,
