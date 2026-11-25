@@ -12,7 +12,10 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { z } from "zod";
-import { registerReasonedEdit } from "../code-intelligence/edit-tool.ts";
+import {
+  isStudioEdit,
+  registerReasonedEdit,
+} from "../code-intelligence/edit-tool.ts";
 import { StudioProfile } from "../config.ts";
 import {
   ExecutionPhase,
@@ -192,4 +195,60 @@ await test("worker edit rejects a missing or blank reason before checking its le
   );
   assert.equal(leaseChecks, 1);
   assert.equal(await readFile(file, "utf8"), "original");
+});
+
+await test("Claude Edit keeps exact matching and literal replace_all inside Studio's admitted edit", async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), "studio-exact-edit-"));
+  t.after(() => rm(cwd, { force: true, recursive: true }));
+  const { session } = await createAgentSessionFromServices({
+    services: await services(cwd),
+    sessionManager: SessionManager.inMemory(cwd),
+  });
+  t.after(() => {
+    session.dispose();
+  });
+  await session.bindExtensions({ mode: "rpc" });
+  const ctx = session.extensionRunner.createToolContext(
+    "claude-edit",
+    undefined,
+  );
+  const path = join(cwd, "sample.txt");
+  const original = "\uFEFF“one”\r\ntwo\r\n“one”\r\ntwo\r\n";
+  await writeFile(path, original);
+  const edit = session.getToolDefinition("edit");
+  assert.ok(edit !== undefined);
+  const info = session.getAllTools().find((tool) => tool.name === "edit");
+  assert.ok(info !== undefined && isStudioEdit(info));
+  const otherOwner = { ...info.sourceInfo, path: "/elsewhere/extension.ts" };
+  assert.equal(isStudioEdit({ ...info, sourceInfo: otherOwner }), false);
+  const replace = (oldText: string, mode: "exact" | "all") => {
+    const args = {
+      path,
+      reason: "Exercise the exact edit contract.",
+      matchMode: mode,
+      edits: [{ oldText, newText: "$&\n$1" }],
+    };
+    return edit.execute(
+      "exact-edit",
+      edit.prepareArguments?.(args) ?? args,
+      undefined,
+      undefined,
+      ctx,
+    );
+  };
+  await assert.rejects(
+    replace('"one"', "exact"),
+    /does not match the file exactly/u,
+  );
+  await assert.rejects(replace("“one”\ntwo", "exact"), /multiple locations/u);
+  assert.equal(await readFile(path, "utf8"), original);
+  await replace("“one”\ntwo", "all");
+  assert.equal(await readFile(path, "utf8"), "\uFEFF$&\r\n$1\r\n$&\r\n$1\r\n");
+
+  const braces = "}\n}\n}\n";
+  await writeFile(path, braces);
+  await assert.rejects(replace("}\n}", "exact"), /multiple locations/u);
+  assert.equal(await readFile(path, "utf8"), braces);
+  await replace("}\n}", "all");
+  assert.equal(await readFile(path, "utf8"), "$&\n$1\n}\n");
 });
