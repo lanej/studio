@@ -227,14 +227,6 @@ class Terminal:
         for key in keys:
             self.send(key)
 
-    def open_pane_picker(self, chord="\x1b[32;5u"):
-        self.send(chord)
-        self.contains("Studio panes")
-
-    def choose_pane(self, key):
-        self.open_pane_picker()
-        self.send(key)
-
     def centered_lines(self):
         """Read the overlay's viewport without the lead or sidebar alongside it."""
         width = min(100, self.screen.columns - 4)
@@ -356,7 +348,8 @@ class Terminal:
         self.wait(lambda: verification_gap in property_text() and "Harmony" in property_text(),
                   "The rail omitted the verification gap before the plan was ready")
         if self.screen.columns == wide_columns:
-            assert all(gap in property_text() for gap in (scope_gap, risk_gap, harmony_gap)), self.rail_text()
+            self.wait(lambda: all(gap in property_text() for gap in (scope_gap, risk_gap, harmony_gap)),
+                      "The wide rail did not render each property rationale")
             start = self.rail_start()
             self.assert_mark("Scope", "○", "status.error")
             self.assert_foreground("Open", "status.error", start)
@@ -625,9 +618,10 @@ def run(output):
         project = home / "project"
         project.mkdir()
         subprocess.run(["git", "init", "--initial-branch=main", str(project)], check=True, capture_output=True, timeout=30)
-        (home / "config.json").write_text("{}")
+        (home / "config.toml").write_text('[keybindings.lead]\ntoggleStatus = "ctrl+."\n')
+        toggle_status = "\x1b[46;5u"
         (agent / "models.json").write_text(json.dumps({"providers":{"fixture":{"baseUrl":f"http://127.0.0.1:{provider.server_port}/v1","api":"openai-completions","apiKey":"fixture","models":[{"id":"tiny"}]}}}))
-        env = {**os.environ, "HOME":str(home), "PI_CODING_AGENT_DIR":str(agent), "STUDIO_CONFIG":str(home / "config.json"), "STUDIO_STATE_DIR":str(home / "state"), "TERM":"xterm-256color", "COLORTERM":"truecolor", "PI_TELEMETRY":"0", "PI_SKIP_VERSION_CHECK":"1"}
+        env = {**os.environ, "HOME":str(home), "PI_CODING_AGENT_DIR":str(agent), "STUDIO_CONFIG":str(home / "config.toml"), "STUDIO_STATE_DIR":str(home / "state"), "TERM":"xterm-256color", "COLORTERM":"truecolor", "PI_TELEMETRY":"0", "PI_SKIP_VERSION_CHECK":"1"}
         subprocess.run([sys.executable, str(root / "scripts/configure.py"), str(root), str(agent)], env=env, check=True, stdout=subprocess.DEVNULL, timeout=30)
         settings_path = agent / "settings.json"
         settings = json.loads(settings_path.read_text())
@@ -674,10 +668,10 @@ def run(output):
             terminal.check_lead_wrap(draft)
             terminal.send("\x1b[D")
             terminal.send("\x1b[D")
-            terminal.choose_pane("s")
+            terminal.send(toggle_status)
             terminal.wait(lambda: terminal.rail_start() is None and any(draft in line for line in terminal.screen.display),
                           "Collapsing the sidebar did not restore the full editor width")
-            terminal.choose_pane("s")
+            terminal.send(toggle_status)
             terminal.wait_for_rail()
             terminal.check_lead_wrap(draft)
             terminal.send(" request")  # Insert before 's.' to prove the mid-draft cursor survived.
@@ -717,15 +711,15 @@ def run(output):
             terminal.assert_foreground("2 open", "status.error")
             terminal.assert_foreground("2 partial", "status.warning")
             terminal.capture("status-narrow-dock")
-            terminal.choose_pane("s")
+            terminal.send(toggle_status)
             terminal.contains("share a draft")
             terminal.contains("What evidence still needs a decision?")
             dock = terminal.text().rpartition("Specification")[2].partition("Implementation")[0]
             assert "share a draft" in " ".join(dock.split()), dock
             terminal.assert_mark("Scope", "○", "status.error")
             terminal.capture("status-narrow-properties")
-            terminal.choose_pane("s")
-            terminal.wait(compact_dock, "Choosing Toggle status did not collapse the dock")
+            terminal.send(toggle_status)
+            terminal.wait(compact_dock, "The configured status shortcut did not collapse the dock")
             terminal.send("\x15")
             terminal.send("/socrates\r")
             terminal.contains("share a draft")
@@ -851,7 +845,7 @@ def run(output):
             terminal.assert_mark('Record property evidence', '●', 'status.success')
             terminal.send('What would unblock verification?')
             terminal.capture('status-sidebar-linked')
-            terminal.choose_pane("s")
+            terminal.send(toggle_status)
             terminal.wait(lambda: terminal.rail_start() is None and any(linked_sentence in line for line in terminal.screen.display),
                           'Hiding the sidebar did not restore the transcript to its full width')
             terminal.contains('What would unblock verification?')
@@ -910,10 +904,10 @@ def run(output):
             regular_draft = "Confirm that reviewing a standalone task and its requirements preserves my unsent message in regular mode."
             terminal.send(regular_draft)
             terminal.check_lead_wrap(regular_draft)
-            terminal.choose_pane("s")
+            terminal.send(toggle_status)
             terminal.wait(lambda: terminal.rail_start() is None and any(regular_draft in line for line in terminal.screen.display),
                           "Regular mode did not restore the full editor width")
-            terminal.choose_pane("s")
+            terminal.send(toggle_status)
             terminal.wait_for_rail()
             terminal.send("\x15")
             terminal.send("/plan\r")

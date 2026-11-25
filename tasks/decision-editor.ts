@@ -6,13 +6,18 @@ import {
   CURSOR_MARKER,
   Editor,
   getKeybindings,
-  matchesKey,
   Text,
   type TUI,
   type TuiMouseEvent,
   truncateToWidth,
   visibleWidth,
 } from "@earendil-works/pi-tui";
+import {
+  defaultPaneKeybindings,
+  matchesPaneKey,
+  paneKeyHint,
+  paneKeyPair,
+} from "../pane-keybindings.ts";
 import { selectorText } from "@lanej/pi-components";
 import {
   floatingPaneHeight,
@@ -33,6 +38,7 @@ export class DecisionEditor {
     private readonly theme: Pick<Theme, "fg" | "bg" | "bold" | "getBgAnsi">,
     question: string,
     private readonly done: (answer: string | undefined) => void,
+    private readonly bindings = defaultPaneKeybindings,
   ) {
     this.question = new Text(
       selectorText(question).replace(/\p{Cc}/gu, " "),
@@ -71,14 +77,30 @@ export class DecisionEditor {
     this.questionHeight = Math.max(1, height - editing.length - 5);
     this.maxOffset = Math.max(0, prompt.length - this.questionHeight);
     this.offset = Math.min(this.offset, this.maxOffset);
+    const keys = getKeybindings();
+    const submit = keys.getKeys("tui.input.submit");
+    const newline = keys.getKeys("tui.input.newLine");
+    const cancel = keys.getKeys("tui.select.cancel");
+    const reserved = new Set([...submit, ...newline, ...cancel]);
+    const scroll = paneKeyPair(
+      this.bindings.decision.pageUp.filter((key) => !reserved.has(key)),
+      this.bindings.decision.pageDown.filter((key) => !reserved.has(key)),
+    );
+    const instructions = [
+      paneKeyHint(submit, "submit"),
+      paneKeyHint(newline, "newline"),
+      paneKeyHint(cancel, "cancel"),
+    ]
+      .filter(Boolean)
+      .join("  ");
     const rows = [
       this.theme.fg("accent", this.theme.bold(" Answer operator decision")),
       ...prompt.slice(this.offset, this.offset + this.questionHeight),
-      ...(this.maxOffset > 0
-        ? [this.theme.fg("muted", " PgUp/PgDn scroll question")]
+      ...(this.maxOffset > 0 && scroll.length > 0
+        ? [this.theme.fg("muted", ` ${scroll} scroll question`)]
         : []),
       ...editing,
-      this.theme.fg("muted", " Enter submit  Shift+Enter newline  Esc cancel"),
+      this.theme.fg("muted", ` ${instructions}`),
     ];
     // On very short terminals, keep the insertion point on screen as the answer wraps.
     const cursor = rows.findIndex((line) => line.includes(CURSOR_MARKER));
@@ -114,13 +136,25 @@ export class DecisionEditor {
   }
 
   handleInput(data: string): void {
-    if (getKeybindings().matches(data, "tui.select.cancel")) {
+    const keys = getKeybindings();
+    if (keys.matches(data, "tui.select.cancel")) {
       this.done(undefined);
       return;
     }
-    if (this.maxOffset > 0 && matchesKey(data, "pageUp"))
+    if (
+      keys.matches(data, "tui.input.submit") ||
+      keys.matches(data, "tui.input.newLine")
+    )
+      this.editor.handleInput(data);
+    else if (
+      this.maxOffset > 0 &&
+      matchesPaneKey(data, this.bindings.decision.pageUp)
+    )
       this.offset = Math.max(0, this.offset - this.questionHeight);
-    else if (this.maxOffset > 0 && matchesKey(data, "pageDown"))
+    else if (
+      this.maxOffset > 0 &&
+      matchesPaneKey(data, this.bindings.decision.pageDown)
+    )
       this.offset = Math.min(this.maxOffset, this.offset + this.questionHeight);
     else this.editor.handleInput(data);
     this.tui.requestRender();

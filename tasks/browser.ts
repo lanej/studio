@@ -1,6 +1,5 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import {
-  matchesKey,
   type TuiMouseEvent,
   hyperlink,
   Text,
@@ -9,7 +8,12 @@ import {
 } from "@earendil-works/pi-tui";
 import { taskTree, type Task, type TreeRow } from "../beads.ts";
 import { paintPaneLine, paneMouse } from "../floating-pane.ts";
-import { NavigationKey } from "../runtime.ts";
+import {
+  defaultPaneKeybindings,
+  matchesPaneKey,
+  paneKeyHint,
+  paneKeyPair,
+} from "../pane-keybindings.ts";
 import { selectorText } from "@lanej/pi-components";
 import { pendingDecision, ExecutionPhase } from "../execution/store.ts";
 import { githubLink } from "../github-links.ts";
@@ -52,12 +56,18 @@ interface DetailLine {
   action?: Action;
 }
 
-export function closesTaskBrowser(input: string): boolean {
+export function closesTaskBrowser(
+  input: string,
+  bindings = defaultPaneKeybindings,
+): boolean {
   return (
-    matchesKey(input, NavigationKey.Escape) ||
-    matchesKey(input, NavigationKey.Cancel) ||
-    input === "q"
+    matchesPaneKey(input, bindings.pane.close) ||
+    matchesPaneKey(input, bindings.tasks.quit)
   );
+}
+
+export function taskCloseHint(bindings = defaultPaneKeybindings): string {
+  return paneKeyHint([...bindings.pane.close, ...bindings.tasks.quit], "close");
 }
 
 export class TaskBrowser {
@@ -96,6 +106,7 @@ export class TaskBrowser {
       attemptId?: string,
     ) => void,
     initialId?: string,
+    private readonly bindings = defaultPaneKeybindings,
   ) {
     this.rows = taskTree(snapshot.tasks);
     this.selected = initialId ?? this.rows[0]?.task.id;
@@ -466,10 +477,21 @@ export class TaskBrowser {
             ? tree[index]
             : detail[index]) ?? ""),
     );
-    const hint =
-      this.focus === "tree"
-        ? "j/k move  Enter inspect  r refresh  Esc close"
-        : "j/k scroll  Tab links  Enter open  ← tree  Esc close";
+    const { pane, tasks } = this.bindings;
+    const movement = paneKeyPair(pane.up, pane.down);
+    const inTree = this.focus === "tree";
+    const hint = [
+      movement.length > 0 && `${movement} ${inTree ? "move" : "scroll"}`,
+      !inTree &&
+        paneKeyHint([...tasks.nextLink, ...tasks.previousLink], "links"),
+      paneKeyHint(pane.activate, inTree ? "inspect" : "open"),
+      inTree
+        ? paneKeyHint(tasks.refresh, "refresh")
+        : paneKeyHint(tasks.back, "tree"),
+      taskCloseHint(this.bindings),
+    ]
+      .filter(Boolean)
+      .join("  ");
     const context =
       this.notice.length > 0
         ? this.notice
@@ -578,41 +600,61 @@ export class TaskBrowser {
 
   handleMouse(event: TuiMouseEvent) {
     return paneMouse(event, (delta) => {
-      for (let i = 0; i < Math.min(this.bodyHeight, Math.abs(delta)); i++)
-        this.handleInput(delta > 0 ? "j" : "k");
+      if (this.closed) return;
+      this.move(Math.sign(delta) * Math.min(this.bodyHeight, Math.abs(delta)));
+      this.changed();
     });
+  }
+
+  private move(delta: number): void {
+    if (this.focus === "tree") {
+      const index = this.rows.findIndex((row) => row.task.id === this.selected);
+      this.selected =
+        this.rows[
+          Math.max(0, Math.min(this.rows.length - 1, index + delta))
+        ]?.task.id;
+    } else {
+      const id = this.selected ?? "";
+      this.offsets.set(
+        id,
+        Math.max(
+          0,
+          Math.min(this.maximum, (this.offsets.get(id) ?? 0) + delta),
+        ),
+      );
+    }
+    this.activeAction = -1;
   }
 
   handleInput(input: string): void {
     if (this.closed) return;
-    if (closesTaskBrowser(input)) {
+    const { pane, tasks } = this.bindings;
+    if (closesTaskBrowser(input, this.bindings)) {
       this.closed = true;
       this.done(undefined);
       return;
     }
-    if (matchesKey(input, NavigationKey.Left)) {
+    if (matchesPaneKey(input, tasks.back)) {
       this.focus = "tree";
       this.activeAction = -1;
-    } else if (matchesKey(input, NavigationKey.Refresh)) {
+    } else if (matchesPaneKey(input, tasks.refresh)) {
       this.refresh().catch((error: unknown) => {
         this.report(error);
       });
     } else if (
-      matchesKey(input, NavigationKey.Tab) ||
-      matchesKey(input, NavigationKey.PreviousTab)
+      matchesPaneKey(input, tasks.nextLink) ||
+      matchesPaneKey(input, tasks.previousLink)
     ) {
       this.focus = "inspector";
       const count = this.actions.length;
       if (count > 0) {
         this.activeAction =
           this.activeAction < 0
-            ? matchesKey(input, NavigationKey.PreviousTab)
+            ? matchesPaneKey(input, tasks.previousLink)
               ? count - 1
               : 0
             : (this.activeAction +
-                (matchesKey(input, NavigationKey.PreviousTab)
-                  ? count - 1
-                  : 1)) %
+                (matchesPaneKey(input, tasks.previousLink) ? count - 1 : 1)) %
               count;
         const line = this.actions[this.activeAction]?.line ?? 0;
         const offset = this.offsets.get(this.selected ?? "") ?? 0;
@@ -625,7 +667,7 @@ export class TaskBrowser {
               : offset,
         );
       }
-    } else if (matchesKey(input, NavigationKey.Enter)) {
+    } else if (matchesPaneKey(input, pane.activate)) {
       const action = this.actions[this.activeAction]?.action;
       if (this.focus === "tree" && this.selected !== undefined)
         this.inspect(this.selected);
@@ -700,40 +742,15 @@ export class TaskBrowser {
         }
       } else if (this.actions.length > 0) this.activeAction = 0;
     } else if (
-      matchesKey(input, NavigationKey.Right) &&
+      matchesPaneKey(input, pane.focusWorker) &&
       this.selected !== undefined &&
       this.snapshot.focusable.has(this.selected)
     ) {
       this.focusPane(this.selected);
     } else {
-      const direction =
-        matchesKey(input, NavigationKey.VimDown) ||
-        matchesKey(input, NavigationKey.Down)
-          ? 1
-          : matchesKey(input, NavigationKey.VimUp) ||
-              matchesKey(input, NavigationKey.Up)
-            ? -1
-            : 0;
-      if (direction !== 0 && this.focus === "tree") {
-        const index = this.rows.findIndex(
-          (row) => row.task.id === this.selected,
-        );
-        this.selected =
-          this.rows[
-            Math.max(0, Math.min(this.rows.length - 1, index + direction))
-          ]?.task.id;
-        this.activeAction = -1;
-      } else if (direction !== 0) {
-        const id = this.selected ?? "";
-        this.offsets.set(
-          id,
-          Math.max(
-            0,
-            Math.min(this.maximum, (this.offsets.get(id) ?? 0) + direction),
-          ),
-        );
-        this.activeAction = -1;
-      }
+      if (matchesPaneKey(input, pane.down)) this.move(1);
+      else if (matchesPaneKey(input, pane.up)) this.move(-1);
+      else return;
     }
     this.changed();
   }

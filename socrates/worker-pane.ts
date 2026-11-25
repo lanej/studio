@@ -1,6 +1,5 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import {
-  matchesKey,
   truncateToWidth,
   wrapTextWithAnsi,
   type OverlayHandle,
@@ -13,6 +12,12 @@ import {
   paintPaneLine,
   paneMouse,
 } from "../floating-pane.ts";
+import {
+  defaultPaneKeybindings,
+  matchesPaneKey,
+  paneKeyHint,
+  paneKeyPair,
+} from "../pane-keybindings.ts";
 import type { WorkerAssignment } from "../tasks/workers.ts";
 
 type WorkerTheme = Pick<Theme, "fg" | "bg" | "bold" | "getBgAnsi">;
@@ -97,6 +102,7 @@ function assignmentLines(
 }
 
 export class WorkerPane {
+  private bindings = defaultPaneKeybindings;
   private rows: readonly WorkerAssignment[] = [];
   private selected: WorkerAssignment | undefined;
   private reassigned = false;
@@ -163,7 +169,13 @@ export class WorkerPane {
     this.evidenceError = undefined;
   }
 
-  open(tui: WorkerTui, theme: WorkerTheme, actions: WorkerActions): void {
+  open(
+    tui: WorkerTui,
+    theme: WorkerTheme,
+    actions: WorkerActions,
+    bindings = defaultPaneKeybindings,
+  ): void {
+    this.bindings = bindings;
     if (this.handle !== undefined) {
       this.handle.focus();
       return;
@@ -198,12 +210,16 @@ export class WorkerPane {
   }
 
   private handleInput(key: string, actions: WorkerActions): void {
-    if (matchesKey(key, "escape") || matchesKey(key, "ctrl+c")) {
+    const keys = this.bindings.pane;
+    if (matchesPaneKey(key, keys.close)) {
       this.close();
       return;
     }
-    if (matchesKey(key, "pageUp") || matchesKey(key, "pageDown")) {
-      const delta = matchesKey(key, "pageUp")
+    if (
+      matchesPaneKey(key, keys.pageUp) ||
+      matchesPaneKey(key, keys.pageDown)
+    ) {
+      const delta = matchesPaneKey(key, keys.pageUp)
         ? -this.detailPage
         : this.detailPage;
       this.scrollDetail(delta);
@@ -212,10 +228,13 @@ export class WorkerPane {
     }
     if (this.pendingFocus !== undefined) return;
     const row = this.selected;
-    if (row !== undefined && matchesKey(key, "enter")) {
+    if (row !== undefined && matchesPaneKey(key, keys.activate)) {
       this.close();
       actions.inspect(row);
-    } else if (row?.focusable === true && matchesKey(key, "right")) {
+    } else if (
+      row?.focusable === true &&
+      matchesPaneKey(key, keys.focusWorker)
+    ) {
       const request = new AbortController();
       this.pendingFocus = request;
       this.tui?.requestRender();
@@ -231,8 +250,8 @@ export class WorkerPane {
         },
       );
     } else {
-      const down = matchesKey(key, "j") || matchesKey(key, "down");
-      const up = matchesKey(key, "k") || matchesKey(key, "up");
+      const down = matchesPaneKey(key, keys.down);
+      const up = matchesPaneKey(key, keys.up);
       if ((!down && !up) || this.rows.length === 0) return;
       const index = row === undefined ? -1 : this.rows.indexOf(row);
       const next = index + (down ? 1 : -1);
@@ -257,10 +276,18 @@ export class WorkerPane {
       theme.bold(heading) +
       border(`${"─".repeat(Math.max(0, width - heading.length - 3))}╮`);
     const bottom = border(`╰${"─".repeat(width - 2)}╯`);
-    const footer = ["↑↓ select"];
-    if (this.selected !== undefined) footer.push("Enter inspect");
-    if (this.selected?.focusable === true) footer.push("→ pane");
-    footer.push("Esc close");
+    const keys = this.bindings.pane;
+    const movement = paneKeyPair(keys.up, keys.down);
+    const close = paneKeyHint(keys.close, "close");
+    const footer = [
+      movement.length > 0 && `${movement} select`,
+      this.selected !== undefined && paneKeyHint(keys.activate, "inspect"),
+      this.selected?.focusable === true &&
+        paneKeyHint(keys.focusWorker, "pane"),
+      close,
+    ]
+      .filter(Boolean)
+      .join(" · ");
     const warning =
       this.evidenceError === undefined
         ? []
@@ -283,10 +310,12 @@ export class WorkerPane {
     }
     const hint =
       this.pendingFocus !== undefined
-        ? "Focusing worker pane… · Esc cancel"
+        ? ["Focusing worker pane…", paneKeyHint(keys.close, "cancel")]
+            .filter(Boolean)
+            .join(" · ")
         : this.rows.length === 0
-          ? "Esc close"
-          : footer.join(" · ");
+          ? close
+          : footer;
     return [
       truncateToWidth(top, width),
       ...body.slice(0, height - 3).map(frame),
@@ -340,7 +369,18 @@ export class WorkerPane {
     );
     if (this.detailMaxOffset > 0) {
       const range = `${String(this.detailOffset + 1)}–${String(this.detailOffset + preview.length)}/${String(details.length)}`;
-      preview.push(theme.fg("dim", `PgUp/PgDn scroll · ${range}`));
+      const scroll = paneKeyPair(
+        this.bindings.pane.pageUp,
+        this.bindings.pane.pageDown,
+      );
+      preview.push(
+        theme.fg(
+          "dim",
+          [scroll.length > 0 && `${scroll} scroll`, range]
+            .filter(Boolean)
+            .join(" · "),
+        ),
+      );
     }
     if (!split)
       return [...list, theme.fg("border", "─".repeat(width)), ...preview].slice(

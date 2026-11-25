@@ -11,9 +11,11 @@ import {
 import { StudioProfile } from "../config.ts";
 import {
   ProcessTerminal,
+  getKeybindings,
   TuiMainScreen,
   visibleWidth,
 } from "@earendil-works/pi-tui";
+import { paneKeybindingsSchema } from "../pane-keybindings-config.ts";
 import { DecisionEditor } from "../tasks/decision-editor.ts";
 import { TaskBrowser } from "../tasks/browser.ts";
 import {
@@ -82,6 +84,58 @@ await test("long questions scroll independently of multiline answers, and Escape
   cancelled.handleInput("Unsubmitted answer");
   cancelled.handleInput("\x1b");
   assert.deepEqual(results, [first + "\nSecond line", undefined]);
+});
+
+await test("the answer editor follows Pi text bindings and keeps pane mnemonics available as prose", () => {
+  class TestTui extends TuiMainScreen {
+    override requestRender(): void {}
+  }
+  const tui = new TestTui(new ProcessTerminal());
+  const keys = getKeybindings();
+  const previous = keys.getUserBindings();
+  const bindings = paneKeybindingsSchema.parse({
+    decision: { pageUp: "f2", pageDown: "f5" },
+  });
+  const results: (string | undefined)[] = [];
+  const open = () =>
+    new DecisionEditor(
+      tui,
+      theme,
+      "First option? " +
+        "Which contract should we keep? ".repeat(100) +
+        "Last option?",
+      (answer) => {
+        results.push(answer);
+      },
+      bindings,
+    );
+  try {
+    keys.setUserBindings({
+      ...previous,
+      "tui.input.submit": "f2",
+      "tui.input.newLine": "f3",
+      "tui.select.cancel": "f4",
+    });
+    const editor = open();
+    const view = () => editor.render(80).join("\n");
+    assert.match(view(), /F2 submit {2}F3 newline {2}F4 cancel/u);
+    assert.match(view(), /F5 scroll question/u);
+    assert.doesNotMatch(view(), /F2\/F5|PgUp|Esc cancel/u);
+    editor.handleInput("\x1b[6~");
+    assert.match(view(), /First option/u);
+    editor.handleInput("\x1b[15~");
+    assert.doesNotMatch(view(), /First option/u);
+    for (const character of "qjk wts") editor.handleInput(character);
+    editor.handleInput("\x1bOR"); // F3
+    editor.handleInput("continue");
+    editor.handleInput("\x1bOQ"); // F2 also appears in decision.pageUp
+    assert.deepEqual([...results], ["qjk wts\ncontinue"]);
+    const cancel = open();
+    cancel.handleInput("\x1bOS"); // F4
+    assert.deepEqual(results, ["qjk wts\ncontinue", undefined]);
+  } finally {
+    keys.setUserBindings(previous);
+  }
 });
 
 await test("only explicit owned decisions offer Answer and capture the original request across a dialog refresh", async () => {
@@ -163,11 +217,19 @@ await test("only explicit owned decisions offer Answer and capture the original 
       () => {},
       () => {},
       task.id,
+      paneKeybindingsSchema.parse({
+        pane: { activate: "o" },
+        tasks: { nextLink: "n", previousLink: "p" },
+      }),
     );
+    const instructions = browser.render(100).join("\n");
+    assert.match(instructions, /n links {2}o open/u);
+    browser.handleInput("\t");
+    assert.equal(browser.render(100).join("\n"), instructions);
     let selected = false;
     for (let i = 0; i < 16; i++) {
       browser.render(100);
-      browser.handleInput("\t");
+      browser.handleInput("n");
       if (
         browser.render(100).join("\n").includes("› ↗ Answer operator decision")
       ) {
@@ -180,6 +242,8 @@ await test("only explicit owned decisions offer Answer and capture the original 
     assert.match(text, /including other ready work/u);
     assert.doesNotMatch(text, /Retry attempt/u);
     browser.handleInput("\r");
+    assert.equal(calls.length, 0);
+    browser.handleInput("o");
     await Promise.resolve();
     assert.deepEqual(calls, [
       { id, request: request.id, question: request.question },

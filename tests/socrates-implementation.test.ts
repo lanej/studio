@@ -19,8 +19,10 @@ import {
 import {
   fitSidebarGraph,
   renderSidebarGraph,
+  renderSocratesDock,
   renderStatusSidebar,
 } from "../socrates/sidebar.ts";
+import { renderBeadProgress } from "../socrates/bead-progress.ts";
 import { implementationColumn } from "../socrates/columns.ts";
 import { createImplementationWatch } from "../socrates/implementation-watch.ts";
 
@@ -204,6 +206,107 @@ await test("linked native bead states remain independent of approval and depende
   assert.equal(display.counts[ImplementationState.Closed], 1);
   assert.equal(display.counts[ImplementationState.Open], 1);
   assert.equal(display.counts[ImplementationState.InProgress], 0);
+});
+
+await test("linked beads wrap in plan order within the available columns and rows", () => {
+  const identity = (s: string) => s;
+  const theme = {
+    bold: identity,
+    muted: identity,
+    success: identity,
+    accent: identity,
+    selected: identity,
+    error: identity,
+    warning: identity,
+    lane: (_: number, s: string) => s,
+  };
+  const request = implementationRead(approved);
+  assert.ok(request);
+  const impl = implementationPresentation(approved, {
+    key: request.key,
+    state: "current",
+    tasks: [observed("restore", "closed"), observed("verify", "in_progress")],
+  });
+  const [closed, active] = impl.rows;
+  assert.ok(closed && active);
+  const open = { ...closed, state: ImplementationState.Open };
+  const eleven = {
+    ...impl,
+    rows: [
+      closed,
+      active,
+      ...Array.from({ length: 9 }, (_, index) => ({
+        ...open,
+        id: `task-${String(index)}`,
+      })),
+    ],
+  };
+  assert.deepEqual(renderBeadProgress(eleven, theme, 48, 3), [
+    "Beads  ●◐○○○○○○○○",
+    "       ○",
+  ]);
+  assert.deepEqual(renderBeadProgress(eleven, theme, 11, 3), [
+    "Beads  ●◐○○",
+    "       ○○○○",
+    "       ○○○",
+  ]);
+  assert.deepEqual(renderBeadProgress(eleven, theme, 48, 1), [
+    "Beads  ●◐○○○○○○○○ +1",
+  ]);
+  assert.deepEqual(renderBeadProgress(eleven, theme, 11, 1), ["Beads  +11"]);
+  assert.deepEqual(
+    renderBeadProgress(implementationPresentation(approved), theme, 40, 3),
+    [],
+  );
+  assert.deepEqual(renderBeadProgress(eleven, theme, 0, 3), []);
+  const large = { ...eleven, rows: Array.from({ length: 61 }, () => active) };
+  const rows = renderBeadProgress(large, theme, 40, 20);
+  assert.equal(rows.length, 3);
+  assert.equal(rows.at(-1), "       ◐◐◐◐◐◐◐◐◐◐ +31");
+  const snapshot = {
+    implementation: eleven,
+    prioritizeSpecification: false,
+    dockColumns: [implementationColumn(eleven)],
+  };
+  assert.deepEqual(
+    renderSocratesDock(snapshot, theme, 48, 1, false),
+    renderBeadProgress(eleven, theme, 48, 1),
+  );
+  assert.match(
+    renderStatusSidebar(snapshot, theme, 45, 14).join("\n"),
+    /Beads  ●◐○○○○○○○○/u,
+  );
+  const spec = {
+    id: "specification",
+    title: "Specification",
+    groups: [],
+    summary: "Awaiting operator input",
+  };
+  const priority = {
+    ...snapshot,
+    dockColumns: [spec, implementationColumn(eleven)],
+    prioritizeSpecification: true,
+  };
+  assert.deepEqual(renderSocratesDock(priority, theme, 57, 2, false), [
+    "Specification",
+    "Beads  ●◐○○○○○○○○ +1",
+  ]);
+  assert.deepEqual(
+    renderSocratesDock(
+      { ...priority, implementation: impl },
+      theme,
+      57,
+      3,
+      false,
+    ),
+    ["Specification", "Beads  ●◐", "Awaiting operator input"],
+  );
+  const partial = implementationPresentation(approved, {
+    key: request.key,
+    state: "current",
+    tasks: [observed("restore", "closed")],
+  });
+  assert.deepEqual(renderBeadProgress(partial, theme, 48, 1), ["Beads  ●?"]);
 });
 
 await test("stale, missing and mismatched observations cannot preserve a completed state", () => {

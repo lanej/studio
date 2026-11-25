@@ -1,3 +1,7 @@
+import {
+  defaultPaneKeybindings,
+  type PaneKeybindings,
+} from "../pane-keybindings.ts";
 import { pickLeadPane } from "../floating-pane-picker.ts";
 import type { OpenTasks } from "../tasks/panel.ts";
 import type {
@@ -11,7 +15,6 @@ import {
   ConditionState,
   conditionCounts,
   createStatusBoard,
-  renderStatusDock,
   type StatusColumn,
   type Activity,
   type StatusTheme,
@@ -50,7 +53,7 @@ import {
   paneMouse,
 } from "../floating-pane.ts";
 import {
-  renderSocratesSections,
+  renderSocratesDock,
   renderStatusSidebar,
   renderWorkerCompact,
   type WorkerSidebarView,
@@ -294,6 +297,7 @@ export function registerSocratesPresentation(
   read: (ctx: ExtensionContext) => SocratesObservation | undefined,
   viewSpecification: (ctx: ExtensionContext) => Promise<void>,
   openTasks?: OpenTasks,
+  keybindings: PaneKeybindings = defaultPaneKeybindings,
 ) {
   const live: SocratesActivity = { working: false, paused: false };
   const tools = new Map<string, string>();
@@ -425,24 +429,13 @@ export function registerSocratesPresentation(
               dockExpanded,
             );
             const statusRows = maxRows - roster.length;
-            const rows =
-              statusRows === 0
-                ? []
-                : dockExpanded && snapshot.prioritizeSpecification
-                  ? renderSocratesSections(
-                      snapshot,
-                      { ...colors, lane: planGraphColor(theme) },
-                      inner,
-                      statusRows,
-                      true,
-                    )
-                  : renderStatusDock({
-                      columns: snapshot.dockColumns,
-                      theme: colors,
-                      width: inner,
-                      expanded: dockExpanded,
-                      maxRows: statusRows,
-                    });
+            const rows = renderSocratesDock(
+              snapshot,
+              { ...colors, lane: planGraphColor(theme) },
+              inner,
+              statusRows,
+              dockExpanded,
+            );
             return [...rows, ...roster].map((line) =>
               surface(theme, `  ${line}`, width),
             );
@@ -604,14 +597,19 @@ export function registerSocratesPresentation(
           "warning",
         );
     };
-    workerPane.open(layoutTui, ctx.ui.theme, {
-      inspect: (row) => {
-        openTasks?.(ctx, row.beadId, request.authority).catch(report);
+    workerPane.open(
+      layoutTui,
+      ctx.ui.theme,
+      {
+        inspect: (row) => {
+          openTasks?.(ctx, row.beadId, request.authority).catch(report);
+        },
+        focusPane: (row, signal) =>
+          focusTaskPane(request.authority, row.beadId, row.attemptId, signal),
+        onError: report,
       },
-      focusPane: (row, signal) =>
-        focusTaskPane(request.authority, row.beadId, row.attemptId, signal),
-      onError: report,
-    });
+      keybindings,
+    );
   };
   pi.registerCommand("workers", {
     description: "Browse worker assignments and inspect their tasks",
@@ -620,21 +618,44 @@ export function registerSocratesPresentation(
       return Promise.resolve();
     },
   });
-  pi.registerShortcut("ctrl+space", {
-    description: "Choose a Studio pane without leaving the lead draft",
-    async handler(ctx) {
-      if (!ctx.hasUI || inspecting) return;
-      const choice = await pickLeadPane(
-        ctx,
-        openTasks === undefined
-          ? ["workers", "status"]
-          : ["workers", "tasks", "status"],
-      );
-      if (choice === "workers") openWorkers(ctx);
-      if (choice === "tasks") await openTasks?.(ctx);
-      if (choice === "status") toggle(ctx);
-    },
+  const pickPane = async (ctx: ExtensionContext) => {
+    if (!ctx.hasUI || inspecting) return;
+    const choice = await pickLeadPane(
+      ctx,
+      openTasks === undefined
+        ? ["workers", "status"]
+        : ["workers", "tasks", "status"],
+      keybindings,
+    );
+    if (choice === "workers") openWorkers(ctx);
+    if (choice === "tasks") await openTasks?.(ctx);
+    if (choice === "status") toggle(ctx);
+  };
+  pi.registerCommand("panes", {
+    description: "Choose a Studio pane",
+    handler: (_argument, ctx) => pickPane(ctx),
   });
+  for (const key of keybindings.lead.openPicker)
+    pi.registerShortcut(key, {
+      description: "Choose a Studio pane",
+      handler: pickPane,
+    });
+  for (const key of keybindings.lead.openWorkers)
+    pi.registerShortcut(key, {
+      description: "Open worker assignments",
+      handler: openWorkers,
+    });
+  if (openTasks !== undefined)
+    for (const key of keybindings.lead.openTasks)
+      pi.registerShortcut(key, {
+        description: "Open the task browser",
+        handler: (ctx) => openTasks(ctx),
+      });
+  for (const key of keybindings.lead.toggleStatus)
+    pi.registerShortcut(key, {
+      description: "Toggle lead status",
+      handler: toggle,
+    });
   pi.registerCommand("socrates-status", {
     description:
       "Toggle lead status, use min or max to resize, inspect for evidence, or spec to read the full specification",

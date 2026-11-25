@@ -5,6 +5,8 @@ import {
 } from "@earendil-works/pi-tui";
 import {
   renderStatusMark,
+  renderStatusDock,
+  renderStatusCounts,
   selectorText,
   statusPaint,
   type StatusColumn,
@@ -12,6 +14,7 @@ import {
   type StatusTheme,
 } from "@lanej/pi-components";
 import { planGraph, renderGraphPrefix } from "../plan-graph.ts";
+import { renderBeadProgress } from "./bead-progress.ts";
 import { taskMarks } from "./columns.ts";
 import {
   renderWorkerCompact,
@@ -266,6 +269,7 @@ function specificationRows(
 }
 
 function implementationRows(
+  implementation: ImplementationPresentation,
   column: StatusColumn,
   graph: SidebarGraph,
   theme: StatusTheme,
@@ -276,6 +280,14 @@ function implementationRows(
   if (height <= 0) return [];
   const rows = [sectionHeading(column, theme, width)];
   if (height === 1) return rows;
+  rows.push(
+    ...renderBeadProgress(
+      implementation,
+      theme,
+      width,
+      Math.min(3, height - rows.length),
+    ),
+  );
   if (!preview) {
     const context = wrapped(
       column.summary ??
@@ -353,7 +365,15 @@ function renderPlanSections(
       : specificationRows(spec, theme, width, height, true);
   const graph = renderSidebarGraph(snapshot.implementation, theme, width);
   if (spec === undefined)
-    return implementationRows(plan, graph, theme, width, height, false);
+    return implementationRows(
+      snapshot.implementation,
+      plan,
+      graph,
+      theme,
+      width,
+      height,
+      false,
+    );
   const priority = snapshot.prioritizeSpecification;
   const gap = compact || height < 6 ? 0 : 1;
   const available = height - gap;
@@ -368,9 +388,59 @@ function renderPlanSections(
   if (planHeight > 0) {
     if (gap > 0) rows.push(theme.muted("─".repeat(width)));
     rows.push(
-      ...implementationRows(plan, graph, theme, width, planHeight, priority),
+      ...implementationRows(
+        snapshot.implementation,
+        plan,
+        graph,
+        theme,
+        width,
+        planHeight,
+        priority,
+      ),
     );
   }
+  return rows;
+}
+
+/** The caller allocates room for worker questions before laying out the compact dock. */
+export function renderSocratesDock(
+  snapshot: SidebarSnapshot,
+  theme: GraphTheme,
+  width: number,
+  height: number,
+  expanded: boolean,
+): string[] {
+  if (expanded && snapshot.prioritizeSpecification)
+    return renderSocratesSections(snapshot, theme, width, height, true);
+  const spec = snapshot.dockColumns.find(
+    (column) => column.id === "specification",
+  );
+  const gridHeight =
+    spec !== undefined && snapshot.prioritizeSpecification
+      ? height - 1
+      : height;
+  const grid = expanded
+    ? []
+    : renderBeadProgress(snapshot.implementation, theme, width, gridHeight);
+  if (grid.length === 0)
+    return renderStatusDock({
+      columns: snapshot.dockColumns,
+      theme,
+      width,
+      expanded,
+      maxRows: height,
+    });
+  if (spec === undefined || grid.length >= height) return grid;
+  const summary = [
+    theme.bold(spec.title),
+    spec.status === undefined ? "" : renderStatusMark(spec.status, theme),
+    renderStatusCounts(spec.counts ?? [], theme),
+  ]
+    .filter(Boolean)
+    .join("  ");
+  const rows = [truncateToWidth(summary, width, "…"), ...grid];
+  if (rows.length < height && spec.summary?.trim())
+    rows.push(truncateToWidth(theme.muted(inline(spec.summary)), width, "…"));
   return rows;
 }
 

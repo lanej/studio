@@ -13,6 +13,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { getThemeByName } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
+import { paneKeybindingsSchema } from "../pane-keybindings-config.ts";
 import { pickLeadPane } from "../floating-pane-picker.ts";
 
 await test("the Studio picker accepts same-read mnemonics, limits allowed choices and restores the draft at its cursor", async () => {
@@ -70,7 +71,7 @@ await test("the Studio picker accepts same-read mnemonics, limits allowed choice
     ["s", "status"],
   ] as const) {
     const pick = pickLeadPane(ctx, ["workers", "tasks", "status"]);
-    send("\x1b[32;5:3u"); // Release of the Ctrl+Space that opened this picker.
+    send("\x1b[32;5:3u"); // A release event must never choose a pane.
     send(key);
     assert.equal(await pick, expected);
     assert.equal(guard, undefined);
@@ -95,6 +96,30 @@ await test("the Studio picker accepts same-read mnemonics, limits allowed choice
   await Promise.resolve();
   send("\x1b");
   assert.equal(await cancel, undefined);
+  const bindings = paneKeybindingsSchema.parse({
+    lead: { openPicker: "f7" },
+    picker: { workers: "y", tasks: [], status: [] },
+    pane: { down: "n", activate: "o", close: "x" },
+  });
+  const customPick = pickLeadPane(ctx, ["workers", "tasks"], bindings);
+  await Promise.resolve();
+  const remapped = tui.getFocusedComponent();
+  assert.ok(remapped !== null && remapped !== lead);
+  const labels = remapped.render(28).map(stripTerminalSequences).join("\n");
+  assert.match(labels, /y {2}Workers/u);
+  assert.match(labels, /x close/u);
+  assert.doesNotMatch(labels, /w {2}Workers|t {2}Tasks|Esc close/u);
+  for (const key of ["w", "t", "\x00", "\x1b", "\r", "\x1b[B"]) send(key);
+  assert.equal(tui.getFocusedComponent(), remapped);
+  send("n");
+  send("o");
+  assert.equal(await customPick, "tasks");
+  const sameRead = pickLeadPane(ctx, ["workers", "tasks"], bindings);
+  send("y");
+  assert.equal(await sameRead, "workers");
+  const repeat = pickLeadPane(ctx, ["tasks"], bindings);
+  send("\x1b[18~");
+  assert.equal(await repeat, undefined);
   assert.equal(tui.getFocusedComponent(), lead);
   send("!");
   assert.equal(lead.getValue(), "keep draf!t");

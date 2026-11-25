@@ -6,10 +6,12 @@ import {
   paneMouse,
   paintPaneLine,
 } from "../floating-pane.ts";
-import { Text, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { isKeyRelease, Text, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { defaultPaneKeybindings } from "../pane-keybindings.ts";
 import { DecisionEditor } from "./decision-editor.ts";
 import {
   closesTaskBrowser,
+  taskCloseHint,
   loadTaskSnapshot,
   TaskBrowser,
   type BrowserSource,
@@ -33,6 +35,7 @@ type PanelContext = Pick<ExtensionContext, "hasUI"> & {
 };
 
 export class TaskPanel {
+  private bindings = defaultPaneKeybindings;
   private generation = 0;
   private paneFocus: AbortController | undefined;
   private removeInputGuard: (() => void) | undefined;
@@ -69,7 +72,7 @@ export class TaskPanel {
           this.closeAnswer = () => {
             done(undefined);
           };
-        return new DecisionEditor(tui, theme, question, done);
+        return new DecisionEditor(tui, theme, question, done, this.bindings);
       },
       { overlay: true, overlayOptions: floatingPaneOptions },
     );
@@ -82,16 +85,19 @@ export class TaskPanel {
     ctx: PanelContext,
     getSource: (current: () => boolean) => Promise<PanelSource | undefined>,
     initialId?: string,
+    bindings = defaultPaneKeybindings,
   ): Promise<void> {
     if (!ctx.hasUI) return;
     this.close();
+    this.bindings = bindings;
     const generation = this.generation;
     const current = () => generation === this.generation;
 
     // Pi attaches a custom overlay in a microtask. Protect the lead draft if a
     // terminal sends more keys in the same read as the command/shortcut.
     this.removeInputGuard = ctx.ui.onTerminalInput((input) => {
-      if (closesTaskBrowser(input)) this.close();
+      if (!isKeyRelease(input) && closesTaskBrowser(input, bindings))
+        this.close();
       return { consume: true };
     });
     let start: (() => Promise<void>) | undefined;
@@ -110,7 +116,12 @@ export class TaskPanel {
             done(undefined);
           };
           const loading = new Text(
-            theme.fg("accent", "Tasks") + " · Loading…   Esc close",
+            [
+              theme.fg("accent", "Tasks") + " · Loading…",
+              taskCloseHint(bindings),
+            ]
+              .filter(Boolean)
+              .join("   "),
             1,
             0,
           );
@@ -161,6 +172,7 @@ export class TaskPanel {
                 }
               },
               initialId,
+              bindings,
             );
             schedule();
             tui.requestRender();
@@ -181,7 +193,7 @@ export class TaskPanel {
             },
             handleInput: (input: string) => {
               if (browser !== undefined) browser.handleInput(input);
-              else if (closesTaskBrowser(input)) this.close();
+              else if (closesTaskBrowser(input, bindings)) this.close();
             },
             handleMouse(event: TuiMouseEvent) {
               return browser?.handleMouse(event) ?? paneMouse(event);

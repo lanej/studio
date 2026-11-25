@@ -1,4 +1,8 @@
 import {
+  defaultPaneKeybindings,
+  type PaneKeybindings,
+} from "./pane-keybindings.ts";
+import {
   registerSessionForks,
   registerPromptLoops,
 } from "./sessions/extension.ts";
@@ -73,16 +77,27 @@ interface ManagedLead {
   trackedPullRequest: () => string | undefined;
 }
 
-export default function studioExtension(
+// Pi collects extension shortcuts during loading. Invalid configuration is reported
+// by session initialization; a managed lead must still install its other controls.
+export async function loadLeadKeybindings(): Promise<PaneKeybindings> {
+  try {
+    return (await loadConfig()).keybindings;
+  } catch {
+    return defaultPaneKeybindings;
+  }
+}
+
+export default async function studioExtension(
   pi: ExtensionAPI,
   managed?: ManagedLead,
-): void {
-  registerStudio(pi, managed);
+): Promise<void> {
+  registerStudio(pi, managed, await loadLeadKeybindings());
 }
 
 export function registerStudio(
   pi: ExtensionAPI,
-  managed?: ManagedLead,
+  managed: ManagedLead | undefined,
+  keybindings: PaneKeybindings,
 ): OpenTasks {
   registerHistoryBindings(pi);
   registerActivationAdmission(pi);
@@ -104,6 +119,7 @@ export function registerStudio(
             tasks.close();
           },
           openTasks,
+          keybindings,
         )
       : undefined;
   if (discovery !== undefined)
@@ -359,6 +375,7 @@ export function registerStudio(
             discovery?.runtimeHandoff(ctx)?.operation === handoff?.operation,
         ),
       beadId,
+      keybindings,
     );
   }
 

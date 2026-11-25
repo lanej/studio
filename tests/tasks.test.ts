@@ -43,6 +43,7 @@ import {
   type Execution,
 } from "../execution/store.ts";
 import { retryWriterFence } from "../execution/recovery.ts";
+import { paneKeybindingsSchema } from "../pane-keybindings-config.ts";
 import { TaskBrowser } from "../tasks/browser.ts";
 import { TaskPanel } from "../tasks/panel.ts";
 import { readTaskEvidence } from "../tasks/evidence.ts";
@@ -782,7 +783,7 @@ await test("failed external links and late detail replies preserve the operator'
   browser.handleInput("\x1b[D");
   browser.handleInput("j");
   assert.match(view(), /› ○ Wait for the prerequisite/u);
-  assert.match(view(), /j\/k move/u);
+  assert.match(view(), /↑↓ move/u);
   release?.(rejected);
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(calls, [rejected.id]);
@@ -790,7 +791,7 @@ await test("failed external links and late detail replies preserve the operator'
   browser.handleInput("\r");
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(calls, [rejected.id, successor.id]);
-  assert.match(view(), /j\/k scroll/u);
+  assert.match(view(), /↑↓ scroll/u);
 });
 
 await test("live refresh preserves the focused task and Escape closes the floating browser", async () => {
@@ -946,6 +947,32 @@ await test("a loading task float owns input immediately and ignores reads that s
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
   assert.equal(tui.getFocusedComponent(), lead);
   assert.deepEqual(messages, []);
+  const bindings = paneKeybindingsSchema.parse({
+    pane: { close: [] },
+    tasks: { quit: "x" },
+  });
+  const earlyClose = panel.open(
+    ctx,
+    () => Promise.resolve(source),
+    undefined,
+    bindings,
+  );
+  send("x");
+  await earlyClose;
+  assert.equal(tui.getFocusedComponent(), lead);
+  const remapped = panel.open(
+    ctx,
+    () => Promise.resolve(source),
+    undefined,
+    bindings,
+  );
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  assert.match(view(), /Loading… +x close/u);
+  for (const key of ["q", "\x1b", "\x03"]) send(key);
+  assert.match(view(), /Loading/u);
+  send("x");
+  await remapped;
+  assert.equal(tui.getFocusedComponent(), lead);
   await panel.open(ctx, () =>
     Promise.reject(new Error("Current service unavailable")),
   );

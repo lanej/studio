@@ -161,8 +161,14 @@ elif 'show' in sys.argv: print(json.dumps([next(task for task in tasks if task['
     boundary.chmod(0o755)
     if args.task_review:
         # The default source is unrelated. The panel must use the handed-off project's source.
-        config = {"beadsService": {"projectId": "11e82880-80f1-4f5a-8939-c29914929522", "url": "http://127.0.0.1:1"}}
+        config = {
+            "beadsService": {"projectId": "11e82880-80f1-4f5a-8939-c29914929522", "url": "http://127.0.0.1:1"},
+            "keybindings": {"lead": {"openTasks": "ctrl+,"}, "tasks": {"refresh": "z"}},
+        }
     else:
+        (agent / "keybindings.json").write_text(json.dumps({
+            "tui.editor.cursorLineStart": ["home", "ctrl+a", "ctrl+space"],
+        }))
         config = {"beads": {"workspace": str(workspace), "database": "fixture", "branch": "main", "executable": str(boundary)}}
     (home / "config.json").write_text(json.dumps(config))
     env = {**os.environ, "HOME": str(home), "PI_CODING_AGENT_DIR": str(agent), "STUDIO_CONFIG": str(home / "config.json"), "STUDIO_STATE_DIR": str(home / "studio-state"), "TERM": "xterm-256color", "COLORTERM": "truecolor", "PI_TELEMETRY": "0", "PI_SKIP_VERSION_CHECK": "1"}
@@ -386,9 +392,7 @@ interactive.close();
                 before_read = provider.issue_reads
                 provider.allow_issue_reads.clear()
                 try:
-                    os.write(master, b"\x1b[32;5u")
-                    wait_text("Studio panes")
-                    os.write(master, b"t")
+                    os.write(master, b"\x1b[44;5u")  # Configured Ctrl+, opens Tasks.
                     wait_text("Loading…")
                     wait_until(lambda: provider.issue_reads > before_read)
                     os.write(master, b"j\r")
@@ -401,9 +405,7 @@ interactive.close();
                 assert "preserved lead draft" in "\n".join(screen.display), screen.display
                 assert provider.responses == before_response
                 assert "Enter inspect" not in "\n".join(screen.display), screen.display
-                os.write(master, b"\x1b[32;5u")
-                wait_text("Studio panes")
-                os.write(master, b"t")
+                os.write(master, b"\x1b[44;5u")  # Configured Ctrl+, opens Tasks.
                 wait_text("Diff presentation")
                 wait_text("Enter inspect")
                 assert any("›" in line and "Diff presentation" in line for line in screen.display), screen.display
@@ -426,8 +428,11 @@ interactive.close();
                 provider.issue_listing = (200, {"items": review_tasks, "has_more": False})
                 os.write(master, b"/tasks\r")
                 wait_text("Enter inspect")
-                os.write(master, b"r")
-                pump(.4)
+                wait_text("z refresh")
+                assert "r refresh" not in "\n".join(screen.display), screen.display
+                before_refresh = provider.issue_reads
+                os.write(master, b"z")
+                wait_until(lambda: provider.issue_reads > before_refresh)
                 os.write(master, b"j\r")
                 pump(.5)
                 text = "\n".join(screen.display)
@@ -562,6 +567,21 @@ interactive.close();
             assert footer and len(footer) == columns, screen.display
             assert "↱ main" in footer, screen.display
             capture("daily-driver")
+            os.write(master, b"/panes\r")
+            wait_text("Studio panes")
+            os.write(master, b"\x1b")
+            wait_until(lambda: "Studio panes" not in "\n".join(screen.display))
+            # With no Studio shortcuts configured, Pi keeps the operator's Ctrl+Space.
+            os.write(master, b"cursor")
+            wait_text("cursor")
+            # Terminals send either CSI-u or the legacy NUL for this chord.
+            os.write(master, b"\x1b[32;5u")
+            os.write(master, b"saved-")
+            wait_text("saved-cursor")
+            os.write(master, b"\x00")
+            os.write(master, b"still-")
+            wait_text("still-saved-cursor")
+            os.write(master, b"\x05\x15")  # Move to the end, then clear the draft.
             os.write(master, b"/discoveries\r")
             wait_text("Select a saved discovery")
             listing = "\n".join(screen.display)
@@ -614,13 +634,13 @@ interactive.close();
             os.write(master, b"/socrates\r")
             wait_text("Specification")
             os.write(master, b"/socrates-status spec\r")
+            wait_text("Socrates v1")
             wait_text("Keep the lead free for research")
             os.write(master, b"\x1b")
-            pump(.2)
+            wait_until(lambda: "Socrates v1" not in "\n".join(screen.display))
             if columns == wide_viewport[0]:
                 os.write(master, b"/spec-freeze\r")
-                pump(.3)
-                assert "Freeze specification" in "\n".join(screen.display), screen.display
+                wait_text("Freeze specification")
                 for _ in range(12):
                     os.write(master, b"\r")
                     pump(.2)

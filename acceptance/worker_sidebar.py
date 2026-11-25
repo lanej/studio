@@ -37,10 +37,21 @@ const titles = {
   restore: 'Restore the selected graph node',
   resize: 'Keep the graph visible on resize',
   review: 'Preserve the draft when focus changes',
+  keys: 'Document graph navigation keys',
+  focus: 'Capture the focused bead',
+  empty: 'Explain an empty selection',
+  search: 'Find a bead by title',
+  edges: 'Describe linked dependencies',
+  filter: 'Filter finished assignments',
+  resume: 'Resume the selected assignment',
+  audit: 'Verify navigation after reload',
 };
+const parents = {empty:'restore', search:'focus', edges:'search', filter:'edges', resume:'review', audit:'resume'};
+const closed = new Set(['base', 'keys', 'focus']);
+const phases = {restore:'awaiting-decision',resize:'running',review:'reviewing'};
 const tasks = Object.entries(titles).map(([key,title]) => ({
   key,title, description:title, acceptance: 'Keep the lead usable through refresh.',
-  blockedBy: key === 'base' ? [] : ['base'], owns:[key+'.ts'], requirements:['R1'],
+  blockedBy: key === 'base' ? [] : [parents[key] ?? 'base'], owns:[key+'.ts'], requirements:['R1'],
 }));
 const graph = draftSchema.parse({summary:'Preserve the lead draft across graph navigation.', tasks});
 const target = runtimeProjectSchema.parse({root:project, source:authority, profile:'personal', base:'main', beadsWorkspace:project, beadsDatabase:'fixture'});
@@ -56,19 +67,21 @@ const linked = discoveries.change(record.id, row => {
 const beads = {};
 for (const task of tasks) {
   const id = crypto.randomUUID();
-  const bead = {id:linked.graph[task.key],title:task.title,status:task.key==='base'?'closed':'in_progress',
-    assignee:task.key==='base'?'':'pi:'+id, revision:'fixture-revision', acceptance_criteria:task.acceptance,
+  const phase = phases[task.key];
+  const status = phase ? 'in_progress' : closed.has(task.key) ? 'closed' : 'open';
+  const bead = {id:linked.graph[task.key],title:task.title,status,
+    assignee:phase?'pi:'+id:'', revision:'fixture-revision', acceptance_criteria:task.acceptance,
     metadata:{'studio.graph':linked.revision,'studio.approval':linked.approved,'studio.task':task}};
   beads[bead.id] = bead;
-  if(task.key==='base') continue;
+  if(!phase) continue;
   const launchToken = crypto.randomUUID();
   runtime.saveAttempt(executionSchema.parse({id,project:authority.projectId,bead,revision:bead.revision,profile:'personal',
-    phase:{restore:'awaiting-decision',resize:'running',review:'reviewing'}[task.key],launchToken, launchSettled:task.key==='restore', message:'',
+    phase,launchToken, launchSettled:task.key==='restore', message:'',
     operatorDecisions:task.key==='restore'?[{id:crypto.randomUUID(),at:new Date().toISOString(),question,
       binding:{project:authority.projectId,bead:bead.id,revision:bead.revision,launchToken,contract:'a'.repeat(64)}}]:undefined}));
 }
 session.appendMessage({role:'user',content:'Keep the lead usable while workers implement graph navigation.',timestamp:Date.now()});
-session.appendMessage({role:'assistant',content:[{type:'text',text:'The approved graph has four beads. The selection record is complete, so the three dependent assignments can proceed.\\n\\nThe implementation graph shows their dependencies. Each worker below it is linked to the bead it owns.'}],
+session.appendMessage({role:'assistant',content:[{type:'text',text:'The approved graph has twelve beads. Three are finished, and three workers are on their current assignments.\\n\\nThe implementation graph shows their dependencies. Each worker below it is linked to the bead it owns.'}],
   api:'openai-completions',provider:'fixture',model:'tiny',stopReason:'stop',timestamp:Date.now(),
   usage:{input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}}});
 session.appendCustomEntry('studio:discovery',{id:linked.id,project});
@@ -85,7 +98,13 @@ discoveries.close();
     fixture = json.loads(result.stdout)
     served_beads.update(fixture["beads"])
     config = project.parent / "worker-config.json"
-    config.write_text(json.dumps({"runtime": {"enabled": False, "projects": [fixture["target"]]}}))
+    config.write_text(json.dumps({
+        "runtime": {"enabled": False, "projects": [fixture["target"]]},
+        "keybindings": {
+            "lead": {"openPicker": "ctrl+;", "openWorkers": "ctrl+,"},
+            "picker": {"workers": "x", "tasks": []},
+        },
+    }))
     console = terminal_type(project, {**env, "STUDIO_CONFIG": str(config)}, output, fixture["session"])
     try:
         def roster():
@@ -93,6 +112,11 @@ discoveries.close();
 
         console.wait(lambda: all(label in roster() for label in ("Needs input", "Implementing", "Reviewing")),
                      "Current workers and reviewer did not appear below the graph")
+        rail_lines = console.rail_text().splitlines()
+        start = next(i for i, line in enumerate(rail_lines) if line.startswith("Beads  "))
+        cells = [rail_lines[start].removeprefix("Beads").strip(), rail_lines[start + 1].strip()]
+        assert [len(row) for row in cells] == [10, 2], cells
+        assert sorted("".join(cells)) == sorted("●" * 3 + "◐" * 3 + "○" * 6), cells
         assert question in " ".join(roster().split()), roster()
         assert "2 active · 1 needs you" in roster(), roster()
         console.send(worker_prompt + "\r")
@@ -110,8 +134,16 @@ discoveries.close();
             assert "› " not in rail and "Enter inspect" not in rail and "Space fold" not in rail, rail
             return rail
 
+        def open_picker():
+            console.send("\x1b[59;5u")  # Ctrl+;
+            console.contains("Studio panes")
+
         def open_workers():
-            console.choose_pane("w")
+            open_picker()
+            console.send("x")
+            check_worker_pane()
+
+        def check_worker_pane():
             console.contains("Enter inspect")
             # The active selection is inside a pane laid over the middle of the lead.
             # Neither the bottom dock nor the right sidebar can satisfy these bounds.
@@ -146,16 +178,23 @@ discoveries.close();
         # Place the cursor before the period. Moving the pane selection and
         # dismissing the pane must preserve both the draft and its insertion point.
         console.send("\x1b[D")
-        # The legacy terminal encoding of Ctrl+Space is NUL. Closing the picker
-        # itself must preserve a cursor that is partway through the lead draft.
-        console.open_pane_picker("\x00")
+        open_picker()
+        top, bottom, left, right = console.framed_pane("Studio panes")
+        labels = [line[left + 1:right].strip().lstrip("→› ").strip()
+                  for line in console.screen.display[top + 1:bottom]]
+        assert [" ".join(label.split()) for label in labels] == ["x Workers", "Tasks", "s Toggle status"], labels
+        assert "Esc close" in console.screen.display[bottom], console.screen.display[bottom]
+        for previous_key in ("w", "t"):
+            console.send(previous_key)
+            console.contains("Studio panes")
         console.capture("studio-pane-picker")
         console.send("\x1b")
         console.wait(lambda: "Studio panes" not in console.text(), "Escape did not dismiss the picker")
         console.send("?")
         console.contains(draft[:-1] + "?.")
         console.send("\x7f")
-        open_workers()
+        console.send("\x1b[44;5u")  # Configured direct Workers shortcut, Ctrl+,
+        check_worker_pane()
         console.contains("worker-restore")
         check_question_preview()
         console.capture("worker-float")
@@ -193,6 +232,9 @@ discoveries.close();
         console.contains("1 needs you")
         console.contains(draft)
         assert "Enter inspect" not in console.text(), console.text()
+        bead_line = next(line.strip() for line in console.screen.display if line.strip().startswith("Beads  "))
+        assert bead_line.endswith(" +2"), bead_line
+        console.contains(question[:42])
         console.capture("worker-dock")
         open_workers()
         select_first()
@@ -278,5 +320,25 @@ discoveries.close();
         console.send("Back in the lead.")
         console.contains("Back in the lead.")
         assert console.rail_start() is None, console.text()
+
+        # Reload in the same lead. The previous globals must be released and the
+        # new picker mnemonic must take effect on the first key after reload.
+        updated = json.loads(config.read_text())
+        updated["keybindings"]["lead"] = {"openPicker": "ctrl+.", "openWorkers": []}
+        updated["keybindings"]["picker"]["workers"] = "v"
+        config.write_text(json.dumps(updated))
+        offset = len(console.raw)
+        console.send("\x15/reload\r")
+        console.wait(lambda: b"Reloaded keybindings" in console.raw[offset:], "Pi did not finish reloading", timeout=15)
+        for previous_shortcut in ("\x1b[59;5u", "\x1b[44;5u"):
+            console.send(previous_shortcut)
+            assert "Studio panes" not in console.text() and "Enter inspect" not in console.text(), console.text()
+        console.send("\x1b[46;5u")
+        console.contains("Studio panes")
+        console.contains("v Workers")
+        console.send("x")
+        console.contains("Studio panes")
+        console.send("v")
+        check_worker_pane()
     finally:
         console.close()

@@ -7,6 +7,10 @@ import {
   visibleWidth,
 } from "@earendil-works/pi-tui";
 import { floatingPaneHeight } from "../floating-pane.ts";
+import {
+  defaultPaneKeybindings,
+  paneKeybindingsSchema,
+} from "../pane-keybindings-config.ts";
 import { WorkerPane } from "../socrates/worker-pane.ts";
 import type { WorkerAssignment } from "../tasks/workers.ts";
 
@@ -49,19 +53,24 @@ function setup(
     bold: (text: string) => text,
     getBgAnsi: () => "",
   };
-  const open = () => {
-    pane.open(tui, theme, {
-      inspect(row) {
-        events.push(`inspect ${row.beadId}`);
+  const open = (bindings = defaultPaneKeybindings) => {
+    pane.open(
+      tui,
+      theme,
+      {
+        inspect(row) {
+          events.push(`inspect ${row.beadId}`);
+        },
+        focusPane(row, signal) {
+          events.push(`focus ${row.attemptId}`);
+          return focus?.(row, signal) ?? Promise.resolve();
+        },
+        onError(error) {
+          events.push(String(error));
+        },
       },
-      focusPane(row, signal) {
-        events.push(`focus ${row.attemptId}`);
-        return focus?.(row, signal) ?? Promise.resolve();
-      },
-      onError(error) {
-        events.push(String(error));
-      },
-    });
+      bindings,
+    );
   };
   const type = (key: string) => tui.getFocusedComponent()?.handleInput?.(key);
   const render = (width = 100) =>
@@ -279,4 +288,26 @@ await test("worker pane focus is single-flight, stays open on failure and honors
   assert.match(render().join("\n"), /Assignment changed/u);
   assert.equal(pane.focused, true);
   pane.close();
+});
+
+await test("worker inspection and dismissal use the displayed bindings, with disabled actions hidden", () => {
+  const { pane, open, type, render, events, tui, lead } = setup();
+  const bindings = paneKeybindingsSchema.parse({
+    pane: { up: [], down: "n", activate: "o", focusWorker: [], close: "x" },
+  });
+  pane.setRows([working, blocked]);
+  open(bindings);
+  const footer = render().join("\n");
+  assert.match(footer, /n select · o inspect · x close/u);
+  assert.doesNotMatch(footer, /→ pane|Esc close/u);
+  for (const key of ["j", "\x1b[B", "\x1b[C", "\r", "\x1b"]) type(key);
+  assert.deepEqual(events, []);
+  assert.match(render().join("\n"), /› First assignment/u);
+  type("n");
+  type("o");
+  assert.deepEqual(events, ["inspect st-two"]);
+  assert.equal(tui.getFocusedComponent(), lead);
+  open(bindings);
+  type("x");
+  assert.equal(tui.getFocusedComponent(), lead);
 });
