@@ -129,10 +129,14 @@ await test("actual SDK commands preserve live loop ownership, activation gates, 
     assert.equal(store.get(session.getSessionId())?.state, "paused");
     await delay(35);
     assert.equal(requests, 0);
-    await first.command("status");
-    await first.command("resume inspected");
+    // Resource loading and process identity checks may outlast a cadence. Keep
+    // the owner paused until duplicate-host setup and ownership checks finish.
     const second = await fixture();
     await assert.rejects(second.command("start"), /owned by live process/u);
+    assert.equal(store.get(session.getSessionId())?.state, "paused");
+    await first.command("status");
+    await first.command("resume inspected");
+    // Install the admission gate before yielding to timers or doing host setup.
     admission.fenced = () => true;
     await delay(35);
     assert.equal(requests, 0);
