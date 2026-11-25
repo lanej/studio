@@ -439,7 +439,11 @@ export function renderSocratesDock(
     .filter(Boolean)
     .join("  ");
   const rows = [truncateToWidth(summary, width, "…"), ...grid];
-  if (rows.length < height && spec.summary?.trim())
+  if (
+    rows.length < height &&
+    spec.summary !== undefined &&
+    spec.summary.trim().length > 0
+  )
     rows.push(truncateToWidth(theme.muted(inline(spec.summary)), width, "…"));
   return rows;
 }

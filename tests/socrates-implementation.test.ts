@@ -221,14 +221,14 @@ await test("linked beads wrap in plan order within the available columns and row
     lane: (_: number, s: string) => s,
   };
   const request = implementationRead(approved);
-  assert.ok(request);
+  assert.ok(request !== undefined);
   const impl = implementationPresentation(approved, {
     key: request.key,
     state: "current",
     tasks: [observed("restore", "closed"), observed("verify", "in_progress")],
   });
   const [closed, active] = impl.rows;
-  assert.ok(closed && active);
+  assert.ok(closed !== undefined && active !== undefined);
   const open = { ...closed, state: ImplementationState.Open };
   const eleven = {
     ...impl,
@@ -274,7 +274,7 @@ await test("linked beads wrap in plan order within the available columns and row
   );
   assert.match(
     renderStatusSidebar(snapshot, theme, 45, 14).join("\n"),
-    /Beads  ●◐○○○○○○○○/u,
+    /Beads {2}●◐○○○○○○○○/u,
   );
   const spec = {
     id: "specification",
