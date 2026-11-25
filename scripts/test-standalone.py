@@ -92,16 +92,16 @@ with tempfile.TemporaryDirectory(prefix="studio-standalone-") as temporary:
     preload.write_text('import { writeFileSync } from "node:fs"; writeFileSync(' + json.dumps(str(bootstrap_marker)) + ', "executed");')
     (hostile / "bunfig.toml").write_text("preload = [" + json.dumps(str(preload)) + "]\n")
     (hostile / ".env").write_text("STUDIO_BOOTSTRAP_UNTRUSTED=dotenv\n")
-    assert "1.4.0" in run([str(first.with_name("pi")), "--version"], cwd=hostile)
+    assert "1.6.0" in run([str(first.with_name("pi")), "--version"], cwd=hostile)
     assert json.loads(run([str(launcher), "config", "--example"], cwd=hostile)) == json.loads(source_config)
-    assert "1.4.0" in run([str(launcher), "lead", "--", "--version"], cwd=hostile)
+    assert "1.6.0" in run([str(launcher), "lead", "--", "--version"], cwd=hostile)
     assert not bootstrap_marker.exists()
     # Both launchers must select the environment's Bun. There is no private fallback.
     bun_calls = work / "bun-calls"
     (guard / "bun").write_text(f"#!/bin/sh\nprintf '%s\\n' called >> {shlex.quote(str(bun_calls))}\nexec {shlex.quote(bun)} \"$@\"\n")
     (guard / "bun").chmod(0o755)
     run([str(launcher), "config", "--example"])
-    assert "1.4.0" in run([str(first.with_name("pi")), "--version"])
+    assert "1.6.0" in run([str(first.with_name("pi")), "--version"])
     assert len(bun_calls.read_text().splitlines()) >= 4
     (guard / "bun").unlink()
     normal_path = env["PATH"]
@@ -166,7 +166,7 @@ with tempfile.TemporaryDirectory(prefix="studio-standalone-") as temporary:
     source_manifest.write_text(json.dumps(manifest))
     run([bun, "scripts/lifecycle.mjs", "build"])
     run([str(launcher), "config", "--example"])
-    assert "1.4.0" in run([str(launcher.resolve().with_name("pi")), "--version"])
+    assert "1.6.0" in run([str(launcher.resolve().with_name("pi")), "--version"])
     source_manifest.write_text(original_manifest)
     assert not calls.exists(), calls.read_text() if calls.exists() else ""
 print("Standalone source and installed bundle verified with Node/npm unavailable.")

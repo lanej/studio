@@ -1,5 +1,49 @@
+diff --git a/dist/components/image.d.ts b/dist/components/image.d.ts
+index 0a1a84a9e425ef0e6d7df672535fe96a1adefb83..21327f0866563bca6ba934639aeb9e8a2615eb62 100644
+--- a/dist/components/image.d.ts
++++ b/dist/components/image.d.ts
+@@ -14,7 +14,8 @@ export interface ImageTheme {
+     fallbackColor: (str: string) => string;
+ }
+ export interface ImageOptions {
+-    maxWidthCells?: number;
++    /** Auto uses the source's pixel width as a ceiling within the available terminal cells. */
++    maxWidthCells?: number | "auto";
+     maxHeightCells?: number;
+     filename?: string;
+     /** Kitty image ID. If provided, reuses this ID (for animations/updates). */
+diff --git a/dist/components/image.js b/dist/components/image.js
+index 78719cdf0b8c336512256fed7054f06c8bd77c87..41b4aefd2014c675c5629fa1e4187ad290a96169 100644
+--- a/dist/components/image.js
++++ b/dist/components/image.js
+@@ -53,10 +53,6 @@ export class Image {
+         if (this.cachedLines && this.cachedWidth === width) {
+             return this.cachedLines;
+         }
+-        const maxWidth = Math.max(1, Math.min(width - 2, this.options.maxWidthCells ?? 60));
+-        const cellDimensions = getCellDimensions();
+-        const defaultMaxHeight = Math.max(1, Math.ceil((maxWidth * cellDimensions.widthPx) / cellDimensions.heightPx));
+-        const maxHeight = this.options.maxHeightCells ?? defaultMaxHeight;
+         const caps = getCapabilities();
+         let data = this.base64Data;
+         let dimensions = this.dimensions;
+@@ -69,6 +65,14 @@ export class Image {
+         }
+         let lines;
+         if (caps.images && data) {
++            const cell = getCellDimensions();
++            const availableWidth = Math.max(1, width - 2);
++            const auto = this.options.maxWidthCells === "auto";
++            const widthLimit = auto ? Math.round(dimensions.widthPx / cell.widthPx) : (this.options.maxWidthCells ?? 60);
++            const maxWidth = Math.max(1, Math.min(availableWidth, widthLimit));
++            // Bound tall previews by the pane in auto mode so small portrait images keep their natural height.
++            const heightBudgetPx = (auto ? availableWidth : maxWidth) * cell.widthPx;
++            const maxHeight = this.options.maxHeightCells ?? Math.max(1, Math.ceil(heightBudgetPx / cell.heightPx));
+             if (caps.images === "kitty" && this.imageId === undefined) {
+                 this.imageId = allocateImageId();
+             }
 diff --git a/dist/layout.js b/dist/layout.js
-index 99485d8..eab8201 100644
+index 8b8ffcf18dda28a1d94814dad40b10568196b450..0743d4a6b5e6caffa559a879f3e2deb5edfd1b14 100644
 --- a/dist/layout.js
 +++ b/dist/layout.js
 @@ -117,7 +117,9 @@ function layoutComponent(context, component, x, y, width, height, clip) {
@@ -14,7 +58,7 @@ index 99485d8..eab8201 100644
          ? intrinsicHeights.reduce((max, childHeight) => Math.max(max, childHeight), 0)
          : Math.max(0, height);
 diff --git a/dist/tui-alt-screen.js b/dist/tui-alt-screen.js
-index 043d2c7..92a0329 100644
+index e826d3ddaf6e7d936a851c1a7c166a4c123ffe84..16c55d8c0736984abca3d6765f9e9daad3022e92 100644
 --- a/dist/tui-alt-screen.js
 +++ b/dist/tui-alt-screen.js
 @@ -5,6 +5,7 @@ import { getKeybindings } from "./keybindings.js";
@@ -25,22 +69,21 @@ index 043d2c7..92a0329 100644
  import { deleteAllKittyImages, deleteAllKittyPlacements, deleteKittyImage, getCapabilities, getKittyImagePlacement, getKittyImagePlacementRows, isImageLine, setCapabilities, } from "./terminal-image.js";
  import { Container, CURSOR_MARKER, compositeTuiLine, dispatchMouseEvent, retargetMouseEvent, TuiBase, VIEWPORT_TUI, } from "./tui.js";
  import { extractAnsiCode, getGraphemeCellRange, getOsc8LinkAtColumn, getWordSegmenter, sliceByColumn, stripTerminalSequences, truncateToWidth, visibleWidth, } from "./utils.js";
-@@ -1451,7 +1452,12 @@ export class TuiAltScreen extends TuiBase {
+@@ -1458,7 +1459,11 @@ export class TuiAltScreen extends TuiBase {
              return;
          const width = Math.max(1, this.terminal.columns);
          const height = Math.max(1, this.terminal.rows);
 -        const root = this.layoutRoot ?? this.implicitScrollView;
-+        const main = this.layoutRoot ?? this.implicitScrollView;
++        const contentRoot = this.layoutRoot ?? this.implicitScrollView;
 +        const column = this.getRightColumn(width);
-+        const root = column ? new HStack([
-+            { component: main, basis: width - column.width },
-+            { component: column.component, basis: column.width },
-+        ]) : main;
-         let nextLayout = renderLayoutFrame(root, width, height, () => this.requestRender());
-         if (this.refreshSearch(nextLayout)) {
-             nextLayout = renderLayoutFrame(root, width, height, () => this.requestRender());
++        const root = column
++            ? new HStack([{ component: contentRoot, basis: width - column.width }, { component: column.component, basis: column.width }])
++            : contentRoot;
+         const requestViewRender = () => this.requestViewRender();
+         const reusableOutput = this.contentChanged ? undefined : this.currentLayout?.renderCache;
+         this.contentChanged = false;
 diff --git a/dist/tui-main-screen.js b/dist/tui-main-screen.js
-index 88eca82..7ddb4cc 100644
+index e00273ab6b20f916256aea3ddae374a88641e2ed..b83f5b0a003923e680cff7e860caff774f019181 100644
 --- a/dist/tui-main-screen.js
 +++ b/dist/tui-main-screen.js
 @@ -2,7 +2,7 @@ import * as fs from "node:fs";
@@ -50,19 +93,21 @@ index 88eca82..7ddb4cc 100644
 -import { TuiBase } from "./tui.js";
 +import { compositeTuiLine, TuiBase } from "./tui.js";
  import { visibleWidth } from "./utils.js";
- const KITTY_SEQUENCE_PREFIX = "\x1b_G";
- const MAX_RENDER_WRITE_CHARS = 1024 * 1024;
-@@ -227,7 +227,17 @@ export class TuiMainScreen extends TuiBase {
-         };
+ /** OSC 133 prompt markers at the start of a rendered line. Fullscreen uses them for prompt navigation. */
+ const OSC133_ZONE_PREFIX = /^(?:\x1b\]133;[ABC](?:\x07|\x1b\\))+/;
+@@ -230,7 +230,19 @@ export class TuiMainScreen extends TuiBase {
          // Render all components to get new lines
          // Resolve fake cursors before compositing so overlays and line slicing see plain SGR codes
--        let newLines = this.resolveFakeCursors(this.render(width));
+         // Drop OSC 133 markers: the terminal reads 133;A as a new shell prompt, which ends program status (OSC 7501)
+-        let newLines = this.resolveFakeCursors(this.render(width).map((line) => line.replace(OSC133_ZONE_PREFIX, "")));
 +        const column = this.getRightColumn(width);
 +        const leadWidth = width - (column?.width ?? 0);
-+        let newLines = this.resolveFakeCursors(this.render(leadWidth));
++        let newLines = this.resolveFakeCursors(this.render(leadWidth).map((line) => line.replace(OSC133_ZONE_PREFIX, "")));
 +        if (column) {
 +            const rail = column.component.render(column.width).slice(0, height);
 +            const top = Math.max(0, newLines.length - height);
++            // Main-screen composition owns this fresh array, never a component's cached render output.
++            newLines = [...newLines];
 +            for (let row = 0; row < rail.length; row++) {
 +                const index = top + row;
 +                newLines[index] = compositeTuiLine(newLines[index] ?? "", rail[row], leadWidth, column.width, width);
@@ -72,10 +117,10 @@ index 88eca82..7ddb4cc 100644
          if (this.hasOverlayEntries) {
              newLines = this.compositeOverlays(newLines, width, height);
 diff --git a/dist/tui.d.ts b/dist/tui.d.ts
-index d9a81e5..509d600 100644
+index 0934f1de5fb83428e404856474f4f7ce02b20ac3..f90319fa8a72c1c2c24e69565e06c107d3438842 100644
 --- a/dist/tui.d.ts
 +++ b/dist/tui.d.ts
-@@ -226,6 +226,9 @@ export interface TUI extends Component {
+@@ -249,6 +249,9 @@ export interface TUI extends Component {
      clear(): void;
      getShowHardwareCursor(): boolean;
      setShowHardwareCursor(enabled: boolean): void;
@@ -85,7 +130,7 @@ index d9a81e5..509d600 100644
      getClearOnShrink(): boolean;
      setClearOnShrink(enabled: boolean): void;
      setFocus(component: Component | null): void;
-@@ -253,6 +256,7 @@ export interface ViewportTUI extends TUI {
+@@ -282,6 +285,7 @@ export interface ViewportTUI extends TUI {
  export declare function isViewportTUI(tui: TUI): tui is ViewportTUI;
  export declare abstract class TuiBase extends Container implements TUI {
      abstract readonly mode: TuiMode;
@@ -93,7 +138,7 @@ index d9a81e5..509d600 100644
      terminal: Terminal;
      private focusedComponent;
      private inputListeners;
-@@ -300,6 +304,9 @@ export declare abstract class TuiBase extends Container implements TUI {
+@@ -338,6 +342,9 @@ export declare abstract class TuiBase extends Container implements TUI {
      get fullRedraws(): number;
      getShowHardwareCursor(): boolean;
      setShowHardwareCursor(enabled: boolean): void;
@@ -104,10 +149,10 @@ index d9a81e5..509d600 100644
      /**
       * Set whether to trigger full re-render when content shrinks.
 diff --git a/dist/tui.js b/dist/tui.js
-index 3fcdcf9..a3f0314 100644
+index e36f266558d7310540dd03f67c567ea38cb1d14e..011e195bbfc8f5ada2109ed9611df02243ed5d80 100644
 --- a/dist/tui.js
 +++ b/dist/tui.js
-@@ -180,6 +180,8 @@ export const VIEWPORT_TUI = Symbol.for("@earendil-works/pi-tui/viewport");
+@@ -231,6 +231,8 @@ export const VIEWPORT_TUI = Symbol.for("@earendil-works/pi-tui/viewport");
  export function isViewportTUI(tui) {
      return tui[VIEWPORT_TUI] === true;
  }
@@ -116,7 +161,7 @@ index 3fcdcf9..a3f0314 100644
  export class TuiBase extends Container {
      terminal;
      focusedComponent = null;
-@@ -253,6 +255,29 @@ export class TuiBase extends Container {
+@@ -314,6 +316,29 @@ export class TuiBase extends Container {
      getShowHardwareCursor() {
          return this.showHardwareCursor;
      }
@@ -146,7 +191,7 @@ index 3fcdcf9..a3f0314 100644
      setShowHardwareCursor(enabled) {
          if (this.showHardwareCursor === enabled)
              return;
-@@ -583,6 +608,7 @@ export class TuiBase extends Container {
+@@ -646,6 +671,7 @@ export class TuiBase extends Container {
          return topmost;
      }
      invalidate() {
@@ -154,47 +199,3 @@ index 3fcdcf9..a3f0314 100644
          for (const root of this.getMountedRoots())
              root.invalidate();
          for (const overlay of this.overlayStack)
-diff --git a/dist/components/image.d.ts b/dist/components/image.d.ts
-index 7223aa9..51dff92 100644
---- a/dist/components/image.d.ts
-+++ b/dist/components/image.d.ts
-@@ -14,7 +14,8 @@ export interface ImageTheme {
-     fallbackColor: (str: string) => string;
- }
- export interface ImageOptions {
--    maxWidthCells?: number;
-+    /** Auto uses the source's pixel width as a ceiling within the available terminal cells. */
-+    maxWidthCells?: number | "auto";
-     maxHeightCells?: number;
-     filename?: string;
-     /** Kitty image ID. If provided, reuses this ID (for animations/updates). */
-diff --git a/dist/components/image.js b/dist/components/image.js
-index 78719cd..6afde7d 100644
---- a/dist/components/image.js
-+++ b/dist/components/image.js
-@@ -53,10 +53,6 @@ export class Image {
-         if (this.cachedLines && this.cachedWidth === width) {
-             return this.cachedLines;
-         }
--        const maxWidth = Math.max(1, Math.min(width - 2, this.options.maxWidthCells ?? 60));
--        const cellDimensions = getCellDimensions();
--        const defaultMaxHeight = Math.max(1, Math.ceil((maxWidth * cellDimensions.widthPx) / cellDimensions.heightPx));
--        const maxHeight = this.options.maxHeightCells ?? defaultMaxHeight;
-         const caps = getCapabilities();
-         let data = this.base64Data;
-         let dimensions = this.dimensions;
-@@ -69,6 +65,14 @@ export class Image {
-         }
-         let lines;
-         if (caps.images && data) {
-+            const cell = getCellDimensions();
-+            const availableWidth = Math.max(1, width - 2);
-+            const auto = this.options.maxWidthCells === "auto";
-+            const widthLimit = auto ? Math.round(dimensions.widthPx / cell.widthPx) : (this.options.maxWidthCells ?? 60);
-+            const maxWidth = Math.max(1, Math.min(availableWidth, widthLimit));
-+            // Bound tall previews by the pane in auto mode so small portrait images keep their natural height.
-+            const heightBudgetPx = (auto ? availableWidth : maxWidth) * cell.widthPx;
-+            const maxHeight = this.options.maxHeightCells ?? Math.max(1, Math.ceil(heightBudgetPx / cell.heightPx));
-             if (caps.images === "kitty" && this.imageId === undefined) {
-                 this.imageId = allocateImageId();
-             }
