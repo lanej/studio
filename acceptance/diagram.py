@@ -4,15 +4,19 @@
 # ///
 """Exercise C4 context, container inspection, selection, and replay in a native lead."""
 import argparse
+import base64
 from contextlib import ExitStack
 from http.server import ThreadingHTTPServer
 from importlib import import_module
 import json
 import os
 from pathlib import Path
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
+from xml.etree import ElementTree
 from threading import Thread
 
 from local_provider import Provider, tool_delta
@@ -45,6 +49,8 @@ architecture = {
 }
 overview = "Show me the architecture of a parcel tracking system."
 question = "Which element should we inspect?"
+mermaid_prompt = "Render a sequence diagram of webhook redelivery."
+mermaid_source = root / "docs/assets/webhook-redelivery.mmd"
 
 
 class DiagramProvider(Provider):
@@ -52,6 +58,13 @@ class DiagramProvider(Provider):
 
     def respond(self, request):
         last = request["messages"][-1]
+        if any(message.get("tool_call_id") == "webhook" for message in request["messages"]):
+            return {"role": "assistant", "content": "The webhook sequence is ready."}
+        if last["role"] == "user" and message_text(last) == mermaid_prompt:
+            assert "render_mermaid" in {tool["function"]["name"] for tool in request["tools"]}
+            return tool_delta("webhook", "render_mermaid", {
+                "title": "Webhook redelivery", "source": mermaid_source.read_text(),
+            })
         if last["role"] == "user":
             assert "show_diagram" in {tool["function"]["name"] for tool in request["tools"]}
             prompt = message_text(last)
@@ -100,7 +113,52 @@ def focus_processor(terminal):
     raise AssertionError(f"Could not focus the event processor\n{terminal.text()}")
 
 
-def run(output):
+def kitty_pngs(raw):
+    # A direct Kitty upload can span multiple APC commands. Ignore placements and deletes.
+    parts = []
+    for controls, payload in re.findall(rb"\x1b_G([^;\x1b]*);([A-Za-z0-9+/=]+)\x1b\\", raw):
+        fields = controls.split(b",")
+        if b"f=100" in fields:
+            parts = [payload]
+        elif parts:
+            parts.append(payload)
+        if parts and b"m=1" not in fields:
+            yield base64.b64decode(b"".join(parts), validate=True)
+            parts = []
+
+
+def verify_mermaid(terminal, session, state, output):
+    submit_prompt(terminal, mermaid_prompt)
+    terminal.wait(
+        lambda: session.is_file() and "The webhook sequence is ready." in session.read_text(),
+        "The native Mermaid turn did not finish", timeout=90,
+    )
+    entries = [json.loads(line).get("message", {}) for line in session.read_text().splitlines()]
+    result = next(m for m in entries if m.get("toolCallId") == "webhook")
+    receipt = result["details"]
+    assert not result.get("isError") and receipt["status"] == "rendered", receipt
+    paths = [Path(receipt[k]) for k in ("sourcePath", "svgPath", "pngPath")]
+    source, svg, png = paths
+    directory = (state / "artifacts/mermaid").resolve()
+    assert all(p.is_file() and p.resolve().is_relative_to(directory) for p in paths), paths
+    assert source.read_bytes() == mermaid_source.read_bytes()
+    document = ElementTree.parse(svg).getroot()
+    assert document.tag == "{http://www.w3.org/2000/svg}svg"
+    assert all(label in "".join(document.itertext()) for label in ("Merchant webhook", "Already processed"))
+    image = png.read_bytes()
+    assert image.startswith(b"\x89PNG\r\n\x1a\n")
+    assert base64.b64decode(next(c["data"] for c in result["content"] if c["type"] == "image")) == image
+    terminal.wait(lambda: image in kitty_pngs(terminal.raw),
+                  "Native TUI did not transmit the exported PNG over the Kitty graphics protocol")
+    if output is not None:
+        output.mkdir(parents=True, exist_ok=True)
+        (output / "mermaid-kitty.ansi").write_bytes(terminal.raw)
+        for path in paths:
+            shutil.copyfile(path, output / f"webhook-redelivery{path.suffix}")
+    print(f"Verified SVG, editable source, and {len(image)} PNG bytes in the session and Kitty PTY transport.")
+
+
+def run(output, *, mermaid=False):
     with (
         tempfile.TemporaryDirectory(prefix="studio-diagram-") as temporary,
         ThreadingHTTPServer(("127.0.0.1", 0), DiagramProvider) as provider,
@@ -128,12 +186,22 @@ def run(output):
         thread.start()
         cleanup.callback(thread.join, 5)
         cleanup.callback(provider.shutdown)
-        terminal = ui.Terminal(project, env, output, session, columns=100, rows=20)
+        if mermaid:
+            if shutil.which("mmdc", path=env.get("PATH")) is None:
+                raise SystemExit("--mermaid requires Mermaid CLI (mmdc) on PATH and a working Chromium installation")
+            # This PTY is the tool's direct Kitty transport, independent of the shell that runs the test.
+            for name in ("TMUX", "ZELLIJ", "ZELLIJ_PANE_ID", "PI_IMAGE_PROTOCOL"):
+                env.pop(name, None)
+            env["TERM_PROGRAM"] = "kitty"
+        terminal = ui.Terminal(project, env, output, session, columns=100, rows=36 if mermaid else 20)
         try:
             terminal.wait(
                 lambda: any("~/project" in line and "tiny" in line for line in terminal.screen.display),
                 "Studio lead did not initialize", timeout=30,
             )
+            if mermaid:
+                verify_mermaid(terminal, session, home / "state", output)
+                return
             submit_prompt(terminal, overview)
             wait_for_turn(terminal, "The merchant can follow one parcel across carriers.")
             for text in ("System context", "Merchant", "Parcel visibility", "Carrier network", "Looks up shipments", "Fetches scans"):
@@ -209,5 +277,8 @@ def run(output):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path)
-    run(parser.parse_args().output)
-    print("Native C4 context and container views, local zoom, selection, dismissal, and replay passed.")
+    parser.add_argument("--mermaid", action="store_true", help="Verify the real CLI export and Kitty protocol in a native lead")
+    args = parser.parse_args()
+    run(args.output, mermaid=args.mermaid)
+    if not args.mermaid:
+        print("Native C4 context and container views, local zoom, selection, dismissal, and replay passed.")

@@ -22,6 +22,8 @@ import {
 import { registerCodeIntelligence } from "./code-intelligence/extension.ts";
 import { inspectIntegrations } from "./integrations.ts";
 import { registerDiagrams } from "./diagram/extension.ts";
+import { registerMermaidPreview } from "./diagram/mermaid-preview.ts";
+import { registerMermaidTool } from "./diagram/mermaid-tool.ts";
 import { registerSearchRendering } from "./search-renderer.ts";
 import { registerSkillRendering } from "./skill-renderer.ts";
 import { installFooter } from "./footer.ts";
@@ -117,6 +119,8 @@ export default function studioExtension(
     () => selectedProfile,
   );
   registerDiagrams(pi);
+  registerMermaidPreview(pi);
+  registerMermaidTool(pi);
   registerSearchRendering(pi);
   registerSkillRendering(pi);
   if (managed !== undefined)

@@ -9,6 +9,7 @@
         "@lanej/pi-components": "file:./vendor/pi-components",
         "@lanej/task-runtime": "file:./vendor/task-runtime",
         "@lumis-sh/wasm-json": "0.26.7",
+        "@silvia-odwyer/photon-node": "0.3.4",
         "@tintinweb/pi-subagents": "0.26.2",
         "@vscode/tree-sitter-wasm": "0.3.1",
         "commander": "^14.0.0",

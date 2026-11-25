@@ -1,4 +1,5 @@
 import { diagramTool } from "./diagram/extension.ts";
+import { mermaidTool } from "./diagram/mermaid-tool.ts";
 import { renderPlanCall } from "./plan-renderer.ts";
 import { lspTool, renameTool } from "./code-intelligence/extension.ts";
 import { githubLink, renderReferences } from "./github-links.ts";
@@ -38,6 +39,7 @@ const inspectTools = new Set([
   delegateTool,
   planTool,
   diagramTool,
+  mermaidTool,
 ]);
 const implementationTools = new Set([
   "write",

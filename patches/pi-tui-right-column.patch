@@ -42,6 +42,32 @@ index 78719cdf0b8c336512256fed7054f06c8bd77c87..41b4aefd2014c675c5629fa1e4187ad2
              if (caps.images === "kitty" && this.imageId === undefined) {
                  this.imageId = allocateImageId();
              }
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index b7a963c09ad68b1ad6ebf3f191c78603c5988ed2..d1a1ea245d05a2c48a30922a861f56ea5f107e5d 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -28,7 +28,7 @@ export { formatProgramStatus, type ProgramStatus } from "./program-status.ts";
+ export { StdinBuffer, type StdinBufferEventMap, type StdinBufferOptions } from "./stdin-buffer.ts";
+ export { isAppleTerminalSession, ProcessTerminal, type Terminal } from "./terminal.ts";
+ export { parseTerminalColorSchemeReport, type RgbColor, type TerminalColorScheme, type TerminalColors, } from "./terminal-colors.ts";
+-export { allocateImageId, type CellDimensions, calculateImageRows, deleteAllKittyImages, deleteKittyImage, detectCapabilities, encodeITerm2, encodeKitty, getCapabilities, getCellDimensions, getGifDimensions, getImageDimensions, getJpegDimensions, getPngDimensions, getTerminalColorMode, getWebpDimensions, hyperlink, type ImageDimensions, type ImageProtocol, type ImageRenderOptions, imageFallback, renderImage, resetCapabilitiesCache, setCapabilities, setCapabilityOverrides, setCellDimensions, type TerminalCapabilities, } from "./terminal-image.ts";
++export { allocateImageId, type CellDimensions, calculateImageRows, deleteAllKittyImages, deleteKittyImage, detectCapabilities, encodeITerm2, encodeKitty, getCapabilities, getCellDimensions, getGifDimensions, getImageDimensions, getJpegDimensions, getPngDimensions, getTerminalColorMode, getWebpDimensions, hyperlink, type ImageDimensions, type ImageProtocol, type ImageRenderOptions, imageFallback, renderImage, resetCapabilitiesCache, needsZellijImageProbe, setZellijKittySupport, setCapabilities, setCapabilityOverrides, setCellDimensions, type TerminalCapabilities, } from "./terminal-image.ts";
+ export { type Component, Container, CURSOR_MARKER, compositeTuiLine, type Focusable, isFocusable, isViewportTUI, type OverlayAnchor, type OverlayBounds, type OverlayHandle, type OverlayMargin, type OverlayOptions, type OverlayUnfocusOptions, renderFakeCursor, type SizeValue, type TUI, type TuiInputListener, type TuiInputListenerResult, type TuiMode, type TuiMouseButton, type TuiMouseEvent, type TuiMouseEventResult, type TuiMouseEventType, type TuiStopOptions, type ViewportTUI, } from "./tui.ts";
+ export { TuiAltScreen, type TuiAltScreenOptions } from "./tui-alt-screen.ts";
+ export { TuiMainScreen, type TuiMainScreenRenderState } from "./tui-main-screen.ts";
+diff --git a/dist/index.js b/dist/index.js
+index 59f005cb5972e69d173a90ce07d31199cfd4272a..645f0b8435e1398937743e00818159a34e0d0f0c 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -41,7 +41,7 @@ export { isAppleTerminalSession, ProcessTerminal } from "./terminal.js";
+ // Terminal colors
+ export { parseTerminalColorSchemeReport, } from "./terminal-colors.js";
+ // Terminal image support
+-export { allocateImageId, calculateImageRows, deleteAllKittyImages, deleteKittyImage, detectCapabilities, encodeITerm2, encodeKitty, getCapabilities, getCellDimensions, getGifDimensions, getImageDimensions, getJpegDimensions, getPngDimensions, getTerminalColorMode, getWebpDimensions, hyperlink, imageFallback, renderImage, resetCapabilitiesCache, setCapabilities, setCapabilityOverrides, setCellDimensions, } from "./terminal-image.js";
++export { allocateImageId, calculateImageRows, deleteAllKittyImages, deleteKittyImage, detectCapabilities, encodeITerm2, encodeKitty, getCapabilities, getCellDimensions, getGifDimensions, getImageDimensions, getJpegDimensions, getPngDimensions, getTerminalColorMode, getWebpDimensions, hyperlink, imageFallback, renderImage, resetCapabilitiesCache, needsZellijImageProbe, setZellijKittySupport, setCapabilities, setCapabilityOverrides, setCellDimensions, } from "./terminal-image.js";
+ export { Container, CURSOR_MARKER, compositeTuiLine, isFocusable, isViewportTUI, renderFakeCursor, } from "./tui.js";
+ export { TuiAltScreen } from "./tui-alt-screen.js";
+ export { TuiMainScreen } from "./tui-main-screen.js";
 diff --git a/dist/layout.js b/dist/layout.js
 index 8b8ffcf18dda28a1d94814dad40b10568196b450..0743d4a6b5e6caffa559a879f3e2deb5edfd1b14 100644
 --- a/dist/layout.js
@@ -57,8 +83,61 @@ index 8b8ffcf18dda28a1d94814dad40b10568196b450..0743d4a6b5e6caffa559a879f3e2deb5
      const allocatedHeight = height === undefined
          ? intrinsicHeights.reduce((max, childHeight) => Math.max(max, childHeight), 0)
          : Math.max(0, height);
+diff --git a/dist/terminal-image.d.ts b/dist/terminal-image.d.ts
+index 5f611e35c5077c07a4aea0e48e429d707a9b8ede..da56e9202f322cdf1fea22b6634d80f7cdaa29e7 100644
+--- a/dist/terminal-image.d.ts
++++ b/dist/terminal-image.d.ts
+@@ -28,6 +28,10 @@ export declare function detectCapabilities(tmuxForwardsHyperlink?: () => boolean
+ export declare function getCapabilities(): TerminalCapabilities;
+ export declare function getTerminalColorMode(capabilities?: TerminalCapabilities): TerminalColorMode;
+ export declare function resetCapabilitiesCache(): void;
++/** True only for an auto-detected Zellij pane without an explicit Pi protocol. */
++export declare function needsZellijImageProbe(): boolean;
++/** Record the pane's Kitty query response beneath explicit user settings. */
++export declare function setZellijKittySupport(supported: boolean): void;
+ /** Override selected auto-detected capabilities. */
+ export declare function setCapabilityOverrides(overrides: Partial<TerminalCapabilities>): void;
+ /** Override the cached capabilities. Useful in tests to exercise both code paths. */
+diff --git a/dist/terminal-image.js b/dist/terminal-image.js
+index ecac64ba6666f8c28943ff8e5bdd6870460bc77b..4c96e8374b3c611df6d99b00e93227150ef11b7d 100644
+--- a/dist/terminal-image.js
++++ b/dist/terminal-image.js
+@@ -5,6 +5,24 @@ import { pathToFileURL } from "node:url";
+ import { visibleWidth } from "./utils.js";
+ let cachedCapabilities = null;
+ let capabilityOverrides = {};
++let zellijKittySupport = false;
++function inZellijPane() {
++    const term = process.env.TERM?.toLowerCase() ?? "";
++    return !process.env.TMUX && !term.startsWith("tmux") && !term.startsWith("screen") &&
++        (process.env.ZELLIJ !== undefined || process.env.ZELLIJ_PANE_ID !== undefined);
++}
++/** Inherited host-terminal variables cannot establish a Zellij pane's image capabilities. */
++export function needsZellijImageProbe() {
++    const protocol = process.env.PI_IMAGE_PROTOCOL?.toLowerCase();
++    return inZellijPane() && capabilityOverrides.images === undefined &&
++        !["kitty", "iterm2", "0", "none"].includes(protocol);
++}
++export function setZellijKittySupport(supported) {
++    if (zellijKittySupport !== supported) {
++        zellijKittySupport = supported;
++        resetCapabilitiesCache();
++    }
++}
+ // Default cell dimensions - updated by TUI when terminal responds to query
+ let cellDimensions = { widthPx: 9, heightPx: 18 };
+ export function getCellDimensions() {
+@@ -115,7 +133,7 @@ export function detectCapabilities(tmuxForwardsHyperlink = probeTmuxHyperlinks)
+         ? imageProtocol
+         : imageProtocol === "none" || imageProtocol === "0"
+             ? null
+-            : undefined;
++            : inZellijPane() ? (zellijKittySupport ? "kitty" : null) : undefined;
+     const trueColor = parseBooleanCapabilityOverride(process.env.PI_TRUE_COLOR);
+     return {
+         ...detected,
 diff --git a/dist/tui-alt-screen.js b/dist/tui-alt-screen.js
-index e826d3ddaf6e7d936a851c1a7c166a4c123ffe84..16c55d8c0736984abca3d6765f9e9daad3022e92 100644
+index e826d3ddaf6e7d936a851c1a7c166a4c123ffe84..edb388499d769db6cb1a4f00f859deabf17da05a 100644
 --- a/dist/tui-alt-screen.js
 +++ b/dist/tui-alt-screen.js
 @@ -5,6 +5,7 @@ import { getKeybindings } from "./keybindings.js";
@@ -69,8 +148,13 @@ index e826d3ddaf6e7d936a851c1a7c166a4c123ffe84..16c55d8c0736984abca3d6765f9e9daa
  import { deleteAllKittyImages, deleteAllKittyPlacements, deleteKittyImage, getCapabilities, getKittyImagePlacement, getKittyImagePlacementRows, isImageLine, setCapabilities, } from "./terminal-image.js";
  import { Container, CURSOR_MARKER, compositeTuiLine, dispatchMouseEvent, retargetMouseEvent, TuiBase, VIEWPORT_TUI, } from "./tui.js";
  import { extractAnsiCode, getGraphemeCellRange, getOsc8LinkAtColumn, getWordSegmenter, sliceByColumn, stripTerminalSequences, truncateToWidth, visibleWidth, } from "./utils.js";
-@@ -1458,7 +1459,11 @@ export class TuiAltScreen extends TuiBase {
+@@ -1456,9 +1457,16 @@ export class TuiAltScreen extends TuiBase {
+     doRender() {
+         if (this.stopped || !this.altScreenActive)
              return;
++        // A pane may confirm Kitty after the alternate screen has started.
++        if (this.imageProtocol === null && getCapabilities().images === "kitty")
++            this.imageProtocol = "kitty";
          const width = Math.max(1, this.terminal.columns);
          const height = Math.max(1, this.terminal.rows);
 -        const root = this.layoutRoot ?? this.implicitScrollView;

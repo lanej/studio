@@ -386,7 +386,8 @@ export function renderDiagramCanvas(
     views = {};
     layouts.set(diagram, views);
   }
-  const { map, arts } = (views[view] ??= prepare(diagram, view));
+  views[view] ??= prepare(diagram, view);
+  const { map, arts } = views[view];
   const art = arts
     .filter((a) => a.width <= width)
     .sort((a, b) => a.plain.length - b.plain.length)[0];
