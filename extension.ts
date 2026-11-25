@@ -58,6 +58,8 @@ import {
 } from "./runtime.ts";
 import { focusTaskPane, taskPaneBeads } from "./task-run.ts";
 import { hasInteractivePane } from "./execution/interactive-target.ts";
+import { registerDocumentWorkspace } from "./documents/workspace.ts";
+import { getDocumentHost } from "./documents/host.ts";
 
 const attemptType = "studio:idle-attempt";
 const attemptSchema = z.object({ historyId: z.string() });
@@ -86,6 +88,17 @@ export default function studioExtension(
     managed === undefined
       ? registerDiscovery(pi, () => selectedProfile)
       : undefined;
+  registerDocumentWorkspace(pi);
+  const documentPending = () => getDocumentHost(pi)?.pending() === true;
+  pi.on("session_before_switch", () =>
+    documentPending() ? { cancel: true } : undefined,
+  );
+  pi.on("session_before_fork", () =>
+    documentPending() ? { cancel: true } : undefined,
+  );
+  pi.on("session_before_tree", () =>
+    documentPending() ? { cancel: true } : undefined,
+  );
   const delegation = registerDelegation(
     pi,
     () => selectedProfile,
@@ -96,6 +109,7 @@ export default function studioExtension(
   registerActivation(
     pi,
     (ctx) =>
+      documentPending() ||
       discovery?.pending() === true ||
       managed?.approvalPending() === true ||
       managed?.activationBlocked?.() === true ||
@@ -105,6 +119,7 @@ export default function studioExtension(
     pi,
     (ctx) =>
       managed !== undefined ||
+      documentPending() ||
       discovery?.pending() === true ||
       delegation.blocks(ctx.sessionManager.getSessionId()),
   );
@@ -112,7 +127,9 @@ export default function studioExtension(
   registerDirectory(
     pi,
     (sessionId) =>
-      delegation.blocks(sessionId) || discovery?.pending() === true,
+      documentPending() ||
+      delegation.blocks(sessionId) ||
+      discovery?.pending() === true,
     () => selectedProfile,
   );
   registerSearchRendering(pi);
@@ -158,6 +175,7 @@ export default function studioExtension(
           settled: ctx.isIdle(),
           pendingInput:
             ctx.hasPendingMessages() ||
+            documentPending() ||
             managed?.approvalPending() === true ||
             discovery?.pending() === true ||
             delegation.blocks(ctx.sessionManager.getSessionId()),
@@ -515,7 +533,7 @@ export default function studioExtension(
       ctx.ui.notify("Set the profile on studio start.", "warning");
       return;
     }
-    if (!ctx.isIdle() || ctx.hasPendingMessages()) {
+    if (!ctx.isIdle() || ctx.hasPendingMessages() || documentPending()) {
       ctx.ui.notify(
         "Wait for the conversation and queued messages to settle before changing profiles",
         "warning",

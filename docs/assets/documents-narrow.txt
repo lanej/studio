@@ -1,0 +1,32 @@
+                                                                                        
+                                             Studio · conflict · specification          
+                                            ↻   1 # Specification   Answered · Clarified
+                                                3                                       
+ draft_socrates_specification                   5 ## Objective                          
+ objective="Review the complete proposal        6                                       
+ in Neovim." scope=["Specification and          7 Local unsaved proposal survives.   Ans
+ plan editing","Sele...                         9                                       
+ Draft saved. The operator can inspect it      11 ## Scope 1                            
+ with /socrates and freeze it with             12                                       
+ /spec-freeze.                                 13 Specification and plan editing        
+                                               15                                       
+                                               17 ## Scope 2                            
+                                               18                                       
+ document_feedback_outcome                     19 Selection feedback with outcomes      
+ requestId="1231-27e779e4af509-1e"             21                                       
+ summary="Clarified the acceptance check."     23 ## Requirement R1                     
+ Clarified the acceptance check.               24                                       
+                                               26 id = "R1"                             
+                                               29                                       
+ I clarified the acceptance check. The         31 ### Outcome                           
+ full explanation stays here in Studio         32                                       
+ chat.                                         33 Keep the full document beside Studio c
+                                                  hat.                                  
+▸ Specification  ◇ Draft · v1  13 not a...     35                                       
+  Implementation  ◇ Awaiting approval ·...     37 ### Acceptance                        
+  Review the complete proposal in Neovim.      38                                       
+───────────────────────────────────────────    39 Saving updates Studio; explicit Studio
+                                                   review alone freezes the specifica@@@
+─────────────────────────────────────────── <78a/specification.md [+] 1,1            Top
+ ▸ ~/project ↱ main               tiny ◔4%                                              
+                                                                                        

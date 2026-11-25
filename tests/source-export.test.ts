@@ -64,6 +64,15 @@ await test("manifest-only source exports include the imported history binding mo
       await readFile(join(artifact, "keybindings.ts")),
       await readFile(join(root, "keybindings.ts")),
     );
+    for (const resource of [
+      "resources/nvim/bootstrap.lua",
+      "resources/nvim/lua/studio_documents.lua",
+    ]) {
+      assert.deepEqual(
+        await readFile(join(artifact, resource)),
+        await readFile(join(root, resource)),
+      );
+    }
     // Resolve the actual exported extension's local import graph without
     // installing dependencies or executing the extension.
     await execute(

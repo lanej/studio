@@ -1,0 +1,274 @@
+{
+  "provider": "deterministic local OpenAI-compatible SSE fixture; no live model",
+  "initMarker": "configuration preserved",
+  "panes": [
+    {
+      "id": 2,
+      "is_plugin": false,
+      "is_focused": true,
+      "is_fullscreen": false,
+      "is_floating": false,
+      "is_suppressed": false,
+      "is_collapsed": false,
+      "title": "Studio documents 880e03aa",
+      "exited": false,
+      "exit_status": null,
+      "is_held": false,
+      "pane_x": 0,
+      "pane_content_x": 0,
+      "pane_y": 0,
+      "pane_content_y": 0,
+      "pane_rows": 31,
+      "pane_content_rows": 31,
+      "pane_columns": 88,
+      "pane_content_columns": 88,
+      "cursor_coordinates_in_pane": [
+        4,
+        5
+      ],
+      "terminal_command": "/usr/bin/env STUDIO_NVIM_RUNTIME=/Users/joshlane/src/studio/.worktrees/codex-471b7cf3/resources/nvim STUDIO_DOCUMENT_CONNECTION=/private/tmp/st-doc-psru32lh/tmp/studio-doc-4Ryw2p/connection.json /opt/homebrew/bin/nvim -c lua dofile(vim.env.STUDIO_NVIM_RUNTIME .. '/bootstrap.lua')",
+      "plugin_url": null,
+      "is_selectable": true,
+      "index_in_pane_group": {},
+      "default_fg": null,
+      "default_bg": null,
+      "nested_session_name": null,
+      "attention": {
+        "status": "Idle",
+        "source": null,
+        "text": "",
+        "detail": {
+          "kind": null,
+          "progress": null,
+          "app": null,
+          "title": null,
+          "body": null,
+          "exit_code": null,
+          "duration_ms": null,
+          "command": null
+        },
+        "since_ms": 0,
+        "changed_ms": 0,
+        "seen": false,
+        "muted": null,
+        "ignore_output": false,
+        "watched": false,
+        "from_watch": false,
+        "remembered": null
+      },
+      "command_state": {
+        "phase": "Unknown",
+        "running": null,
+        "last": null,
+        "cwd": null,
+        "reports_markers": false
+      },
+      "program_status": [],
+      "tab_id": 0,
+      "tab_position": 0,
+      "tab_name": "Tab #1",
+      "pane_command": "/opt/homebrew/bin/nvim -c lua dofile(vim.env.STUDIO_NVIM_RUNTIME .. '/bootstrap.lua')",
+      "pane_cwd": "/private/tmp/st-doc-psru32lh/project"
+    }
+  ],
+  "requests": 10,
+  "feedback": [
+    {
+      "requestId": "1231-27e7740e286d7-19",
+      "ref": {
+        "ownerKind": "discovery",
+        "ownerId": "9f49726a-c0c3-437b-bca8-f3938575d4fa",
+        "conversationId": "01a213bd-3505-7273-9048-60a5ef3bdd2c",
+        "project": "/private/tmp/st-doc-psru32lh/project",
+        "kind": "specification"
+      },
+      "baseRevision": "ed41bd396c4a4fb8172ca988c2e2f335e369470882eaf3aff0fe0e8104a67ecf",
+      "bufferIdentity": "85aaa9de2dd712709ec6becb6417b45bbdbe26c2b0f941143913ae5b7df37aa3",
+      "range": {
+        "startLine": 7,
+        "endLine": 7
+      },
+      "selectedText": "Review the complete proposal in Neovim.",
+      "message": "Is this something we really want? Clarify the acceptance check.",
+      "generation": "34f0b4f6-8bb4-416e-96d8-82f0775269d0",
+      "state": "answered",
+      "summary": "Clarified the acceptance check.",
+      "responseId": "6df2e873",
+      "changes": [
+        {
+          "ref": {
+            "ownerKind": "discovery",
+            "ownerId": "9f49726a-c0c3-437b-bca8-f3938575d4fa",
+            "conversationId": "01a213bd-3505-7273-9048-60a5ef3bdd2c",
+            "project": "/private/tmp/st-doc-psru32lh/project",
+            "kind": "specification"
+          },
+          "beforeRevision": "ed41bd396c4a4fb8172ca988c2e2f335e369470882eaf3aff0fe0e8104a67ecf",
+          "afterRevision": "ede63336472225807e833f87463edea28c3ff6fb77796b34f05d3a554afdee4a",
+          "range": {
+            "startLine": 39,
+            "endLine": 39
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "1231-27e779e4af509-1e",
+      "ref": {
+        "ownerKind": "discovery",
+        "ownerId": "9f49726a-c0c3-437b-bca8-f3938575d4fa",
+        "conversationId": "01a213bd-3505-7273-9048-60a5ef3bdd2c",
+        "project": "/private/tmp/st-doc-psru32lh/project",
+        "kind": "specification"
+      },
+      "baseRevision": "ede63336472225807e833f87463edea28c3ff6fb77796b34f05d3a554afdee4a",
+      "bufferIdentity": "fe9b1318f691a60f1014e04080683398b287a16aa292a27ad1a7a8eeab996a78",
+      "range": {
+        "startLine": 7,
+        "endLine": 7
+      },
+      "selectedText": "Local unsaved proposal survives.",
+      "message": "Perform the conflict check and clarify acceptance.",
+      "generation": "34f0b4f6-8bb4-416e-96d8-82f0775269d0",
+      "state": "answered",
+      "summary": "Clarified the acceptance check.",
+      "responseId": "fc961b0a",
+      "changes": [
+        {
+          "ref": {
+            "ownerKind": "discovery",
+            "ownerId": "9f49726a-c0c3-437b-bca8-f3938575d4fa",
+            "conversationId": "01a213bd-3505-7273-9048-60a5ef3bdd2c",
+            "project": "/private/tmp/st-doc-psru32lh/project",
+            "kind": "specification"
+          },
+          "beforeRevision": "ede63336472225807e833f87463edea28c3ff6fb77796b34f05d3a554afdee4a",
+          "afterRevision": "6f5e46f171043b55e6e67e4e43d3b660451e0644ac7e8cd5e6ac34ecd6d6684f",
+          "range": {
+            "startLine": 39,
+            "endLine": 39
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "1231-27e78201a54a5-23",
+      "ref": {
+        "ownerKind": "discovery",
+        "ownerId": "9f49726a-c0c3-437b-bca8-f3938575d4fa",
+        "conversationId": "01a213bd-3505-7273-9048-60a5ef3bdd2c",
+        "project": "/private/tmp/st-doc-psru32lh/project",
+        "kind": "specification"
+      },
+      "baseRevision": "6f5e46f171043b55e6e67e4e43d3b660451e0644ac7e8cd5e6ac34ecd6d6684f",
+      "bufferIdentity": "e9e46492407e535b1fe128cd2e604f611563a191388ca7ce8c6ece62f08e2d28",
+      "range": {
+        "startLine": 7,
+        "endLine": 7
+      },
+      "selectedText": "Review the complete proposal in Neovim.",
+      "message": "Give an explanation only: why keep approval in Studio?",
+      "generation": "34f0b4f6-8bb4-416e-96d8-82f0775269d0",
+      "state": "answered",
+      "summary": "Kept approval in Studio.",
+      "responseId": "c0a66662",
+      "changes": []
+    }
+  ],
+  "finalSpecificationStatus": "frozen",
+  "finalPlanSummary": "Deliver the reviewed document editing loop.",
+  "planApproved": false,
+  "lifecycle": {
+    "closedPane": 1,
+    "reopenedPane": 2,
+    "routineRefreshKeptClosed": true,
+    "explicitReopenCount": 1,
+    "studioClosedEditorSurvived": true,
+    "disconnectPreservedDirtyText": true,
+    "finalEditorStatus": "%#StudioDocumentStatus# Studio \u00b7 disconnected \u00b7 plan"
+  },
+  "images": "RGB reconstructions from the actual terminal ANSI, not desktop screenshots",
+  "toolResults": [
+    {
+      "role": "toolResult",
+      "toolCallId": "fixture-37f6b946-af33-46f2-9652-9eceb4bebf39",
+      "toolName": "draft_socrates_specification",
+      "content": [
+        {
+          "type": "text",
+          "text": "Draft saved. The operator can inspect it with /socrates and freeze it with /spec-freeze."
+        }
+      ],
+      "details": {},
+      "isError": false,
+      "durationMs": 2,
+      "timestamp": 1795627508322
+    },
+    {
+      "role": "toolResult",
+      "toolCallId": "fixture-26f9a209-c53f-4925-b7c5-5b533f01ee2e",
+      "toolName": "document_feedback_outcome",
+      "content": [
+        {
+          "type": "text",
+          "text": "Clarified the acceptance check."
+        }
+      ],
+      "details": {
+        "requestId": "1231-27e7740e286d7-19"
+      },
+      "isError": false,
+      "durationMs": 0,
+      "timestamp": 1795627508326
+    },
+    {
+      "role": "toolResult",
+      "toolCallId": "fixture-4baa0986-ca33-4f15-aa7e-949a03ea8ca3",
+      "toolName": "draft_socrates_specification",
+      "content": [
+        {
+          "type": "text",
+          "text": "Draft saved. The operator can inspect it with /socrates and freeze it with /spec-freeze."
+        }
+      ],
+      "details": {},
+      "isError": false,
+      "durationMs": 3,
+      "timestamp": 1795627509858
+    },
+    {
+      "role": "toolResult",
+      "toolCallId": "fixture-696998da-b48d-438a-957c-f69db4fcaf0d",
+      "toolName": "document_feedback_outcome",
+      "content": [
+        {
+          "type": "text",
+          "text": "Clarified the acceptance check."
+        }
+      ],
+      "details": {
+        "requestId": "1231-27e779e4af509-1e"
+      },
+      "isError": false,
+      "durationMs": 0,
+      "timestamp": 1795627509863
+    },
+    {
+      "role": "toolResult",
+      "toolCallId": "fixture-32a35c79-a248-41c2-a003-dd038cfa2262",
+      "toolName": "document_feedback_outcome",
+      "content": [
+        {
+          "type": "text",
+          "text": "Kept approval in Studio."
+        }
+      ],
+      "details": {
+        "requestId": "1231-27e78201a54a5-23"
+      },
+      "isError": false,
+      "durationMs": 1,
+      "timestamp": 1795627512038
+    }
+  ]
+}

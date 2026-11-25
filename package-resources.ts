@@ -17,6 +17,8 @@ export async function inspectPackageResources() {
       join(packageRoot, "scripts/pi"),
       join(packageRoot, "resources/theme.json"),
       join(packageRoot, "resources/bunfig.toml"),
+      join(packageRoot, "resources/nvim/bootstrap.lua"),
+      join(packageRoot, "resources/nvim/lua/studio_documents.lua"),
       join(packageRoot, "resources/socrates/references/dialogue.txt"),
       join(
         packageRoot,

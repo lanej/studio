@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+from dataclasses import dataclass, replace
 from typing import Literal, TypedDict, Union
 
 
@@ -12,6 +13,7 @@ class ContentBlock(TypedDict, total=False):
 
 class ToolCallingMessage(TypedDict, total=False):
     tool_calls: list[object]
+    tool_call_id: str
 
 
 class Message(ToolCallingMessage):
@@ -96,12 +98,18 @@ class DraftArguments:
     requirements: list[Requirement]
     decisions: list[Decision]
     blockingQuestions: list[str]
+    expectedRevision: str | None = None
+
+
+@dataclass(frozen=True)
+class ReadArguments:
+    pass
 
 
 @dataclass(frozen=True)
 class ToolCall:
     name: str
-    arguments: AskArguments | DraftArguments
+    arguments: AskArguments | DraftArguments | ReadArguments
 
 
 @dataclass(frozen=True)
@@ -174,10 +182,11 @@ RECEIPT = Exchange(
     context="The operator needs to know where to find the transcript.",
     evidence=(WebEvidence("Receipt instructions", "https://github.com/fixture/repo/issues/9"),),
 )
-RESUME_DRAFT = "Resume Socrates discovery for the accepted bead."
+RESUME_DRAFT = "Resume Socrates discovery for the accepted Beads task."
 RESUME_ANSWER = "Resume Socrates discovery using the recorded operator answer."
 REFRESH_SPEC = "Reassess Socrates discovery against the refreshed Beads brief."
 DRAFT_TOOL = "draft_socrates_specification"
+READ_TOOL = "read_studio_documents"
 
 
 def message_text(message: Message) -> str:
@@ -185,6 +194,29 @@ def message_text(message: Message) -> str:
     if isinstance(content, list):
         return "".join(item.get("text", "") for item in content)
     return content or ""
+
+
+def document_read_result(messages: list[Message]) -> str | None:
+    """Recognize the native tool result, never a snapshot embedded in old context."""
+    if len(messages) < 2 or messages[-1]["role"] != "tool":
+        return None
+    calls = messages[-2].get("tool_calls", [])
+    if any(isinstance(call, dict) and call.get("id") == messages[-1].get("tool_call_id")
+           and call.get("function", {}).get("name") == READ_TOOL for call in calls):
+        return message_text(messages[-1])
+    return None
+
+
+def document_revision(result: str, kind: str) -> str | None:
+    documents = json.loads(result)
+    assert isinstance(documents, list), documents
+    matches = [document for document in documents if document["ref"]["kind"] == kind]
+    assert len(matches) <= 1, matches
+    if not matches:
+        return None  # The guarded creation path is valid only while the draft is absent.
+    revision = matches[0]["revision"]
+    assert isinstance(revision, str) and revision, matches
+    return revision
 
 
 def draft(resolved: list[Decision], *, pending: Exchange | None = None) -> ToolCall:
@@ -237,12 +269,20 @@ def specification_tool(request: CompletionRequest) -> ToolCall | None:
     assert "ask_user_question" in names and "draft_implementation_plan" not in names, names
 
     messages = request["messages"]
+    reading = document_read_result(messages)
+    if reading is not None:
+        messages = messages[:-2]
     prompt = "\n".join(message_text(message) for message in messages if message["role"] == "system")
     assert all(rule in prompt for rule in ("Harmony", "Parsimony", "Readiness gate")), prompt
     last = messages[-1]
     history = [message_text(message) for message in messages if message["role"] == "user"]
-    if last["role"] == "user":
-        return user_turn(message_text(last), prompt, history)
-    if last["role"] == "tool":
-        return tool_turn(message_text(last), history)
-    return None
+    candidate = (user_turn(message_text(last), prompt, history) if last["role"] == "user"
+                 else tool_turn(message_text(last), history) if last["role"] == "tool" else None)
+    if candidate is None or not isinstance(candidate.arguments, DraftArguments):
+        return candidate
+    assert READ_TOOL in names, names
+    if reading is None:
+        return ToolCall(READ_TOOL, ReadArguments())
+    return replace(candidate, arguments=replace(
+        candidate.arguments, expectedRevision=document_revision(reading, "specification"),
+    ))

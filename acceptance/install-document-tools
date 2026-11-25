@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Disposable CI prefix: neither runtime changes the workstation installation.
+prefix=${1:?Usage: install-document-tools PREFIX}
+root=$(cd -- "$(dirname -- "$0")/.." && pwd)
+revision=$(cat "$root/zellij-revision")
+case "$revision" in
+  *[!a-f0-9]*|'') exit 1 ;;
+esac
+test "${#revision}" -eq 40
+mkdir -p "$prefix/bin"
+
+if [ ! -x "$prefix/bin/nvim" ]; then
+  case "$(uname -s)/$(uname -m)" in
+    Linux/x86_64) asset=nvim-linux-x86_64; digest=474430d53e6264f6d6dd18db42d6dc9df3a1b56ca9e88a325bbf860e1a811d87 ;;
+    Linux/aarch64) asset=nvim-linux-arm64; digest=8f1f64a0bdb97247034038c3823c6cbad5bdf9ecd5751b85494b71c3ee04c815 ;;
+    Darwin/arm64) asset=nvim-macos-arm64; digest=1dbd148222b051ba6c307c4d17a318ed083df018a4f6a5a0ce46955ffc9ab87b ;;
+    Darwin/x86_64) asset=nvim-macos-x86_64; digest=481424f1dbc85f637d57e47d27d042aa9c883e5a4fe9ee64fc4ee9573b221998 ;;
+    *) printf 'Unsupported native terminal fixture host\n' >&2; exit 1 ;;
+  esac
+  curl --fail --location --retry 3 "https://github.com/neovim/neovim/releases/download/v0.12.6/$asset.tar.gz" -o "$prefix/nvim.tar.gz"
+  printf '%s  %s\n' "$digest" "$prefix/nvim.tar.gz" | shasum -a 256 --check -
+  tar -xzf "$prefix/nvim.tar.gz" -C "$prefix"
+  ln -s "../$asset/bin/nvim" "$prefix/bin/nvim"
+  rm "$prefix/nvim.tar.gz"
+fi
+
+if [ ! -x "$prefix/bin/zellij" ]; then
+  source_dir=$(mktemp -d)
+  trap 'rm -rf "$source_dir"' EXIT
+  git -C "$source_dir" init -q
+  git -C "$source_dir" fetch --depth 1 https://github.com/lanej/zellij.git "$revision"
+  git -C "$source_dir" checkout --detach FETCH_HEAD
+  test "$(git -C "$source_dir" rev-parse HEAD)" = "$revision"
+  rustup toolchain install 1.95.0 --profile minimal
+  CARGO_BUILD_JOBS=2 CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \
+    rustup run 1.95.0 cargo install --path "$source_dir" --locked --root "$prefix" \
+      --no-default-features --features plugins_from_target,vendored_curl,web_server_capability --bin zellij
+fi

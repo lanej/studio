@@ -470,6 +470,7 @@ await test("optional integrations stay inactive until enabled and fail before ef
       JSON.stringify({
         integrations: {
           zellij: { executable },
+          neovim: { executable },
           worktrees: { executable },
           octo: { executable },
         },

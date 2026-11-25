@@ -10,12 +10,15 @@ import {
   ModelRuntime,
   SessionManager,
   SettingsManager,
+  type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import { registerDiscovery } from "../discovery/extension.ts";
 import { Discoveries } from "../discovery/store.ts";
 import { runtimeProjectSchema, StudioProfile } from "../config.ts";
 import { randomUUID } from "node:crypto";
 import { SpecStatus } from "../socrates/spec.ts";
+import { getDocumentHost } from "../documents/host.ts";
+import { DocumentKind } from "../documents/model.ts";
 import { draftSchema } from "../lead-plan.ts";
 
 await test("registered draft tool starts only valid fresh proposals and preserves discovery authority", async () => {
@@ -25,6 +28,7 @@ await test("registered draft tool starts only valid fresh proposals and preserve
   const other = join(directory, "other");
   const previousState = process.env["STUDIO_STATE_DIR"];
   const store = new Discoveries(state);
+  let api: ExtensionAPI | undefined;
   try {
     await mkdir(project);
     await mkdir(other);
@@ -42,6 +46,7 @@ await test("registered draft tool starts only valid fresh proposals and preserve
       noContextFiles: true,
       extensionFactories: [
         (pi) => {
+          api = pi;
           registerDiscovery(pi, () => undefined);
         },
       ],
@@ -80,8 +85,24 @@ await test("registered draft tool starts only valid fresh proposals and preserve
         },
       ],
     });
-    const save = (proposal = draft, context = toolContext) =>
-      tool.execute("draft", proposal, undefined, undefined, context);
+    const save = (proposal = draft, context = toolContext) => {
+      assert.ok(api !== undefined);
+      const document = getDocumentHost(api)
+        ?.capture(context)
+        .find((item) => item.ref.kind === DocumentKind.Plan);
+      return tool.execute(
+        "draft",
+        {
+          ...proposal,
+          ...(document === undefined
+            ? {}
+            : { expectedRevision: document.revision }),
+        },
+        undefined,
+        undefined,
+        context,
+      );
+    };
     const firstTask = draft.tasks[0];
     assert.ok(firstTask !== undefined);
     const leaf = session.getLeafId();
@@ -220,6 +241,7 @@ await test("registered draft tool starts only valid fresh proposals and preserve
     await assert.rejects(save(), /already approved/u);
     assert.deepEqual(store.get(first.id), parentRecord);
   } finally {
+    if (api !== undefined) getDocumentHost(api)?.dispose();
     if (previousState === undefined) delete process.env["STUDIO_STATE_DIR"];
     else process.env["STUDIO_STATE_DIR"] = previousState;
     store.close();

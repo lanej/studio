@@ -1,3 +1,5 @@
+import { DocumentKind, DocumentOwnerKind } from "../documents/model.ts";
+import { registerDocumentHost } from "../documents/host.ts";
 import { renderPlanCall } from "../plan-renderer.ts";
 import type {
   ExtensionAPI,
@@ -45,6 +47,7 @@ export function registerDiscovery(
   let pending = false;
   let runningDiscoveryCommand = false;
   const discoveryBusy = () => pending || runningDiscoveryCommand;
+  const documentActionBusy = () => discoveryBusy() || documents.pending();
   let selected: string | undefined;
   const storage = <T>(operation: (store: Discoveries) => T): T => {
     const db = new Discoveries();
@@ -105,6 +108,31 @@ export function registerDiscovery(
       throw new Error("Select a discovery for this project");
     return Promise.resolve(record);
   };
+  const documents = registerDocumentHost(pi, {
+    current(ctx) {
+      const id = locate(ctx);
+      if (id === undefined) return undefined;
+      const project = realpathSync(ctx.cwd);
+      const record = storage((db) => db.find(id));
+      if (record === undefined || record.project !== project) return undefined;
+      return {
+        kind: DocumentOwnerKind.Discovery,
+        id,
+        project,
+        conversationId: ctx.sessionManager.getSessionId(),
+        read: () => storage((db) => db.get(id)),
+        change: (update) => storage((db) => db.change(id, update)),
+        validate: async (currentContext) => {
+          const current = await requireBinding(currentContext);
+          if (current.id !== id || current.project !== project)
+            throw new Error("The selected discovery changed");
+        },
+      };
+    },
+    changed(ctx) {
+      socrates.refresh(ctx);
+    },
+  });
   pi.on("session_start", (event, ctx) => {
     selected = undefined;
     if (event.reason === "fork")
@@ -154,7 +182,7 @@ export function registerDiscovery(
                 description:
                   "/socrates [TITLE] — start a new discovery with TITLE; omit it to continue or start one",
                 async handler(argument, ctx) {
-                  if (discoveryBusy())
+                  if (documentActionBusy())
                     throw new Error("Wait for the discovery command");
                   runningDiscoveryCommand = true;
                   try {
@@ -169,8 +197,9 @@ export function registerDiscovery(
       },
     },
     {
-      get: () => get(),
-      change: (_id, update) => storage((db) => db.change(get().id, update)),
+      get: (id) => (id === "selected" ? get() : storage((db) => db.get(id))),
+      change: (id, update) =>
+        storage((db) => db.change(id === "selected" ? get().id : id, update)),
     },
     "selected",
     requireBinding,
@@ -179,6 +208,7 @@ export function registerDiscovery(
     },
     {
       subject: "this discovery; Beads is not required",
+      documents,
       identity: (record) => record.id,
       label: (record) => record.title,
       snapshot: (ctx) => {
@@ -202,7 +232,7 @@ export function registerDiscovery(
   pi.registerCommand("discoveries", {
     description: "Select a saved project discovery by title for /socrates",
     async handler(_arg, ctx) {
-      if (discoveryBusy() || !ctx.isIdle())
+      if (documentActionBusy() || !ctx.isIdle())
         throw new Error("Wait for the lead turn to settle");
       const project = realpathSync(ctx.cwd);
       const records = storage((db) => db.list(project));
@@ -230,7 +260,8 @@ export function registerDiscovery(
           project !== realpathSync(ctx.cwd) ||
           session !== ctx.sessionManager.getSessionId() ||
           leaf !== ctx.sessionManager.getLeafId() ||
-          !ctx.isIdle()
+          !ctx.isIdle() ||
+          documents.pending()
         )
           throw new Error("Open /discoveries again for this conversation");
         if (record.id !== current) {
@@ -293,6 +324,12 @@ export function registerDiscovery(
     description:
       "When the operator explicitly requests a work breakdown, persist the proposal, starting a discovery for the current project if none is selected. No Beads tasks are created until the operator approves the exact proposal.",
     parameters: Type.Object({
+      expectedRevision: Type.Optional(
+        Type.String({
+          description:
+            "Required when replacing an existing plan. Use the exact revision from the document snapshot used to prepare this candidate.",
+        }),
+      ),
       summary: Type.String(),
       tasks: Type.Array(
         Type.Object({
@@ -311,8 +348,12 @@ export function registerDiscovery(
     }),
     async execute(_call, params, _signal, _update, ctx) {
       if (discoveryBusy()) throw new Error("Wait for the discovery command");
-      const draft = draftSchema.parse(params);
-      if (locate(ctx) === undefined) create(ctx, draft.summary);
+      const { expectedRevision, ...candidate } = params;
+      const draft = draftSchema.parse(candidate);
+      if (locate(ctx) === undefined) {
+        create(ctx, draft.summary);
+        documents.capture(ctx);
+      }
       const record = await requireBinding(ctx);
       storage((db) =>
         db.change(record.id, (row) => {
@@ -343,9 +384,11 @@ export function registerDiscovery(
                 "Cover every frozen requirement and link each task to known requirement IDs",
               );
           }
+          documents.assertAgent(DocumentKind.Plan, row, ctx, expectedRevision);
           row.leadPlan = { mode: LeadMode.Planning, draft };
         }),
       );
+      documents.committed(DocumentKind.Plan, ctx);
       return {
         content: [
           {
@@ -467,13 +510,13 @@ export function registerDiscovery(
     },
   });
   pi.on("session_before_switch", () =>
-    discoveryBusy() ? { cancel: true } : undefined,
+    documentActionBusy() ? { cancel: true } : undefined,
   );
   pi.on("session_before_fork", () =>
-    discoveryBusy() ? { cancel: true } : undefined,
+    documentActionBusy() ? { cancel: true } : undefined,
   );
   return {
-    pending: discoveryBusy,
+    pending: documentActionBusy,
     hasSelectedDraft(ctx: ExtensionContext): boolean {
       const id = locate(ctx);
       if (id === undefined) return false;

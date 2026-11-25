@@ -21,6 +21,7 @@ on:
       - 'scripts/pi'
       - 'scripts/studio'
       - 'acceptance/install-worktree-manager'
+      - 'acceptance/install-document-tools'
       - 'resources/**'
       - 'socrates/host.md'
       - 'vendor/**'
@@ -47,6 +48,7 @@ on:
       - 'scripts/pi'
       - 'scripts/studio'
       - 'acceptance/install-worktree-manager'
+      - 'acceptance/install-document-tools'
       - 'resources/**'
       - 'socrates/host.md'
       - 'vendor/**'
@@ -90,7 +92,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y shellcheck bubblewrap
-          shellcheck scripts/pi scripts/studio acceptance/install-worktree-manager
+          shellcheck scripts/pi scripts/studio acceptance/install-worktree-manager acceptance/install-document-tools
       - run: bun run check
       - name: Verify native Socrates status
         run: |
@@ -107,3 +109,50 @@ jobs:
           HOME="$RUNNER_TEMP/manager" sh acceptance/install-worktree-manager 0.2.0
           echo "$RUNNER_TEMP/manager/.local/bin" >> "$GITHUB_PATH"
       - run: bun run test:standalone --with-integrations
+  documents-native:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Read the Bun minimum
+        id: runtime
+        run: python3 -c 'import json; print("bun=" + json.load(open("package.json"))["engines"]["bun"].removeprefix(">="))' >> "$GITHUB_OUTPUT"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ steps.runtime.outputs.bun }}
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - uses: actions/cache@v4
+        id: terminal-tools
+        with:
+          path: ${{ runner.temp }}/studio-terminal-tools
+          key: document-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('zellij-revision', 'acceptance/install-document-tools') }}
+      - name: Install native build dependencies
+        if: steps.terminal-tools.outputs.cache-hit != 'true'
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y protobuf-compiler pkg-config libssl-dev cmake
+          else
+            brew install protobuf pkg-config
+          fi
+      - name: Install pinned terminal tools
+        run: |
+          bash acceptance/install-document-tools "$RUNNER_TEMP/studio-terminal-tools"
+          echo "$RUNNER_TEMP/studio-terminal-tools/bin" >> "$GITHUB_PATH"
+          python3 -m pip install --disable-pip-version-check uv
+      - name: Verify the native document workflow
+        run: |
+          bun run test:documents-editor
+          bun run test:documents-native -- --output "$RUNNER_TEMP/document-evidence"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: document-evidence-${{ matrix.os }}
+          path: ${{ runner.temp }}/document-evidence

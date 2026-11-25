@@ -29,7 +29,7 @@ with tempfile.TemporaryDirectory(prefix="studio-standalone-") as temporary:
     guard = work / "guard"
     guard.mkdir()
     calls = work / "unexpected-node"
-    optional_tools = ("zellij", "worktree", "octo-manager", "bd")
+    optional_tools = ("zellij", "nvim", "worktree", "octo-manager", "bd")
     def deny(name):
         script = guard / name
         script.write_text(f'#!/bin/sh\nprintf "%s\\n" "$0" >> "{calls}"\nexit 97\n')

@@ -1,3 +1,5 @@
+import { DocumentKind } from "../documents/model.ts";
+import { getDocumentHost, type DocumentHost } from "../documents/host.ts";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -79,6 +81,7 @@ export function registerSocratesControls<T extends SocratesState>(
     snapshot?(ctx: ExtensionContext): T | undefined;
     check(record: T, revision: string): Promise<void>;
     select?(argument: string, ctx: ExtensionContext): Promise<void>;
+    documents?: DocumentHost;
   },
 ) {
   const presentation = registerSocratesPresentation(pi, (ctx) => {
@@ -102,7 +105,7 @@ export function registerSocratesControls<T extends SocratesState>(
       await scope.check(record, revision);
     } catch (error) {
       if (error instanceof BeadChanged) {
-        db.change(id, (row) => {
+        db.change(scope.identity(record), (row) => {
           if (
             row.revision === revision &&
             row.specification?.acceptedRevision === revision
@@ -134,7 +137,7 @@ export function registerSocratesControls<T extends SocratesState>(
       if (answer === undefined) return undefined;
       await requireBinding(ctx);
       await checkCurrent(record, spec.acceptedRevision, ctx);
-      db.change(id, (row) => {
+      db.change(scope.identity(record), (row) => {
         if (
           row.leadPlan?.mode !== LeadMode.Planning ||
           row.revision !== spec.acceptedRevision ||
@@ -220,7 +223,7 @@ export function registerSocratesControls<T extends SocratesState>(
         );
       await checkCurrent(record, spec.acceptedRevision, ctx);
       const pending = { ...spec, exchange: { prompt } };
-      db.change(id, (row) => {
+      db.change(scope.identity(record), (row) => {
         if (
           row.leadPlan?.mode !== LeadMode.Planning ||
           row.revision !== spec.acceptedRevision ||
@@ -295,7 +298,7 @@ export function registerSocratesControls<T extends SocratesState>(
       await socratesGuidance();
       const acceptedRevision = record.revision;
       await checkCurrent(record, acceptedRevision, ctx);
-      db.change(id, (row) => {
+      db.change(scope.identity(record), (row) => {
         if (
           row.specification !== undefined ||
           row.leadPlan?.mode !== LeadMode.Planning ||
@@ -323,6 +326,12 @@ export function registerSocratesControls<T extends SocratesState>(
       "Save the current Socrates specification, outstanding questions, and evidence-backed property assessments. Coverage describes this exact draft; omitted assessments remain not assessed. The operator freezes it in /spec-freeze.",
     executionMode: "sequential",
     parameters: Type.Object({
+      expectedRevision: Type.Optional(
+        Type.String({
+          description:
+            "Required when replacing an existing specification. Use the exact revision from the document snapshot used to prepare this candidate.",
+        }),
+      ),
       objective: Type.String(),
       scope: Type.Array(Type.String()),
       requirements: Type.Array(
@@ -389,11 +398,19 @@ export function registerSocratesControls<T extends SocratesState>(
     }),
     async execute(_call, params, _signal, _update, ctx) {
       const record = await requireBinding(ctx);
-      const draft = specDraft.parse(params);
+      const documents = scope.documents ?? getDocumentHost(pi);
+      const { expectedRevision, ...candidate } = params;
+      const draft = specDraft.parse(candidate);
       if (record.revision === null)
         throw new Error("The accepted revision is missing");
       await checkCurrent(record, record.revision, ctx);
-      db.change(id, (row) => {
+      db.change(scope.identity(record), (row) => {
+        documents?.assertAgent(
+          DocumentKind.Specification,
+          { ...row, id: scope.identity(row) },
+          ctx,
+          expectedRevision,
+        );
         const specification = row.specification;
         if (
           specification?.status !== SpecStatus.Interrogating ||
@@ -417,6 +434,7 @@ export function registerSocratesControls<T extends SocratesState>(
             draft.coverage === undefined ? undefined : coverageToken(next),
         };
       });
+      documents?.committed(DocumentKind.Specification, ctx);
       presentation.refresh(ctx);
       return {
         content: [
@@ -461,7 +479,7 @@ export function registerSocratesControls<T extends SocratesState>(
         )
           return;
         await checkCurrent(record, spec.acceptedRevision, ctx);
-        db.change(id, (row) => {
+        db.change(scope.identity(record), (row) => {
           if (
             !isDeepStrictEqual(row.specification, spec) ||
             row.leadPlan?.mode !== LeadMode.Planning ||

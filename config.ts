@@ -104,6 +104,7 @@ export const configSchema = z
     integrations: z
       .object({
         zellij: optionalIntegration("zellij"),
+        neovim: optionalIntegration("nvim"),
         worktrees: optionalIntegration("worktree"),
         octo: optionalIntegration("octo-manager"),
       })
@@ -253,6 +254,7 @@ export const exampleConfig = {
   lsp: { enabled: true },
   integrations: {
     zellij: { enabled: true, executable: "zellij" },
+    neovim: { enabled: false, executable: "nvim" },
     worktrees: { enabled: true, executable: "worktree" },
     octo: { enabled: true, executable: "octo-manager" },
   },
