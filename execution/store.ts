@@ -408,6 +408,15 @@ export class ExecutionStore {
     this.save("handoff", id, value);
   }
 }
+/** An intentional no-command receipt records completion, not an independent review verdict. */
+export function completedWithoutExecutable(attempt: Execution): boolean {
+  return (
+    attempt.check.length === 0 &&
+    attempt.verification?.check.length === 0 &&
+    attempt.verification.exitCode === null &&
+    attempt.verifier?.phase === VerificationPhase.Complete
+  );
+}
 export const unsettled = (record: Execution): boolean =>
   record.phase !== ExecutionPhase.Complete &&
   record.phase !== ExecutionPhase.Parked;

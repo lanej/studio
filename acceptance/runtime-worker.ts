@@ -1,13 +1,21 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  rm,
+  readFile,
+  writeFile,
+  rename,
+} from "node:fs/promises";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import { z } from "zod";
+import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { fixtureMetricsEnv } from "./beads-fixture.ts";
 import { withBeadsHttp } from "./beads-http-fixture.ts";
@@ -16,17 +24,34 @@ import { ExecutionBeads } from "../execution/beads.ts";
 import { ExecutionStore, ExecutionPhase } from "../execution/store.ts";
 import { draftSchema, planDigest } from "../lead-plan.ts";
 import { run } from "../process.ts";
+import { parkedDetails, retainedEvidence } from "../tasks/model.ts";
+import { retryWriterFence } from "../execution/recovery.ts";
+import { safeGit } from "../execution/git.ts";
 import { alive } from "../execution/supervisor.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const program = new Command()
   .requiredOption("--bd <path>")
-  .requiredOption("--dolt <path>");
+  .requiredOption("--dolt <path>")
+  .option(
+    "--recovery-output <directory>",
+    "Keep guarded-retry receipts and native terminal captures",
+  );
 program.parse();
-const options = program.opts<{ bd: string; dolt: string }>();
+const options = program.opts<{
+  bd: string;
+  dolt: string;
+  recoveryOutput?: string;
+}>();
 await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
   const agent = join(fixture.directory, "agent");
-  const state = join(fixture.directory, "execution-state");
+  // Darwin activation sockets must fit sockaddr_un, including the per-session suffix.
+  const state = await mkdtemp(
+    join(
+      process.platform === "darwin" ? "/private/tmp" : fixture.directory,
+      "st-recovery-",
+    ),
+  );
   const configFile = join(fixture.directory, "runtime.json");
   await mkdir(agent);
   const env: NodeJS.ProcessEnv = {
@@ -54,6 +79,10 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     ".worktrees/\n.beads/\n",
   );
   await writeFile(join(fixture.workspace, "README.md"), "Runtime fixture\n");
+  await writeFile(
+    join(fixture.workspace, "rejected.txt"),
+    "Prior tracked result\n",
+  );
   await git("config", "user.name", "Fixture");
   await git("config", "user.email", "fixture@example.invalid");
   await git("config", "core.hooksPath", "/dev/null");
@@ -101,6 +130,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
   let rejectedIntegration: string | undefined;
   let correctedIntegration: string | undefined;
   let providerError: unknown;
+  let repairRejected = false;
   const server = createServer((incoming, response) => {
     void (async () => {
       let body = "";
@@ -119,15 +149,19 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
         .parse(JSON.parse(body));
       requests.push(request.model);
       const conversation = JSON.stringify(request.messages);
-      const kind = conversation.includes("Deliberate verifier rejection")
-        ? "rejected"
-        : conversation.includes("Consume prerequisite")
-          ? "second"
-          : conversation.includes("Overlap ownership")
-            ? "overlap"
-            : conversation.includes("Progress unrelated")
-              ? "third"
-              : "first";
+      const kind =
+        conversation.includes("Recovery overlap") ||
+        conversation.includes("Blocked by rejected verification")
+          ? "recovery-overlap"
+          : conversation.includes("Deliberate verifier rejection")
+            ? "rejected"
+            : conversation.includes("Consume prerequisite")
+              ? "second"
+              : conversation.includes("Overlap ownership")
+                ? "overlap"
+                : conversation.includes("Progress unrelated")
+                  ? "third"
+                  : "first";
       const path =
         kind === "rejected"
           ? "rejected.txt"
@@ -137,17 +171,32 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
               ? "third.txt"
               : "first.txt";
       const content =
-        kind === "third"
-          ? "unrelated verified progress\n"
-          : kind === "overlap"
-            ? "verified prerequisite\noverlap completed\n"
-            : "verified prerequisite\n";
+        kind === "rejected" && repairRejected
+          ? "corrected prerequisite\n"
+          : kind === "third"
+            ? "unrelated verified progress\n"
+            : kind === "overlap"
+              ? "verified prerequisite\noverlap completed\n"
+              : "verified prerequisite\n";
       const toolMessages = request.messages.filter(
         (message) => message.role === "tool",
       );
       let call: { name: string; arguments: string } | undefined;
       let text = "";
       if (request.model === AgentRole.Worker) {
+        if (kind === "recovery-overlap") {
+          assert(
+            store
+              .attempts()
+              .some(
+                (row) =>
+                  row.bead?.title === "Deliberate verifier rejection" &&
+                  row.phase === ExecutionPhase.Complete,
+              ),
+            "Queued ownership must stay fenced until retry completes verification/review",
+          );
+          await new Promise<void>(() => {});
+        }
         if (kind === "first") sawWorker?.();
         await waitForLeadExit;
         if (kind === "first") await unrelatedReviewed;
@@ -260,7 +309,9 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
               ? /function consume/u
               : kind === "third"
                 ? /unrelated verified progress/u
-                : /verified prerequisite/u,
+                : kind === "rejected"
+                  ? /corrected prerequisite/u
+                  : /verified prerequisite/u,
           );
           call = {
             name: "review_context",
@@ -408,6 +459,12 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     join(agent, "models.json"),
     JSON.stringify({
       providers: {
+        fixture: {
+          baseUrl: `http://127.0.0.1:${String(address.port)}/v1`,
+          api: "openai-completions",
+          apiKey: "fixture",
+          models: [{ id: "tiny" }],
+        },
         "openai-codex": {
           baseUrl: `http://127.0.0.1:${String(address.port)}/v1`,
           api: "openai-completions",
@@ -590,6 +647,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     beadsDatabase: context.database,
   };
   const runtimeConfig = {
+    beadsService: project.source,
     runtime: {
       enabled: true,
       pollMs: 1000,
@@ -1113,12 +1171,13 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
           title: "Deliberate verifier rejection",
           description:
             "Create rejected.txt with verified prerequisite followed by a newline",
-          acceptance: "Retain deliberate exit 42 and do not accept the result",
+          acceptance:
+            "Correct rejected.txt only after explicit guarded retry; verification and independent review are mandatory",
           owns: ["rejected.txt"],
           check: [
             process.execPath,
             "-e",
-            'console.error("EXPECTED_REJECTION");process.exit(42)',
+            'if(await Bun.file("rejected.txt").text()!=="corrected prerequisite\\n"){console.error("EXPECTED_REJECTION");process.exit(42)};console.log("RECOVERY_VERIFIED")',
           ],
         },
         {
@@ -1141,29 +1200,243 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       { root: rejectedRoot, rejected: rejectedId, blocked: blockedId },
     );
     startSupervisor();
-    const rejectionDeadline = Date.now() + 30000;
-    for (;;) {
-      const rejected = store
-        .attempts()
-        .find((row) => row.bead?.id === rejectedId);
+    const waitRecovery = async (
+      label: string,
+      predicate: () => boolean | Promise<boolean>,
+    ) => {
+      const until =
+        Date.now() + (process.env["CI"] === "true" ? 90_000 : 30_000);
+      while (!(await predicate())) {
+        if (providerError !== undefined)
+          throw new Error("Native fixture inference failed", {
+            cause: providerError,
+          });
+        assert(
+          Date.now() < until,
+          `${label}: ${JSON.stringify(store.attempts())}\n${diagnostics}`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    };
+    const findRejected = () =>
+      store.attempts().find((row) => row.bead?.id === rejectedId);
+    const dependentFenced = async () => {
       assert.equal(
         store.attempts().some((row) => row.bead?.id === blockedId),
         false,
       );
-      if (rejected?.phase === ExecutionPhase.Parked) {
-        assert.equal(rejected.verification?.exitCode, 42);
-        assert.match(rejected.verification.output, /EXPECTED_REJECTION/u);
-        assert.match(rejected.message, /Agreed verification failed/u);
-        assert.equal((await service.get(rejectedId)).status, "in_progress");
-        assert.equal((await service.get(blockedId)).status, "open");
-        break;
-      }
-      assert(
-        Date.now() < rejectionDeadline,
-        `Negative verification did not settle: ${JSON.stringify(store.attempts())}\n${diagnostics}`,
+      assert.equal((await service.get(blockedId)).status, "open");
+    };
+    await waitRecovery("Negative verification did not settle", async () => {
+      await dependentFenced();
+      return findRejected()?.phase === ExecutionPhase.Parked;
+    });
+    const rejected = findRejected();
+    assert(
+      rejected?.verification !== undefined &&
+        rejected.checkout !== undefined &&
+        rejected.base !== undefined,
+    );
+    assert.equal(rejected.verification.exitCode, 42);
+    assert.match(rejected.verification.output, /EXPECTED_REJECTION/u);
+    assert.match(rejected.message, /Agreed verification failed/u);
+    assert.equal((await service.get(rejectedId)).status, "in_progress");
+    // Independently approved work is admitted by the real scheduler, then fenced by retained ownership.
+    const conflicts: string[] = [];
+    for (const [label, owns] of [
+      ["parent", ["rejected.txt/child"]],
+      ["unspecified", []],
+    ] as const) {
+      const graphId = randomUUID();
+      const rootId = `${prefix}-${graphId.replaceAll("-", "")}`;
+      const conflictDraft = draftSchema.parse({
+        summary: "Recovery overlap",
+        tasks: [
+          {
+            key: "queued",
+            title: `Recovery overlap ${label}`,
+            description: "Must wait for retained writer",
+            acceptance: "Never starts while rejected work retains ownership",
+            owns: [...owns],
+          },
+        ],
+      });
+      const beadId = `${rootId}.queued`;
+      conflicts.push(beadId);
+      await service.createGraph(
+        graphId,
+        planDigest(conflictDraft),
+        "Recovery overlap",
+        conflictDraft,
+        { root: rootId, queued: beadId },
       );
-      await new Promise((resolve) => setTimeout(resolve, 100));
     }
+    await waitRecovery("Two overlapping tasks were not queued", async () => {
+      await dependentFenced();
+      return conflicts.every((id) =>
+        store
+          .attempts()
+          .some(
+            (row) => row.bead?.id === id && row.phase === ExecutionPhase.Queued,
+          ),
+      );
+    });
+    const task = await service.get(rejectedId);
+    const snapshot = {
+      tasks: [task],
+      attempts: store.attempts(),
+      observedAt: "native",
+      focusable: new Set<string>(),
+      limitReached: false,
+    };
+    const explanation = parkedDetails(task, snapshot);
+    assert.match(explanation ?? "", /Recovery overlap parent/u);
+    assert.match(explanation ?? "", /Recovery overlap unspecified/u);
+    assert.match(explanation ?? "", /Other admission fences may also apply/u);
+    const evidence = retainedEvidence(task, snapshot);
+    assert.match(evidence, /EXPECTED_REJECTION/u);
+    const diff = await safeGit(project.root, rejected.checkout.path, [
+      "diff",
+      rejected.base,
+    ]);
+    assert.match(diff, /verified prerequisite/u);
+    await waitRecovery(
+      "Prior failed writer did not settle",
+      async () => !(await retryWriterFence(store.attempt(rejected.id))),
+    );
+    if (options.recoveryOutput !== undefined) {
+      await mkdir(options.recoveryOutput, { recursive: true });
+      await writeFile(
+        join(options.recoveryOutput, "failed-receipt.json"),
+        JSON.stringify(
+          {
+            attempt: store.attempt(rejected.id),
+            queued: conflicts,
+            explanation,
+            evidence,
+            diff,
+          },
+          null,
+          2,
+        ),
+      );
+      const session = (
+        await run(
+          process.execPath,
+          [
+            "--no-env-file",
+            "-e",
+            'import {SessionManager} from "@earendil-works/pi-coding-agent"; const session=SessionManager.create(process.cwd());session.appendMessage({role:"user",content:"recovery-fixture-ready",timestamp:Date.now()});console.log(session.getSessionFile())',
+          ],
+          { cwd: fixture.workspace, env },
+        )
+      ).trim();
+      const input = join(options.recoveryOutput, "terminal-input.json");
+      await writeFile(
+        input,
+        JSON.stringify({
+          project: fixture.workspace,
+          env: Object.fromEntries(
+            [
+              "HOME",
+              "PATH",
+              "LANG",
+              "LC_ALL",
+              "LC_CTYPE",
+              "TERM",
+              "COLORTERM",
+              "PI_CODING_AGENT_DIR",
+              "STUDIO_CONFIG",
+              "STUDIO_STATE_DIR",
+              "PI_SKIP_VERSION_CHECK",
+              "PI_TELEMETRY",
+              "GIT_CONFIG_GLOBAL",
+              "GIT_CONFIG_NOSYSTEM",
+              "XDG_STATE_HOME",
+              "XDG_CONFIG_HOME",
+              "UV_PYTHON",
+              "UV_PYTHON_DOWNLOADS",
+            ].flatMap((key) =>
+              env[key] === undefined ? [] : [[key, env[key]]],
+            ),
+          ),
+          session,
+          task: rejectedId,
+        }),
+      );
+      await run(
+        "uv",
+        [
+          "run",
+          "--script",
+          join(root, "acceptance/task-recovery.py"),
+          "--input",
+          input,
+          "--output",
+          options.recoveryOutput,
+        ],
+        {
+          cwd: root,
+          env: {
+            ...env,
+            UV_CACHE_DIR:
+              process.env["UV_CACHE_DIR"] ?? join(homedir(), ".cache", "uv"),
+          },
+          timeout: 90000,
+        },
+      );
+    }
+    repairRejected = true;
+    const retry = await run(
+      join(root, "scripts/studio"),
+      ["runtime", "retry", rejected.id],
+      { cwd: fixture.workspace, env },
+    );
+    assert.equal(retry.trim(), "");
+    await waitRecovery("Same-attempt retry did not complete", async () => {
+      const current = store.attempt(rejected.id);
+      if (current.phase !== ExecutionPhase.Complete) await dependentFenced();
+      return current.phase === ExecutionPhase.Complete;
+    });
+    const recovered = store.attempt(rejected.id);
+    assert.equal(
+      store.attempts().filter((row) => row.bead?.id === rejectedId).length,
+      1,
+    );
+    assert.equal(recovered.verification?.exitCode, 0);
+    assert.match(recovered.verification.output, /RECOVERY_VERIFIED/u);
+    assert(recovered.review !== undefined);
+    assert(
+      recovered.sessions.length > rejected.sessions.length,
+      "Retry must run worker and independent review again",
+    );
+    assert.equal((await service.get(rejectedId)).status, "closed");
+    if (options.recoveryOutput !== undefined)
+      await writeFile(
+        join(options.recoveryOutput, "recovered-receipt.json"),
+        JSON.stringify(
+          {
+            attempt: recovered,
+            sameAttempt: recovered.id === rejected.id,
+            overlaps: conflicts,
+            decisionProtocol:
+              "deferred; no per-attempt operator question/answer is implemented",
+          },
+          null,
+          2,
+        ),
+      );
+    console.log(
+      JSON.stringify({
+        failedCheck: 42,
+        queuedOverlaps: 2,
+        retainedDiff: true,
+        sameAttemptRetry: true,
+        verification: 0,
+        independentReview: true,
+        dependentFencedUntilCompletion: true,
+      }),
+    );
     console.log(
       "Unattended native Pi workers, exact-revision cold reads and verified readability corrections, held work, responsive free-lead input, exclusive scheduling, overlapping-path serialization, unrelated concurrent progress, and predecessor-code propagation passed after closing the lead and crashing/restarting the host and supervisor between integration and completion.",
     );
@@ -1210,6 +1483,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     ]);
     leadLines.close();
     store.close();
+    await rm(state, { recursive: true, force: true });
     server.close();
     server.closeAllConnections();
     proxy.close();

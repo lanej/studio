@@ -10,6 +10,11 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { createServer } from "node:http";
+import { once } from "node:events";
+import { retryAttempt } from "../execution/cli.ts";
+import { processStart } from "../process.ts";
+import { retainedConflicts } from "../execution/supervisor.ts";
 import { Database } from "bun:sqlite";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { stripVTControlCharacters as stripAnsi } from "node:util";
@@ -19,13 +24,20 @@ import type { Task } from "../beads.ts";
 import { StudioProfile } from "../config.ts";
 import {
   ExecutionPhase,
+  ExecutionStore,
+  projectSchema,
+  VerificationPhase,
   executionSchema,
   type Execution,
 } from "../execution/store.ts";
+import { retryWriterFence } from "../execution/recovery.ts";
 import { TaskBrowser } from "../tasks/browser.ts";
 import { TaskPanel } from "../tasks/panel.ts";
 import { readTaskEvidence } from "../tasks/evidence.ts";
 import {
+  parkedDetails,
+  needsAttention,
+  retainedEvidence,
   taskLinks,
   taskNarrative,
   taskDelivery,
@@ -33,10 +45,12 @@ import {
 } from "../tasks/model.ts";
 
 const project = randomUUID();
+const attemptId = randomUUID();
 const rejected = {
   id: "canonical-long-rejected-task",
   title: "Reject the unsafe result",
   status: "in_progress",
+  assignee: `pi:${attemptId}`,
 };
 const successor = {
   id: "canonical-long-successor-task",
@@ -45,7 +59,7 @@ const successor = {
   dependencies: [{ id: rejected.id, dependency_type: "blocks" }],
 };
 const attempt = executionSchema.parse({
-  id: randomUUID(),
+  id: attemptId,
   project,
   profile: StudioProfile.Personal,
   phase: ExecutionPhase.Parked,
@@ -67,6 +81,459 @@ const snapshot: TaskSnapshot = {
   focusable: new Set(),
   limitReached: false,
 };
+
+await test("retry retains a settled host fence when its process identity is incomplete", async () => {
+  assert.equal(
+    await retryWriterFence({
+      ...attempt,
+      launchSettled: true,
+      pid: 123,
+      started: undefined,
+    }),
+    true,
+  );
+  assert.equal(
+    await retryWriterFence({
+      ...attempt,
+      launchSettled: true,
+      pid: undefined,
+      started: "unknown",
+    }),
+    true,
+  );
+  assert.equal(
+    await retryWriterFence({
+      ...attempt,
+      launchSettled: true,
+      verifier: { phase: VerificationPhase.Running },
+    }),
+    true,
+  );
+});
+
+await test("retry revalidates admission, live writers, remote authority and the same attempt", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "studio-retry-guard-"));
+  const beforeState = process.env["STUDIO_STATE_DIR"];
+  const beforeConfig = process.env["STUDIO_CONFIG"];
+  process.env["STUDIO_STATE_DIR"] = directory;
+  process.env["STUDIO_CONFIG"] = join(directory, "config.json");
+  writeFileSync(process.env["STUDIO_CONFIG"], "{}");
+  const store = new ExecutionStore();
+  const id = randomUUID();
+  const admitted = executionSchema.parse({
+    ...attempt,
+    id,
+    launchSettled: true,
+    revision: "accepted",
+    bead: {
+      ...attempt.bead,
+      assignee: `pi:${id}`,
+      revision: "accepted",
+      metadata: { "pi.attempt": id },
+    },
+  });
+  assert(admitted.bead !== undefined);
+  let remote = admitted.bead;
+  let race = () => {};
+  const server = createServer((request, response) => {
+    response.setHeader("Content-Type", "application/json");
+    if (request.url === "/v0/beads/context")
+      response.end(
+        JSON.stringify({
+          project_id: project,
+          backend: "dolt",
+          dolt_mode: "server",
+          capabilities: [
+            "project.enforce",
+            "issues.get",
+            "issues.create",
+            "issues.update",
+          ],
+        }),
+      );
+    else {
+      race();
+      response.end(JSON.stringify(remote));
+    }
+  });
+  try {
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    assert(address !== null && typeof address !== "string");
+    const enrolled = projectSchema.parse({
+      id: project,
+      root: directory,
+      source: {
+        url: `http://127.0.0.1:${String(address.port)}`,
+        projectId: project,
+      },
+      profile: "personal",
+      base: "main",
+      beadsWorkspace: directory,
+      beadsDatabase: "fixture",
+    });
+    store.enroll(enrolled);
+    store.saveAttempt({
+      ...admitted,
+      interactive: { session: "owned-fixture", socket: "owned-server", tab: 0 },
+    });
+    await assert.rejects(retryAttempt(id), /original pane binding/u);
+    assert.equal(store.attempt(id).phase, ExecutionPhase.Parked);
+    store.saveAttempt({ ...admitted, bead: undefined });
+    await assert.rejects(retryAttempt(id), /no admitted task/u);
+    store.saveAttempt({
+      ...admitted,
+      pid: process.pid,
+      started: await processStart(process.pid),
+    });
+    await assert.rejects(retryAttempt(id), /prior host\/verifier/u);
+    store.saveAttempt({
+      ...admitted,
+      verifier: { phase: VerificationPhase.Running },
+    });
+    await assert.rejects(retryAttempt(id), /prior host\/verifier/u);
+    store.saveAttempt(admitted);
+    remote = { ...admitted.bead, assignee: "pi:someone-else" };
+    await assert.rejects(retryAttempt(id), /revision or owner changed/u);
+    remote = { ...admitted.bead, revision: "changed" };
+    await assert.rejects(retryAttempt(id), /revision or owner changed/u);
+    remote = admitted.bead;
+    race = () => {
+      store.change(id, (row) => {
+        row.owns = ["new-scope"];
+      });
+    };
+    await assert.rejects(retryAttempt(id), /attempt or project changed/u);
+    assert.equal(store.attempt(id).phase, ExecutionPhase.Parked);
+    store.saveAttempt(admitted);
+    race = () => {
+      store.enroll({ ...enrolled, merge: !enrolled.merge });
+    };
+    await assert.rejects(retryAttempt(id), /attempt or project changed/u);
+    assert.equal(store.attempt(id).phase, ExecutionPhase.Parked);
+    race = () => {};
+    store.enroll(enrolled);
+    store.saveAttempt(admitted);
+    await assert.rejects(
+      retryAttempt(id),
+      /queued, but the runtime did not start.*disabled/u,
+    );
+    assert.equal(store.attempt(id).phase, ExecutionPhase.Queued);
+    assert.equal(store.attempts().length, 1);
+    assert.equal(store.attempt(id).verification?.exitCode, 42);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => {
+      server.close(() => {
+        resolve();
+      });
+    });
+    store.close();
+    if (beforeState === undefined) delete process.env["STUDIO_STATE_DIR"];
+    else process.env["STUDIO_STATE_DIR"] = beforeState;
+    if (beforeConfig === undefined) delete process.env["STUDIO_CONFIG"];
+    else process.env["STUDIO_CONFIG"] = beforeConfig;
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+await test("retained conflicts match admitted queue order, project and ownership fences", () => {
+  const queued = {
+    ...attempt,
+    id: randomUUID(),
+    phase: ExecutionPhase.Queued,
+    owns: ["src/core"],
+  };
+  const earlier = { ...queued, id: randomUUID(), owns: ["src/core/file.ts"] };
+  const later = { ...earlier, id: randomUUID() };
+  const empty = { ...earlier, id: randomUUID(), bead: undefined };
+  const foreign = { ...earlier, id: randomUUID(), project: randomUUID() };
+  const done = { ...earlier, id: randomUUID(), phase: ExecutionPhase.Complete };
+  assert.deepEqual(
+    retainedConflicts(queued, [
+      empty,
+      foreign,
+      done,
+      earlier,
+      queued,
+      later,
+    ]).map((row) => row.id),
+    [earlier.id],
+  );
+  assert.deepEqual(
+    retainedConflicts(queued, [
+      queued,
+      { ...later, phase: ExecutionPhase.Parked, owns: [] },
+    ]).map((row) => row.id),
+    [later.id],
+  );
+});
+
+await test("parked details use the current owner and scheduler path rules", () => {
+  assert(attempt.bead !== undefined);
+  const owned = { ...attempt, owns: ["src/core"] };
+  const first = {
+    ...attempt,
+    id: randomUUID(),
+    phase: ExecutionPhase.Queued,
+    owns: ["src/core/file.ts"],
+    bead: { ...attempt.bead, id: "first", title: "First" },
+  };
+  const second = {
+    ...first,
+    id: randomUUID(),
+    owns: [],
+    bead: { ...first.bead, id: "second", title: "Second" },
+  };
+  const foreign = {
+    ...first,
+    id: randomUUID(),
+    project: randomUUID(),
+    bead: { ...first.bead, title: "Foreign" },
+  };
+  const task = { ...rejected, assignee: `pi:${owned.id}` };
+  const view = { ...snapshot, attempts: [owned, first, second, foreign] };
+  const details = parkedDetails(task, view) ?? "";
+  assert.match(details, /Verification failed.*42/u);
+  assert.match(details, /Last evidenced step: verification exited 42/u);
+  assert.match(details, /First: src\/core \/ src\/core\/file.ts/u);
+  assert.match(details, /Second: ownership unspecified/u);
+  assert.doesNotMatch(details, /Foreign/u);
+  assert.equal(
+    parkedDetails({ ...task, assignee: "someone-else" }, view),
+    undefined,
+  );
+  assert.match(
+    parkedDetails(task, {
+      ...view,
+      attempts: [
+        { ...owned, phase: ExecutionPhase.Uncertain, verification: undefined },
+      ],
+    }) ?? "",
+    /Uncertain execution.*\nLast completed step: unknown/u,
+  );
+  assert.match(
+    parkedDetails(task, {
+      ...view,
+      attempts: [{ ...owned, reviewFinding: "Fix the API" }],
+    }) ?? "",
+    /Reviewer requested changes: Fix the API/u,
+  );
+});
+
+await test("retained diff snapshots refresh with same-attempt evidence and clear on failed retry", async () => {
+  const task = { ...rejected, assignee: `pi:${attempt.id}` };
+  const current = {
+    ...attempt,
+    revision: "1",
+    base: "a".repeat(40),
+    checkout: {
+      primary: "/fixture",
+      root: "/fixture/.worktrees",
+      path: "/fixture/.worktrees/one",
+      task_id: "one",
+      owner_id: "owner",
+      agent: "agent",
+      branch: "task/one",
+      created_at: "now",
+      base_ref: "main",
+    },
+  };
+  const view = { ...snapshot, tasks: [task], attempts: [current] };
+  const theme: Pick<Theme, "fg" | "bg" | "bold" | "getBgAnsi"> = {
+    fg: (_color, value) => value,
+    bg: (_color, value) => value,
+    bold: (value) => value,
+    getBgAnsi: () => "",
+  };
+  let retried = "";
+  let loaded = view;
+  let output = "OLD_DIFF";
+  let diffReads = 0;
+  const diffState: { pending?: Promise<string> } = {};
+  let retryFails = true;
+  const browser = new TaskBrowser(
+    view,
+    {
+      label: "Fixture",
+      identity: project,
+      load: () => Promise.resolve(loaded),
+      show: () => Promise.resolve(task),
+      diff: () => {
+        diffReads++;
+        return diffState.pending ?? Promise.resolve(output);
+      },
+      retry: (id) => {
+        retried = id;
+        return retryFails
+          ? Promise.reject(new Error("RETRY_UNCERTAIN"))
+          : Promise.resolve();
+      },
+    },
+    theme,
+    () => 24,
+    () => {},
+    () => {},
+    task.id,
+  );
+  const render = () => browser.render(120).map(stripAnsi).join("\n");
+  render();
+  browser.handleInput("\t");
+  assert.match(render(), /› ↗ Open retained diff/u);
+  browser.handleInput("\r");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.match(render(), /OLD_DIFF/u);
+  assert.match(render(), /Captured diff snapshot/u);
+  assert.match(render(), /Re-open retained diff to refresh/u);
+  assert(current.verification !== undefined);
+  loaded = {
+    ...view,
+    attempts: [
+      {
+        ...current,
+        message: "NEW_FAILURE",
+        verification: {
+          ...current.verification,
+          summary: "New failed check",
+          exitCode: 43,
+          output: "NEW_FAILURE",
+        },
+      },
+    ],
+  };
+  await browser.refresh();
+  assert.match(render(), /NEW_FAILURE/u);
+  assert.doesNotMatch(render(), /OLD_DIFF/u);
+  output = "NEW_DIFF";
+  // The focused diff action survives refresh; opening it reads the current checkout again.
+  browser.handleInput("\r");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.match(render(), /NEW_DIFF/u);
+  assert.equal(diffReads, 2);
+  output = "MANUAL_CHECKOUT_EDIT";
+  await browser.refresh();
+  assert.match(render(), /NEW_DIFF/u);
+  assert.doesNotMatch(render(), /MANUAL_CHECKOUT_EDIT/u);
+  browser.handleInput("\r");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.match(render(), /MANUAL_CHECKOUT_EDIT/u);
+  assert.equal(diffReads, 3);
+  const beforeRemoval = loaded;
+  loaded = { ...loaded, attempts: [] };
+  await browser.refresh();
+  assert.doesNotMatch(render(), /MANUAL_CHECKOUT_EDIT/u);
+  loaded = beforeRemoval;
+  await browser.refresh();
+  assert.doesNotMatch(render(), /MANUAL_CHECKOUT_EDIT/u);
+  browser.handleInput("\t");
+  render();
+  browser.handleInput("\r");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.match(render(), /MANUAL_CHECKOUT_EDIT/u);
+  assert.equal(diffReads, 4);
+  browser.handleInput("\t");
+  render();
+  browser.handleInput("\r");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(retried, attempt.id);
+  assert.match(render(), /RETRY_UNCERTAIN/u);
+  assert.doesNotMatch(render(), /MANUAL_CHECKOUT_EDIT/u);
+  retryFails = false;
+  browser.handleInput("\r");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.match(render(), /Retry queued/u);
+  assert.doesNotMatch(render(), /MANUAL_CHECKOUT_EDIT/u);
+  let release: ((value: string) => void) | undefined;
+  diffState.pending = new Promise<string>((resolve) => {
+    release = resolve;
+  });
+  browser.handleInput("\x1b[Z");
+  assert.match(render(), /› ↗ Open retained diff/u);
+  browser.handleInput("\r");
+  render();
+  browser.handleInput("\t");
+  assert.match(render(), /› ↗ Retry attempt/u);
+  browser.handleInput("\r");
+  assert(release !== undefined);
+  release("LATE_OLD_DIFF");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.doesNotMatch(render(), /LATE_OLD_DIFF/u);
+});
+
+await test("narrow and wide inspectors explain missing evidence and block unsafe recovery", () => {
+  const task = { ...rejected, assignee: `pi:${attempt.id}` };
+  const view = {
+    ...snapshot,
+    tasks: [task],
+    attempts: [{ ...attempt, verification: undefined }],
+    retryBlocked: new Map([[attempt.id, "writer identity is uncertain"]]),
+  };
+  const theme: Pick<Theme, "fg" | "bg" | "bold" | "getBgAnsi"> = {
+    fg: (_color, value) => value,
+    bg: (_color, value) => value,
+    bold: (value) => value,
+    getBgAnsi: () => "",
+  };
+  for (const width of [60, 80]) {
+    const browser = new TaskBrowser(
+      view,
+      {
+        label: "Fixture",
+        identity: project,
+        load: () => Promise.resolve(view),
+        show: () => Promise.resolve(task),
+        retry: () => Promise.resolve(),
+      },
+      theme,
+      () => 100,
+      () => {},
+      () => {},
+      task.id,
+    );
+    const screen = browser.render(width).map(stripAnsi).join("\n");
+    assert.match(screen, /Verification evidence unavailable/u);
+    assert.match(screen, /Retained diff unavailable/u);
+    assert.match(screen, /Retry unavailable: writer identity/u);
+    assert.match(screen, /uncertain/u);
+    assert.doesNotMatch(screen, /Retry attempt \(guards checked/u);
+    const interactiveView = new TaskBrowser(
+      {
+        ...view,
+        retryBlocked: new Map(),
+        attempts: [
+          {
+            ...view.attempts[0],
+            ...attempt,
+            interactive: {
+              session: "retained",
+              socket: "owned-server",
+              tab: 0,
+            },
+            verification: undefined,
+          },
+        ],
+      },
+      {
+        label: "Fixture",
+        identity: project,
+        load: () => Promise.resolve(view),
+        show: () => Promise.resolve(task),
+        retry: () => Promise.resolve(),
+      },
+      theme,
+      () => 100,
+      () => {},
+      () => {},
+      task.id,
+    )
+      .render(width)
+      .map(stripAnsi)
+      .join("\n");
+    assert.match(interactiveView, /original pane binding/u);
+    assert.doesNotMatch(interactiveView, /Retry attempt \(guards checked/u);
+  }
+});
 
 await test("task narratives preserve a rejected receipt without declaring its open successor runnable", () => {
   assert.match(
@@ -114,6 +581,34 @@ await test("task narratives preserve a rejected receipt without declaring its op
     ),
     /custom_state/u,
   );
+});
+
+await test("historical failures remain inspectable without attributing absent or different ownership", () => {
+  for (const assignee of [undefined, "pi:someone-else", `pi:${attempt.id}`]) {
+    const task = { ...rejected, assignee };
+    const current = assignee === `pi:${attempt.id}`;
+    const narrative = taskNarrative(task, snapshot);
+    assert.equal(needsAttention(task, snapshot), current);
+    assert.equal(parkedDetails(task, snapshot) !== undefined, current);
+    assert.match(retainedEvidence(task, snapshot), /CANARY_REJECTED/u);
+    if (current) {
+      assert.doesNotMatch(narrative, /Historical/u);
+      assert.match(retainedEvidence(task, snapshot), /Current owner-matched/u);
+    } else {
+      assert.match(narrative, /Historical/u);
+      assert.match(narrative, /Beads currently reports “in_progress”/u);
+      assert.match(
+        narrative,
+        assignee === undefined
+          ? /no explicit current owner/u
+          : /different owner/u,
+      );
+      assert.match(
+        retainedEvidence(task, snapshot),
+        /Historical\/unattributed receipt/u,
+      );
+    }
+  }
 });
 
 await test("evidence reads are project scoped, read only, and distinguish unavailable from absent", () => {
@@ -243,7 +738,6 @@ await test("failed external links and late detail replies preserve the operator'
   failedView();
   fail.handleInput("\r");
   await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.match(failedView(), /Reject the unsafe result/u);
   assert.match(failedView(), /Dependency lookup unavailable/u);
   assert.doesNotMatch(failedView(), /No tasks in this source/u);
   fail.handleInput("\x1b");
@@ -542,7 +1036,8 @@ await test("delivery distinguishes approved intent from bound publication and hi
       delivery,
     },
   });
-  const localTask = { ...rejected, metadata: metadata() };
+  // Delivery intent starts unassigned; owner-bound cases below opt in explicitly.
+  const localTask = { ...rejected, assignee: undefined, metadata: metadata() };
   assert.ok(attempt.bead !== undefined);
   const local = {
     ...attempt,
@@ -681,7 +1176,14 @@ await test("delivery distinguishes approved intent from bound publication and hi
     deliveryText(prTask, { ...snapshot, evidenceError: "unreadable" }),
     /Unknown.*unavailable/u,
   );
-  assert.match(deliveryText(rejected, snapshot), /Unknown.*not recorded/u);
+  assert.match(
+    deliveryText({ ...rejected, assignee: undefined }, snapshot),
+    /Unknown.*not recorded/u,
+  );
+  assert.match(
+    deliveryText(rejected, snapshot),
+    /Unknown.*evidence differs or is unavailable/u,
+  );
 });
 
 await test("interactive delivery uses readonly scoped receipts and exact current approval binding", () => {
@@ -943,4 +1445,42 @@ await test("interactive delivery uses readonly scoped receipts and exact current
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+await test("completed no-command receipts are distinct from unconfirmed verifier exits and review approval", () => {
+  assert.ok(attempt.verification !== undefined);
+  const noCommand = {
+    ...attempt,
+    check: [],
+    verifier: { phase: VerificationPhase.Complete },
+    verification: { ...attempt.verification, check: [], exitCode: null },
+    review: undefined,
+  };
+  const display = (row: Execution) => {
+    const view = { ...snapshot, attempts: [row] };
+    return `${parkedDetails(rejected, view) ?? ""}\n${taskNarrative(rejected, view)}`;
+  };
+  const details = display(noCommand);
+  assert.match(details, /no executable check was agreed/iu);
+  assert.match(details, /acceptance relies on independent review/iu);
+  assert.doesNotMatch(
+    details,
+    /Verification failed|no confirmed exit|verification passed/u,
+  );
+  for (const row of [
+    { ...noCommand, verifier: undefined },
+    { ...noCommand, verifier: { phase: VerificationPhase.Running } },
+    { ...noCommand, check: ["verify"] },
+    {
+      ...noCommand,
+      verification: { ...noCommand.verification, check: ["verify"] },
+    },
+  ]) {
+    assert.match(display(row), /Verification failed or did not complete/u);
+    assert.doesNotMatch(display(row), /no executable check was agreed/iu);
+  }
+  assert.match(
+    display({ ...noCommand, reviewFinding: "Repair criterion" }),
+    /Reviewer requested changes: Repair criterion/u,
+  );
 });

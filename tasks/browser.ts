@@ -14,6 +14,8 @@ import { taskStatusGlyph } from "../ui.ts";
 import {
   currentReviewFinding,
   needsAttention,
+  ownedAttempt,
+  parkedDetails,
   plain,
   retainedEvidence,
   taskLinks,
@@ -28,6 +30,10 @@ export interface BrowserSource {
   emptyHint?: string;
   load: () => Promise<TaskSnapshot>;
   show: (id: string) => Promise<Task>;
+  retry?: (id: string) => Promise<void>;
+  diff?: (
+    attempt: import("../execution/store.ts").Execution,
+  ) => Promise<string>;
 }
 interface PanelControls {
   focused: () => boolean;
@@ -36,6 +42,8 @@ interface PanelControls {
 type Action =
   | { kind: "link"; id: string }
   | { kind: "disclosure"; section: string }
+  | { kind: "retry"; id: string }
+  | { kind: "diff"; id: string }
   | { kind: "pane"; id: string };
 interface DetailLine {
   text: string;
@@ -56,6 +64,12 @@ export class TaskBrowser {
   private bodyHeight = 1;
   private busy = false;
   private notice = "";
+  private readonly diffs = new Map<
+    string,
+    { evidence: string; text: string; capturedAt: string }
+  >();
+  private readonly diffRequests = new Map<string, number>();
+
   private closed = false;
   private pendingInspection:
     | { id: string; origin: string | undefined }
@@ -74,6 +88,20 @@ export class TaskBrowser {
     this.rows = taskTree(snapshot.tasks);
     this.selected = initialId ?? this.rows[0]?.task.id;
     this.focus = initialId === undefined ? "tree" : "inspector";
+  }
+
+  private diffEvidence(
+    attempt: import("../execution/store.ts").Execution,
+  ): string {
+    // Lease renewal does not change the retained checkout or its execution evidence.
+    return JSON.stringify({ ...attempt, heartbeatAt: undefined });
+  }
+
+  private clearDiff(id: string): number {
+    this.diffs.delete(id);
+    const request = (this.diffRequests.get(id) ?? 0) + 1;
+    this.diffRequests.set(id, request);
+    return request;
   }
 
   invalidate(): void {}
@@ -207,6 +235,53 @@ export class TaskBrowser {
       lines.push({ text: this.theme.bold(line) });
     text("");
     text(taskNarrative(task, this.snapshot));
+    const parked = parkedDetails(task, this.snapshot);
+    const owned = ownedAttempt(task, this.snapshot);
+    if (parked !== undefined && owned !== undefined) {
+      text("");
+      text(parked);
+      if (owned.checkout === undefined || owned.base === undefined)
+        text("Retained diff unavailable: checkout or base receipt missing.");
+      else if (this.source.diff === undefined)
+        text(
+          "Retained diff unavailable: the runtime project is not configured for this source.",
+        );
+      else {
+        lines.push({
+          text: "↗ Open retained diff",
+          action: { kind: "diff", id: owned.id },
+        });
+        const diff = this.diffs.get(owned.id);
+        if (diff !== undefined) {
+          text(
+            `Captured diff snapshot · ${diff.capturedAt}. Re-open retained diff to refresh after checkout edits; this view is not live.`,
+          );
+          text(diff.text);
+        }
+      }
+      if (owned.interactive !== undefined)
+        text(
+          "Retry unavailable: interactive attempts retain their original pane binding; automatic replacement is unavailable.",
+        );
+      else if (this.snapshot.retryBlocked?.has(owned.id) === true)
+        text(
+          `Retry unavailable: ${this.snapshot.retryBlocked.get(owned.id) ?? "writer state unavailable"}`,
+        );
+      else if (owned.bead === undefined || owned.revision === undefined)
+        text("Retry unavailable: admission receipt missing.");
+      else if (
+        this.source.retry !== undefined &&
+        ["needs-review", "uncertain"].includes(owned.phase)
+      ) {
+        text(
+          "Retry starts or resumes the configured runtime scheduler, including other ready work.",
+        );
+        lines.push({
+          text: "↗ Retry attempt (guards checked on invocation)",
+          action: { kind: "retry", id: owned.id },
+        });
+      } else text("Retry unavailable in this state.");
+    }
     const finding = currentReviewFinding(task, this.snapshot);
     if (finding !== undefined) {
       text("");
@@ -336,7 +411,7 @@ export class TaskBrowser {
         return this.focus === "inspector" &&
           actionIndex >= 0 &&
           actionIndex === this.activeAction
-          ? this.paint("selectedBg", this.pad(label, detailWidth))
+          ? this.paint("selectedBg", this.pad(`› ${label}`, detailWidth))
           : this.pad(label, detailWidth);
       });
     const body = Array.from({ length: this.bodyHeight }, (_, index) =>
@@ -380,6 +455,14 @@ export class TaskBrowser {
   }
 
   private update(snapshot: TaskSnapshot): void {
+    for (const [id, cached] of this.diffs) {
+      const attempt = snapshot.attempts.find((row) => row.id === id);
+      if (
+        attempt === undefined ||
+        cached.evidence !== this.diffEvidence(attempt)
+      )
+        this.clearDiff(id);
+    }
     const selected = this.selected;
     this.restoreAction = this.actions[this.activeAction]?.action;
     const index = this.rows.findIndex((row) => row.task.id === this.selected);
@@ -518,6 +601,47 @@ export class TaskBrowser {
         this.done(action.id);
       } else if (action?.kind === "link") {
         this.inspect(action.id);
+      } else if (action?.kind === "retry" && this.source.retry !== undefined) {
+        const retry = this.source.retry;
+        this.clearDiff(action.id);
+        this.run(async () => {
+          await retry(action.id);
+          this.update(await this.source.load());
+          this.notice =
+            "Retry queued; verification and review remain required.";
+        }).catch((error: unknown) => {
+          this.report(error);
+        });
+      } else if (action?.kind === "diff" && this.source.diff !== undefined) {
+        const attempt = this.snapshot.attempts.find(
+          (item) => item.id === action.id,
+        );
+        const diff = this.source.diff;
+        if (attempt !== undefined) {
+          const request = this.clearDiff(attempt.id);
+          const evidence = this.diffEvidence(attempt);
+          this.run(async () => {
+            const result = await diff(attempt);
+            const current = this.snapshot.attempts.find(
+              (row) => row.id === attempt.id,
+            );
+            if (
+              this.diffRequests.get(attempt.id) === request &&
+              current !== undefined &&
+              this.diffEvidence(current) === evidence
+            )
+              this.diffs.set(attempt.id, {
+                evidence,
+                capturedAt: new Date().toLocaleTimeString(),
+                text:
+                  result.length > 0
+                    ? result
+                    : "No retained changes in the tracked diff.",
+              });
+          }).catch((error: unknown) => {
+            this.report(error);
+          });
+        }
       } else if (this.actions.length > 0) this.activeAction = 0;
     } else if (
       matchesKey(input, NavigationKey.Right) &&

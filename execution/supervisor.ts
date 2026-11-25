@@ -74,7 +74,7 @@ export async function ensureRuntime(): Promise<void> {
     store.close();
   }
 }
-function overlaps(left: Execution, right: Execution): boolean {
+export function overlaps(left: Execution, right: Execution): boolean {
   return (
     left.project === right.project &&
     (left.owns.length === 0 ||
@@ -84,6 +84,21 @@ function overlaps(left: Execution, right: Execution): boolean {
           (b) => a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`),
         ),
       ))
+  );
+}
+/** Retained admission and queue order fence writers in the same project. */
+export function retainedConflicts(
+  attempt: Execution,
+  attempts: Execution[],
+): Execution[] {
+  const position = attempts.findIndex((row) => row.id === attempt.id);
+  return attempts.filter(
+    (other, index) =>
+      other.id !== attempt.id &&
+      other.bead !== undefined &&
+      other.phase !== ExecutionPhase.Complete &&
+      (other.phase !== ExecutionPhase.Queued || index < position) &&
+      overlaps(attempt, other),
   );
 }
 export async function maintainAttempt(
@@ -201,15 +216,8 @@ export async function serveRuntime(
               record.project === project.id &&
               record.phase === ExecutionPhase.Queued,
           )) {
-            const position = attempts.findIndex((row) => row.id === attempt.id);
-            const retainedConflict = attempts.some(
-              (other, index) =>
-                other.id !== attempt.id &&
-                other.bead !== undefined &&
-                other.phase !== ExecutionPhase.Complete &&
-                (other.phase !== ExecutionPhase.Queued || index < position) &&
-                overlaps(attempt, other),
-            );
+            const retainedConflict =
+              retainedConflicts(attempt, attempts).length > 0;
             if (
               live.filter(
                 (record) =>

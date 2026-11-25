@@ -52,6 +52,19 @@ export async function writerFence(record: Execution): Promise<boolean> {
   }
   return false;
 }
+
+/** Explicit retry must also wait for a settled host to exit after recording its result. */
+export async function retryWriterFence(record: Execution): Promise<boolean> {
+  if (await writerFence(record)) return true;
+  if (
+    record.verifier !== undefined &&
+    record.verifier.phase !== VerificationPhase.Complete
+  )
+    return true;
+  if (record.pid === undefined) return record.started !== undefined;
+  if (record.started === undefined) return true;
+  return (await alive(record.pid, record.started)) || groupExists(record.pid);
+}
 export async function retainClaim(
   store: ExecutionStore,
   service: ExecutionBeads,

@@ -117,6 +117,13 @@ test("shared runtime inputs and the full CLI integration retain their consumers"
       "beads-native (macos-latest)",
     ],
   );
+  await access(
+    fileURLToPath(new URL("../acceptance/task-recovery.py", import.meta.url)),
+  );
+  assert.deepEqual(await selected("acceptance/task-recovery.py"), [
+    "check.yml",
+    "beads.yml",
+  ]);
   assert.deepEqual(await selected("vendor/task-runtime/beads.ts"), [
     "check.yml",
     "beads.yml",

@@ -1,6 +1,9 @@
 import { basename } from "node:path";
 import { TaskPanel } from "./tasks/panel.ts";
 import { readTaskEvidence } from "./tasks/evidence.ts";
+import { retryAttempt } from "./execution/cli.ts";
+import { safeGit } from "./execution/git.ts";
+import { retryWriterFence } from "./execution/recovery.ts";
 import { registerProjectPolicy } from "./execution/policy.ts";
 import { registerDiscovery } from "./discovery/extension.ts";
 import {
@@ -340,9 +343,61 @@ export default function studioExtension(
                 : "Draft a plan with /plan-draft <description>."
               : "Tasks added in Beads will appear here.",
           show: (id) => reader.show(id),
+          ...(project === undefined
+            ? {}
+            : {
+                retry: retryAttempt,
+                diff: async (
+                  attempt: import("./execution/store.ts").Execution,
+                ) => {
+                  if (
+                    attempt.checkout === undefined ||
+                    attempt.base === undefined
+                  )
+                    throw new Error(
+                      "Retained checkout or base receipt is unavailable.",
+                    );
+                  const diff = await safeGit(
+                    project.root,
+                    attempt.checkout.path,
+                    [
+                      "diff",
+                      "--no-ext-diff",
+                      "--no-textconv",
+                      attempt.base,
+                      "--",
+                    ],
+                  );
+                  return `${diff}\nTracked diff only; untracked files are not included.`;
+                },
+              }),
           load: async () => {
             const tasks = await reader.list();
             const evidence = readTaskEvidence(projectId);
+            const retryBlocked = new Map<string, string>();
+            for (const attempt of evidence.attempts) {
+              if (!["needs-review", "uncertain"].includes(attempt.phase))
+                continue;
+              if (attempt.interactive !== undefined) {
+                retryBlocked.set(
+                  attempt.id,
+                  "interactive attempts retain their original pane binding; inspect the transcript and checkout. Automatic replacement is unavailable.",
+                );
+                continue;
+              }
+              try {
+                if (await retryWriterFence(attempt))
+                  retryBlocked.set(
+                    attempt.id,
+                    "the prior writer may still exist or its launch receipt is incomplete; reconcile it first.",
+                  );
+              } catch {
+                retryBlocked.set(
+                  attempt.id,
+                  "writer state could not be confirmed; inspect the retained execution.",
+                );
+              }
+            }
             const live =
               projectId === undefined
                 ? new Set<string>()
@@ -350,6 +405,7 @@ export default function studioExtension(
             return {
               tasks,
               ...evidence,
+              retryBlocked,
               observedAt: new Date().toLocaleTimeString(),
               focusable: new Set(
                 tasks
