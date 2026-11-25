@@ -26,6 +26,7 @@ import uuid
 import pyte
 from local_provider import tool_delta
 from PIL import Image, ImageDraw, ImageFont
+from socrates_fixture import READ_TOOL, document_read_result, document_revision
 
 
 root = Path(__file__).resolve().parents[1]
@@ -51,6 +52,17 @@ scope_gap = "The lead and its dock share a draft. Decide whether another session
 risk_gap = "Results are tagged by project. Verify a delayed poll cannot update a different session."
 verification_gap = "Question and resume are covered. A stale assessment still needs a native check."
 harmony_gap = "The dock and inspector read the same draft. Confirm they flag the same property after a revision."
+
+
+def candidate_delta(request, call_id, name, draft):
+    """Read the live document before constructing each seeded candidate."""
+    reading = document_read_result(request["messages"])
+    if reading is None:
+        return tool_delta(f"read-{call_id}", READ_TOOL, {})
+    kind = "specification" if name == "draft_socrates_specification" else "plan"
+    revision = document_revision(reading, kind)
+    assert revision is not None, f"The seeded {kind} document disappeared"
+    return tool_delta(call_id, name, {**draft, "expectedRevision": revision})
 
 
 class Provider(BaseHTTPRequestHandler):
@@ -117,26 +129,28 @@ Harmony depends on the same check. After the revision, the sidebar and inspector
 
 Should the native test change R1 and check both views?""")
         delta = {"role": "assistant", "content": reply}
-        last = request["messages"][-1]
+        # Continue the same scripted action after its native document read.
+        messages = request["messages"]
+        last = messages[-3] if document_read_result(messages) is not None else messages[-1]
         if user_messages and "Explain which properties remain open" in user_messages[-1]:
             if last["role"] == "user":
                 guidance_received.set()
                 if not release_reassessment.wait(20):
                     provider_errors.append("The property reassessment was not released")
-                delta = tool_delta("review-open-properties", "draft_socrates_specification", self.server.in_progress_draft)
+                delta = candidate_delta(request, "review-open-properties", "draft_socrates_specification", self.server.in_progress_draft)
             elif last.get("tool_call_id") == "review-open-properties" and "Draft saved" not in str(last["content"]):
                 provider_errors.append(str(last["content"]))
         elif user_messages and resolve_prompt in user_messages[-1]:
             if last["role"] == "user":
-                delta = tool_delta("close-properties", "draft_socrates_specification", self.server.ready_draft)
+                delta = candidate_delta(request, "close-properties", "draft_socrates_specification", self.server.ready_draft)
             elif last.get("tool_call_id") == "close-properties":
                 if "Properties satisfied" not in str(last["content"]):
                     provider_errors.append(str(last["content"]))
-                delta = tool_delta("confirm-graph", "draft_implementation_plan", self.server.graph_draft)
+                delta = candidate_delta(request, "confirm-graph", "draft_implementation_plan", self.server.graph_draft)
             elif last.get("tool_call_id") == "confirm-graph":
                 if "Assess every applicable property" not in str(last["content"]):
                     provider_errors.append(str(last["content"]))
-                delta = tool_delta("assess-final-graph", "draft_socrates_specification", self.server.ready_draft)
+                delta = candidate_delta(request, "assess-final-graph", "draft_socrates_specification", self.server.ready_draft)
             elif last.get("tool_call_id") == "assess-final-graph":
                 if "Properties satisfied" not in str(last["content"]):
                     provider_errors.append(str(last["content"]))
