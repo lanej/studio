@@ -141,24 +141,27 @@ function lineFilter(words: string[] | undefined): boolean {
   );
 }
 
-function quietDirectoryChange(words: string[]): boolean {
-  const path = words.at(-1);
-  return (
-    words[0] === "cd" &&
-    (words.length === 2 || (words.length === 3 && words[1] === "--")) &&
-    path !== undefined &&
-    path !== "" &&
-    !path.startsWith("-")
-  );
-}
-
 // Collect every possible stdout producer. Following a sequence or branching
 // list cannot identify which command produced a particular terminal row.
 function outputCommands(node: SyntaxNode, commands: string[][]): boolean {
   if (node.type === "command") {
     const words = commandWords(node);
     if (words === undefined) return false;
-    if (!quietDirectoryChange(words)) commands.push(words);
+    if (words[0] === "cd") {
+      const path = words.at(-1);
+      if (
+        !(words.length === 2 || (words.length === 3 && words[1] === "--")) ||
+        path === undefined ||
+        path === "" ||
+        path.startsWith("-") ||
+        path.includes("\n")
+      )
+        return false;
+      // Only bare relative paths are searched via CDPATH. On a successful
+      // lookup Bash prints the absolute directory, alongside any search output.
+      if (/^(?:\/|\.\.?(?:\/|$))/u.test(path)) return true;
+    }
+    commands.push(words);
     return true;
   }
   if (node.type === "pipeline") {

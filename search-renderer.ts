@@ -69,9 +69,16 @@ type Highlighter = (text: string, language: string) => string[];
 
 // Shell syntax establishes which commands can contribute output. Each tool's
 // arguments establish whether its rows contain source and where the language is recorded.
+interface SearchFile {
+  path: string;
+  language: string | undefined;
+  numbered: boolean;
+  context: boolean;
+}
+
 type SearchFormat =
   | { kind: "excerpt" | "numbered" | "unnumbered"; language: string }
-  | { kind: "filename"; language?: undefined };
+  | { kind: "filename"; language?: undefined; files?: SearchFile[] };
 
 // These rg switches select source lines without rewriting them. parseArgs
 // handles option values, short bundles like -nA8, long options, and --.
@@ -95,6 +102,10 @@ const rgOptions = {
   "line-regexp": { type: "boolean", short: "x" },
   "no-heading": { type: "boolean" },
   "no-ignore": { type: "boolean" },
+  "no-ignore-vcs": { type: "boolean" },
+  unrestricted: { type: "boolean", short: "u" },
+  follow: { type: "boolean", short: "L" },
+  color: { type: "string" },
   hidden: { type: "boolean" },
 } as const;
 
@@ -113,10 +124,26 @@ function ripgrepFormat(args: string[]): SearchFormat | undefined {
       files.length === 1 && path !== undefined
         ? getLanguageFromPath(path)
         : undefined;
-    if (values["with-filename"] === true || language === undefined)
-      return { kind: "filename" };
+    const numbered = values["line-number"] === true;
+    if (values["with-filename"] === true || files.length > 1) {
+      const context = [
+        values["before-context"],
+        values["after-context"],
+        values.context,
+      ].some((value) => Number(value) > 0);
+      return {
+        kind: "filename",
+        files: files.map((path) => ({
+          path,
+          language: getLanguageFromPath(path),
+          numbered,
+          context,
+        })),
+      };
+    }
+    if (language === undefined) return { kind: "filename" };
     return {
-      kind: values["line-number"] === true ? "numbered" : "unnumbered",
+      kind: numbered ? "numbered" : "unnumbered",
       language,
     };
   } catch {
@@ -142,16 +169,36 @@ function searchFormat(words: string[]): SearchFormat | undefined {
   return undefined;
 }
 
-function shellSearchFormat(args: unknown): SearchFormat | undefined {
+function shellSearchFormat(
+  args: unknown,
+  output: string,
+): SearchFormat | undefined {
   const parsed = searchArgs.safeParse(args);
   if (!parsed.success) return undefined;
   const commands = analyzeShell(
     parsed.data.sourceCommand ?? parsed.data.command,
   )?.commands;
   if (commands === undefined) return undefined;
-  const formats = commands.map(searchFormat);
+  const formats = commands
+    .filter(([command]) => command !== "cd")
+    .map(searchFormat);
+  if (formats.length !== commands.length && /^\//mu.test(output)) {
+    // A CDPATH lookup may have printed this absolute path. Bare excerpts
+    // cannot distinguish it from source; a numbered search can, unless the
+    // path itself looks like a filename-prefixed search record.
+    if (
+      formats.some((format) => format?.kind !== "numbered") ||
+      /^\/[^\n]*?([:-])\d+\1/mu.test(output)
+    )
+      return undefined;
+  }
   const first = formats[0];
-  if (first === undefined) return undefined;
+  if (first === undefined || formats.length === 1) return first;
+  if (formats.every((format) => format?.kind === "filename"))
+    return {
+      kind: "filename",
+      files: formats.flatMap((format) => format.files ?? []),
+    };
   // The shell returns one stream without command boundaries. Bare rows need
   // a common interpretation across every possible producer, including || arms.
   if (
@@ -168,6 +215,36 @@ function shellSearchFormat(args: unknown): SearchFormat | undefined {
     : undefined;
 }
 
+function highlightExplicitFile(
+  line: string,
+  files: SearchFile[],
+  highlight: Highlighter,
+): string | undefined {
+  let start: number | undefined;
+  let language: string | undefined;
+  for (const file of files) {
+    if (!line.startsWith(file.path)) continue;
+    const separator = line[file.path.length];
+    if (separator !== ":" && !(separator === "-" && file.context)) continue;
+    let offset = file.path.length + 1;
+    if (file.numbered) {
+      const gutter = /^(\d+)([:-])/u.exec(line.slice(offset));
+      if (gutter?.[2] !== separator) continue;
+      offset += gutter[0].length;
+    }
+    // Hyphenated filenames may themselves start with another filename and a
+    // context separator. A row has no escaping to resolve that ambiguity.
+    if (start !== undefined && (start !== offset || language !== file.language))
+      return line;
+    start = offset;
+    language = file.language;
+  }
+  if (start === undefined) return undefined;
+  return language === undefined
+    ? line
+    : line.slice(0, start) + highlight(line.slice(start), language).join("\n");
+}
+
 function highlightSearchRow(
   line: string,
   format: SearchFormat,
@@ -182,6 +259,10 @@ function highlightSearchRow(
     return line;
   if (format.kind === "unnumbered")
     return highlight(line, format.language).join("\n");
+  if (format.kind === "filename" && format.files !== undefined) {
+    const named = highlightExplicitFile(line, format.files, highlight);
+    if (named !== undefined) return named;
+  }
   const numbered = /^(\d+[:-])(.*)$/u.exec(line);
   if (numbered !== null) {
     const code = numbered[2] ?? "";
@@ -214,7 +295,7 @@ export function highlightSearchOutput(
     tool === "grep"
       ? { kind: "filename" }
       : tool === "bash"
-        ? shellSearchFormat(args)
+        ? shellSearchFormat(args, output)
         : undefined;
   if (format === undefined) return output;
   const footer =

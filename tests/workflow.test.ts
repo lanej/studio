@@ -114,6 +114,38 @@ await test("search rendering highlights only identifiable source, preserving pre
   );
 });
 
+await test("CDPATH output is kept separate from discovered source", async () => {
+  await prepareShellSyntax();
+  const color = (text: string, language: string) => [`[${language}]${text}`];
+  const render = (command: string, text: string) =>
+    highlightSearchOutput("bash", { command }, text, color);
+  const cd = "cd -- project";
+  const unnumbered = "rg value src.ts";
+  const numbered = "rg -n value src.ts";
+  const source = "const value = 1;";
+  const directory = "/work/project";
+  const combined = `${directory}\n${source}`;
+  assert.equal(
+    render(`${cd} && ${unnumbered}`, source),
+    `[typescript]${source}`,
+  );
+  assert.equal(render(`${cd} && ${unnumbered}`, combined), combined);
+  assert.equal(render(`${cd} && sed -n '1p' src.ts`, combined), combined);
+  assert.equal(
+    render(`${cd} && ${numbered}`, `${directory}\n2:${source}`),
+    `${directory}\n2:[typescript]${source}`,
+  );
+  const ambiguous = `/work/nested.ts:4:path\n2:${source}`;
+  assert.equal(render(`${cd} && ${numbered}`, ambiguous), ambiguous);
+  for (const path of ["./project", "../project", "/work/project"])
+    assert.equal(
+      render(`cd ${path} && ${unnumbered}`, "// value"),
+      "[typescript]// value",
+    );
+  for (const option of ["-", "-P project", '"$target"'])
+    assert.equal(render(`cd ${option} && ${unnumbered}`, combined), combined);
+});
+
 await test("compact model names preserve versions, variants, and unknown IDs", () => {
   assert.equal(footerModelLabel("gpt-6.1-sol"), "⊛ 6.1 \uE30D");
   assert.equal(footerModelLabel("openai.gpt-6.1-terra"), "⊛ 6.1 \uF0AC");

@@ -324,3 +324,61 @@ await test("combined shell searches keep a language only when each output row ca
     prefixed,
   );
 });
+
+await test("ripgrep filenames identify numbered and bare source across search filters", async () => {
+  await prepareShellSyntax();
+  const render = (command: string, output: string) =>
+    highlightSearchOutput("bash", { command }, output, (code, language) => [
+      `[${language}]${code}`,
+    ]);
+  const files = "001-lead-plan.ts delivery-rules.py";
+  for (const flags of [
+    "-u",
+    "-uu",
+    "-uuu",
+    "--color never",
+    "--color=auto --no-ignore-vcs",
+  ])
+    assert.equal(
+      render(`rg -n ${flags} needle src`, "src/app.ts:4:const needle = 1;"),
+      "src/app.ts:4:[typescript]const needle = 1;",
+    );
+  assert.equal(
+    render(
+      "rg -n -H needle 001-lead-plan.ts",
+      "001-lead-plan.ts:4:const needle = 1;",
+    ),
+    "001-lead-plan.ts:4:[typescript]const needle = 1;",
+  );
+  assert.equal(
+    render(
+      "rg -H needle 001-lead-plan.ts",
+      "001-lead-plan.ts:const needle = 1;",
+    ),
+    "001-lead-plan.ts:[typescript]const needle = 1;",
+  );
+  const rows =
+    "001-lead-plan.ts:const needle = 1;\ndelivery-rules.py-    return 2";
+  for (const command of [
+    `rg -A1 needle ${files}`,
+    "rg -H needle 001-lead-plan.ts && rg -H -A1 needle delivery-rules.py",
+  ])
+    assert.equal(
+      render(command, rows),
+      "001-lead-plan.ts:[typescript]const needle = 1;\ndelivery-rules.py-[python]    return 2",
+    );
+  // This could be a context line from a.ts or a matching line from a.ts-tools.py.
+  const ambiguous = "a.ts-tools.py:needle";
+  assert.equal(
+    render("rg -A1 needle a.ts a.ts-tools.py", ambiguous),
+    ambiguous,
+  );
+  assert.equal(
+    render("rg needle a.ts a.ts-tools.py", ambiguous),
+    "a.ts-tools.py:[python]needle",
+  );
+  assert.equal(
+    render("rg -u --replace value needle app.ts", "app.ts:4:value"),
+    "app.ts:4:value",
+  );
+});
