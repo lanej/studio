@@ -135,9 +135,9 @@ export const configSchema = z
       .strict()
       .default({ enabled: true }),
     delegation: z
-      .object({ enabled: z.boolean().default(false) })
+      .object({ enabled: z.boolean().default(true) })
       .strict()
-      .default({ enabled: false }),
+      .prefault({}),
     archives: z
       .object({
         database: z
@@ -256,7 +256,7 @@ export const exampleConfig = {
     worktrees: { enabled: true, executable: "worktree" },
     octo: { enabled: true, executable: "octo-manager" },
   },
-  delegation: { enabled: false },
+  delegation: { enabled: true },
   idleCompaction: { enabled: true, idleMs: 300_000, minimumContextPercent: 60 },
   beadsService: {
     url: "http://127.0.0.1:8790",

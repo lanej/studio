@@ -56,7 +56,6 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
       worktrees: { enabled: true, executable: managerExecutable },
     },
     idleCompaction: { enabled: false },
-    delegation: { enabled: true },
     profiles: {
       work: Object.fromEntries(
         Object.values(AgentRole).map((role) => [
@@ -79,7 +78,10 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
           baseUrl: "https://bedrock-mantle.us-east-1.api.aws/v1",
           api: "openai-completions",
           apiKey: "fixture",
-          models: [{ id: "tiny", reasoning: true }],
+          models: [
+            { id: "tiny", reasoning: true },
+            { id: "other", reasoning: true },
+          ],
         },
       },
     }),
@@ -275,12 +277,35 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
     const driver = runtime.session.extensionRunner;
     const profileCommand = driver.getCommand("studio-profile");
     assert.ok(profileCommand !== undefined);
-    await profileCommand.handler("work", driver.createCommandContext());
+    assert.ok(!runtime.session.getActiveToolNames().includes(delegateTool));
+    const selectWork = () =>
+      profileCommand.handler("work", driver.createCommandContext());
+    await selectWork();
+    assert.ok(runtime.session.getActiveToolNames().includes(delegateTool));
+    const other = driver
+      .createCommandContext()
+      .modelRegistry.find("fixture", "other");
+    assert.ok(other !== undefined);
+    await runtime.session.setModel(other);
+    assert.ok(!runtime.session.getActiveToolNames().includes(delegateTool));
+    await selectWork();
     assert.ok(runtime.session.getActiveToolNames().includes(delegateTool));
     runtime.session.setThinkingLevel("high");
     await cd(target);
     assert.ok(runtime.session.getActiveToolNames().includes(delegateTool));
     assert.equal(runtime.session.thinkingLevel, "high");
+    await writeFile(
+      configFile,
+      JSON.stringify({ ...config, delegation: { enabled: false } }),
+    );
+    await cd(source);
+    assert.ok(!runtime.session.getActiveToolNames().includes(delegateTool));
+    await writeFile(
+      configFile,
+      JSON.stringify({ ...config, integrations: {} }),
+    );
+    await cd(target);
+    assert.ok(!runtime.session.getActiveToolNames().includes(delegateTool));
     await writeFile(configFile, JSON.stringify({ ...config, profiles: {} }));
     await cd(source);
     assert.equal(

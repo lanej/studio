@@ -7,6 +7,11 @@ min_split_columns = 40
 # added_background = "#304639"
 # removed_background = "#47343f"
 
+# Managed explorers and reviewers are enabled for an eligible lead.
+# To opt out, uncomment both lines.
+# [delegation]
+# enabled = false
+
 # Unattended execution is disabled until explicitly configured and enrolled.
 [runtime]
 enabled = false
