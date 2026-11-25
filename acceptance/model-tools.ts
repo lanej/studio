@@ -109,7 +109,10 @@ function lastClaudeToolResult(request: unknown, callId: string) {
 const declaration = z.looseObject({ name: z.string() });
 const payload = z.looseObject({ tools: z.array(declaration) });
 
-await test("Pi sends native tool contracts, executes calls and restores the active tool set on model change", async (t) => {
+const transportAcceptance =
+  "Pi sends native tool contracts, executes calls and restores the active tool set on model change";
+
+await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), "studio-model-tools-"));
   t.after(() => rm(cwd, { force: true, recursive: true }));
   const file = join(cwd, "message.txt");

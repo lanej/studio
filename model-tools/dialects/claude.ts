@@ -1,5 +1,6 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { Assert } from "typebox/value";
 import { z } from "zod";
 import {
   editReason,
@@ -91,22 +92,28 @@ const write = defineTool({
   },
 });
 
+const editParameters = Type.Object(
+  {
+    file_path: filePath,
+    old_string: Type.String({ minLength: 1 }),
+    new_string: Type.String(),
+    reason: editReason,
+    replace_all: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: false },
+);
+
 const edit = defineTool({
   name: "Edit",
   label: "Edit",
   description:
     "Replace exact text in a file. old_string must match once unless replace_all is true. Use additional surrounding text to distinguish repeated matches.",
-  parameters: Type.Object(
-    {
-      file_path: filePath,
-      old_string: Type.String({ minLength: 1 }),
-      new_string: Type.String(),
-      reason: editReason,
-      replace_all: Type.Optional(Type.Boolean()),
-    },
-    { additionalProperties: false },
-  ),
-  prepareArguments: requireEditReason,
+  parameters: editParameters,
+  prepareArguments(raw) {
+    const args = requireEditReason(raw);
+    Assert(editParameters, args);
+    return args;
+  },
   execute(_id, args, _signal, onUpdate, ctx) {
     return replaceText(
       ctx,
