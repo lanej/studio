@@ -5,6 +5,7 @@ import {
   documentReadTool,
   documentOutcomeTool,
 } from "./planning/document-hooks.ts";
+import { admittedDiagramAlias } from "./model-tools/extension.ts";
 import { diagramTool } from "./diagram/extension.ts";
 import { mermaidTool } from "./diagram/mermaid-tool.ts";
 import { renderPlanCall } from "./plan-renderer.ts";
@@ -132,7 +133,8 @@ export function registerLeadControls(
     requireBinding,
     approvalPending,
   );
-  const permits = (tool: string) => {
+  const permits = (name: string, ctx: ExtensionContext) => {
+    const tool = admittedDiagramAlias(pi, name, ctx.model?.id) ?? name;
     const spec = db.get(id).specification;
     if (tool === specTool || tool === askTool) {
       return (
@@ -151,7 +153,7 @@ export function registerLeadControls(
     pi.setActiveTools(
       pi
         .getAllTools()
-        .filter((tool) => permits(tool.name))
+        .filter((tool) => permits(tool.name, ctx))
         .map((tool) => tool.name),
     );
     ctx.ui.setStatus(FooterStatus.Plan, mode() ?? LeadMode.Planning);
@@ -182,7 +184,7 @@ export function registerLeadControls(
     },
   }));
   pi.on("tool_call", async (event, ctx) => {
-    if (!permits(event.toolName))
+    if (!permits(event.toolName, ctx))
       return {
         block: true,
         reason: "This tool is unavailable in the current lead mode",
