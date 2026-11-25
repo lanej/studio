@@ -521,7 +521,6 @@ export function registerDiscovery(
                 },
                 { label: "Project", value: target.root },
                 { label: "Beads", value: target.id },
-                { label: "Profile", value: target.profile },
               ],
               publications: draft.tasks
                 .filter((task) => task.delivery === TaskDelivery.PullRequest)

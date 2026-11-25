@@ -51,7 +51,6 @@ const review: PlanReview = {
     { label: "Execution", value: "interactive in Zellij work, tab 2" },
     { label: "Project", value: "/example/local-project" },
     { label: "Beads", value: "example-beads" },
-    { label: "Profile", value: "personal" },
   ],
   publications: [
     { label: "PR from publish", value: "Includes source, publish" },
@@ -105,7 +104,6 @@ test("approval displays the colored dependency graph and complete structured con
     "Execution  interactive in Zellij work, tab 2",
     "Project    /example/local-project",
     "Beads      example-beads",
-    "Profile    personal",
     "PR from publish  Includes source, publish",
     "Keep the first scope local.\nPreserve the next paragraph.",
     "Acceptance    Local integration is verified.",

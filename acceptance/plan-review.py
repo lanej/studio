@@ -55,7 +55,6 @@ export default function(pi) {{
         {{label:'Execution',value:'background'}},
         {{label:'Project',value:{json.dumps(str(project))}}},
         {{label:'Beads',value:'a937016c-0f84-46a8-b579-333cbf926866'}},
-        {{label:'Profile',value:'personal'}},
       ],
       publications: [
         {{label:'PR from json-export',value:'Includes event-schema, json-export'}},
@@ -111,7 +110,7 @@ export default function(pi) {{
                     captured_details = True
             else:
                 raise AssertionError("Approval action never became available\n" + terminal.text())
-            for field in ("Execution", "background", "Project", "event-export", "Beads", "a937016c", "Profile", "personal", "Includes event-schema, json-export", "Acceptance", "Requirements", "Owns", "Admission", "on hold", "Delivery", "Verification", "schema/events.json", "Blocked by", "R1", "Merge manually"):
+            for field in ("Execution", "background", "Project", "event-export", "Beads", "a937016c", "Includes event-schema, json-export", "Acceptance", "Requirements", "Owns", "Admission", "on hold", "Delivery", "Verification", "schema/events.json", "Blocked by", "R1", "Merge manually"):
                 assert field in seen, f"Review lost {field!r}"
             assert not receipt.exists(), "Scrolling submitted the plan"
             terminal.capture("plan-review-end")
