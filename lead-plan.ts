@@ -14,6 +14,31 @@ export enum TaskDelivery {
   PullRequest = "pull-request",
 }
 
+export function deliveryOutcome(delivery?: TaskDelivery): string {
+  return delivery === TaskDelivery.PullRequest
+    ? "Opens a PR"
+    : "Local integration only — no PR";
+}
+
+export function reviseDelivery(draft: LeadDraft, argument: string): LeadDraft {
+  const [key, mode, ...extra] = argument.trim().split(/\s+/u);
+  if (
+    extra.length > 0 ||
+    key === undefined ||
+    key.length === 0 ||
+    (mode !== TaskDelivery.Local && mode !== TaskDelivery.PullRequest)
+  )
+    throw new Error("Usage: /plan-delivery <task-key> <local|pull-request>");
+  if (!draft.tasks.some((task) => task.key === key))
+    throw new Error(`No task named ${key} in the draft`);
+  return {
+    ...draft,
+    tasks: draft.tasks.map((task) =>
+      task.key === key ? { ...task, delivery: mode } : task,
+    ),
+  };
+}
+
 const taskKey = z
   .string()
   .regex(/^[a-z][a-z0-9-]{0,31}$/u)
@@ -116,7 +141,7 @@ export function taskReviewLines(task: LeadDraft["tasks"][number]): string[] {
       : []),
     `Owns · ${task.owns.length === 0 ? "the entire isolated checkout" : task.owns.join(", ")}`,
     `Admission · ${task.hold === true ? "on hold" : "when ready"}`,
-    `Delivery · ${task.delivery ?? TaskDelivery.Local}`,
+    `Delivery · ${deliveryOutcome(task.delivery)}${task.delivery === undefined ? " (default)" : ""}`,
     `Verification · ${task.check === undefined || task.check.length === 0 ? "independent criterion review; no executable agreed" : JSON.stringify(task.check)}`,
     ...(task.blockedBy.length > 0
       ? [`Blocked by · ${task.blockedBy.join(", ")}`]
@@ -129,6 +154,7 @@ export function describePlan(draft: LeadDraft): string {
   let displayedWave = 0;
   return [
     draft.summary,
+    "Change a proposal before approval: /plan-delivery <task-key> <local|pull-request>",
     ...orderedTasks(draft).flatMap((task) => {
       const wave = waves.get(task.key) ?? 0;
       const heading =

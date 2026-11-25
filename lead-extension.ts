@@ -19,6 +19,8 @@ import {
   draftSchema,
   LeadMode,
   planDigest,
+  reviseDelivery,
+  TaskDelivery,
 } from "./lead-plan.ts";
 import { SpecStatus } from "./socrates/spec.ts";
 import { askTool, registerSocrates, specTool } from "./socrates/controls.ts";
@@ -186,6 +188,7 @@ export function registerLeadControls(
           blockedBy: Type.Optional(Type.Array(Type.String())),
           requirements: Type.Optional(Type.Array(Type.String())),
           owns: Type.Optional(Type.Array(Type.String())),
+          delivery: Type.Optional(Type.Enum(TaskDelivery)),
         }),
       ),
     }),
@@ -239,11 +242,33 @@ export function registerLeadControls(
         content: [
           {
             type: "text",
-            text: "Draft saved. /plan to inspect · /plan-approve to review",
+            text: "Draft saved. /plan to inspect · /plan-delivery <task-key> <local|pull-request> to change delivery · /plan-approve to review",
           },
         ],
         details: {},
       };
+    },
+  });
+  pi.registerCommand("plan-delivery", {
+    description:
+      "Change a proposed task delivery: <task-key> <local|pull-request>",
+    async handler(argument, ctx) {
+      await requireBinding(ctx);
+      db.change(id, (row) => {
+        if (
+          row.leadPlan?.mode !== LeadMode.Planning ||
+          row.leadPlan.draft === null
+        )
+          throw new Error("No unapproved draft to revise");
+        row.leadPlan = {
+          ...row.leadPlan,
+          draft: reviseDelivery(row.leadPlan.draft, argument),
+        };
+      });
+      ctx.ui.notify(
+        "Delivery proposal updated. Use /plan to review it.",
+        "info",
+      );
     },
   });
   pi.registerCommand("octo-inbox", {

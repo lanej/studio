@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import {
   TaskBeads,
-  beadSchema,
+  ClaimRefused,
   owner,
   type NativeBead,
 } from "../task-service.ts";
@@ -11,6 +11,17 @@ import type { StudioProfile } from "../config.ts";
 import { orderedTasks, type LeadDraft } from "../lead-plan.ts";
 import { run } from "../process.ts";
 import type { RuntimeProject } from "./store.ts";
+
+/** This marker records an interactive parent's plan, never unattended authority. */
+export function interactiveTask(bead: NativeBead): boolean {
+  return Object.hasOwn(bead.metadata, "pi.plan_task");
+}
+export function requireUnattendedTask(bead: NativeBead): void {
+  if (interactiveTask(bead))
+    throw new Error(
+      "Task-bound interactive children require studio start with their approved delivery mode; unattended execution is disabled",
+    );
+}
 
 export class ExecutionBeads extends TaskBeads {
   private requireWritable(): void {
@@ -37,34 +48,84 @@ export class ExecutionBeads extends TaskBeads {
   }
   async claimNext(attempt: string): Promise<NativeBead | undefined> {
     this.requireWritable();
-    const result = await this.result(
-      this.client.POST("/v0/beads/issues:claimNext", {
-        params: {
-          query: {
-            unassigned: true,
-            include_deferred: false,
-            include_ephemeral: false,
-            exclude_type: ["epic"],
+    const list = (limit: number) =>
+      this.result(
+        this.client.GET("/v0/beads/ready", {
+          params: {
+            query: {
+              unassigned: true,
+              include_deferred: false,
+              include_ephemeral: false,
+              exclude_type: ["epic"],
+              limit,
+            },
           },
-        },
-        body: { actor: owner(attempt) },
-      }),
-    );
-    if (result.claimed === undefined) return undefined;
-    const won = beadSchema.omit({ revision: true }).parse(result.claimed);
-    const detailed = await this.get(won.id);
-    if (
-      detailed.status !== "in_progress" ||
-      detailed.assignee !== owner(attempt) ||
-      detailed.title !== won.title ||
-      detailed.description !== won.description ||
-      detailed.acceptance_criteria !== won.acceptance_criteria ||
-      !isDeepStrictEqual(detailed.metadata, won.metadata)
-    )
-      throw new Error(
-        "The atomically claimed brief changed before its guarded detail read",
+        }),
       );
-    return detailed;
+    // The atomic queue API cannot exclude a metadata key. Inspect the complete ready
+    // set, then retain the existing revision/status/owner CAS for the chosen brief.
+    let ready = await list(1000);
+    if (ready.has_more) {
+      const count = await this.result(
+        this.client.GET("/v0/beads/ready:count", {
+          params: {
+            query: {
+              unassigned: true,
+              include_deferred: false,
+              include_ephemeral: false,
+              exclude_type: ["epic"],
+            },
+          },
+        }),
+      );
+      ready = await list(Math.max(1, count.total));
+    }
+    if (ready.has_more)
+      throw new Error(
+        "Ready-work inventory is truncated; no unattended claim was sent",
+      );
+    for (const candidate of ready.items) {
+      if (Object.hasOwn(candidate.metadata ?? {}, "pi.plan_task")) continue;
+      const before = await this.get(candidate.id);
+      if (
+        interactiveTask(before) ||
+        before.status !== "open" ||
+        before.assignee !== ""
+      )
+        continue;
+      try {
+        const revision = await this.claim(before, attempt);
+        const detailed = await this.get(before.id);
+        if (
+          interactiveTask(detailed) ||
+          detailed.revision !== revision ||
+          detailed.status !== "in_progress" ||
+          detailed.assignee !== owner(attempt) ||
+          detailed.title !== before.title ||
+          detailed.description !== before.description ||
+          detailed.acceptance_criteria !== before.acceptance_criteria ||
+          !isDeepStrictEqual(detailed.metadata, {
+            ...before.metadata,
+            "pi.attempt": attempt,
+          })
+        )
+          throw new Error(
+            "The claimed task authority changed; inspect the retained claim before dispatch",
+          );
+        return detailed;
+      } catch (error) {
+        // Only a definite rejected CAS/readiness race permits trying another row.
+        // Transport failures retain this actor for ownership reconciliation.
+        if (
+          error instanceof ClaimRefused &&
+          ((error.cause instanceof BeadsError && error.cause.status === 409) ||
+            error.message === "Beads reports that this task is not ready")
+        )
+          continue;
+        throw error;
+      }
+    }
+    return undefined;
   }
   async owned(attempt: string): Promise<NativeBead[]> {
     const result = await this.result(

@@ -377,6 +377,9 @@ export async function startTask(
     throw new Error(
       "Configure beadsService.url and beadsService.projectId to start a native bead",
     );
+  const service = new TaskBeads(source);
+  const bead = await service.get(id);
+  await service.requireDeliveryLaunch(bead, lead);
   const model =
     config.profiles[profile]?.[lead ? AgentRole.Lead : AgentRole.Worker];
   if (model === undefined)
@@ -394,12 +397,10 @@ export async function startTask(
   const zellij = new Zellij(session);
   const attempt = randomUUID();
   const manager = new WorktreeManager(managerExecutable);
-  const service = new TaskBeads(source);
   await access(extension, constants.R_OK);
-  const [binary, reservation, bead, tab] = await Promise.all([
+  const [binary, reservation, tab] = await Promise.all([
     piExecutable(),
     manager.prepare(process.cwd(), attempt, `pi/bead-${attempt}`, "HEAD", "pi"),
-    service.get(id),
     zellij.launchTab(targetTab),
   ]);
   const db = new Attempts(stateDirectory());

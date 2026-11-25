@@ -17,6 +17,7 @@ import {
   describePlan,
   draftSchema,
   planDigest,
+  reviseDelivery,
 } from "../lead-plan.ts";
 import { isEntry, PiEntryType } from "../runtime.ts";
 import { reviewPlan } from "../ui.ts";
@@ -325,7 +326,7 @@ export function registerDiscovery(
         content: [
           {
             type: "text",
-            text: "Draft saved. /plan to inspect · /plan-approve to review",
+            text: "Draft saved. /plan to inspect · /plan-delivery <task-key> <local|pull-request> to change delivery · /plan-approve to review",
           },
         ],
         details: {},
@@ -337,6 +338,31 @@ export function registerDiscovery(
     async handler(_arg, ctx) {
       await requireBinding(ctx);
       await socrates.inspect(ctx, "implementation");
+    },
+  });
+  pi.registerCommand("plan-delivery", {
+    description:
+      "Change a proposed task delivery: <task-key> <local|pull-request>",
+    async handler(argument, ctx) {
+      const record = await requireBinding(ctx);
+      storage((db) =>
+        db.change(record.id, (row) => {
+          if (
+            row.approved !== undefined ||
+            row.leadPlan.mode !== LeadMode.Planning ||
+            row.leadPlan.draft === null
+          )
+            throw new Error("No unapproved draft to revise");
+          row.leadPlan = {
+            ...row.leadPlan,
+            draft: reviseDelivery(row.leadPlan.draft, argument),
+          };
+        }),
+      );
+      ctx.ui.notify(
+        "Delivery proposal updated. Use /plan to review it.",
+        "info",
+      );
     },
   });
   pi.registerCommand("plan-approve", {
