@@ -32,21 +32,20 @@ function count(label: string, value: number, tone: StatusTone): StatusCount {
   return { label, value, tone };
 }
 
-function propertyGroups(conditions: readonly Condition[]): StatusGroup[] {
+export interface AssessedCondition extends Condition {
+  readonly state: Exclude<ConditionState, ConditionState.Unknown>;
+  readonly details: string;
+}
+
+function propertyGroups(
+  conditions: readonly AssessedCondition[],
+): StatusGroup[] {
   const groups: StatusGroup[] = [
     { id: "attention", label: "Needs attention", tone: "warning", items: [] },
     {
       id: "satisfied",
       label: "Satisfied",
       tone: "success",
-      items: [],
-      collapsed: true,
-      showStatusLabels: false,
-    },
-    {
-      id: "unknown",
-      label: "Not assessed",
-      tone: "muted",
       items: [],
       collapsed: true,
       showStatusLabels: false,
@@ -63,7 +62,6 @@ function propertyGroups(conditions: readonly Condition[]): StatusGroup[] {
   const byState = {
     [ConditionState.Partial]: "attention",
     [ConditionState.Open]: "attention",
-    [ConditionState.Unknown]: "unknown",
     [ConditionState.Satisfied]: "satisfied",
     [ConditionState.NotApplicable]: "na",
   };
@@ -201,7 +199,7 @@ export function implementationColumn(
 
 export function specificationColumn(
   spec: LeadSpecification | undefined,
-  conditions: Condition[],
+  conditions: AssessedCondition[],
   activity: Activity,
   implementation: ImplementationPresentation,
 ): StatusColumn {
@@ -219,7 +217,6 @@ export function specificationColumn(
     count("open", c.open, "warning"),
     count("partial", c.partial, "warning"),
     count("satisfied", c.satisfied, "success"),
-    count("not assessed", c.unknown, "muted"),
     count("N/A", c.notApplicable, "muted"),
   ].filter((entry) => entry.value > 0);
   const version = `v${String(spec.version)}`;

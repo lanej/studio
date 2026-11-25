@@ -12,7 +12,6 @@ import {
   renderStatusDock,
   type StatusColumn,
   type Activity,
-  type Condition,
   type StatusTheme,
 } from "@lanej/pi-components";
 import {
@@ -26,7 +25,11 @@ import {
   specificationGaps,
   SpecStatus,
 } from "./spec.ts";
-import { implementationColumn, specificationColumn } from "./columns.ts";
+import {
+  type AssessedCondition,
+  implementationColumn,
+  specificationColumn,
+} from "./columns.ts";
 import {
   assessmentRevision,
   implementationPresentation,
@@ -53,7 +56,7 @@ export interface SocratesActivity {
 export interface SocratesPresentation {
   id: string;
   title: string;
-  conditions: Condition[];
+  conditions: AssessedCondition[];
   activity: Activity;
   summary: string;
   implementation: ImplementationPresentation;
@@ -63,7 +66,6 @@ export interface SocratesPresentation {
 }
 
 const conditionStates = {
-  unknown: ConditionState.Unknown,
   satisfied: ConditionState.Satisfied,
   partial: ConditionState.Partial,
   open: ConditionState.Open,
@@ -100,20 +102,27 @@ export function socratesPresentation(
   const fresh = coverageFresh(spec, revision);
   const properties = coverageProperties(spec.draft);
   const conditions = properties.map(
-    (property): Condition => ({
+    (property): AssessedCondition => ({
       id: property.id,
       label: property.label,
       state: conditionStates[property.status],
-      stale: property.status !== "unknown" && !fresh,
-      details: property.reason ?? "No assessment recorded for this property.",
+      stale: property.recorded && !fresh,
+      details: property.reason,
     }),
   );
   const counts = conditionCounts(conditions);
+  const outstanding =
+    counts.satisfied + counts.notApplicable < conditions.length;
+  const reviewBeforeHandoff =
+    spec.status === SpecStatus.Frozen &&
+    observation.bead === undefined &&
+    observation.approved === undefined &&
+    observation.handoff === undefined &&
+    outstanding;
   const summary = [
     `${String(counts.satisfied)} satisfied`,
     ...(counts.partial > 0 ? [`${String(counts.partial)} partial`] : []),
     ...(counts.open > 0 ? [`${String(counts.open)} open`] : []),
-    ...(counts.unknown > 0 ? [`${String(counts.unknown)} not assessed`] : []),
     ...(counts.stale > 0 ? [`${String(counts.stale)} recheck`] : []),
     ...(counts.notApplicable > 0
       ? [`${String(counts.notApplicable)} not applicable`]
@@ -143,8 +152,15 @@ export function socratesPresentation(
         detail: "Awaiting incorporation into the draft",
       };
     }
-    if (spec.status === SpecStatus.Frozen)
+    if (spec.status === SpecStatus.Frozen) {
+      if (reviewBeforeHandoff)
+        return {
+          state: live.working ? ActivityState.Working : ActivityState.Idle,
+          label: "Review properties before handoff",
+          detail: "Review the property evidence against the current breakdown.",
+        };
       return { state: ActivityState.Idle, label: "Specification frozen" };
+    }
     if (live.working)
       return {
         state: ActivityState.Working,
@@ -174,7 +190,6 @@ export function socratesPresentation(
       questions === 0 &&
       counts.open === 0 &&
       counts.partial === 0 &&
-      counts.unknown === 0 &&
       observation.bead === undefined &&
       !hasSettledDeliveryPolicy(spec.draft)
     )
@@ -204,8 +219,9 @@ export function socratesPresentation(
     conditions,
     prioritizeSpecification:
       spec.acceptedRevision !== revision ||
+      reviewBeforeHandoff ||
       (spec.status !== SpecStatus.Frozen &&
-        (counts.satisfied + counts.notApplicable < conditions.length ||
+        (outstanding ||
           (observation.bead === undefined &&
             specificationGaps(spec, revision).length > 0))),
     activity: currentActivity,

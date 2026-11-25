@@ -181,7 +181,7 @@ export class Discoveries {
         if (
           row.revision !== expected.revision ||
           row.project !== expected.project ||
-          row.specification?.version !== expected.specification?.version ||
+          !isDeepStrictEqual(row.specification, expected.specification) ||
           row.leadPlan.draft === null ||
           planDigest(row.leadPlan.draft) !== digest
         )

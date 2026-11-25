@@ -64,7 +64,18 @@ COVERAGE = {
 }
 
 
-def dispatch_spec(resolved: bool) -> dict:
+def dispatch_spec(resolved: bool, *, ordered: bool = False) -> dict:
+    pending = {}
+    if not resolved:
+        pending.update({
+            "interpretation": "D1 still allows two sources for the second worker's marker.",
+            "parsimony": "The need for a predecessor edge depends on D1.",
+        })
+    if not ordered:
+        pending.update({
+            "execution-readiness": "The second worker's start rule still needs a verified dependency.",
+            "harmony": "The proposed dependency must be reconciled with D1.",
+        })
     return {
         "objective": "Verify the interactive marker handoff.",
         "scope": ["The three named marker files in disposable worktrees"],
@@ -81,10 +92,10 @@ def dispatch_spec(resolved: bool) -> dict:
         "deliveryPolicy": {"decisionId": "D2", "pullRequests": "none"},
         "blockingQuestions": [] if resolved else [QUESTION],
         "coverage": {"domains": ["engineering"], "assessments": [
-            {"propertyId": key, "status": "satisfied", "reason": reason}
+            {"propertyId": key, "status": "partial" if key in pending else "satisfied",
+             "reason": pending.get(key, reason)}
             for key, reason in COVERAGE.items()
-        ] if resolved else [{"propertyId": "execution-readiness", "status": "partial",
-                             "reason": "D1 determines whether the second worker can start independently."}]},
+        ]},
     }
 
 
@@ -112,6 +123,9 @@ def discovery_response(request: CompletionRequest) -> ToolDelta | TextDelta:
         return tool_delta("provisional-plan", "draft_implementation_plan", dispatch_plan(False))
     if call == "provisional-plan":
         assert "Draft saved" in result, result
+        return tool_delta("assess-provisional-plan", "draft_socrates_specification", dispatch_spec(False))
+    if call == "assess-provisional-plan":
+        assert "Draft saved" in result, result
         return tool_delta("ask-dependency", "ask_user_question", {
             "decisionId": "D1", "question": QUESTION, "options": [
                 {"label": WAIT, "description": "Consume the accepted result after verification."},
@@ -122,9 +136,15 @@ def discovery_response(request: CompletionRequest) -> ToolDelta | TextDelta:
         assert WAIT in result, result
         return tool_delta("resolved-spec", "draft_socrates_specification", dispatch_spec(True))
     if call == "resolved-spec":
-        assert "Properties satisfied" in result, result
+        assert "Draft saved" in result, result
         return tool_delta("updated-plan", "draft_implementation_plan", dispatch_plan(True))
-    assert call in ("updated-plan", "frozen-plan") and "Draft saved" in result, last
+    if call == "updated-plan":
+        assert "Draft saved" in result, result
+        return tool_delta("assess-updated-plan", "draft_socrates_specification", dispatch_spec(True, ordered=True))
+    if call == "assess-updated-plan":
+        assert "Properties satisfied" in result, result
+    else:
+        assert call == "frozen-plan" and "Draft saved" in result, last
     reply = "The frozen plan is ready for approval." if call == "frozen-plan" else "The dependency is recorded in the plan."
     return {"role": "assistant", "content": reply}
 
@@ -257,6 +277,8 @@ def exercise_interactive_dispatch(fixture: Fixture, terminal: Terminal, lead: in
 
             provisional = discovery()
             assert provisional["specification"]["status"] == "interrogating"
+            assessments = provisional["specification"]["draft"]["coverage"]["assessments"]
+            assert {item["propertyId"] for item in assessments} == set(COVERAGE)
             assert provisional["leadPlan"]["draft"]["tasks"][1]["blockedBy"] == []
             assert provisional["specification"]["draft"]["deliveryPolicy"] == {"decisionId": "D2", "pullRequests": "none"}
             assert all(task["delivery"] == "local" for task in provisional["leadPlan"]["draft"]["tasks"])

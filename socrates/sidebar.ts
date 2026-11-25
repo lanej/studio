@@ -248,21 +248,11 @@ function specificationRows(
     return rows;
   }
   for (const group of groups.slice(0, footerHeight)) {
-    const showNames = prioritize && group.id === "unknown" && room > 0;
-    const mark = showNames ? "○" : "▸";
     rows.push(
       theme[group.tone ?? "muted"](
-        `${mark} ${inline(group.label)} ${String(group.items.length)}`,
+        `▸ ${inline(group.label)} ${String(group.items.length)}`,
       ),
     );
-    if (showNames) {
-      const names = group.items.map((item) => inline(item.label)).join(" · ");
-      rows.push(
-        ...excerpt(wrapped(names, width - 2), room, width - 2).map((line) =>
-          theme.muted(`  ${line}`),
-        ),
-      );
-    }
   }
   return rows;
 }

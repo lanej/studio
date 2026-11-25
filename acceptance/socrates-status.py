@@ -32,6 +32,8 @@ root = Path(__file__).resolve().parents[1]
 palette = json.loads((root / "resources/colors.json").read_text())
 request_started = Event()
 release_response = Event()
+guidance_received = Event()
+release_reassessment = Event()
 provider_errors = []
 received_requests = []
 beads_project = str(uuid.uuid4())
@@ -116,7 +118,15 @@ Harmony depends on the same check. After the revision, the sidebar and inspector
 Should the native test change R1 and check both views?""")
         delta = {"role": "assistant", "content": reply}
         last = request["messages"][-1]
-        if user_messages and resolve_prompt in user_messages[-1]:
+        if user_messages and "Explain which properties remain open" in user_messages[-1]:
+            if last["role"] == "user":
+                guidance_received.set()
+                if not release_reassessment.wait(20):
+                    provider_errors.append("The property reassessment was not released")
+                delta = tool_delta("review-open-properties", "draft_socrates_specification", self.server.in_progress_draft)
+            elif last.get("tool_call_id") == "review-open-properties" and "Draft saved" not in str(last["content"]):
+                provider_errors.append(str(last["content"]))
+        elif user_messages and resolve_prompt in user_messages[-1]:
             if last["role"] == "user":
                 delta = tool_delta("close-properties", "draft_socrates_specification", self.server.ready_draft)
             elif last.get("tool_call_id") == "close-properties":
@@ -124,7 +134,11 @@ Should the native test change R1 and check both views?""")
                     provider_errors.append(str(last["content"]))
                 delta = tool_delta("confirm-graph", "draft_implementation_plan", self.server.graph_draft)
             elif last.get("tool_call_id") == "confirm-graph":
-                if "Draft saved" not in str(last["content"]):
+                if "Assess every applicable property" not in str(last["content"]):
+                    provider_errors.append(str(last["content"]))
+                delta = tool_delta("assess-final-graph", "draft_socrates_specification", self.server.ready_draft)
+            elif last.get("tool_call_id") == "assess-final-graph":
+                if "Properties satisfied" not in str(last["content"]):
                     provider_errors.append(str(last["content"]))
                 delta = {"role": "assistant", "content": review_ready}
         result = {
@@ -459,11 +473,6 @@ function create(title, next) {{
   }});
   return record.id;
 }}
-const covered=create('Status inspection',{{...draft,coverage:{{...draft.coverage,assessments:[
-  ...draft.coverage.assessments,
-  {{propertyId:'scope',status:'open',reason:{json.dumps(scope_gap)}}},
-  {{propertyId:'risk',status:'partial',reason:{json.dumps(risk_gap)}}}
-]}}}});
 const readyDraft={{...draft,
   decisions:[
     {{...draft.decisions[0],disposition:'resolved',basis:'decided',evidence:'The operator chose a native check after revising R1.',uncertainty:'None'}},
@@ -486,14 +495,22 @@ const readyDraft={{...draft,
     harmony:'The same assessment supplies both surfaces and the two graphs show the same dependencies.'
   }}).map(([propertyId,reason])=>({{propertyId,status:'satisfied',reason}}))}}
 }};
+const gaps=[...draft.coverage.assessments,
+  {{propertyId:'scope',status:'open',reason:{json.dumps(scope_gap)}}},
+  {{propertyId:'risk',status:'partial',reason:{json.dumps(risk_gap)}}}
+];
+const inProgress={{...draft,coverage:{{...draft.coverage,assessments:readyDraft.coverage.assessments.map(
+  assessment=>gaps.find(gap=>gap.propertyId===assessment.propertyId)??assessment
+)}}}};
+const covered=create('Status inspection',inProgress);
 const breakdown=draftSchema.parse({{summary:'Keep the lead available during handoff.',tasks:[
   {{key:'assess',title:'Record property evidence',description:'Persist the rationale for each assessed property.',acceptance:'Old assessments remain inspectable after a revision.',requirements:['R1'],owns:['socrates/assessment.ts']}},
   {{key:'dock',title:'Keep the lead available',description:'Keep coverage and linked work visible beside the conversation.',acceptance:'Toggling the sidebar preserves the complete unsent prompt.',requirements:['R1'],blockedBy:['assess'],owns:['socrates/presentation.ts']}}
 ]}});
-const question=create('Question in progress',{{...draft,blockingQuestions:['Which verification boundary should we use?']}});
+const question=create('Question in progress',{{...inProgress,blockingQuestions:['Which verification boundary should we use?']}});
 store.change(question,row=>{{row.specification.exchange={{prompt:{{decisionId:'D1',question:'Which verification boundary should we use?',options:[{{label:'Focused native check',description:'Exercise the status UI'}},{{label:'Keep investigating',description:'Leave the boundary open'}}]}}}};}});
 const {{coverage,...legacyDraft}}=draft;
-const unknown=create('Unassessed discovery',legacyDraft);
+const legacy=create('Legacy discovery',legacyDraft);
 const planOnly=store.create({json.dumps(str(project))},'status-fixture','Standalone work breakdown');
 const graphDraft = draftSchema.parse({{...breakdown,tasks:[...breakdown.tasks,
   {{key:'history',title:'Keep assessment history',description:'Retain previous evidence.',acceptance:'Old versions remain readable.',requirements:['R1'],blockedBy:['assess']}},
@@ -524,7 +541,7 @@ function sessionFor(record) {{
  }}
  return manager.getSessionFile();
 }}
-console.log(JSON.stringify({{covered,question,unknown,approved,beads,readyDraft,graphDraft,session:sessionFor(covered),planOnlySession:sessionFor(planOnly.id)}}));store.close();
+console.log(JSON.stringify({{covered,question,legacy,approved,beads,inProgress,readyDraft,graphDraft,session:sessionFor(covered),planOnlySession:sessionFor(planOnly.id)}}));store.close();
 """
     result = subprocess.run(["bun", "--no-env-file", "-e", source], env=env, cwd=root, text=True, capture_output=True, check=True, timeout=30)
     return json.loads(result.stdout)
@@ -550,6 +567,7 @@ def run(output):
         settings["retry"] = {"enabled": False, "maxRetries": 0}
         settings_path.write_text(json.dumps(settings))
         records = seed(project, env, f'http://127.0.0.1:{provider.server_port}')
+        provider.in_progress_draft = records['inProgress']
         provider.ready_draft = records['readyDraft']
         provider.graph_draft = records['graphDraft']
         linked_beads.update(records['beads'])
@@ -600,6 +618,9 @@ def run(output):
             terminal.wait(lambda: any(draft[:-2] + " requests." in str(m.get("content"))
                                       for request in received_requests for m in request["messages"] if m["role"] == "user"),
                           "The submitted prompt lost its contents or cursor position")
+            terminal.wait(guidance_received.is_set, "Studio did not deliver the operator's guidance")
+            terminal.wait(lambda: "Recheck" in terminal.rail_text(), "Previous evidence still appeared current after operator input")
+            release_reassessment.set()
             terminal.check_lead_wrap(review_sentence)
             terminal.check_property_focus()
             terminal.capture("socrates-sidebar-properties", rail_image=True)
@@ -634,16 +655,16 @@ def run(output):
             terminal.send("\x15")
             terminal.send("/socrates-status inspect\r")
             terminal.contains("Needs attention")
-            terminal.contains("▸ Satisfied 2")
+            terminal.contains("▸ Satisfied 9")
             terminal.contains("Wave 2")
             terminal.wait(lambda: any("Specification" in line and "Implementation" in line for line in terminal.screen.display), "Wide inspector did not show parallel columns")
             assert "Problem First" not in terminal.text(), terminal.text()
-            terminal.select_row("Satisfied 2")
+            terminal.select_row("Satisfied 9")
             terminal.send("\r")
             terminal.contains("Problem First")
             terminal.assert_mark("Problem First", "●", "status.success")
             terminal.send("\r")
-            terminal.contains("▸ Satisfied 2")
+            terminal.contains("▸ Satisfied 9")
             terminal.select_row("Verification")
             terminal.assert_mark("Verification", "◐", "status.warning")
             terminal.assert_mark("Harmony", "○", "status.warning")
@@ -701,7 +722,7 @@ def run(output):
             release_response.set()
             terminal.contains("Awaiting incorporation")
             terminal.send("/socrates-status inspect\r")
-            terminal.contains("4 recheck")
+            terminal.contains("13 recheck")
             terminal.select_row("Problem First")
             terminal.send("\r")
             terminal.contains("Previous assessment: Satisfied")
@@ -717,18 +738,16 @@ def run(output):
             assert "graph" not in saved and "approved" not in saved, saved
 
             before_resume = len(received_requests)
-            resume_discovery("Unassessed discovery", 2)
+            resume_discovery("Legacy discovery", 2)
             terminal.wait(lambda: any("Resume Socrates discovery" in str(request["messages"][-1]["content"])
                                       for request in received_requests[before_resume:]),
-                          "Unassessed properties did not resume discovery")
-            terminal.contains("Not assessed 13")
-            terminal.send("/socrates-status inspect\r")
-            terminal.contains("Not assessed")
-            terminal.select_row("Not assessed 13")
-            terminal.send("\r")
+                          "Legacy open properties did not resume discovery")
             terminal.contains("Problem First")
-            terminal.assert_mark("Problem First", "○", "text.muted")
-            terminal.capture("status-board-unassessed")
+            terminal.send("/socrates-status inspect\r")
+            terminal.contains("13 open")
+            terminal.select_row("Problem First")
+            terminal.assert_mark("Problem First", "○", "status.warning")
+            terminal.capture("status-board-legacy-open")
             terminal.send("\x1b")
             resume_discovery("Specification and linked work", 0)
             terminal.wait_for_rail()
@@ -821,6 +840,8 @@ def run(output):
             terminal.send("/socrates Fresh discovery\r")
             terminal.wait_for_rail()
             terminal.contains("Not planned")
+            terminal.contains("Problem First")
+            terminal.assert_mark("Problem First", "○", "status.warning")
             assert "Review changes in the dock" not in terminal.rail_text(), terminal.rail_text()
         finally:
             terminal.close()

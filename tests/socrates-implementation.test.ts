@@ -99,7 +99,7 @@ function observed(key: string, status: string) {
 await test("a frozen specification and proposed breakdown never imply execution", () => {
   const display = implementationPresentation(proposed);
   assert.equal(display.phase, ImplementationPhase.Proposed);
-  assert.equal(display.label, "Awaiting approval");
+  assert.equal(display.label, "Review properties");
   assert.equal(display.counts[ImplementationState.Proposed], 2);
   assert.equal(display.counts[ImplementationState.InProgress], 0);
   assert.equal(implementationRead(proposed), undefined);

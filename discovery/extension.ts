@@ -6,6 +6,7 @@ import type {
 import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { Type } from "typebox";
+import { isDeepStrictEqual } from "node:util";
 import { selectorText } from "@lanej/pi-components";
 import { z } from "zod";
 import { registerSocratesControls } from "../socrates/controls.ts";
@@ -16,6 +17,7 @@ import { socratesGuidance } from "../socrates/guidance.ts";
 import {
   LeadMode,
   TaskDelivery,
+  type LeadDraft,
   describePlan,
   draftSchema,
   planDigest,
@@ -43,6 +45,19 @@ function discoveryStatus(record: Discovery): string {
   if (spec.status === SpecStatus.Frozen || spec.exchange === undefined)
     return spec.status;
   return spec.exchange.answer === undefined ? "question open" : "answer saved";
+}
+
+/** A changed discovery graph can alter evidence for scope, verification, dependencies, or authority. */
+function saveDiscoveryPlan(row: Discovery, proposal: LeadDraft): void {
+  const policy = draftDeliveryPolicy(row.specification?.draft ?? null);
+  const draft =
+    policy === undefined ? proposal : applyDeliveryPolicy(proposal, policy);
+  if (
+    row.specification !== undefined &&
+    !isDeepStrictEqual(draft, row.leadPlan.draft)
+  )
+    row.specification.coverageRevision = undefined;
+  row.leadPlan = { ...row.leadPlan, mode: LeadMode.Planning, draft };
 }
 
 export function registerDiscovery(
@@ -199,7 +214,8 @@ export function registerDiscovery(
     },
     {
       get: () => get(),
-      change: (_id, update) => storage((db) => db.change(get().id, update)),
+      change: (id, update) =>
+        storage((db) => db.change(id === "selected" ? get().id : id, update)),
     },
     "selected",
     requireBinding,
@@ -310,6 +326,14 @@ export function registerDiscovery(
         db.change(record.id, (row) => {
           if (row.specification?.status !== SpecStatus.Frozen)
             throw new Error("No frozen specification to reopen");
+          if (
+            row.approved !== undefined ||
+            row.handoff !== undefined ||
+            row.graph !== undefined
+          )
+            throw new Error(
+              "This discovery has been handed off. Use /tasks to track it or /socrates TITLE to start a separate discovery.",
+            );
           row.history.push(row.specification);
           row.revision = randomUUID();
           row.specification = {
@@ -321,9 +345,6 @@ export function registerDiscovery(
           };
           row.leadPlan = { mode: LeadMode.Planning, draft: null };
           row.planSpecificationRevision = undefined;
-          row.approved = undefined;
-          row.graph = undefined;
-          row.handoff = undefined;
         }),
       );
       onSelectionChange?.();
@@ -400,22 +421,21 @@ export function registerDiscovery(
               );
             row.planSpecificationRevision = coverageToken(spec);
           }
-          const policy = draftDeliveryPolicy(spec?.draft ?? null);
-          row.leadPlan = {
-            mode: LeadMode.Planning,
-            draft:
-              policy === undefined ? draft : applyDeliveryPolicy(draft, policy),
-          };
+          saveDiscoveryPlan(row, draft);
         }),
       );
+      socrates.refresh(ctx);
+      const saved = get().specification;
       return {
         content: [
           {
             type: "text",
             text:
-              record.specification?.status === SpecStatus.Frozen
-                ? "Draft saved. /plan to inspect · /plan-approve to review the handoff"
-                : "Draft saved. /plan to inspect the proposed work.",
+              saved !== undefined && saved.coverageRevision === undefined
+                ? "Draft saved. Assess every applicable property against the updated plan with draft_socrates_specification before the next question, freeze, or handoff."
+                : saved?.status === SpecStatus.Frozen
+                  ? "Draft saved. /plan to inspect · /plan-approve to review the handoff"
+                  : "Draft saved. /plan to inspect the proposed work.",
           },
         ],
         details: {},
@@ -442,17 +462,10 @@ export function registerDiscovery(
             row.leadPlan.draft === null
           )
             throw new Error("No unapproved draft to revise");
-          const revised = reviseDelivery(row.leadPlan.draft, argument);
-          const policy = draftDeliveryPolicy(row.specification?.draft ?? null);
-          row.leadPlan = {
-            ...row.leadPlan,
-            draft:
-              policy === undefined
-                ? revised
-                : applyDeliveryPolicy(revised, policy),
-          };
+          saveDiscoveryPlan(row, reviseDelivery(row.leadPlan.draft, argument));
         }),
       );
+      socrates.refresh(ctx);
       ctx.ui.notify(
         "Delivery proposal updated. Use /plan to review it.",
         "info",
@@ -514,7 +527,7 @@ export function registerDiscovery(
           selectedProfile !== profile() ||
           current.id !== record.id ||
           current.revision !== record.revision ||
-          current.specification?.version !== record.specification?.version ||
+          !isDeepStrictEqual(current.specification, record.specification) ||
           current.leadPlan.draft === null ||
           planDigest(current.leadPlan.draft) !== digest
         )

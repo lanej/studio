@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  assessedSpecDraft,
   DecisionDisposition,
   SpecStatus,
   preserveDecisions,
@@ -13,6 +14,8 @@ import {
 import {
   coverageFresh,
   coverageProperties,
+  coveragePropertyCatalog,
+  savedCoverageSchema,
   coverageSchema,
   coverageToken,
 } from "../socrates/assessment.ts";
@@ -119,7 +122,7 @@ function assessedSpecification(): LeadSpecification {
   return { ...spec, coverageRevision: coverageToken(spec) };
 }
 
-await test("coverage uses applicable canonical properties and leaves omissions unknown", () => {
+await test("startup and sparse historical coverage expose each missing property as an explicit open gap", () => {
   const spec = assessedSpecification();
   const rows = coverageProperties(spec.draft);
   assert.equal(rows.length, 19);
@@ -127,16 +130,30 @@ await test("coverage uses applicable canonical properties and leaves omissions u
     rows.find(({ id }) => id === "problem-first")?.status,
     "satisfied",
   );
-  assert.equal(rows.find(({ id }) => id === "harmony")?.status, "unknown");
-  assert.equal(rows.find(({ id }) => id === "modularity")?.status, "unknown");
+  assert.equal(rows.find(({ id }) => id === "harmony")?.status, "open");
+  assert.equal(rows.find(({ id }) => id === "modularity")?.status, "open");
   assert.equal(
     rows.some(({ id }) => id === "audience"),
     false,
   );
 
+  assert.equal(rows.find(({ id }) => id === "harmony")?.recorded, false);
+  assert.equal(rows.find(({ id }) => id === "verification")?.recorded, true);
+  assert.match(
+    rows.find(({ id }) => id === "modularity")?.reason ?? "",
+    /boundaries/u,
+  );
+  const initial = coverageProperties(null);
+  assert.equal(initial.length, 13);
+  assert.ok(
+    initial.every(
+      ({ status, reason, recorded }) =>
+        status === "open" && reason.length > 0 && !recorded,
+    ),
+  );
   const replacement = specDraft.parse({ ...legacy, decisions: [] });
   assert.equal(
-    coverageProperties(replacement).every(({ status }) => status === "unknown"),
+    coverageProperties(replacement).every(({ status }) => status === "open"),
     true,
   );
   assert.equal(coverageProperties(replacement).length, 13);
@@ -152,16 +169,16 @@ await test("coverage uses applicable canonical properties and leaves omissions u
 });
 
 await test("assessments require evidence and cannot hide outside the selected property sets", () => {
-  for (const status of ["satisfied", "open", "not-applicable"]) {
+  for (const status of ["satisfied", "partial", "open", "not-applicable"]) {
     assert.equal(
-      coverageSchema.safeParse({
+      savedCoverageSchema.safeParse({
         domains: [],
         assessments: [{ propertyId: "risk", status }],
       }).success,
       false,
     );
     assert.equal(
-      coverageSchema.safeParse({
+      savedCoverageSchema.safeParse({
         domains: [],
         assessments: [{ propertyId: "risk", status, reason: "  " }],
       }).success,
@@ -169,14 +186,14 @@ await test("assessments require evidence and cannot hide outside the selected pr
     );
   }
   assert.equal(
-    coverageSchema.safeParse({
+    savedCoverageSchema.safeParse({
       domains: [],
       assessments: [{ propertyId: "risk", status: "unknown" }],
     }).success,
     true,
   );
   assert.equal(
-    coverageSchema.safeParse({
+    savedCoverageSchema.safeParse({
       domains: [],
       assessments: [
         {
@@ -189,7 +206,7 @@ await test("assessments require evidence and cannot hide outside the selected pr
     false,
   );
   assert.equal(
-    coverageSchema.safeParse({
+    savedCoverageSchema.safeParse({
       domains: [],
       assessments: [],
       focus: "audience",
@@ -197,26 +214,63 @@ await test("assessments require evidence and cannot hide outside the selected pr
     false,
   );
   assert.equal(
-    coverageSchema.safeParse({
+    savedCoverageSchema.safeParse({
       ...coverage,
       assessments: [...coverage.assessments, ...coverage.assessments],
     }).success,
     false,
   );
   assert.equal(
-    coverageSchema.safeParse({
+    savedCoverageSchema.safeParse({
       ...coverage,
       domains: ["engineering", "engineering"],
     }).success,
     false,
   );
   assert.equal(
-    coverageSchema.safeParse({
+    savedCoverageSchema.safeParse({
       domains: [],
       assessments: [{ propertyId: "made-up", status: "unknown" }],
     }).success,
     false,
   );
+});
+
+await test("new draft writes require every universal and selected-domain property, with a rationale", () => {
+  const ready = readySpecification("brief-v1").draft;
+  assert.ok(assessedSpecDraft.safeParse(ready).success);
+  assert.ok(
+    !assessedSpecDraft.safeParse({ ...ready, coverage: undefined }).success,
+  );
+  assert.ok(!coverageSchema.safeParse(coverage).success);
+  const domains = ["engineering", "research", "writing"] as const;
+  const all = coveragePropertyCatalog.map(({ id, gap }) => ({
+    propertyId: id,
+    status: "open",
+    reason: gap,
+  }));
+  const snapshot = { domains, assessments: all };
+  assert.ok(coverageSchema.safeParse(snapshot).success);
+  for (const property of ["harmony", "repair", "causation", "action"]) {
+    const remaining = all.filter(({ propertyId }) => propertyId !== property);
+    const incomplete = coverageSchema.safeParse({
+      ...snapshot,
+      assessments: remaining,
+    });
+    assert.ok(
+      !incomplete.success && incomplete.error.message.includes(property),
+    );
+    for (const assessment of [
+      { propertyId: property, status: "unknown", reason: "Need evidence." },
+      { propertyId: property, status: "open", reason: "  " },
+    ])
+      assert.ok(
+        !coverageSchema.safeParse({
+          ...snapshot,
+          assessments: [...remaining, assessment],
+        }).success,
+      );
+  }
 });
 
 await test("coverage follows the draft and brief instead of a reusable lifecycle version", () => {
@@ -298,7 +352,7 @@ await test("an answer invalidates assessments until it is incorporated in a save
   assert.equal(coverageFresh(answered, "brief-v1"), false);
   assert.match(specText(answered), /Needs review/u);
   assert.match(specText(answered), /R1 needs an observable check/u);
-  assert.match(specText(answered), /Not assessed ·/u);
+  assert.match(specText(answered), /Harmony · open · Check/u);
 
   const updated = specRecord.parse({
     ...answered,

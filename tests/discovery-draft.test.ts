@@ -20,7 +20,11 @@ import { randomUUID } from "node:crypto";
 import { SpecStatus } from "../socrates/spec.ts";
 import { draftSchema, planDigest } from "../lead-plan.ts";
 import { readySpecification } from "./fixtures/socrates.ts";
-import { coverageToken } from "../socrates/assessment.ts";
+import {
+  coverageFresh,
+  coverageProperties,
+  coverageToken,
+} from "../socrates/assessment.ts";
 
 async function discoveryFixture(t: TestContext) {
   const directory = await mkdtemp(join(tmpdir(), "studio-conversation-plan-"));
@@ -132,6 +136,16 @@ async function discoveryFixture(t: TestContext) {
   });
   const save = (proposal = draft, context = toolContext) =>
     tool.execute("draft", proposal, undefined, undefined, context);
+  const specTool = runner.getToolDefinition("draft_socrates_specification");
+  assert.ok(specTool !== undefined);
+  const assess = (specificationDraft: unknown) =>
+    specTool.execute(
+      "spec",
+      specificationDraft,
+      undefined,
+      undefined,
+      toolContext,
+    );
   const firstTask = draft.tasks[0];
   assert.ok(firstTask !== undefined);
 
@@ -164,6 +178,7 @@ async function discoveryFixture(t: TestContext) {
     draft,
     approve,
     review,
+    assess,
     reviewUI,
   };
 }
@@ -226,6 +241,100 @@ await test("a daily lead codes directly and can save and revise a private plan w
   assert.equal(discovery.runtimeHandoff(ctx), undefined);
 });
 
+await test("the draft tool requires a complete assessment before asking or freezing after work changes", async (t) => {
+  const { project, store, runner, toolContext, save, draft, firstTask, ctx } =
+    await discoveryFixture(t);
+  await save();
+  const record = store.list(project)[0];
+  assert.ok(record !== undefined);
+  const first = readySpecification(record.revision);
+  store.change(record.id, (row) => {
+    row.specification = { ...first, draft: null, coverageRevision: undefined };
+  });
+  const tool = runner.getToolDefinition("draft_socrates_specification");
+  const ask = runner.getToolDefinition("ask_user_question");
+  const freeze = runner.getCommand("spec-freeze");
+  assert.ok(tool !== undefined && ask !== undefined && freeze !== undefined);
+  const write = (value: unknown) =>
+    tool.execute("spec", value, undefined, undefined, toolContext);
+  const snapshot = () => {
+    const spec = store.get(record.id).specification;
+    assert.ok(spec !== undefined);
+    return spec;
+  };
+  await assert.rejects(write({ ...first.draft, coverage: undefined }));
+  assert.equal(snapshot().draft, null);
+  await write(first.draft);
+  const before = snapshot();
+  assert.ok(coverageFresh(before, record.revision));
+  assert.ok(first.draft.coverage !== undefined);
+  const partialCoverage = {
+    ...first.draft.coverage,
+    assessments: first.draft.coverage.assessments.slice(1),
+  };
+  await assert.rejects(
+    write({ ...first.draft, coverage: partialCoverage }),
+    /problem-first/u,
+  );
+  assert.deepEqual(snapshot(), before);
+  const linked = { ...draft, tasks: [{ ...firstTask, requirements: ["R1"] }] };
+  await save(linked);
+  assert.ok(!coverageFresh(snapshot(), record.revision));
+  await assert.rejects(freeze.handler("", ctx), /Reassess properties/u);
+  await assert.rejects(
+    ask.execute(
+      "ask",
+      { decisionId: "D1", question: "Apply where?", options: [] },
+      undefined,
+      undefined,
+      { ...toolContext, hasUI: true },
+    ),
+    /current assessments/u,
+  );
+  await write(first.draft);
+  assert.ok(coverageFresh(snapshot(), record.revision));
+  await save(linked);
+  assert.ok(coverageFresh(snapshot(), record.revision));
+});
+
+await test("delivered operator messages invalidate coverage while inspection, internal prompts and discarded input preserve it", async (t) => {
+  const { project, store, runner, save, assess } = await discoveryFixture(t);
+  await save();
+  const record = store.list(project)[0];
+  assert.ok(record !== undefined);
+  const spec = readySpecification(record.revision);
+  store.change(record.id, (row) => {
+    row.specification = spec;
+  });
+  const current = () => store.get(record.id).specification?.coverageRevision;
+  const send = (text: string) =>
+    runner.emit({
+      type: "message_start",
+      message: {
+        role: "user",
+        content: [{ type: "text", text }],
+        timestamp: Date.now(),
+      },
+    });
+  await runner.emitInput("Possible change", undefined, "interactive", "steer");
+  assert.equal(current(), spec.coverageRevision);
+  await runner.emitInput("Review the proposed beads", undefined, "extension");
+  await send("Review the proposed beads");
+  assert.equal(current(), spec.coverageRevision);
+  for (const kind of ["interactive", "rpc"] as const) {
+    await runner.emitInput(
+      "Save the original bytes instead",
+      undefined,
+      kind,
+      "steer",
+    );
+    await send("Save the original bytes instead");
+    assert.equal(current(), undefined);
+    await assess(spec.draft);
+    assert.equal(current(), spec.coverageRevision);
+  }
+});
+
 await test("only the current assessed specification and linked plan can reach handoff review", async (t) => {
   const {
     project,
@@ -237,6 +346,7 @@ await test("only the current assessed specification and linked plan can reach ha
     runner,
     prompt,
     save,
+    assess,
     firstTask,
     draft,
     approve,
@@ -279,11 +389,40 @@ await test("only the current assessed specification and linked plan can reach ha
     /current frozen specification/u,
   );
   await save();
+  await assert.rejects(approve.handler("", ctx), /Reassess properties/u);
+  const frozen = store.get(first.id).specification;
+  assert.ok(frozen?.draft !== null && frozen?.draft !== undefined);
+  await assert.rejects(
+    assess({ ...frozen.draft, objective: "Changed" }),
+    /spec-reopen/u,
+  );
+  await assert.rejects(
+    assess({
+      ...frozen.draft,
+      coverage: {
+        domains: [],
+        assessments: coverageProperties(frozen.draft)
+          .filter(({ domain }) => domain === "universal")
+          .map(({ id, status, reason }) => ({
+            propertyId: id,
+            status,
+            reason,
+          })),
+      },
+    }),
+    /spec-reopen/u,
+  );
+  await assess(frozen.draft);
+  assert.equal(
+    store.get(first.id).specification?.approvalAt,
+    frozen.approvalAt,
+  );
   await assert.rejects(
     approve.handler("", ctx),
     /Cover every frozen requirement/u,
   );
   await save(linked);
+  await assess(frozen.draft);
 
   // Pi's headless review dismisses the dialog. A missing worktree executable
   // and unreachable Beads service must not prevent that local review.
@@ -300,18 +439,25 @@ await test("only the current assessed specification and linked plan can reach ha
     discovery.runtimeHandoff(ctx),
     store.get(handoff.id).handoff,
   );
-  store.change(
+  const handedOff = store.change(
     first.id,
     (row) => {
       assert.ok(row.handoff !== undefined);
       row.handoff.phase = HandoffPhase.Complete;
       row.approved = planDigest(linked);
+      row.graph = { root: "studio-1", [firstTask.key]: "studio-1.1" };
     },
     true,
   );
   assert.match(await prompt(), /requested code changes directly/u);
   assert.doesNotMatch(await prompt(), /Investigate with read-only tools/u);
   await assert.rejects(save(), /already approved/u);
+  await assert.rejects(assess(frozen.draft), /Start or refresh/u);
+  const reopen = runner.getCommand("spec-reopen");
+  assert.ok(reopen !== undefined);
+  await assert.rejects(reopen.handler("", ctx), /\/socrates TITLE/u);
+  assert.deepEqual(store.get(first.id), handedOff);
+  assert.deepEqual(discovery.runtimeHandoff(ctx), handedOff.handoff);
 
   const end = runner.getCommand("socrates-end");
   assert.ok(end !== undefined);
@@ -326,6 +472,7 @@ await test("the frozen publication decision assigns PRs to the intended beads an
     project,
     store,
     save,
+    assess,
     firstTask,
     draft,
     approve,
@@ -364,12 +511,16 @@ await test("the frozen publication decision assigns PRs to the intended beads an
     owns: ["cli"],
     blockedBy: [prep.key],
   };
+  const frozen = store.get(record.id).specification;
+  assert.ok(frozen?.draft !== undefined);
   await save({ ...draft, tasks: [prep] });
+  await assess(frozen.draft);
   await assert.rejects(
     approve.handler("", ctx),
     /missing publishing beads: cli/u,
   );
   await save({ ...draft, tasks: [prep, cli] });
+  await assess(frozen.draft);
   const approvedDraft = store.get(record.id).leadPlan.draft;
   assert.ok(approvedDraft != null);
   assert.deepEqual(

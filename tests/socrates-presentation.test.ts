@@ -99,8 +99,7 @@ await test("working through a property does not change its saved assessment", ()
   assert.equal(resting.activity.state, ActivityState.Idle);
   assert.equal(resting.activity.focusId, undefined);
   assert.match(resting.summary, /1 satisfied/u);
-  assert.match(resting.summary, /1 open/u);
-  assert.match(resting.summary, /10 not assessed/u);
+  assert.match(resting.summary, /11 open/u);
   assert.match(resting.summary, /1 not applicable/u);
 });
 
@@ -109,11 +108,50 @@ await test("a saved focus cannot animate an idle, paused or frozen specification
   const paused = present(spec, { working: false, paused: true });
   assert.equal(paused.activity.state, ActivityState.Paused);
   assert.equal(paused.activity.focusId, undefined);
-  const frozen = present({ ...spec, status: SpecStatus.Frozen }, working);
+  const ready = readySpecification("brief-v1");
+  const frozen = present({ ...ready, status: SpecStatus.Frozen }, working);
   assert.equal(frozen.activity.state, ActivityState.Idle);
   assert.equal(frozen.activity.focusId, undefined);
   assert.equal(frozen.activity.label, "Specification frozen");
-  assert.deepEqual(frozen.conditions, present(spec).conditions);
+  assert.deepEqual(frozen.conditions, present(ready).conditions);
+});
+
+await test("a changed breakdown brings properties back into focus until handoff", () => {
+  const ready = readySpecification("brief-v1");
+  const spec = {
+    ...ready,
+    status: SpecStatus.Frozen,
+    coverageRevision: undefined,
+  };
+  const before = socratesPresentation(
+    {
+      id: "frozen",
+      label: "Transcript recovery",
+      specification: spec,
+      revision: "brief-v1",
+      leadPlan: {
+        mode: LeadMode.Planning,
+        draft: draftSchema.parse({ summary: "Review recovery", tasks: [] }),
+      },
+    },
+    idle,
+  );
+  assert.equal(before.implementation.label, "Review properties");
+  assert.equal(before.prioritizeSpecification, true);
+  assert.equal(before.activity.label, "Review properties before handoff");
+  assert.match(before.summary, /19 recheck/u);
+  const after = socratesPresentation(
+    {
+      id: "handed-off",
+      label: "Linked discovery",
+      specification: spec,
+      revision: "brief-v1",
+      approved: "approved-plan",
+    },
+    idle,
+  );
+  assert.equal(after.prioritizeSpecification, false);
+  assert.equal(after.activity.label, "Specification frozen");
 });
 
 await test("waiting for an answer preserves evidence but recording it requires reassessment", () => {
@@ -146,7 +184,7 @@ await test("waiting for an answer preserves evidence but recording it requires r
   assert.ok(previous !== undefined);
   assert.equal(previous.state, ConditionState.Satisfied);
   assert.equal(previous.stale, true);
-  assert.match(previous.details ?? "", /D1 records/u);
+  assert.match(previous.details, /D1 records/u);
   assert.match(updating.summary, /^0 satisfied/u);
   assert.match(updating.summary, /3 recheck/u);
   assert.equal(present(answered).activity.state, ActivityState.Waiting);
@@ -166,10 +204,11 @@ await test("reopening or a changed brief makes old evidence inspectable without 
     assert.match(projected.summary, /^0 satisfied/u);
     assert.match(projected.summary, /3 recheck/u);
     assert.equal(projected.activity.focusId, undefined);
-    const unknown = projected.conditions.find(({ id }) => id === "harmony");
-    assert.ok(unknown !== undefined);
-    assert.equal(unknown.state, ConditionState.Unknown);
-    assert.equal(unknown.stale, false);
+    const missing = projected.conditions.find(({ id }) => id === "harmony");
+    assert.ok(missing !== undefined);
+    assert.equal(missing.state, ConditionState.Open);
+    assert.equal(missing.stale, false);
+    assert.match(projected.summary, /10 open/u);
   }
   const briefChanged = present(spec, working, "brief-v2");
   assert.equal(briefChanged.activity.state, ActivityState.Paused);
@@ -180,21 +219,28 @@ await test("reopening or a changed brief makes old evidence inspectable without 
   );
 });
 
-await test("legacy and undrafted specifications remain unassessed even when work is active", () => {
+await test("legacy and undrafted specifications surface every missing property as an open gap", () => {
   const legacy = specification(null);
   for (const spec of [legacy, { ...legacy, draft: null }]) {
     const projected = present(spec, working);
     assert.equal(projected.conditions.length, 13);
     assert.equal(
       projected.conditions.every(
-        ({ state, stale }) =>
-          state === ConditionState.Unknown && stale === false,
+        ({ state, stale, details }) =>
+          state === ConditionState.Open &&
+          stale === false &&
+          details.length > 0,
       ),
       true,
     );
     assert.equal(projected.activity.state, ActivityState.Working);
     assert.equal(projected.activity.focusId, undefined);
-    assert.match(projected.summary, /13 not assessed/u);
+    assert.match(projected.summary, /13 open/u);
+    const group = projected.columns[0]?.groups.find(
+      ({ id }) => id === "attention",
+    );
+    assert.equal(group?.items.length, 13);
+    assert.equal(group?.collapsed, undefined);
   }
   assert.equal(
     present({ ...legacy, draft: null }).activity.label,
@@ -232,9 +278,15 @@ await test("the side panel wraps unresolved reasons and fills the remaining rows
   };
   const reason =
     "The tests cover opening the current transcript. Reopening the archived copy still needs a comparison against the saved bytes.";
+  const ready = readySpecification("brief-v1");
   const spec = specification({
     domains: ["engineering"],
     assessments: [
+      ...(ready.draft.coverage?.assessments ?? []).filter(
+        ({ propertyId }) =>
+          propertyId !== "verification" &&
+          propertyId !== "policy-mechanism-separation",
+      ),
       { propertyId: "verification", status: "partial", reason },
       {
         propertyId: "policy-mechanism-separation",
@@ -278,9 +330,11 @@ await test("the side panel wraps unresolved reasons and fills the remaining rows
   assert.match(rows[0] ?? "", /^Specification +◇ Draft · v1$/u);
   const heading = rows.findIndex((line) => line.startsWith("Implementation"));
   assert.match(rows[heading] ?? "", /^Implementation +◇ Draft$/u);
-  assert.match(text, /├─╮.*\+2 more · \/plan/u);
+  assert.match(text, /├─╮.*├─╯.*audit/u);
+  const shortGraph = renderSocratesSections(panel, theme, 33, 21);
+  assert.match(shortGraph.join(" "), /├─╮.*\+2 more · \/plan/u);
   // With two more rows the preview could reach the next task and its branch.
-  assert.ok(26 - rows.length < 2);
+  assert.ok(21 - shortGraph.length < 2);
   const roomy = renderSocratesSections(panel, theme, 48, 34);
   const roomyText = roomy.join(" ").replace(/\s+/gu, " ");
   assert.ok(roomyText.includes(reason), roomyText);
@@ -299,7 +353,6 @@ await test("the side panel wraps unresolved reasons and fills the remaining rows
       );
     if (height === 20) assert.match(compact.join(" "), /schema/u);
   }
-  const ready = readySpecification("brief-v1");
   const readyPanel = observe(ready);
   assert.equal(readyPanel.prioritizeSpecification, false);
   assert.match(

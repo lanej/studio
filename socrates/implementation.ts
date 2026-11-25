@@ -10,7 +10,7 @@ import {
 } from "../lead-plan.ts";
 import { taskWaves } from "../smart-plan-graph.ts";
 import { TaskBeads, sameBrief, type NativeBead } from "../task-service.ts";
-import { SpecStatus, type LeadSpecification } from "./spec.ts";
+import { propertyGaps, SpecStatus, type LeadSpecification } from "./spec.ts";
 
 type BeadsAuthority = NonNullable<StudioConfig["beadsService"]>;
 
@@ -279,6 +279,13 @@ export function implementationPresentation(
     ) {
       label = source.specification === undefined ? "Local plan" : "Draft";
       detail = "Draft work breakdown";
+    } else if (
+      source.bead === undefined &&
+      source.specification !== undefined &&
+      propertyGaps(source.specification, source.revision).length > 0
+    ) {
+      label = "Review properties";
+      detail = "Reassess this breakdown before approval.";
     } else {
       label = "Awaiting approval";
       detail = "Proposed breakdown";

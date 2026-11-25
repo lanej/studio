@@ -15,6 +15,7 @@ import { questionEvidence } from "./evidence.ts";
 import {
   coverageFresh,
   coverageProperties,
+  savedCoverageSchema,
   coverageSchema,
   draftCoverage,
 } from "./assessment.ts";
@@ -72,7 +73,7 @@ export const specDraft = z
   .strictObject({
     ...draftFields,
     decisions: z.array(decision),
-    coverage: coverageSchema.optional(),
+    coverage: savedCoverageSchema.optional(),
     deliveryPolicy: deliveryPolicySchema.optional(),
   })
   .superRefine((value, ctx) => {
@@ -102,6 +103,11 @@ export const specDraft = z
       });
     }
   });
+
+/** Every writable draft includes a complete assessment; specRecord also reads historical formats. */
+export const assessedSpecDraft = specDraft.safeExtend({
+  coverage: coverageSchema,
+});
 
 export const specQuestion = z
   .strictObject({
@@ -218,12 +224,22 @@ export function specificationGaps(
     )
       gaps.push(`Resolve decision ${decision.id}`);
   }
+  return [...gaps, ...propertyGaps(spec, currentRevision)];
+}
+
+export function propertyGaps(
+  spec: LeadSpecification,
+  currentRevision: string | null,
+): string[] {
+  const gaps: string[] = [];
   if (
-    draftCoverage(draft) !== undefined &&
+    draftCoverage(spec.draft) !== undefined &&
     !coverageFresh(spec, currentRevision)
   )
-    gaps.push("Reassess properties against the current draft");
-  for (const property of coverageProperties(draft)) {
+    gaps.push(
+      "Reassess properties against the current specification and plan with /socrates",
+    );
+  for (const property of coverageProperties(spec.draft)) {
     if (property.status !== "satisfied" && property.status !== "not-applicable")
       gaps.push(`${property.label} · ${property.status}`);
   }
@@ -232,11 +248,19 @@ export function specificationGaps(
 
 export function specText(spec: LeadSpecification): string {
   const draft = spec.draft;
-  if (draft === null) return "No specification drafted yet.";
+  if (draft === null)
+    return [
+      "No specification drafted yet.",
+      "",
+      "Open properties",
+      ...coverageProperties(null).map(
+        ({ label, reason }) => `${label} · open · ${reason}`,
+      ),
+    ].join("\n");
   const coverage = draftCoverage(draft);
   const policy = draftDeliveryPolicy(draft);
   const properties = coverageProperties(draft);
-  const assessed = properties.filter(({ status }) => status !== "unknown");
+
   return [
     `Socrates v${String(spec.version)} · ${spec.status}`,
     "",
@@ -266,29 +290,19 @@ export function specText(spec: LeadSpecification): string {
       ? []
       : ["Pull request policy", deliveryPolicyText(policy), ""]),
     "Property assessments",
-    ...(coverage === undefined
-      ? ["Not assessed. No property status has been recorded."]
+    ...(properties.some(({ recorded }) => recorded) &&
+    !coverageFresh(spec, spec.acceptedRevision)
+      ? [
+          "Needs review · Reassess the saved evidence against the current brief, specification, plan, and answers.",
+        ]
+      : []),
+    ...properties.map(
+      ({ label, status, reason }) => `${label} · ${status} · ${reason}`,
+    ),
+    ...(coverage?.focus === undefined
+      ? []
       : [
-          coverageFresh(spec, spec.acceptedRevision)
-            ? "Assessed against this draft; specification review and execution approval remain separate."
-            : "Needs review: these saved assessments do not cover the current specification or recorded answer.",
-          ...assessed.map(
-            ({ label, status, reason }) =>
-              `${label} · ${status} · ${reason ?? ""}`,
-          ),
-          ...(properties.some(({ status }) => status === "unknown")
-            ? [
-                `Not assessed · ${properties
-                  .filter(({ status }) => status === "unknown")
-                  .map(({ label }) => label)
-                  .join(", ")}`,
-              ]
-            : []),
-          ...(coverage.focus === undefined
-            ? []
-            : [
-                `Saved focus · ${properties.find(({ id }) => id === coverage.focus)?.label ?? coverage.focus}`,
-              ]),
+          `Saved focus · ${properties.find(({ id }) => id === coverage.focus)?.label ?? coverage.focus}`,
         ]),
     "",
     ...(spec.exchange === undefined
