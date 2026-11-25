@@ -367,8 +367,13 @@ export function registerDiscovery(
   });
   pi.registerCommand("plan-approve", {
     description:
-      "Review and authorize the displayed breakdown for unattended execution",
-    async handler(_arg, ctx) {
+      "Review and authorize the plan in background mode or with /plan-approve interactive",
+    async handler(argument, ctx) {
+      const mode = argument.trim();
+      if (mode !== "" && mode !== "background" && mode !== "interactive")
+        throw new Error(
+          "Use /plan-approve background or /plan-approve interactive",
+        );
       if (!ctx.isIdle()) throw new Error("Wait for the lead turn to settle");
       const record = await requireBinding(ctx);
       const draft = record.leadPlan.draft;
@@ -380,10 +385,13 @@ export function registerDiscovery(
         throw new Error(
           "Select /studio-profile work or personal before approving execution",
         );
-      const { prepareHandoff, approveHandoff } = await import(
-        "../execution/handoff.ts"
-      );
+      const { prepareHandoff, approveHandoff, prepareInteractiveHandoff } =
+        await import("../execution/handoff.ts");
       const target = await prepareHandoff(record, selectedProfile);
+      const interactive =
+        mode === "interactive"
+          ? await prepareInteractiveHandoff(record)
+          : undefined;
       pending = true;
       try {
         if (
@@ -391,7 +399,15 @@ export function registerDiscovery(
             ctx,
             `Approve ${record.title}`,
             [
-              `Project · ${target.root}\nBeads · ${target.id}\nProfile · ${target.profile}\nMerge policy · project default and lead override are evaluated before delivery`,
+              interactive === undefined
+                ? "Execution · background"
+                : `Execution · interactive in Zellij ${interactive.session}, tab ${String(interactive.tab)}`,
+              `Project · ${target.root}\nBeads · ${target.id}\nProfile · ${target.profile}`,
+              ...(interactive === undefined
+                ? [
+                    "Merge policy · project default and lead override are evaluated before delivery",
+                  ]
+                : []),
               specText(
                 record.specification ?? {
                   status: SpecStatus.Frozen,
@@ -415,7 +431,7 @@ export function registerDiscovery(
           planDigest(current.leadPlan.draft) !== digest
         )
           throw new Error("The displayed breakdown changed; review it again");
-        await approveHandoff(current, selectedProfile, target);
+        await approveHandoff(current, selectedProfile, target, interactive);
         ctx.ui.notify(
           "Approved work is queued in Beads. The lead remains free.",
           "info",

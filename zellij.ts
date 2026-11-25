@@ -285,6 +285,28 @@ export class Zellij {
     return tab;
   }
 
+  async requireUnsharedTab(id: number): Promise<void> {
+    const tabs = z
+      .array(
+        z.object({
+          tab_id: uint32,
+          is_sync_panes_active: z.boolean(),
+        }),
+      )
+      .parse(
+        JSON.parse(
+          await this.request({
+            case: "listTabs",
+            value: { showAll: true, outputJson: true },
+          }),
+        ),
+      );
+    if (!tabs.some((tab) => tab.tab_id === id && !tab.is_sync_panes_active))
+      throw new Error(
+        "Use an existing Zellij tab with synchronized input turned off",
+      );
+  }
+
   async launch(
     tab: number,
     name: string,

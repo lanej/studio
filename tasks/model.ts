@@ -304,6 +304,13 @@ export function taskNarrative(task: Task, snapshot: TaskSnapshot): string {
     }
     parts.push(phaseNarrative[attempt.phase]);
     if (
+      attempt.interactive === undefined &&
+      attempt.phase === ExecutionPhase.Running
+    )
+      parts.push(
+        "Interactive guidance is unavailable for a background worker.",
+      );
+    if (
       task.assignee !== undefined &&
       task.assignee.length > 0 &&
       task.assignee !== `pi:${attempt.id}`
@@ -369,6 +376,9 @@ export function retainedEvidence(task: Task, snapshot: TaskSnapshot): string {
       [
         `Attempt ${attempt.id}`,
         attempt.message,
+        ...(attempt.workerSessionFile === undefined
+          ? []
+          : [`Worker transcript · ${attempt.workerSessionFile}`]),
         ...(attempt.reviewFinding === undefined
           ? []
           : [`Reviewer finding\n${attempt.reviewFinding}`]),
