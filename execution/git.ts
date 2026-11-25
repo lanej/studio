@@ -73,7 +73,50 @@ export async function safeGit(
   );
   if (storedCommon !== common)
     throw new Error("The checkout changed repository authority");
-  const scoped = ["--git-dir", directory, "--work-tree", root];
+  return scopedGit(
+    projectRoot,
+    root,
+    common,
+    ["--git-dir", directory, "--work-tree", root],
+    args,
+    options,
+    root,
+  );
+}
+
+/** Apply the same Git driver, hook and filter restrictions before allocating a worker checkout. */
+export async function projectObjectGit(
+  projectRoot: string,
+  args: string[],
+): Promise<string> {
+  const common = await realpath(
+    (
+      await raw(projectRoot, [
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-common-dir",
+      ])
+    ).trim(),
+  );
+  return scopedGit(
+    projectRoot,
+    projectRoot,
+    common,
+    ["--git-dir", common],
+    args,
+    {},
+  );
+}
+
+async function scopedGit(
+  projectRoot: string,
+  cwd: string,
+  common: string,
+  scoped: string[],
+  args: string[],
+  options: { indexFile?: string; timeout?: number },
+  workerRoot?: string,
+): Promise<string> {
   const config = (
     await raw(cwd, [
       ...scoped,
@@ -104,7 +147,10 @@ export async function safeGit(
     const key = config[index + 1] ?? "";
     if (origin.startsWith("file:")) {
       const path = await realpath(resolve(cwd, origin.slice(5)));
-      if (inside(path, root) || inside(path, worktreeRoot))
+      if (
+        (workerRoot !== undefined && inside(path, workerRoot)) ||
+        inside(path, worktreeRoot)
+      )
         throw new Error(
           "Executable Git configuration may not be included from worker-writable source paths",
         );
@@ -135,7 +181,12 @@ export async function safeGit(
       : args;
   return raw(
     cwd,
-    [...scoped, ...overrides.flatMap((value) => ["-c", value]), ...command],
+    [
+      "--no-replace-objects",
+      ...scoped,
+      ...overrides.flatMap((value) => ["-c", value]),
+      ...command,
+    ],
     environment(options.indexFile),
     options.timeout,
   );

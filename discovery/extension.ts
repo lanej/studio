@@ -21,6 +21,7 @@ import {
   describePlan,
   draftSchema,
   planDigest,
+  publicationPrerequisites,
   reviseDelivery,
 } from "../lead-plan.ts";
 import { isEntry, PiEntryType } from "../runtime.ts";
@@ -521,6 +522,17 @@ export function registerDiscovery(
                 { label: "Project", value: target.root },
                 { label: "Beads", value: target.id },
                 { label: "Profile", value: target.profile },
+                ...draft.tasks
+                  .filter((task) => task.delivery === TaskDelivery.PullRequest)
+                  .map((publisher) => {
+                    const local = publicationPrerequisites(draft, publisher)
+                      .filter((task) => task.delivery !== TaskDelivery.PullRequest)
+                      .map((task) => task.key);
+                    return {
+                      label: `PR from ${publisher.key}`,
+                      value: `Includes ${[...local, publisher.key].join(", ")}`,
+                    };
+                  }),
               ],
               specification:
                 record.specification === undefined
