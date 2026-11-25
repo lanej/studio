@@ -189,7 +189,7 @@ try {
     /Failed to load|Error loading|Cannot load|Warning: Extension package/,
   );
   console.log(
-    "Pi 1.4.0 discovered the Studio commands and kept the current model after a rejected profile switch.",
+    "Pi 1.6.0 discovered the Studio commands and kept the current model after a rejected profile switch.",
   );
 } finally {
   clearTimeout(timeout);

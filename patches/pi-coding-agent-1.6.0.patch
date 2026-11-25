@@ -1,8 +1,8 @@
 diff --git a/dist/core/agent-session.d.ts b/dist/core/agent-session.d.ts
-index aba2a96..eb5e845 100644
+index f61225f2da158f995127d6df58161937aa47afb3..2ba3724e92ea3c8c3804075fc0389385ac5d9329 100644
 --- a/dist/core/agent-session.d.ts
 +++ b/dist/core/agent-session.d.ts
-@@ -181,6 +181,8 @@ export interface PromptOptions {
+@@ -183,6 +183,8 @@ export interface PromptOptions {
      images?: ImageContent[];
      /** When streaming, how to queue the message: "steer" (interrupt) or "followUp" (wait). Required if streaming. */
      streamingBehavior?: "steer" | "followUp";
@@ -12,10 +12,10 @@ index aba2a96..eb5e845 100644
      source?: InputSource;
      /** Internal hook used by RPC mode to observe how an accepted prompt was dispatched. Not called if the prompt is rejected. */
 diff --git a/dist/core/agent-session.js b/dist/core/agent-session.js
-index 8728a3e..5abd434 100644
+index 009632bb5679380e48ec2473c6128163d9cde7eb..5fb413801b7e5bedae36fe8f28acce0f93979f23 100644
 --- a/dist/core/agent-session.js
 +++ b/dist/core/agent-session.js
-@@ -1661,6 +1661,10 @@ export class AgentSession {
+@@ -1754,6 +1754,10 @@ export class AgentSession {
              expandedText = this._expandSkillCommand(expandedText);
              expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
          }
@@ -27,7 +27,7 @@ index 8728a3e..5abd434 100644
          if (this.isStreaming) {
              if (!options?.streamingBehavior) {
 diff --git a/dist/core/settings-defaults.d.ts b/dist/core/settings-defaults.d.ts
-index c96e7ea..6ccd21f 100644
+index 471f1f30bba7b4d2d725364f5bbba4dee55f42a2..427c2688cc7d8dc88fef55cee671c8332a92dedf 100644
 --- a/dist/core/settings-defaults.d.ts
 +++ b/dist/core/settings-defaults.d.ts
 @@ -32,7 +32,7 @@ export declare const SETTINGS_DEFAULTS: {
@@ -40,7 +40,7 @@ index c96e7ea..6ccd21f 100644
          readonly showTerminalProgress: false;
      };
 diff --git a/dist/core/settings-defaults.js b/dist/core/settings-defaults.js
-index 96989ae..0250b64 100644
+index 060b7ed4dd4c7ddebf176a5119c0e11eeacb1fa8..b59a6709aab5060e5a14db16d97232435d607a4c 100644
 --- a/dist/core/settings-defaults.js
 +++ b/dist/core/settings-defaults.js
 @@ -33,7 +33,7 @@ export const SETTINGS_DEFAULTS = {
@@ -53,10 +53,10 @@ index 96989ae..0250b64 100644
          showTerminalProgress: false,
      },
 diff --git a/dist/core/settings-manager.d.ts b/dist/core/settings-manager.d.ts
-index a40ba7f..f314c53 100644
+index 5d05602cf8171b49ed72a8ac579445c261475fac..469383ea5ee2deb110498a9dd66977e33d749cc9 100644
 --- a/dist/core/settings-manager.d.ts
 +++ b/dist/core/settings-manager.d.ts
-@@ -206,8 +206,8 @@ export declare class SettingsManager {
+@@ -208,8 +208,8 @@ export declare class SettingsManager {
      getTerminalCapabilityOverrides(): Partial<TerminalCapabilities>;
      getShowImages(): boolean;
      setShowImages(show: boolean): void;
@@ -68,10 +68,10 @@ index a40ba7f..f314c53 100644
      setClearOnShrink(enabled: boolean): void;
      getShowTerminalProgress(): boolean;
 diff --git a/dist/core/settings-manager.js b/dist/core/settings-manager.js
-index d5ce9cd..fbadeb3 100644
+index 1a0234704ebc861e4ed437c721d0821d45b4b4de..25ba6ed9aa07e8394d21da3a1ae1fe2cc4d4104a 100644
 --- a/dist/core/settings-manager.js
 +++ b/dist/core/settings-manager.js
-@@ -952,7 +952,7 @@ export class SettingsManager {
+@@ -963,7 +963,7 @@ export class SettingsManager {
          if (!this.globalSettings.terminal) {
              this.globalSettings.terminal = {};
          }
@@ -81,7 +81,7 @@ index d5ce9cd..fbadeb3 100644
          this.save();
      }
 diff --git a/dist/core/settings-schema.d.ts b/dist/core/settings-schema.d.ts
-index 28676b7..8576097 100644
+index 99113ea6a1921728cd265f3a860e89aef76ffdd6..af084821a92952ba026c5cb3fe5359bb9a6c97d5 100644
 --- a/dist/core/settings-schema.d.ts
 +++ b/dist/core/settings-schema.d.ts
 @@ -35,7 +35,7 @@ declare const RetrySettingsSchema: Type.TObject<{
@@ -93,7 +93,7 @@ index 28676b7..8576097 100644
      clearOnShrink: Type.TOptional<Type.TBoolean>;
      showTerminalProgress: Type.TOptional<Type.TBoolean>;
      hyperlinks: Type.TOptional<Type.TUnion<[Type.TBoolean, Type.TLiteral<"auto">]>>;
-@@ -140,7 +140,7 @@ export declare const SettingsSchema: Type.TObject<{
+@@ -142,7 +142,7 @@ export declare const SettingsSchema: Type.TObject<{
      enableSkillCommands: Type.TOptional<Type.TBoolean>;
      terminal: Type.TOptional<Type.TObject<{
          showImages: Type.TOptional<Type.TBoolean>;
@@ -103,7 +103,7 @@ index 28676b7..8576097 100644
          showTerminalProgress: Type.TOptional<Type.TBoolean>;
          hyperlinks: Type.TOptional<Type.TUnion<[Type.TBoolean, Type.TLiteral<"auto">]>>;
 diff --git a/dist/core/settings-schema.js b/dist/core/settings-schema.js
-index 28c00ed..aaf6fe6 100644
+index 45c3ce8c5659c7f3373b4ff365659f7b3ef0b83b..a1293bd3b7e4840981dc595d9648c32b127a7ae0 100644
 --- a/dist/core/settings-schema.js
 +++ b/dist/core/settings-schema.js
 @@ -56,8 +56,8 @@ const TerminalSettingsSchema = Type.Object({
@@ -118,11 +118,11 @@ index 28c00ed..aaf6fe6 100644
      })),
      clearOnShrink: Type.Optional(Type.Boolean({
 diff --git a/dist/modes/interactive/components/assistant-message.js b/dist/modes/interactive/components/assistant-message.js
-index 6280084..3cf4b54 100644
+index 4789d613cd1fe3cd60e21f40b78a88075f673b1b..8c1fff4a6a425f7f6502117785586da2f433c28c 100644
 --- a/dist/modes/interactive/components/assistant-message.js
 +++ b/dist/modes/interactive/components/assistant-message.js
 @@ -1,9 +1,32 @@
--import { Container, Markdown, MouseRegion, Spacer, Text } from "@earendil-works/pi-tui";
+-import { Container, Markdown, MouseRegion, Spacer, Text, } from "@earendil-works/pi-tui";
 +import { Container, Markdown, MouseRegion, Spacer, Text, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
  import { getMarkdownTheme, theme } from "../theme/theme.js";
  import { createMarkdownTransform } from "./markdown-transform.js";
@@ -155,34 +155,34 @@ index 6280084..3cf4b54 100644
  /**
   * Component that renders a complete assistant message
   */
-@@ -18,7 +41,7 @@ export class AssistantMessageComponent extends Container {
-     hasToolCalls = false;
-     isStreaming = false;
+@@ -22,7 +45,7 @@ export class AssistantMessageComponent extends Container {
      thinkingVisibilityOverrides = new Map();
--    constructor(message, hideThinkingBlock = false, markdownTheme = getMarkdownTheme(), hiddenThinkingLabel = "Thinking...", outputPad = 1, markdownTransformers = []) {
-+    constructor(message, hideThinkingBlock = false, markdownTheme = getMarkdownTheme(), hiddenThinkingLabel = DEFAULT_THINKING_LABEL, outputPad = 1, markdownTransformers = []) {
+     markdownSlots = [];
+     zoneLines;
+-    constructor(message, hideThinkingBlock = false, markdownTheme = getMarkdownTheme(), hiddenThinkingLabel = "Thinking...", outputPad = 1, markdownTransformers = [], messageId, timestamp) {
++    constructor(message, hideThinkingBlock = false, markdownTheme = getMarkdownTheme(), hiddenThinkingLabel = DEFAULT_THINKING_LABEL, outputPad = 1, markdownTransformers = [], messageId, timestamp) {
          super();
          this.hideThinkingBlock = hideThinkingBlock;
          this.markdownTheme = markdownTheme;
-@@ -110,13 +133,9 @@ export class AssistantMessageComponent extends Container {
-                 const runIndex = thinkingRunIndex++;
-                 const hidden = this.thinkingVisibilityOverrides.get(runIndex) ?? this.hideThinkingBlock;
+@@ -140,13 +163,9 @@ export class AssistantMessageComponent extends Container {
+                 }
+                 const thinking = thinkingBlocks.join("\n\n");
                  const thinkingComponent = hidden
 -                    ? new Text(theme.italic(theme.fg("thinkingText", this.hiddenThinkingLabel)), this.outputPad, 0)
--                    : new Markdown(thinkingBlocks.join("\n\n"), this.outputPad, 0, this.markdownTheme, {
+-                    : markdownBlock("thinking", thinking, () => new Markdown(thinking, this.outputPad, 0, this.markdownTheme, {
 -                        color: (text) => theme.fg("thinkingText", text),
 -                        italic: true,
 -                    }, {
--                        transform: createMarkdownTransform("assistant-thinking", this.isStreaming, this.markdownTransformers),
--                    });
-+                    ? new Text(this.hiddenThinkingLabel && theme.fg("thinkingText", "▸ " + this.hiddenThinkingLabel), this.outputPad, 0)
-+                    : new ExpandedThinkingBlock(thinkingBlocks.join("\n\n"), this.outputPad, this.markdownTheme,
-+                        createMarkdownTransform("assistant-thinking", this.isStreaming, this.markdownTransformers));
-                 this.contentContainer.addChild(new MouseRegion(thinkingComponent, (event) => {
+-                        transform: createMarkdownTransform("assistant-thinking", () => this.isStreaming, this.markdownTransformers, this.messageId, this.timestamp),
+-                    }));
++                    ? new Text(theme.fg("thinkingText", "▸ " + this.hiddenThinkingLabel), this.outputPad, 0)
++                    : markdownBlock("thinking", thinking, () => new ExpandedThinkingBlock(thinking, this.outputPad, this.markdownTheme,
++                        createMarkdownTransform("assistant-thinking", () => this.isStreaming, this.markdownTransformers, this.messageId, this.timestamp)));
+                 addVisibleChild(new MouseRegion(thinkingComponent, (event) => {
                      if (event.type !== "click" || event.button !== "left")
                          return undefined;
 diff --git a/dist/modes/interactive/components/settings-selector.d.ts b/dist/modes/interactive/components/settings-selector.d.ts
-index 03d06fb..2c2a5f6 100644
+index 03d06fb9743282adc1ebe5f97456998540ea32f2..2c2a5f6eedab17a103fc7b23df650b7361de4e0f 100644
 --- a/dist/modes/interactive/components/settings-selector.d.ts
 +++ b/dist/modes/interactive/components/settings-selector.d.ts
 @@ -9,7 +9,7 @@ export interface SettingsConfig {
@@ -204,7 +204,7 @@ index 03d06fb..2c2a5f6 100644
      onBlockImagesChange: (blocked: boolean) => void;
      onEnableSkillCommandsChange: (enabled: boolean) => void;
 diff --git a/dist/modes/interactive/components/settings-selector.js b/dist/modes/interactive/components/settings-selector.js
-index f7929f1..76f3c71 100644
+index f7929f1dfb9dcdd1e80e71e1c4e6fc05578d8a49..76f3c71ca3e36bf0e6f8cdb028f0b6220223ba57 100644
 --- a/dist/modes/interactive/components/settings-selector.js
 +++ b/dist/modes/interactive/components/settings-selector.js
 @@ -545,9 +545,9 @@ export class SettingsSelectorComponent extends Container {
@@ -229,7 +229,7 @@ index f7929f1..76f3c71 100644
                  case "auto-resize-images":
                      callbacks.onAutoResizeImagesChange(newValue === "true");
 diff --git a/dist/modes/interactive/components/tool-execution.d.ts b/dist/modes/interactive/components/tool-execution.d.ts
-index 0736b6f..400d561 100644
+index 0c69a2e1287a5a795199b66690f412d2082f9ee4..92285798abc1400b5cda0e3977dd38aaf54d9350 100644
 --- a/dist/modes/interactive/components/tool-execution.d.ts
 +++ b/dist/modes/interactive/components/tool-execution.d.ts
 @@ -4,7 +4,7 @@ import type { ToolDefinition, ToolRenderers } from "../../../core/extensions/typ
@@ -241,20 +241,20 @@ index 0736b6f..400d561 100644
      outputPad?: number;
  }
  export declare class ToolExecutionComponent extends Container {
-@@ -62,7 +62,7 @@ export declare class ToolExecutionComponent extends Container {
+@@ -68,7 +68,7 @@ export declare class ToolExecutionComponent extends Container {
      setExpanded(expanded: boolean): void;
      setOutputPad(outputPad: number): void;
      setShowImages(show: boolean): void;
 -    setImageWidthCells(width: number): void;
 +    setImageWidthCells(width: number | "auto"): void;
      invalidate(): void;
-     render(width: number): string[];
+     render(width: number): readonly string[];
      handleMouse(event: TuiMouseEvent): ReturnType<Container["handleMouse"]>;
 diff --git a/dist/modes/interactive/components/tool-execution.js b/dist/modes/interactive/components/tool-execution.js
-index d447db5..0aed9bc 100644
+index ec6a2f63b7478eb3025314fed81f22d7afee2250..a45fa312c59c7b471b8d097a348b01233c59ca3c 100644
 --- a/dist/modes/interactive/components/tool-execution.js
 +++ b/dist/modes/interactive/components/tool-execution.js
-@@ -39,7 +39,7 @@ export class ToolExecutionComponent extends Container {
+@@ -41,7 +41,7 @@ export class ToolExecutionComponent extends Container {
          this.args = args;
          this.toolDefinition = toolDefinition;
          this.showImages = options.showImages ?? true;
@@ -263,7 +263,7 @@ index d447db5..0aed9bc 100644
          this.outputPad = options.outputPad ?? 1;
          this.ui = ui;
          this.cwd = cwd;
-@@ -149,7 +149,7 @@ export class ToolExecutionComponent extends Container {
+@@ -158,7 +158,7 @@ export class ToolExecutionComponent extends Container {
          this.updateDisplay();
      }
      setImageWidthCells(width) {
@@ -272,7 +272,7 @@ index d447db5..0aed9bc 100644
          this.updateDisplay();
      }
      invalidate() {
-@@ -281,7 +281,9 @@ export class ToolExecutionComponent extends Container {
+@@ -295,7 +295,9 @@ export class ToolExecutionComponent extends Container {
                      const spacer = new Spacer(1);
                      this.addChild(spacer);
                      this.imageSpacers.push(spacer);
@@ -284,7 +284,7 @@ index d447db5..0aed9bc 100644
                      const previous = previousSources[index];
                      const imageComponent = previous?.data === source.data &&
 diff --git a/dist/modes/interactive/interactive-mode.d.ts b/dist/modes/interactive/interactive-mode.d.ts
-index 40df44a..38c6b5e 100644
+index a2f792aa7a1b248101805095b3f20c5fed56d7dc..54f95880974343e1bc65879d0e6b515ac64eec17 100644
 --- a/dist/modes/interactive/interactive-mode.d.ts
 +++ b/dist/modes/interactive/interactive-mode.d.ts
 @@ -16,6 +16,8 @@ export declare function formatResumeCommand(sessionManager: SessionManager): str
@@ -296,7 +296,7 @@ index 40df44a..38c6b5e 100644
      /** Providers that were migrated to auth.json (shows warning) */
      migratedProviders?: string[];
      /** Diagnostics collected before the interactive TUI was initialized. */
-@@ -142,6 +144,10 @@ export declare class InteractiveMode {
+@@ -152,6 +154,10 @@ export declare class InteractiveMode {
       * Update terminal title with session name and cwd.
       */
      private updateTerminalTitle;
@@ -308,10 +308,10 @@ index 40df44a..38c6b5e 100644
       * Run the interactive mode. This is the main entry point.
       * Initializes the UI, shows warnings, processes initial messages, and starts the interactive loop.
 diff --git a/dist/modes/interactive/interactive-mode.js b/dist/modes/interactive/interactive-mode.js
-index 5303aad..31b9ca2 100644
+index cbd936501adcf0663f06ab29c1e5466207350f64..74bdf13465e10ff05b6bba91f19d056249bfb786 100644
 --- a/dist/modes/interactive/interactive-mode.js
 +++ b/dist/modes/interactive/interactive-mode.js
-@@ -48,7 +48,7 @@ import { checkForNewPiVersion } from "../../utils/version-check.js";
+@@ -54,7 +54,7 @@ import { checkForNewPiVersion } from "../../utils/version-check.js";
  import { reportBug } from "./bug-report.js";
  import { createChatViewport } from "./chat-viewport.js";
  import { ArminComponent } from "./components/armin.js";
@@ -320,7 +320,7 @@ index 5303aad..31b9ca2 100644
  import { BashExecutionComponent } from "./components/bash-execution.js";
  import { BranchSummaryMessageComponent } from "./components/branch-summary-message.js";
  import { CompactionSummaryMessageComponent } from "./components/compaction-summary-message.js";
-@@ -269,7 +269,7 @@ export class InteractiveMode {
+@@ -311,7 +311,7 @@ export class InteractiveMode {
      workingVisible = true;
      workingIndicatorOptions = undefined;
      defaultWorkingMessage = "Working";
@@ -329,7 +329,7 @@ index 5303aad..31b9ca2 100644
      hiddenThinkingLabel = this.defaultHiddenThinkingLabel;
      lastSigintTime = 0;
      lastEscapeTime = 0;
-@@ -376,8 +376,8 @@ export class InteractiveMode {
+@@ -429,8 +429,8 @@ export class InteractiveMode {
              showHardwareCursor: this.settingsManager.getShowHardwareCursor(),
              logDirectory: getAgentDir(),
              terminal: options.terminal,
@@ -340,7 +340,7 @@ index 5303aad..31b9ca2 100644
              fullscreenWheelScrollLines: this.settingsManager.getFullscreenWheelScrollLines(),
          });
          this.ui = createInteractiveTuiReference(() => this.renderer);
-@@ -774,11 +774,13 @@ export class InteractiveMode {
+@@ -847,11 +847,13 @@ export class InteractiveMode {
          // Ensure fd and rg are available after mounting the TUI (downloads if missing, adds to PATH via getBinDir)
          // so slow downloads do not make startup appear frozen.
          // Both are needed: fd for autocomplete, rg for grep tool and bash commands.
@@ -359,7 +359,7 @@ index 5303aad..31b9ca2 100644
          // Enable the remaining input handlers only after managed-tool setup completes.
          this.setupKeyHandlers();
          this.setupEditorSubmitHandler();
-@@ -821,6 +823,20 @@ export class InteractiveMode {
+@@ -894,6 +896,20 @@ export class InteractiveMode {
              this.ui.terminal.setTitle(`${APP_TITLE} - ${cwdBasename}`);
          }
      }
@@ -380,7 +380,7 @@ index 5303aad..31b9ca2 100644
      /**
       * Run the interactive mode. This is the main entry point.
       * Initializes the UI, shows warnings, processes initial messages, and starts the interactive loop.
-@@ -1678,7 +1694,7 @@ export class InteractiveMode {
+@@ -1832,7 +1848,7 @@ export class InteractiveMode {
          const cause = change.kind === "updated"
              ? `${APP_NAME} was updated to ${change.version} while this session was running (${VERSION})`
              : `The ${APP_NAME} installation this session runs from was removed or replaced`;
@@ -389,7 +389,7 @@ index 5303aad..31b9ca2 100644
          const restart = resumeCommand
              ? `Restart with \`${resumeCommand}\` to continue this session.`
              : `Restart ${APP_NAME}.`;
-@@ -2386,7 +2402,7 @@ export class InteractiveMode {
+@@ -2576,7 +2592,7 @@ export class InteractiveMode {
                  this.isBashMode = false;
                  this.updateEditorBorderColor();
              }
@@ -398,7 +398,7 @@ index 5303aad..31b9ca2 100644
                  // Double-escape with empty editor triggers /tree, /fork, or nothing based on setting
                  const action = this.settingsManager.getDoubleEscapeAction();
                  if (action !== "none") {
-@@ -2409,6 +2425,12 @@ export class InteractiveMode {
+@@ -2599,6 +2615,12 @@ export class InteractiveMode {
          // Register app action handlers
          this.defaultEditor.onAction("app.clear", () => this.handleCtrlC());
          this.defaultEditor.onCtrlD = () => this.handleCtrlD();
@@ -411,7 +411,7 @@ index 5303aad..31b9ca2 100644
          this.defaultEditor.onAction("app.suspend", () => this.handleCtrlZ());
          this.defaultEditor.onAction("app.thinking.cycle", () => this.cycleThinkingLevel());
          this.defaultEditor.onAction("app.model.cycleForward", () => this.cycleModel("forward"));
-@@ -2498,11 +2520,25 @@ export class InteractiveMode {
+@@ -2688,11 +2710,25 @@ export class InteractiveMode {
          this.editor.setText(text);
          this.showStatus("Startup is still in progress");
      }
@@ -437,7 +437,7 @@ index 5303aad..31b9ca2 100644
              // Handle commands
              if (text === "/settings") {
                  this.showSettingsSelector();
-@@ -2678,11 +2714,15 @@ export class InteractiveMode {
+@@ -2868,11 +2904,15 @@ export class InteractiveMode {
              if (this.session.isStreaming) {
                  this.editor.addToHistory?.(text);
                  this.editor.setText("");
@@ -454,16 +454,16 @@ index 5303aad..31b9ca2 100644
              // Normal message submission
              // First, move any pending bash components to chat
              this.flushPendingBashComponents();
-@@ -3471,7 +3511,7 @@ export class InteractiveMode {
+@@ -3675,7 +3715,7 @@ export class InteractiveMode {
          await this.ui.terminal.drainInput(1000);
          this.stop();
          await this.runtimeHost.dispose();
 -        const resumeCommand = formatResumeCommand(this.sessionManager);
 +        const resumeCommand = this.assignmentInputEnabled ? undefined : formatResumeCommand(this.sessionManager);
          if (resumeCommand) {
-             process.stdout.write(`${chalk.dim("To resume this session:")} ${resumeCommand}\n`);
-         }
-@@ -3615,6 +3655,8 @@ export class InteractiveMode {
+             // Own line so the command can be selected with a triple-click (#12237).
+             process.stdout.write(`${chalk.dim("To resume this session:")}\n${resumeCommand}\n`);
+@@ -3821,6 +3861,8 @@ export class InteractiveMode {
          const text = (this.editor.getExpandedText?.() ?? this.editor.getText()).trim();
          if (!text)
              return;
@@ -472,7 +472,7 @@ index 5303aad..31b9ca2 100644
          // Queue input during compaction (extension commands execute immediately)
          if (this.session.isCompacting) {
              if (this.isExtensionCommand(text)) {
-@@ -3632,7 +3674,7 @@ export class InteractiveMode {
+@@ -3838,7 +3880,7 @@ export class InteractiveMode {
          if (this.session.isStreaming) {
              this.editor.addToHistory?.(text);
              this.editor.setText("");
@@ -482,23 +482,23 @@ index 5303aad..31b9ca2 100644
              this.ui.requestRender();
          }
 diff --git a/docs/settings.md b/docs/settings.md
-index 7e28985..366a42f 100644
+index 29b8d6908416e0b01a4765ff34e9ecdd622efde3..516bc7c95f80f7bee548d5d9b03acd691cadc748 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
-@@ -104,7 +104,7 @@ ## Terminal and display
+@@ -104,7 +104,7 @@ See [Compaction Reference](compaction.md) for trigger, summarization, and valida
  | `autocompleteMaxVisible` | number | `5` | Visible autocomplete entries, from 3 to 20. |
  | `showHardwareCursor` | boolean | `false` | Use the terminal cursor instead of Pi's drawn cursor. Pi still positions it for input methods. |
  | `terminal.showImages` | boolean | `true` | Display inline images when supported. |
 -| `terminal.imageWidthCells` | number | `60` | Preferred inline image width in terminal cells. |
-+| `terminal.imageWidthCells` | number or `"auto"` | `"auto"` | Auto fits inline images to their source size and the pane. Expanding a tool can magnify a small preview. A number sets a fixed preferred width in cells. |
- | `terminal.clearOnShrink` | boolean | `false` | Clear empty rows when rendered content shrinks. |
++| `terminal.imageWidthCells` | number or `"auto"` | `"auto"` | Fit inline images to their source size and pane, or limit their width in terminal cells. |
+ | `terminal.clearOnShrink` | boolean | `false` | Clear empty rows when rendered content shrinks. When unset, `PI_CLEAR_ON_SHRINK=1` enables it. |
  | `terminal.showTerminalProgress` | boolean | `false` | Show OSC 9;4 progress in the terminal tab. |
  | `terminal.hyperlinks` | `boolean \| "auto"` | `"auto"` | Override OSC 8 hyperlink detection. |
 diff --git a/schemas/settings.schema.json b/schemas/settings.schema.json
-index 4d6c23a..4c1a6e5 100644
+index cc28afe3a71e57f933fffe7bcf9fc0ec399e5332..fce3f21553be2a671044c6510883e3aed4cf0185 100644
 --- a/schemas/settings.schema.json
 +++ b/schemas/settings.schema.json
-@@ -394,9 +394,12 @@
+@@ -411,9 +411,12 @@
            "default": true
          },
          "imageWidthCells": {

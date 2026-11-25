@@ -238,6 +238,7 @@ async function record(
 }
 
 let requests = 0;
+const requestCount = () => requests;
 const provider = createServer((request, response) => {
   if (request.method !== "POST") {
     response.writeHead(404);
@@ -255,12 +256,22 @@ const provider = createServer((request, response) => {
       choices: [
         {
           index: 0,
-          delta: { role: "assistant", content: "interrupted fixture output" },
-          finish_reason: null,
+          delta: {
+            role: "assistant",
+            content:
+              requests === 1
+                ? "Native branch fixture is ready."
+                : "interrupted fixture output",
+          },
+          finish_reason: requests === 1 ? "stop" : null,
         },
       ],
     })}\n\n`,
   );
+  if (requests === 1) {
+    response.write("data: [DONE]\n\n");
+    response.end();
+  }
 });
 await new Promise<void>((resolve) => {
   provider.listen(0, "127.0.0.1", resolve);
@@ -312,6 +323,7 @@ try {
   const releaseMarker = join(temporary, "release-command");
   const bashAdmitted = join(temporary, "admitted-bash-handler");
   const bashRelease = join(temporary, "release-bash-handler");
+  const branchReceipt = join(temporary, "selected-branch.json");
   await writeFile(
     delayedReply,
     `import { Socket } from "node:net";
@@ -329,6 +341,16 @@ export default function (pi) {
     while (!existsSync(${JSON.stringify(bashRelease)})) await new Promise(resolve => setTimeout(resolve, 20));
     return {result:{output:"Controlled remote Bash result",exitCode:0,cancelled:false,truncated:false}};
   });
+  pi.registerCommand("activation-branch-fixture", {description:"Select a distinct owned transcript branch", handler: async (_args, ctx) => {
+    pi.appendEntry("activation:branch-fixture", {name:"base"});
+    const base = ctx.sessionManager.getLeafId();
+    pi.appendEntry("activation:branch-fixture", {name:"unselected"});
+    const unselected = ctx.sessionManager.getLeafId();
+    const navigation = await ctx.navigateTree(base, {summarize:false});
+    if (navigation.cancelled) throw new Error("Fixture branch selection was cancelled");
+    pi.appendEntry("activation:branch-fixture", {name:"selected"});
+    writeFileSync(${JSON.stringify(branchReceipt)}, JSON.stringify({base,unselected,selected:ctx.sessionManager.getLeafId()}));
+  }});
   const original = Socket.prototype.end;
   Socket.prototype.end = function (...args) {
     const callback = args.at(-1);
@@ -505,11 +527,52 @@ export default function (pi) {
     true,
   );
   await first.rpc("prompt", {
+    message: "Prepare the native selected-branch fixture.",
+  });
+  const seedDeadline = Date.now() + 10_000;
+  let seedSettled = false;
+  while (Date.now() < seedDeadline) {
+    const current = z
+      .object({ data: z.object({ isStreaming: z.boolean() }) })
+      .parse(await first.rpc("get_state"));
+    if (requestCount() === 1 && !current.data.isStreaming) {
+      seedSettled = true;
+      break;
+    }
+    await delay(20);
+  }
+  assert.ok(
+    seedSettled,
+    "The native seed conversation must finish before branching",
+  );
+  await first.rpc("prompt", { message: "/activation-branch-fixture" });
+  const selectedBranch = z
+    .object({
+      base: z.string(),
+      unselected: z.string(),
+      selected: z.string(),
+    })
+    .parse(JSON.parse(await readFile(branchReceipt, "utf8")));
+  assert.notEqual(selectedBranch.selected, selectedBranch.unselected);
+  const beforeOperation = await control(published.socket, {
+    action: "inventory",
+  });
+  assert.equal(beforeOperation.sessions[0]?.branch_id, selectedBranch.selected);
+  const beforeTranscript = await readFile(
+    z.string().parse(beforeOperation.sessions[0].transcript_path),
+    "utf8",
+  );
+  assert.equal(
+    requestCount(),
+    1,
+    "Branch selection must not invoke the provider",
+  );
+  await first.rpc("prompt", {
     message: "Begin the controlled interrupted fixture operation.",
   });
   const deadline = Date.now() + 15_000;
-  while (requests === 0 && Date.now() < deadline) await delay(20);
-  assert.equal(requests, 1, first.errors);
+  while (requestCount() < 2 && Date.now() < deadline) await delay(20);
+  assert.equal(requestCount(), 2, first.errors);
   const nextSource = join(temporary, "next-source");
   await run("python3", [join(root, "scripts/export.py"), nextSource], { env });
   const nextReadme = join(nextSource, "README.md");
@@ -576,6 +639,42 @@ export default function (pi) {
     admitted.sessions[0]?.branch_id,
   );
   assert.equal(retained.session.branch_id, confirmed.sessions[0]?.branch_id);
+  const checkpointTranscript = await readFile(
+    retained.session.transcript_path,
+    "utf8",
+  );
+  assert.ok(
+    checkpointTranscript.startsWith(beforeTranscript),
+    "Keep the original transcript and its unselected branch",
+  );
+  const branchEntries = new Map(
+    checkpointTranscript
+      .trim()
+      .split("\n")
+      .map((line) => {
+        const entry = z
+          .looseObject({
+            id: z.string(),
+            parentId: z.string().nullable().optional(),
+          })
+          .parse(JSON.parse(line));
+        return [entry.id, entry] as const;
+      }),
+  );
+  const ancestors = new Set<string>();
+  let cursor = retained.session.pre_checkpoint_branch_id;
+  while (cursor !== null) {
+    assert.ok(
+      !ancestors.has(cursor),
+      "Fixture branch ancestry must be acyclic",
+    );
+    ancestors.add(cursor);
+    cursor = branchEntries.get(cursor)?.parentId ?? null;
+  }
+  assert.ok(ancestors.has(selectedBranch.selected));
+  assert.ok(ancestors.has(selectedBranch.base));
+  assert.ok(!ancestors.has(selectedBranch.unselected));
+  assert.ok(branchEntries.has(selectedBranch.unselected));
   const fencedBash = join(temporary, "fenced-bash-effect");
   await assert.rejects(
     first.rpc("bash", { command: `touch ${JSON.stringify(fencedBash)}` }),
@@ -584,8 +683,8 @@ export default function (pi) {
   await assert.rejects(readFile(fencedBash), { code: "ENOENT" });
   await control(published.socket, request);
   assert.equal(
-    requests,
-    1,
+    requestCount(),
+    2,
     "repeated checkpoint observation must not replay the interrupted request",
   );
   await control(published.socket, {
@@ -648,9 +747,20 @@ export default function (pi) {
   assert.equal(restoredSession.branch_id, retained.session.branch_id);
   assert.equal(restoredSession.restoration, "restored");
   assert.equal(
-    requests,
-    1,
+    requestCount(),
+    2,
     "restoring the native conversation must not replay model work",
+  );
+  console.log(
+    JSON.stringify({
+      selectedBranch,
+      restoredBranch: restoredSession.branch_id,
+      selectedAncestorRetained: true,
+      unselectedBranchPreserved: true,
+      originalTranscriptPreserved: true,
+      providerRequests: requestCount(),
+      interruptedOperationReplayed: false,
+    }),
   );
   console.log(
     "Native Pi cancellation, immutable bundle and mapped shared-host identity, exact transcript/branch restoration, changed-process and active-subprocess refusal, and no replay passed.",
