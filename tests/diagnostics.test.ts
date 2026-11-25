@@ -18,10 +18,13 @@ import {
   type DiagnosticSnapshot,
 } from "../code-intelligence/diagnostics.ts";
 const plain = {
+  appearance: "dark" as const,
   bg: (_tone: ThemeBg, value: string) => value,
   fg: (_tone: ThemeColor, value: string) => value,
   bold: (value: string) => value,
   colors: {
+    text: parseColor("#D8DEE9"),
+    toolSuccessBg: parseColor("#3B4252"),
     toolDiffRemoved: parseColor("#BF616A"),
     toolDiffAdded: parseColor("#A3BE8C"),
   },
@@ -297,16 +300,40 @@ await test("token fills and gutter roles survive compact, paired and wrapped dif
       return ansi + text + (ansi === "" ? "" : "\x1b[39m");
     },
     style(text: string, options: ThemeStyle) {
-      assert.ok(
-        typeof options.bg === "object" && typeof options.fg === "object",
-      );
+      assert.ok(typeof options.fg === "object");
+      assert.ok(options.bg === undefined || typeof options.bg === "object");
       return styleText(
         text,
-        { bg: options.bg, fg: options.fg, bold: true },
+        {
+          fg: options.fg,
+          ...(options.bg === undefined ? {} : { bg: options.bg }),
+          bold: options.bold === true,
+        },
         "truecolor",
       );
     },
   };
+  const gray = "\x1b[38;2;177;177;177m";
+  const reason = "Allow another attempt";
+  assert.ok(
+    editFileHeading(theme, "Edit", "retry.ts", reason).includes(
+      `${gray}  · ${reason}`,
+    ),
+  );
+  const light = {
+    ...theme,
+    appearance: "light" as const,
+    colors: {
+      ...theme.colors,
+      toolSuccessBg: parseColor("#F2F2F2"),
+      text: parseColor("#202020"),
+    },
+  };
+  assert.ok(
+    editFileHeading(light, "Edit", "retry.ts", reason).includes(
+      "\x1b[38;2;85;85;85m",
+    ),
+  );
   const diff = "-12 return attempts < 2;\n+12 return attempts < 4;";
   const change = { row: 1, start: 18, original: "2", updated: "4" };
   for (const [width, withIssue] of [
@@ -339,8 +366,11 @@ await test("token fills and gutter roles survive compact, paired and wrapped dif
     );
     const view = rows.join("\n");
     assert.ok(rows.every((row) => visibleWidth(row) <= width));
-    assert.ok(view.includes("\x1b[48;2;191;97;106m"), "removal fill");
-    assert.ok(view.includes("\x1b[48;2;163;190;140m"), "addition fill");
+    assert.ok(view.includes("\x1b[48;2;229;192;195m"), "removal tint");
+    assert.ok(view.includes("\x1b[48;2;218;229;209m"), "addition tint");
+    assert.ok(view.includes("\x1b[38;2;59;66;82m"), "dark ink on light fills");
+    if (withIssue && width === 120)
+      assert.ok(view.includes(`${gray}Out of range`));
     if (!withIssue) {
       assert.ok(view.includes("\x1b[33m~\x1b[39m\x1b[34m12 "));
       assert.match(stripTerminalSequences(view), /return attempts < 2 → 4;/u);
@@ -348,6 +378,30 @@ await test("token fills and gutter roles survive compact, paired and wrapped dif
       assert.ok(view.includes("\x1b[4:3m"));
     }
   }
+  const custom = syntaxDiffRows(
+    diff,
+    "retry.ts",
+    light,
+    80,
+    "/project",
+    undefined,
+    {
+      min_split_columns: 40,
+      inline_diagnostics: true,
+      removed_background: "#080808",
+      added_background: "#f0f0f0",
+    },
+    [],
+    { replacements: [change] },
+  ).join("\n");
+  assert.ok(
+    custom.includes("\x1b[38;2;255;255;255m\x1b[48;2;8;8;8m"),
+    "light ink on overridden dark fill",
+  );
+  assert.ok(
+    custom.includes("\x1b[38;2;32;32;32m\x1b[48;2;240;240;240m"),
+    "light-theme ink on overridden light fill",
+  );
 });
 
 await test("a replacement that cannot fit inline keeps both source lines", () => {

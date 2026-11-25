@@ -14,6 +14,7 @@ import {
   colorToRgb,
   getCapabilities,
   hyperlink,
+  mixColors,
   parseColor,
   rgbColor,
   type Color,
@@ -31,10 +32,12 @@ export function displayEditReason(reason: string): string {
 }
 
 type Highlighter = (text: string, language: string) => string[];
-type HeadingTheme = Pick<Theme, "fg" | "bold">;
+type HeadingTheme = Pick<Theme, "fg" | "bold" | "style" | "appearance"> & {
+  colors: Pick<Theme["colors"], "toolSuccessBg">;
+};
 type DiffTheme = HeadingTheme &
-  Pick<Theme, "bg" | "style"> & {
-    colors: Pick<Theme["colors"], "toolDiffAdded" | "toolDiffRemoved">;
+  Pick<Theme, "bg"> & {
+    colors: Pick<Theme["colors"], "text" | "toolDiffAdded" | "toolDiffRemoved">;
   };
 
 export function editFileHeading(
@@ -52,21 +55,38 @@ export function editFileHeading(
     name +
     glyph +
     pathLabel +
-    (inlay === "" ? "" : theme.fg("muted", `  · ${inlay}`))
+    (inlay === "" ? "" : inlayText(theme, `  · ${inlay}`))
   );
 }
 
-// Choose the more legible ink for the active theme's addition/removal fill.
-function tokenInk(fill: Color) {
-  const { r, g, b } = colorToRgb(fill);
+const white = rgbColor(255, 255, 255);
+
+function luminance(color: Color) {
+  const { r, g, b } = colorToRgb(color);
   const linear = (channel: number) => {
     const v = channel / 255;
     return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
   };
-  const luminance =
-    0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
-  return luminance > 0.179 ? rgbColor(0, 0, 0) : rgbColor(255, 255, 255);
+  return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
 }
+
+function readableInk(background: Color, preferred: Color) {
+  const bg = luminance(background);
+  const fg = luminance(preferred);
+  if ((Math.max(bg, fg) + 0.05) / (Math.min(bg, fg) + 0.05) >= 4.5)
+    return preferred;
+  return bg > 0.179 ? rgbColor(0, 0, 0) : white;
+}
+
+function inlayText(theme: HeadingTheme, text: string) {
+  const gray = theme.appearance === "dark" ? 177 : 85;
+  const fg = readableInk(
+    theme.colors.toolSuccessBg,
+    rgbColor(gray, gray, gray),
+  );
+  return theme.style(text, { fg });
+}
+
 interface DiffLine {
   raw: string;
   prefix: string | undefined;
@@ -313,8 +333,14 @@ export function syntaxDiffRows(
     override?: string,
   ) => {
     const bg =
-      override === undefined ? theme.colors[tone] : parseColor(override);
-    return theme.style(text, { bg, fg: tokenInk(bg), bold: true });
+      override === undefined
+        ? mixColors(theme.colors[tone], white, 0.6, "srgb")
+        : parseColor(override);
+    const ink =
+      theme.appearance === "dark"
+        ? theme.colors.toolSuccessBg
+        : theme.colors.text;
+    return theme.style(text, { bg, fg: readableInk(bg, ink), bold: true });
   };
   const markedCode = (line: DiffLine, compact: boolean) => {
     const removed = line.prefix === "-";
@@ -391,7 +417,7 @@ export function syntaxDiffRows(
           });
     const inlayRows: string[] = [];
     for (const issue of issues) {
-      const inlay = `${theme.fg(issue.severity, diagnosticGlyph(issue.severity))} ${theme.fg("muted", clean(issue.message))}`;
+      const inlay = `${theme.fg(issue.severity, diagnosticGlyph(issue.severity))} ${inlayText(theme, clean(issue.message))}`;
       const last = sourceRows.at(-1);
       if (
         last !== undefined &&
