@@ -1,13 +1,13 @@
-import { retryWriterFence } from "./recovery.ts";
-import { runVerification } from "./verification.ts";
 import type { Command } from "commander";
-import { ensureRuntime, serveRuntime, alive } from "./supervisor.ts";
-import { ExecutionStore, ExecutionPhase } from "./store.ts";
-import { ExecutionBeads } from "./beads.ts";
-import { mergePolicy } from "./policy.ts";
 import { isDeepStrictEqual } from "node:util";
 
+// The declarations also power offline completion. Load execution dependencies
+// only inside actions so inspection cannot initialize the runtime graph.
 export async function retryAttempt(id: string): Promise<void> {
+  const { retryWriterFence } = await import("./recovery.ts");
+  const { ExecutionStore, ExecutionPhase } = await import("./store.ts");
+  const { ExecutionBeads } = await import("./beads.ts");
+  const { ensureRuntime } = await import("./supervisor.ts");
   const store = new ExecutionStore();
   try {
     const record = store.attempt(id);
@@ -75,12 +75,14 @@ export function registerRuntimeCommands(program: Command): void {
     .command("verify <attempt>", { hidden: true })
     .requiredOption("--token <token>")
     .action(async (id: string, options: { token: string }) => {
+      const { runVerification } = await import("./verification.ts");
       await runVerification(id, options.token);
     });
   runtime
     .command("start")
     .description("Start the configured runtime independently of this terminal")
     .action(async () => {
+      const { ensureRuntime } = await import("./supervisor.ts");
       await ensureRuntime();
       console.log(
         "Runtime start requested. Inspect studio runtime status for confirmed ownership and work.",
@@ -92,6 +94,7 @@ export function registerRuntimeCommands(program: Command): void {
       "Run the private runtime supervisor (normally started by runtime start)",
     )
     .action(async () => {
+      const { serveRuntime } = await import("./supervisor.ts");
       const controller = new AbortController();
       const stop = () => {
         controller.abort();
@@ -111,6 +114,9 @@ export function registerRuntimeCommands(program: Command): void {
       "Inspect runtime ownership, attempts, retained sessions and policy",
     )
     .action(async () => {
+      const { ExecutionStore } = await import("./store.ts");
+      const { alive } = await import("./supervisor.ts");
+      const { mergePolicy } = await import("./policy.ts");
       const store = new ExecutionStore();
       try {
         const supervisor = store.supervisor();
@@ -146,7 +152,8 @@ export function registerRuntimeCommands(program: Command): void {
     .description(
       "Stop new admission; existing task hosts retain ownership and continue",
     )
-    .action(() => {
+    .action(async () => {
+      const { ExecutionStore } = await import("./store.ts");
       const store = new ExecutionStore();
       try {
         store.transaction(() => {
