@@ -1,3 +1,4 @@
+import { registerCodingRenderer } from "../model-tools/rendering.ts";
 import type { StudioConfig } from "../config.ts";
 import {
   displayEditReason,
@@ -25,6 +26,7 @@ import type { CodeIntelligence } from "./service.ts";
 const detailsSchema = z.object({
   studioDiagnostics: z.object({
     contentIndex: z.number().int().nonnegative(),
+    toolCallId: z.string().optional(),
     snapshot: diagnosticSnapshot,
   }),
 });
@@ -111,7 +113,7 @@ export function registerDiagnosticRendering(
         { triggerTurn: false },
       );
   });
-  pi.registerToolRenderer((name, next) => {
+  registerCodingRenderer(pi, (name, next) => {
     const base = next();
     const render = base?.renderResult;
     if ((name !== "edit" && name !== "write") || render === undefined)
@@ -186,11 +188,11 @@ export function registerDiagnosticRendering(
         if (!parsed.success || options.isPartial)
           return render(result, options, theme, context);
         const annotation = parsed.data.studioDiagnostics;
-        let view = views.get(context.toolCallId);
+        let view = views.get(annotation.toolCallId ?? context.toolCallId);
         if (view === undefined) {
           view = { snapshot: annotation.snapshot, settled: true };
-          views.set(context.toolCallId, view);
         }
+        views.set(context.toolCallId, view);
         view.invalidate = context.invalidate;
         const current = view;
         const original = render(

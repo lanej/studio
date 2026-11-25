@@ -170,6 +170,18 @@ Run `studio config --pi-models --region YOUR_AWS_REGION` to generate the work pr
 
 Merge the emitted `providers.bedrock-mantle` entry into `${PI_CODING_AGENT_DIR:-~/.pi/agent}/models.json`, preserving other providers and any intentional overrides in that entry. It references the existing `AWS_BEARER_TOKEN_BEDROCK` environment variable and prints no credential values. It changes no settings. Select `/model bedrock-mantle/MODEL_ID`, or configure the work roles from `studio config --example` and select `/studio-profile work`. Native `amazon-bedrock` models and their inference-profile IDs remain available. Generated metadata does not establish model availability in the chosen region or compatibility with its effective [data-retention policy](https://docs.aws.amazon.com/bedrock/latest/userguide/data-retention.html); provider setup changes no account policy.
 
+### Model-facing coding tools
+
+In an ordinary coding session, Studio selects the core tool names and arguments from the model ID, including vendor-qualified IDs routed through Bedrock. Switching models updates the tools for the next request.
+
+| Model | Coding tools |
+| --- | --- |
+| Claude | `Read(file_path, offset?, limit?)`, `Write(file_path, content)`, `Edit(file_path, old_string, new_string, replace_all?)`, and foreground `Bash(command, timeout?)`. Read numbers text lines. An edit must match exactly once unless `replace_all` is set. |
+| GPT and Codex | `shell_command(command, workdir?, timeout_ms?)` and `apply_patch` for file additions, changes, moves, and deletions. Pi sends the raw patch on transports that advertise grammar support. A JSON function carries the same text in `patch` on other transports, including the generated Bedrock Mantle profile. Pi’s bounded `read` also supports images. |
+| Other models | The session’s configured Pi tools. |
+
+Claude operations call the matching Pi tool, and both Codex operations run through Pi’s shell permission hooks. The patch tool is available when local read, edit, write, and shell access are all active. Custom executors, restricted workers, and snapshot reviewers retain their configured tools. Studio-specific operations such as Socrates planning and LSP navigation keep their own names across models.
+
 ## Run a bead locally
 
 From the repository in a running Zellij session, use the full ID of a ready, unassigned bead. Supply the agreed verification command as separate arguments after `--`. For example, if the bead's acceptance criteria are covered by `make test`:

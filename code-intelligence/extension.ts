@@ -1,3 +1,4 @@
+import { registerPatchDiagnostics } from "../model-tools/patch-diagnostics.ts";
 import { registerReasonedEdit } from "./edit-tool.ts";
 import { registerDiagnosticRendering } from "./rendering.ts";
 import type { DiagnosticSnapshot } from "./diagnostics.ts";
@@ -264,6 +265,7 @@ export function registerCodeIntelligence(pi: ExtensionAPI): CodeIntelligence {
       }
     },
   });
+  registerPatchDiagnostics(pi, intelligence, requireTrust);
   pi.on("tool_result", async (event, ctx) => {
     if (
       !intelligence.enabled ||
@@ -314,6 +316,9 @@ export function registerCodeIntelligence(pi: ExtensionAPI): CodeIntelligence {
         ...(scopes.length > 0 ? { studioDiffScopes: scopes } : {}),
         studioDiagnostics: {
           contentIndex: event.content.length,
+          ...(event.parentToolCallId === undefined
+            ? {}
+            : { toolCallId: event.toolCallId }),
           snapshot: diagnostics,
         },
       },

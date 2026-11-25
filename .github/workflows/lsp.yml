@@ -13,6 +13,11 @@ on:
       - '.npmrc'
       - 'patches/**'
       - 'code-intelligence/**'
+      - 'model-tools/rendering.ts'
+      - 'model-tools/patch-diagnostics.ts'
+      - 'model-tools/codex-patch-runner.mjs'
+      - 'model-tools/codex-patch-runner.d.mts'
+      - 'model-tools/shell.ts'
       - 'config.ts'
       - 'acceptance/lsp.ts'
   pull_request:
@@ -25,6 +30,11 @@ on:
       - '.npmrc'
       - 'patches/**'
       - 'code-intelligence/**'
+      - 'model-tools/rendering.ts'
+      - 'model-tools/patch-diagnostics.ts'
+      - 'model-tools/codex-patch-runner.mjs'
+      - 'model-tools/codex-patch-runner.d.mts'
+      - 'model-tools/shell.ts'
       - 'config.ts'
       - 'acceptance/lsp.ts'
   workflow_dispatch:

@@ -1,3 +1,4 @@
+import { registerCodingRenderer } from "./model-tools/rendering.ts";
 import {
   type ExtensionAPI,
   type Theme,
@@ -322,7 +323,7 @@ const outputDetails = z
 
 export function registerSearchRendering(pi: ExtensionAPI): void {
   const painted = new WeakSet<Component>();
-  pi.registerToolRenderer((name, next) => {
+  registerCodingRenderer(pi, (name, next) => {
     const base = next();
     if (name !== "bash" && name !== "grep") return base;
     const render = base?.renderResult;

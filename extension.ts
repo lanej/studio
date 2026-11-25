@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import { selectorText } from "@lanej/pi-components";
 import { ExtensionInputComponent } from "@earendil-works/pi-coding-agent";
+import { registerModelTools } from "./model-tools/extension.ts";
 import { registerHistoryBindings } from "./keybindings.ts";
 import { TaskPanel } from "./tasks/panel.ts";
 import { readTaskEvidence } from "./tasks/evidence.ts";
@@ -70,6 +71,7 @@ export default function studioExtension(
   registerHistoryBindings(pi);
   registerActivationAdmission(pi);
   const intelligence = registerCodeIntelligence(pi);
+  if (managed === undefined) registerModelTools(pi);
   const idle = new IdleSession();
   const tasks = new TaskPanel();
   let removeInputListener: (() => void) | undefined;
