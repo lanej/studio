@@ -1,3 +1,4 @@
+import { diagramTool } from "./diagram/extension.ts";
 import { renderPlanCall } from "./plan-renderer.ts";
 import { lspTool, renameTool } from "./code-intelligence/extension.ts";
 import { githubLink, renderReferences } from "./github-links.ts";
@@ -36,6 +37,7 @@ const inspectTools = new Set([
   lspTool,
   delegateTool,
   planTool,
+  diagramTool,
 ]);
 const implementationTools = new Set([
   "write",

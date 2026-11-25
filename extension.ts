@@ -21,6 +21,7 @@ import {
 } from "./activation.ts";
 import { registerCodeIntelligence } from "./code-intelligence/extension.ts";
 import { inspectIntegrations } from "./integrations.ts";
+import { registerDiagrams } from "./diagram/extension.ts";
 import { registerSearchRendering } from "./search-renderer.ts";
 import { registerSkillRendering } from "./skill-renderer.ts";
 import { installFooter } from "./footer.ts";
@@ -115,6 +116,7 @@ export default function studioExtension(
       delegation.blocks(sessionId) || discovery?.pending() === true,
     () => selectedProfile,
   );
+  registerDiagrams(pi);
   registerSearchRendering(pi);
   registerSkillRendering(pi);
   if (managed !== undefined)
