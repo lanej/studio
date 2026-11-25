@@ -1,4 +1,16 @@
+import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
+import {
+  decisionId,
+  deliveryPolicySchema,
+  deliveryPolicyText,
+  draftDeliveryPolicy,
+} from "./delivery-policy.ts";
+export {
+  deliveryPolicySchema,
+  draftDeliveryPolicy,
+  type DeliveryPolicy,
+} from "./delivery-policy.ts";
 import { questionEvidence } from "./evidence.ts";
 import {
   coverageFresh,
@@ -21,7 +33,6 @@ export enum DecisionDisposition {
 
 const text = z.string().trim().min(1).max(2000);
 const requirementId = z.string().regex(/^R[1-9]\d*$/u);
-const decisionId = z.string().regex(/^D[1-9]\d*$/u);
 const legacyDecision = z.strictObject({
   decision: text,
   basis: z.enum(["observed", "decided", "assumed"]),
@@ -62,6 +73,7 @@ export const specDraft = z
     ...draftFields,
     decisions: z.array(decision),
     coverage: coverageSchema.optional(),
+    deliveryPolicy: deliveryPolicySchema.optional(),
   })
   .superRefine((value, ctx) => {
     const decisions = new Map(
@@ -143,6 +155,33 @@ export const specRecord = z.strictObject({
 });
 export type LeadSpecification = z.infer<typeof specRecord>;
 
+function deliveryDecision(
+  draft: LeadSpecification["draft"],
+): z.infer<typeof decision> | undefined {
+  const policy = draftDeliveryPolicy(draft);
+  for (const entry of draft?.decisions ?? []) {
+    if (isTrackedDecision(entry) && entry.id === policy?.decisionId)
+      return entry;
+  }
+  return undefined;
+}
+
+function resolvedDeliveryDecision(
+  entry: z.infer<typeof decision> | undefined,
+): boolean {
+  return (
+    entry?.disposition === DecisionDisposition.Resolved &&
+    entry.basis !== "assumed"
+  );
+}
+
+/** A PR rule is settled only when its recorded decision has an evidenced outcome. */
+export function hasSettledDeliveryPolicy(
+  draft: LeadSpecification["draft"],
+): boolean {
+  return resolvedDeliveryDecision(deliveryDecision(draft));
+}
+
 /** Remaining decisions and evidence that prevent freezing a daily-driver specification. */
 export function specificationGaps(
   spec: LeadSpecification,
@@ -161,6 +200,16 @@ export function specificationGaps(
         ? "Answer the pending question"
         : "Incorporate the recorded answer",
     );
+  const policy = draftDeliveryPolicy(draft);
+  if (policy === undefined) {
+    gaps.push(
+      "Settle which beads produce pull requests and who may merge them",
+    );
+  } else if (!hasSettledDeliveryPolicy(draft)) {
+    gaps.push(
+      `Record the PR production rules in resolved decision ${policy.decisionId} with repository evidence or an operator decision`,
+    );
+  }
   gaps.push(...draft.blockingQuestions);
   for (const decision of draft.decisions) {
     if (
@@ -185,6 +234,7 @@ export function specText(spec: LeadSpecification): string {
   const draft = spec.draft;
   if (draft === null) return "No specification drafted yet.";
   const coverage = draftCoverage(draft);
+  const policy = draftDeliveryPolicy(draft);
   const properties = coverageProperties(draft);
   const assessed = properties.filter(({ status }) => status !== "unknown");
   return [
@@ -212,6 +262,9 @@ export function specText(spec: LeadSpecification): string {
       return `${entry.id} · ${entry.disposition} · ${basis}\nUncertainty · ${entry.uncertainty}${history}`;
     }),
     "",
+    ...(policy === undefined
+      ? []
+      : ["Pull request policy", deliveryPolicyText(policy), ""]),
     "Property assessments",
     ...(coverage === undefined
       ? ["Not assessed. No property status has been recorded."]
@@ -262,6 +315,31 @@ export function preserveDecisions(
   previous: LeadSpecification["draft"],
   next: z.infer<typeof specDraft>,
 ): void {
+  const priorPolicy = draftDeliveryPolicy(previous);
+  if (
+    priorPolicy !== undefined &&
+    !isDeepStrictEqual(priorPolicy, next.deliveryPolicy)
+  ) {
+    const prior = deliveryDecision(previous);
+    if (
+      resolvedDeliveryDecision(prior) ||
+      prior?.disposition === DecisionDisposition.Superseded
+    ) {
+      const successor = deliveryDecision(next);
+      let ancestor = successor?.supersedes;
+      while (ancestor !== undefined && ancestor !== priorPolicy.decisionId)
+        ancestor = next.decisions.find(
+          (item) => item.id === ancestor,
+        )?.supersedes;
+      if (
+        ancestor !== priorPolicy.decisionId ||
+        !resolvedDeliveryDecision(successor)
+      )
+        throw new Error(
+          `Supersede delivery decision ${priorPolicy.decisionId} with an evidenced, resolved decision before changing its PR production rules`,
+        );
+    }
+  }
   for (const entry of previous?.decisions ?? []) {
     if (!isTrackedDecision(entry)) continue;
     const updated = next.decisions.find(({ id }) => id === entry.id);

@@ -21,7 +21,7 @@ import {
   draftCoverage,
   type CoverageStatus,
 } from "./assessment.ts";
-import { SpecStatus } from "./spec.ts";
+import { hasSettledDeliveryPolicy, SpecStatus } from "./spec.ts";
 import { implementationColumn, specificationColumn } from "./columns.ts";
 import {
   assessmentRevision,
@@ -31,6 +31,7 @@ import {
   type ImplementationSource,
 } from "./implementation.ts";
 import { createPlanInspector } from "./plan-inspector.ts";
+import { planGraphColor } from "../plan-graph.ts";
 import { renderStatusSidebar } from "./sidebar.ts";
 import { createImplementationWatch } from "./implementation-watch.ts";
 
@@ -163,6 +164,19 @@ export function socratesPresentation(
         label: "Assessments need review",
       };
     const questions = spec.draft.blockingQuestions.length;
+    if (
+      questions === 0 &&
+      counts.open === 0 &&
+      counts.partial === 0 &&
+      counts.unknown === 0 &&
+      observation.bead === undefined &&
+      !hasSettledDeliveryPolicy(spec.draft)
+    )
+      return {
+        state: ActivityState.Idle,
+        label: "PR decision open",
+        detail: "Settle which beads open PRs and how they merge.",
+      };
     return {
       state: ActivityState.Idle,
       label: questions > 0 ? "Open questions remain" : "Awaiting review",
@@ -230,6 +244,7 @@ function sidebarWidth(columns: number): number {
 export function registerSocratesPresentation(
   pi: ExtensionAPI,
   read: (ctx: ExtensionContext) => SocratesObservation | undefined,
+  viewSpecification: (ctx: ExtensionContext) => Promise<void>,
 ) {
   const live: SocratesActivity = { working: false, paused: false };
   const tools = new Map<string, string>();
@@ -303,8 +318,8 @@ export function registerSocratesPresentation(
             render(width) {
               if (snapshot === undefined || inspecting) return [];
               return renderStatusSidebar(
-                snapshot.dockColumns,
-                statusTheme(theme),
+                snapshot,
+                { ...statusTheme(theme), lane: planGraphColor(theme) },
                 width,
                 tui.terminal.rows,
               ).map((line) => surface(theme, line, width));
@@ -493,9 +508,13 @@ export function registerSocratesPresentation(
   });
   pi.registerCommand("socrates-status", {
     description:
-      "Toggle lead status, or use min, max, or inspect for specification and Beads details",
+      "Toggle lead status, use min or max to resize, inspect for evidence, or spec to read the full specification",
     async handler(argument, ctx) {
       const action = argument.trim();
+      if (action === "spec") {
+        await viewSpecification(ctx);
+        return;
+      }
       if (action === "inspect") {
         await inspect(ctx);
         return;
@@ -505,10 +524,14 @@ export function registerSocratesPresentation(
         return;
       }
       if (action !== "min" && action !== "max")
-        throw new Error("Use /socrates-status min, max, or inspect");
+        throw new Error("Use /socrates-status min, max, inspect, or spec");
       refresh(ctx);
       resizeStatus(action === "max");
     },
   });
-  return { refresh, inspect };
+  function open(ctx: ExtensionContext) {
+    refresh(ctx);
+    if (snapshot !== undefined) resizeStatus(true);
+  }
+  return { refresh, inspect, open };
 }

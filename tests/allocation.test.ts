@@ -3,7 +3,12 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { createInterface } from "node:readline";
 import { z } from "zod";
-import { processStart } from "../process.ts";
+import { processStart, run, signalProcessGroup } from "../process.ts";
+import { setTimeout as delay } from "node:timers/promises";
+import {
+  finishAllocationFixture,
+  settleOwnedAllocationGroup,
+} from "./helpers/allocation-cleanup.ts";
 import { groupExists } from "../execution/recovery.ts";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -102,6 +107,8 @@ await test("a dead allocation controller retains its lease while its manager pro
   const reader = createInterface({ input: controller.stdout });
   let pending: Promise<void> | undefined;
   const abort = new AbortController();
+  const identities: { pid: number; started: string }[] = [];
+  let primary: { error: unknown } | undefined;
   try {
     const line: unknown[] = await once(reader, "line");
     const receipt = z
@@ -110,6 +117,10 @@ await test("a dead allocation controller retains its lease while its manager pro
     assert(receipt.child > 0 && controller.pid !== undefined);
     const pid = controller.pid;
     const started = await processStart(pid);
+    identities.push(
+      { pid, started },
+      { pid: receipt.child, started: await processStart(receipt.child) },
+    );
     const owner = { id: randomUUID(), attempt: randomUUID(), pid, started };
     assert.equal(store.reserveAllocation(owner, undefined), true);
     const stopped = once(controller, "close");
@@ -157,14 +168,69 @@ await test("a dead allocation controller retains its lease while its manager pro
       "Allocation recovers once the old controller and its children are gone",
     );
     assert.equal(store.allocationOwner(), undefined);
+  } catch (error) {
+    primary = { error };
   } finally {
-    abort.abort();
-    if (controller.pid !== undefined && groupExists(controller.pid))
-      process.kill(-controller.pid, "SIGKILL");
-    await pending?.catch(() => {});
-    reader.close();
-    store.close();
-    await rm(directory, { recursive: true, force: true });
+    await finishAllocationFixture(primary, {
+      abort: () => {
+        abort.abort();
+      },
+      stop: async () => {
+        const group = controller.pid;
+        if (group === undefined) return;
+        await settleOwnedAllocationGroup({
+          probe: () => groupExists(group),
+          verify: async () => {
+            for (const identity of identities) {
+              try {
+                if (
+                  (await processStart(identity.pid)) === identity.started &&
+                  (
+                    await run("/bin/ps", [
+                      "-p",
+                      String(identity.pid),
+                      "-o",
+                      "pgid=",
+                    ])
+                  ).trim() === String(group)
+                )
+                  return true;
+              } catch {
+                // Another recorded member may still prove ownership; otherwise retain the fixture.
+              }
+            }
+            return false;
+          },
+          signal: () => {
+            signalProcessGroup(group, "SIGKILL");
+          },
+          wait: async () => {
+            const deadline = Date.now() + 2000;
+            while (groupExists(group)) {
+              if (Date.now() >= deadline)
+                throw new Error("Owned allocation group did not settle");
+              await delay(10);
+            }
+          },
+        });
+      },
+      drain: async () => {
+        await pending?.catch(() => {});
+      },
+      closeReader: () => {
+        reader.close();
+      },
+      closeStore: () => {
+        store.close();
+      },
+      dispose: async (safe) => {
+        if (!safe)
+          throw new Error(
+            `Retained allocation fixture at ${directory}: process settlement is unconfirmed`,
+          );
+        await rm(directory, { recursive: true, force: true });
+      },
+    });
   }
 });
 

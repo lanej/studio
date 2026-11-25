@@ -19,7 +19,17 @@ export function readySpecification(revision: string) {
           acceptance: "The recovered transcript matches the original bytes",
         },
       ],
-      decisions: [],
+      decisions: [
+        {
+          id: "D20",
+          decision: "Integrate the transcript work locally.",
+          disposition: "resolved",
+          basis: "decided",
+          evidence: "The operator requested local integration for this change.",
+          uncertainty: "None",
+        },
+      ],
+      deliveryPolicy: { decisionId: "D20", pullRequests: "none" },
       blockingQuestions: [],
       coverage: {
         domains: ["engineering"],

@@ -18,6 +18,7 @@ import {
   specificationGaps,
   type SpecQuestion,
 } from "./spec.ts";
+import { deliveryPolicyParameter } from "./delivery-policy.ts";
 import { questionEvidenceParameter } from "./evidence.ts";
 import { questionLinks, renderQuestionEvidence } from "./links.ts";
 import { chooseQuestion, QuestionSelectionKind } from "./selector.ts";
@@ -83,18 +84,35 @@ export function registerSocratesControls<T extends SocratesState>(
     select?(argument: string, ctx: ExtensionContext): Promise<void>;
   },
 ) {
-  const presentation = registerSocratesPresentation(pi, (ctx) => {
-    const record =
-      scope.snapshot === undefined ? db.get(id) : scope.snapshot(ctx);
-    return record === undefined ||
-      (record.specification === undefined && record.leadPlan?.draft == null)
-      ? undefined
-      : {
-          ...record,
-          id: scope.identity(record),
-          label: scope.label(record),
-        };
-  });
+  async function viewSpecification(ctx: ExtensionContext) {
+    const record = await requireBinding(ctx);
+    if (record.specification === undefined) {
+      ctx.ui.notify("No Socrates specification selected.", "info");
+      return;
+    }
+    approvalPending(true);
+    try {
+      await showTask(ctx, specText(record.specification));
+    } finally {
+      approvalPending(false);
+    }
+  }
+  const presentation = registerSocratesPresentation(
+    pi,
+    (ctx) => {
+      const record =
+        scope.snapshot === undefined ? db.get(id) : scope.snapshot(ctx);
+      return record === undefined ||
+        (record.specification === undefined && record.leadPlan?.draft == null)
+        ? undefined
+        : {
+            ...record,
+            id: scope.identity(record),
+            label: scope.label(record),
+          };
+    },
+    viewSpecification,
+  );
   const checkCurrent = async (
     record: T,
     revision: string,
@@ -254,8 +272,8 @@ export function registerSocratesControls<T extends SocratesState>(
       if (!ctx.isIdle()) throw new Error("Wait for the lead turn to settle");
       await scope.select?.(_argument, ctx);
       const record = await requireBinding(ctx);
-      presentation.refresh(ctx);
       const spec = record.specification;
+      if (spec !== undefined) presentation.open(ctx);
       if (spec?.status === SpecStatus.Interrogating) {
         await socratesGuidance();
         if (record.revision !== spec.acceptedRevision)
@@ -283,12 +301,7 @@ export function registerSocratesControls<T extends SocratesState>(
         }
       }
       if (spec !== undefined) {
-        approvalPending(true);
-        try {
-          await showTask(ctx, specText(spec));
-        } finally {
-          approvalPending(false);
-        }
+        if (scope.discovery !== true) await viewSpecification(ctx);
         return;
       }
       if (
@@ -315,7 +328,7 @@ export function registerSocratesControls<T extends SocratesState>(
         if (scope.discovery !== true)
           row.leadPlan = { ...row.leadPlan, draft: null };
       });
-      presentation.refresh(ctx);
+      presentation.open(ctx);
       pi.sendUserMessage(
         `Begin Socrates discovery for ${scope.subject} using the shared procedure.`,
       );
@@ -356,6 +369,7 @@ export function registerSocratesControls<T extends SocratesState>(
         }),
       ),
       blockingQuestions: Type.Array(Type.String()),
+      deliveryPolicy: deliveryPolicyParameter,
       coverage: Type.Optional(
         Type.Object(
           {
@@ -440,7 +454,7 @@ export function registerSocratesControls<T extends SocratesState>(
                   ? "Draft saved. Resolve the blocking questions with the operator."
                   : scope.discovery === true
                     ? "Properties satisfied or accounted for. Update the proposed beads against this specification, then offer /spec-freeze for review."
-                    : "Draft saved. The operator can inspect it with /socrates and freeze it with /spec-freeze.",
+                    : "Draft saved. The operator can inspect it with /socrates-status spec and freeze it with /spec-freeze.",
           },
         ],
         details: { gaps },

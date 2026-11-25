@@ -386,3 +386,163 @@ await test("a pending question or open decision blocks an otherwise assessed spe
     );
   }
 });
+
+await test("a daily-driver freeze requires explicit evidenced PR and merge boundaries", () => {
+  const spec = readySpecification("brief");
+  const assess = (changes: object) => {
+    const draft = specDraft.parse({ ...spec.draft, ...changes });
+    const next = { ...spec, draft };
+    return specificationGaps(
+      { ...next, coverageRevision: coverageToken(next) },
+      spec.acceptedRevision,
+    );
+  };
+  assert.match(
+    assess({ deliveryPolicy: undefined }).join(" "),
+    /which beads produce pull requests/u,
+  );
+  const [source] = spec.draft.decisions;
+  assert.ok(source !== undefined);
+  for (const changes of [
+    { decisions: [] },
+    { decisions: [{ ...source, basis: "assumed" }] },
+    { decisions: [{ ...source, disposition: "open" }] },
+    { decisions: [{ ...source, disposition: "accepted-uncertainty" }] },
+  ])
+    assert.match(assess(changes).join(" "), /resolved decision D20/u);
+  assert.deepEqual(
+    assess({
+      decisions: [
+        {
+          ...source,
+          basis: "observed",
+          evidence: "CONTRIBUTING.md requires a PR for each change",
+        },
+      ],
+      deliveryPolicy: {
+        decisionId: source.id,
+        pullRequests: "per-bead",
+        merge: "project-policy",
+      },
+    }),
+    [],
+  );
+  for (const invalid of [
+    { pullRequests: "none", merge: "manual" },
+    { pullRequests: "per-bead" },
+    { pullRequests: "selected", publish: ["docs"] },
+    { pullRequests: "selected", merge: "manual", publish: [] },
+    { pullRequests: "selected", merge: "manual", publish: ["patch", "patch"] },
+    { pullRequests: "selected", merge: "manual", publish: ["root"] },
+  ])
+    assert.equal(
+      specDraft.safeParse({
+        ...spec.draft,
+        deliveryPolicy: { decisionId: source.id, ...invalid },
+      }).success,
+      false,
+    );
+});
+
+await test("the reviewed publishing beads, merge rule and source decision are part of the specification", () => {
+  const spec = readySpecification("brief");
+  const withPolicy = (policy: object) => ({
+    ...spec,
+    draft: specDraft.parse({ ...spec.draft, deliveryPolicy: policy }),
+  });
+  const selected = {
+    decisionId: "D20",
+    pullRequests: "selected",
+    merge: "manual",
+    publish: ["ui", "api"],
+  };
+  const draft = withPolicy(selected);
+  const token = coverageToken(draft);
+  assert.equal(
+    coverageToken({
+      ...draft,
+      draft: {
+        ...draft.draft,
+        deliveryPolicy: {
+          pullRequests: "selected",
+          merge: "manual",
+          publish: ["ui", "api"],
+          decisionId: "D20",
+        },
+      },
+    }),
+    token,
+  );
+  assert.match(specText(draft), /Open PRs for api, ui/u);
+  assert.match(specText(draft), /Manual merge · D20/u);
+  assert.notEqual(token, coverageToken(spec));
+  assert.equal(
+    token,
+    coverageToken(withPolicy({ ...selected, publish: ["api", "ui"] })),
+  );
+  for (const change of [
+    { merge: "project-policy" },
+    { publish: ["api"] },
+    { decisionId: "D21" },
+  ])
+    assert.notEqual(
+      token,
+      coverageToken(withPolicy({ ...selected, ...change })),
+    );
+});
+
+await test("revising a settled publication policy requires a resolved successor decision", () => {
+  const spec = readySpecification("brief");
+  const prior = spec.draft;
+  const [current] = prior.decisions;
+  assert.ok(current !== undefined);
+  const policy = {
+    decisionId: "D21",
+    pullRequests: "per-bead",
+    merge: "manual",
+  };
+  const replacement = {
+    ...current,
+    id: "D21",
+    decision: "Open one PR per bead for manual merge",
+    supersedes: current.id,
+  };
+  const superseded = {
+    ...current,
+    disposition: DecisionDisposition.Superseded,
+  };
+  for (const change of [
+    { deliveryPolicy: undefined },
+    { deliveryPolicy: { ...policy, decisionId: current.id } },
+    {
+      deliveryPolicy: policy,
+      decisions: [current, { ...replacement, supersedes: undefined }],
+    },
+    {
+      deliveryPolicy: policy,
+      decisions: [
+        superseded,
+        { ...replacement, disposition: DecisionDisposition.Open },
+      ],
+    },
+    {
+      deliveryPolicy: policy,
+      decisions: [superseded, { ...replacement, basis: "assumed" }],
+    },
+  ])
+    assert.throws(() => {
+      preserveDecisions(prior, specDraft.parse({ ...prior, ...change }));
+    }, /Supersede delivery decision/u);
+  const authorized = specDraft.parse({
+    ...prior,
+    deliveryPolicy: policy,
+    decisions: [superseded, replacement],
+  });
+  preserveDecisions(prior, authorized);
+  const questioning = specDraft.parse({
+    ...prior,
+    deliveryPolicy: undefined,
+    decisions: [{ ...current, disposition: DecisionDisposition.Open }],
+  });
+  preserveDecisions(questioning, prior);
+});

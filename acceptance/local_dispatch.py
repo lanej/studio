@@ -74,7 +74,11 @@ def dispatch_spec(resolved: bool) -> dict:
                        "basis": "decided" if resolved else "observed",
                        "evidence": WAIT if resolved else "The task brief leaves the marker source open.",
                        "disposition": "resolved" if resolved else "open",
-                       "uncertainty": "None" if resolved else "The answer determines the dependency edge."}],
+                       "uncertainty": "None" if resolved else "The answer determines the dependency edge."},
+                      {"id": "D2", "decision": "All three marker files integrate locally.",
+                       "basis": "decided", "evidence": "The operator requested local delivery without pull requests.",
+                       "disposition": "resolved", "uncertainty": "None"}],
+        "deliveryPolicy": {"decisionId": "D2", "pullRequests": "none"},
         "blockingQuestions": [] if resolved else [QUESTION],
         "coverage": {"domains": ["engineering"], "assessments": [
             {"propertyId": key, "status": "satisfied", "reason": reason}
@@ -242,7 +246,7 @@ def exercise_interactive_dispatch(fixture: Fixture, terminal: Terminal, lead: in
             terminal.until("native lead", lambda: "⊛ 6.1" in capture())
             type_line(lead, "/studio-profile personal")
             terminal.pty.drain(0.35)
-            type_line(lead, "/socrates Interactive acceptance")
+            type_line(lead, "/socrates Interactive markers, local integration only")
             terminal.until("operator decision opens", lambda: WAIT in capture() and "Generate independently" in capture())
             database = Path(fixture.env["STUDIO_STATE_DIR"]) / "discoveries.sqlite"
 
@@ -254,6 +258,8 @@ def exercise_interactive_dispatch(fixture: Fixture, terminal: Terminal, lead: in
             provisional = discovery()
             assert provisional["specification"]["status"] == "interrogating"
             assert provisional["leadPlan"]["draft"]["tasks"][1]["blockedBy"] == []
+            assert provisional["specification"]["draft"]["deliveryPolicy"] == {"decisionId": "D2", "pullRequests": "none"}
+            assert all(task["delivery"] == "local" for task in provisional["leadPlan"]["draft"]["tasks"])
             assert get("issues")["items"] == []
             terminal.write_to_pane(lead, 13)
             terminal.until("operator decision incorporated", lambda: "The dependency is recorded in the plan." in capture())

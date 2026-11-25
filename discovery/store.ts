@@ -7,12 +7,19 @@ import { z } from "zod";
 import { stateDirectory } from "../attempts.ts";
 import {
   LeadMode,
+  TaskDelivery,
   leadPlanSchema,
   planDigest,
   type LeadDraft,
 } from "../lead-plan.ts";
 import { runtimeProjectSchema } from "../config.ts";
-import { specRecord, SpecStatus, specificationGaps } from "../socrates/spec.ts";
+import {
+  draftDeliveryPolicy,
+  specRecord,
+  SpecStatus,
+  specificationGaps,
+  type DeliveryPolicy,
+} from "../socrates/spec.ts";
 import { coverageToken } from "../socrates/assessment.ts";
 
 export enum HandoffPhase {
@@ -52,6 +59,35 @@ export const discoverySchema = z.object({
 });
 export type Discovery = z.infer<typeof discoverySchema>;
 
+/** Resolve each proposed bead against the same publication decision shown at freeze. */
+export function applyDeliveryPolicy(
+  draft: LeadDraft,
+  policy: DeliveryPolicy,
+): LeadDraft {
+  const tasks = draft.tasks.map((task) => {
+    const publishes =
+      policy.pullRequests === "per-bead" ||
+      (policy.pullRequests === "selected" && policy.publish.includes(task.key));
+    const delivery = publishes ? TaskDelivery.PullRequest : TaskDelivery.Local;
+    if (task.delivery !== undefined && task.delivery !== delivery)
+      throw new Error(
+        `Delivery for ${task.key} conflicts with decision ${policy.decisionId}. Revise the proposal or revisit the Socrates delivery decision.`,
+      );
+    return { ...task, delivery };
+  });
+  const { pullRequestMerge: previousMerge, ...proposal } = draft;
+  if (
+    previousMerge !== undefined &&
+    (policy.pullRequests === "none" || previousMerge !== policy.merge)
+  )
+    throw new Error(
+      "The proposed merge rule conflicts with the Socrates delivery decision",
+    );
+  return policy.pullRequests === "none"
+    ? { ...proposal, tasks }
+    : { ...proposal, tasks, pullRequestMerge: policy.merge };
+}
+
 /** A proposal is editable throughout discovery. Only this reviewed form may reach the runtime. */
 export function handoffDraft(record: Discovery): LeadDraft {
   const draft = record.leadPlan.draft;
@@ -83,6 +119,23 @@ export function handoffDraft(record: Discovery): LeadDraft {
     throw new Error(
       "Update the work breakdown against the current frozen specification before approval",
     );
+  const policy = draftDeliveryPolicy(spec.draft);
+  if (
+    policy === undefined ||
+    !isDeepStrictEqual(draft, applyDeliveryPolicy(draft, policy))
+  )
+    throw new Error(
+      "Update the proposed beads to match the settled delivery policy",
+    );
+  if (policy.pullRequests === "selected") {
+    const missing = policy.publish.filter(
+      (key) => !draft.tasks.some((task) => task.key === key),
+    );
+    if (missing.length > 0)
+      throw new Error(
+        `The delivery decision names missing publishing beads: ${missing.join(", ")}`,
+      );
+  }
   const requirements = spec.draft.requirements.map(({ id }) => id);
   if (
     draft.tasks.some(

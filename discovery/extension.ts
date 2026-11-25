@@ -9,7 +9,7 @@ import { Type } from "typebox";
 import { selectorText } from "@lanej/pi-components";
 import { z } from "zod";
 import { registerSocratesControls } from "../socrates/controls.ts";
-import { SpecStatus, specText } from "../socrates/spec.ts";
+import { draftDeliveryPolicy, SpecStatus, specText } from "../socrates/spec.ts";
 import { coverageToken } from "../socrates/assessment.ts";
 import { loadConfig } from "../config.ts";
 import { socratesGuidance } from "../socrates/guidance.ts";
@@ -23,7 +23,12 @@ import {
 } from "../lead-plan.ts";
 import { isEntry, PiEntryType } from "../runtime.ts";
 import { reviewPlan } from "../ui.ts";
-import { Discoveries, handoffDraft, type Discovery } from "./store.ts";
+import {
+  applyDeliveryPolicy,
+  Discoveries,
+  handoffDraft,
+  type Discovery,
+} from "./store.ts";
 
 const selectionType = "studio:discovery";
 const markerSchema = z.object({ id: z.uuid().nullable(), project: z.string() });
@@ -126,7 +131,7 @@ export function registerDiscovery(
             ? []
             : [
                 `Local proposal · ${record.title}`,
-                describePlan(record.leadPlan.draft),
+                describePlan(record.leadPlan.draft, "proposal"),
               ]),
         ].join("\n\n"),
       };
@@ -139,7 +144,7 @@ export function registerDiscovery(
         "Develop the specification and its proposed beads together. Keep the decomposition current as answers change task scope, dependencies, acceptance, or verification. Use draft_implementation_plan to persist it locally. Actual beads and worker dispatch require the operator's final handoff approval.",
         ...(record.leadPlan.draft === null
           ? []
-          : [describePlan(record.leadPlan.draft)]),
+          : [describePlan(record.leadPlan.draft, "proposal")]),
       ].join("\n\n"),
     };
   });
@@ -373,7 +378,12 @@ export function registerDiscovery(
               );
             row.planSpecificationRevision = coverageToken(spec);
           }
-          row.leadPlan = { mode: LeadMode.Planning, draft };
+          const policy = draftDeliveryPolicy(spec?.draft ?? null);
+          row.leadPlan = {
+            mode: LeadMode.Planning,
+            draft:
+              policy === undefined ? draft : applyDeliveryPolicy(draft, policy),
+          };
         }),
       );
       return {
@@ -410,9 +420,14 @@ export function registerDiscovery(
             row.leadPlan.draft === null
           )
             throw new Error("No unapproved draft to revise");
+          const revised = reviseDelivery(row.leadPlan.draft, argument);
+          const policy = draftDeliveryPolicy(row.specification?.draft ?? null);
           row.leadPlan = {
             ...row.leadPlan,
-            draft: reviseDelivery(row.leadPlan.draft, argument),
+            draft:
+              policy === undefined
+                ? revised
+                : applyDeliveryPolicy(revised, policy),
           };
         }),
       );
@@ -463,11 +478,6 @@ export function registerDiscovery(
                 ? "Execution · background"
                 : `Execution · interactive in Zellij ${interactive.session}, tab ${String(interactive.tab)}`,
               `Project · ${target.root}\nBeads · ${target.id}\nProfile · ${target.profile}`,
-              ...(interactive === undefined
-                ? [
-                    "Merge policy · project default and lead override are evaluated before delivery",
-                  ]
-                : []),
               record.specification === undefined
                 ? "Recovery of the previously approved handoff"
                 : specText(record.specification),

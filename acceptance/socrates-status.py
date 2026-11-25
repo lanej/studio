@@ -38,6 +38,7 @@ linked_beads = {}
 bead_reads = []
 initial_prompt = "Let me inspect this proposal while keeping our conversation open."
 # A native Markdown paragraph that fits the full terminal, but wraps in the lead column.
+resume_sentence = "The same property evidence feeds both the sidebar and its revision history before the two results are compared."
 review_sentence = "The live handoff check still needs a linked bead and a fresh assessment before the review can finish."
 linked_sentence = "The handoff check can start once the lead sidebar is complete and its linked dependency has closed."
 wide_columns, wide_rows = 128, 34
@@ -85,6 +86,7 @@ class Provider(BaseHTTPRequestHandler):
             if not release_response.wait(20):
                 provider_errors.append("Native response was not released")
         linked_review = any('progress of the linked work' in message for message in user_messages[-1:])
+        resuming = any("Resume Socrates discovery" in message for message in user_messages[-1:])
         reply = ("The answer is recorded. The draft is unchanged." if resumed_answer
                  else f"""The remaining blocker is handoff verification.
 
@@ -92,14 +94,19 @@ The evidence for R1 is recorded. Work on the lead sidebar is underway.
 
 {linked_sentence}
 
-The open Harmony decision concerns how to incorporate the recorded answer. The verification property already has coverage for question and resume.""" if linked_review
-                 else f"""There are two proposed tasks. The first preserves the evidence for R1. The second keeps that evidence visible while the lead conversation continues.
+The blocked bead can run after the sidebar produces its accepted result.""" if linked_review
+                 else f"""The proposal preserves the evidence used to assess each specification revision.
+
+{resume_sentence}
+
+One decision remains: how should we verify that an assessment is marked stale when its requirement changes?""" if resuming
+                 else f"""Once the evidence is recorded, the sidebar and assessment history can be built in parallel. Reviewing changes in the dock needs both.
 
 {review_sentence}
 
 Verification already covers question and resume. A native check of stale assessments would close the remaining gap.
 
-The plan is awaiting approval.""")
+The open decision is how to verify that a revised requirement marks the old assessment stale.""")
         result = {
             "id": "socrates-status-fixture",
             "object": "chat.completion.chunk",
@@ -251,8 +258,27 @@ class Terminal:
                 return x
         return None
 
+    def rail_text(self):
+        start = self.rail_start()
+        if start is None:
+            return ""
+        return "\n".join(line[start:] for line in self.screen.display)
+
     def wait_for_rail(self):
         self.wait(lambda: self.rail_start() is not None, "The native console did not show a right status column")
+
+    def check_dependency_graph(self):
+        path = ("Record property evidence", "├─╮", "Keep the lead available",
+                "Keep assessment history", "├─╯", "Review changes in the dock")
+        self.wait(lambda: all(part in self.rail_text() for part in path),
+                  "The Implementation sidebar did not draw the complete fork and join")
+        rail = self.rail_text().partition("Implementation")[2]
+        cursor = 0
+        for part in path:
+            found = rail.find(part, cursor)
+            assert found >= 0, rail
+            cursor = found + len(part)
+        assert "Wave 1" not in rail and "Wave 2" not in rail, rail
 
     def wait_for_session(self):
         # Pi mounts widgets during session_start and restores the transcript
@@ -374,16 +400,16 @@ const breakdown=draftSchema.parse({{summary:'Keep the lead available during hand
   {{key:'assess',title:'Record property evidence',description:'Persist the rationale for each assessed property.',acceptance:'Old assessments remain inspectable after a revision.',requirements:['R1'],owns:['socrates/assessment.ts']}},
   {{key:'dock',title:'Keep the lead available',description:'Keep coverage and linked work visible beside the conversation.',acceptance:'Toggling the sidebar preserves the complete unsent prompt.',requirements:['R1'],blockedBy:['assess'],owns:['socrates/presentation.ts']}}
 ]}});
-store.change(covered,row=>{{row.leadPlan.draft=breakdown;row.planSpecificationRevision=coverageToken(row.specification);}});
 const question=create('Question in progress',{{...draft,blockingQuestions:['Which verification boundary should we use?']}});
 store.change(question,row=>{{row.specification.exchange={{prompt:{{decisionId:'D1',question:'Which verification boundary should we use?',options:[{{label:'Focused native check',description:'Exercise the status UI'}},{{label:'Keep investigating',description:'Leave the boundary open'}}]}}}};}});
 const {{coverage,...legacyDraft}}=draft;
 const unknown=create('Unassessed discovery',legacyDraft);
 const planOnly=store.create({json.dumps(str(project))},'status-fixture','Standalone work breakdown');
 const graphDraft = draftSchema.parse({{...breakdown,tasks:[...breakdown.tasks,
-  {{key:'history',title:'Keep assessment history',description:'Retain previous evidence.',acceptance:'Old versions remain readable.',blockedBy:['assess']}},
-  {{key:'review',title:'Review changes in the dock',description:'Compare the current and previous assessment.',acceptance:'Both versions can be reviewed in the dock.',blockedBy:['dock','history']}}
+  {{key:'history',title:'Keep assessment history',description:'Retain previous evidence.',acceptance:'Old versions remain readable.',requirements:['R1'],blockedBy:['assess']}},
+  {{key:'review',title:'Review changes in the dock',description:'Compare the current and previous assessment.',acceptance:'Both versions can be reviewed in the dock.',requirements:['R1'],blockedBy:['dock','history']}}
 ]}});
+store.change(covered,row=>{{row.leadPlan.draft=graphDraft;row.planSpecificationRevision=coverageToken(row.specification);}});
 store.change(planOnly.id,row=>{{row.leadPlan.draft=graphDraft;}});
 const approved=create('Specification and linked work', draft);
 const activeBreakdown=draftSchema.parse({{...breakdown,tasks:[...breakdown.tasks,{{key:'verify',title:'Verify the handoff',description:'Confirm the evidence at the live boundary.',acceptance:'The selected bead matches the reviewed work.',requirements:['R1'],blockedBy:['dock']}}]}});
@@ -458,9 +484,16 @@ def run(output):
             )
             terminal.wait_for_session()
             terminal.contains("Proposed beads")
-            terminal.contains("Record property evidence")
+            terminal.check_dependency_graph()
+            terminal.send("\x1bs")
+            terminal.wait(lambda: terminal.rail_start() is None, "Alt+S did not collapse the sidebar")
+            terminal.send("/socrates\r")
+            terminal.wait_for_rail()
+            terminal.check_dependency_graph()
+            terminal.check_lead_wrap(resume_sentence)
+            assert not bead_reads, bead_reads
             terminal.assert_mark("Verification", "◐", "status.warning")
-            draft = "Review the evidence for the specification and the dependency on verification before approving these changes."
+            draft = "Describe the proposed bead dependencies and how the review process should handle late specification changes."
             terminal.send(draft)
             terminal.check_lead_wrap(draft)
             terminal.send("\x1b[D")
@@ -477,20 +510,28 @@ def run(output):
                                       for request in received_requests for m in request["messages"] if m["role"] == "user"),
                           "The submitted prompt lost its contents or cursor position")
             terminal.check_lead_wrap(review_sentence)
+            terminal.check_dependency_graph()
+            terminal.capture("socrates-sidebar-graph")
             terminal.send("What evidence still needs a decision?")
             terminal.resize(60, 24)
             terminal.wait(lambda: terminal.rail_start() is None and "Specification" in terminal.text() and
                           "Implementation" in terminal.text(), "The narrow console did not restore the status dock")
             terminal.contains("What evidence still needs a decision?")
+            terminal.contains("▸ Specification")
             terminal.capture("status-narrow-dock")
             terminal.send("\x1bs")
             terminal.contains("▾ Specification")
             terminal.contains("What evidence still needs a decision?")
             terminal.send("\x1bs")
             terminal.contains("▸ Specification")
+            terminal.send("\x15")
+            terminal.send("/socrates\r")
+            terminal.contains("▾ Specification")
+            terminal.wait(lambda: terminal.rail_start() is None, "A narrow terminal reserved a side column")
+            terminal.send("What would cover the handoff?")
             terminal.resize(wide_columns, wide_rows)
             terminal.wait_for_rail()
-            terminal.contains("What evidence still needs a decision?")
+            terminal.contains("What would cover the handoff?")
             terminal.send("\x15")
             terminal.send("/socrates-status inspect\r")
             terminal.contains("Needs attention")
@@ -581,20 +622,10 @@ def run(output):
             terminal.capture("status-board-unassessed")
             terminal.send("\x1b")
             resume_discovery("Specification and linked work", 0)
-            terminal.contains('Make specification readiness visible')
-            terminal.send("\x1b")
             terminal.wait_for_rail()
-            def linked_status_loaded():
-                start = terminal.rail_start()
-                if start is None:
-                    return False
-                cells = [line[start:].strip(" │") for line in terminal.screen.display]
-                # Delivery can wrap the status onto the next line in the narrow rail.
-                return any('Verify the handoff' in cell and
-                           ('Blocked' in cell or (row + 1 < len(cells) and cells[row + 1].startswith('Blocked ·')))
-                           for row, cell in enumerate(cells))
-            terminal.wait(linked_status_loaded, "The linked Beads statuses did not load")
-            terminal.send('/socrates-status max\r')
+            terminal.wait(lambda: any("×" in line and "Verify the handoff" in line
+                                      for line in terminal.rail_text().splitlines()),
+                          "The linked Beads statuses did not load")
             terminal.send('Explain the progress of the linked work.\r')
             terminal.wait_for_rail()
             terminal.check_lead_wrap(linked_sentence)
@@ -641,7 +672,8 @@ def run(output):
         try:
             terminal.wait_for_rail()
             terminal.contains("Local plan")
-            # The status rail groups live observations by wave. The inline plan uses a graph.
+            terminal.check_dependency_graph()
+            # The retained tool call draws its graph in the transcript as well.
             lead_width = terminal.rail_start()
             def transcript():
                 return "\n".join(line[:lead_width] for line in terminal.screen.display)
@@ -670,6 +702,17 @@ def run(output):
             terminal.capture("status-board-plan-only")
             terminal.send("\r")
             terminal.contains("Old assessments remain inspectable after a revision.")
+            terminal.send("\x1b")
+            terminal.contains("Enter details")
+            terminal.send("\x1b")
+            terminal.resize(wide_columns, wide_rows)
+            terminal.wait_for_rail()
+            terminal.send("\x1bs")
+            terminal.wait(lambda: terminal.rail_start() is None, "The old plan's sidebar did not close")
+            terminal.send("/socrates Fresh discovery\r")
+            terminal.wait_for_rail()
+            terminal.contains("Not planned")
+            assert "Review changes in the dock" not in terminal.rail_text(), terminal.rail_text()
         finally:
             terminal.close()
             provider.shutdown()

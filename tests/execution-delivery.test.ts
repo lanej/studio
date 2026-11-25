@@ -13,6 +13,7 @@ import {
   type OctoCall,
 } from "../execution/delivery.ts";
 import {
+  type Execution,
   ExecutionStore,
   ExecutionPhase,
   VerificationPhase,
@@ -79,6 +80,8 @@ async function fixture() {
   let waits = 0;
   let stopAfter = 12;
   let enabled = true;
+  let manualAuthority = true;
+  let onWait: (() => void) | undefined;
   let losePublish = false;
   let loseMerge = false;
   let loseQueuedMerge = false;
@@ -268,7 +271,12 @@ async function fixture() {
         store.attempt(id).head,
       );
       assert.equal(store.attempt(id).review, "Independent exact-head approval");
-      assert.ok(enabled);
+      const attempt = store.attempt(id);
+      if (attempt.bead?.metadata["studio.pullRequestMerge"] === "manual") {
+        assert.equal(attempt.manualMergeApproval?.notice, args[1]);
+        assert.equal(attempt.manualMergeApproval?.head, attempt.head);
+        assert.ok(manualAuthority);
+      } else assert.ok(enabled);
       if (blockMerge) {
         blockMerge = false;
         refreshReady = true;
@@ -314,7 +322,13 @@ async function fixture() {
       );
     },
     mergePolicy: () => Promise.resolve({ enabled }),
+    requireManualMergeAuthority: () => {
+      if (!manualAuthority)
+        throw new Error("Manual merge project authority disabled");
+      return Promise.resolve();
+    },
     wait: () => {
+      onWait?.();
       if (disableOnWait) enabled = false;
       if (refreshReady) {
         refreshReady = false;
@@ -358,6 +372,10 @@ async function fixture() {
     },
     configure(options: {
       merge?: boolean;
+      planMerge?: "manual" | "project-policy";
+      manualAuthority?: boolean;
+      onWait?: () => void;
+      externallyMerged?: boolean;
       lostPublish?: boolean;
       lostMerge?: boolean;
       disableBeforeMerge?: boolean;
@@ -372,6 +390,24 @@ async function fixture() {
       maxWaits?: number;
     }) {
       enabled = options.merge ?? enabled;
+      manualAuthority = options.manualAuthority ?? manualAuthority;
+      onWait = options.onWait ?? onWait;
+      merged = options.externallyMerged ?? merged;
+      if (options.planMerge !== undefined) {
+        const merge = options.planMerge;
+        store.change(id, (row) => {
+          row.bead = {
+            id: "bd-publish",
+            title: "Publish",
+            description: "Deliver the reviewed change",
+            acceptance_criteria: "A PR is opened",
+            status: "in_progress",
+            assignee: `pi:${id}`,
+            revision: "accepted",
+            metadata: { "studio.pullRequestMerge": merge },
+          };
+        });
+      }
       losePublish = options.lostPublish ?? losePublish;
       loseMerge = options.lostMerge ?? loseMerge;
       disableOnWait = options.disableBeforeMerge ?? disableOnWait;
@@ -447,6 +483,151 @@ await test("unattended delivery corrects acknowledged feedback once, independent
       (call) => call[0] === "push" && call[2]?.startsWith(nextHead) === true,
     );
     assert.ok(ack > 0 && correctionPush > 0);
+  } finally {
+    await f.close();
+  }
+});
+
+await test("a manual plan publishes and processes readiness but never sends or replays an automatic merge", async () => {
+  for (const replay of [false, true]) {
+    const f = await fixture();
+    try {
+      if (replay) {
+        // Simulate a retained merge intent across process restart; replay can also submit an external effect.
+        f.store.change(f.initial.id, (row) => {
+          row.mergeReceipt = JSON.stringify({
+            state: "requested",
+            notice: "retained",
+            head: firstHead,
+          });
+        });
+      }
+      f.configure({ planMerge: "manual", merge: true, maxWaits: 4 });
+      await assert.rejects(f.run(), /Delivery interrupted/u);
+      assert.ok(
+        f.calls.some((call) => call[0] === "pr" && call[1] === "publish"),
+      );
+      if (!replay) {
+        assert.ok(
+          f.calls.some((call) => call[0] === "pr" && call[1] === "ready"),
+        );
+        assert.equal(
+          f.store.attempt(f.initial.id).readyNotice?.head,
+          firstHead,
+        );
+      }
+      assert.equal(
+        f.calls.some((call) => call[0] === "merge"),
+        false,
+      );
+      assert.equal(f.store.attempt(f.initial.id).merged, undefined);
+      assert.equal(
+        f.store.attempt(f.initial.id).phase,
+        ExecutionPhase.Delivery,
+      );
+    } finally {
+      await f.close();
+    }
+  }
+});
+
+// The CLI's guarded write and remote ownership checks are exercised by the command tests.
+function consentToReady(row: Execution): void {
+  const target = row.readyNotice;
+  assert.ok(
+    target !== undefined && row.pr !== undefined && row.agent !== undefined,
+  );
+  assert.match(
+    row.message,
+    new RegExp(
+      `studio runtime approve-merge ${row.id} --head ${target.head}`,
+      "u",
+    ),
+  );
+  row.manualMergeApproval = {
+    head: target.head,
+    notice: target.id,
+    pr: row.pr,
+    agent: row.agent,
+    actor: "operator",
+    at: new Date().toISOString(),
+  };
+}
+
+await test("one manual approval can merge with automatic merging off and survives an unknown queued response", async () => {
+  const f = await fixture();
+  try {
+    f.configure({
+      planMerge: "manual",
+      merge: false,
+      lostQueuedMerge: true,
+      onWait() {
+        const row = f.store.attempt(f.initial.id);
+        if (row.readyNotice && !row.manualMergeApproval)
+          f.store.change(row.id, consentToReady);
+      },
+    });
+    await assert.rejects(f.run(), /Queued merge response lost/u);
+    assert.match(
+      f.store.attempt(f.initial.id).mergeReceipt ?? "",
+      /requested/u,
+    );
+    f.configure({ manualAuthority: false });
+    await assert.rejects(f.run(), /Manual merge project authority disabled/u);
+    assert.equal(f.calls.filter((call) => call[0] === "merge").length, 1);
+    f.configure({ manualAuthority: true });
+    await f.run();
+    const merges = f.calls.filter((call) => call[0] === "merge");
+    assert.equal(merges.length, 2);
+    assert.deepEqual(merges[0], merges[1]);
+    assert.equal(f.mergeRequests.size, 1);
+    assert.equal(f.store.attempt(f.initial.id).merged, mergedHead);
+  } finally {
+    await f.close();
+  }
+});
+
+await test("manual approval does not carry over to a fresh corrected head or a replacement Ready notice", async () => {
+  for (const correction of [true, false]) {
+    const f = await fixture();
+    try {
+      let approved = false;
+      f.configure({
+        planMerge: "manual",
+        merge: true,
+        changedBase: !correction,
+        maxWaits: 8,
+        onWait() {
+          const row = f.store.attempt(f.initial.id);
+          if (row.readyNotice && !approved) {
+            f.store.change(row.id, consentToReady);
+            approved = true;
+            if (correction) f.configure({ finding: true });
+          }
+        },
+      });
+      await assert.rejects(f.run(), /Delivery interrupted/u);
+      const row = f.store.attempt(f.initial.id);
+      assert.equal(row.manualMergeApproval, undefined);
+      assert.equal(row.readyNotice?.head, correction ? nextHead : firstHead);
+      assert.match(row.message, /studio runtime approve-merge/u);
+      assert.equal(
+        f.calls.filter((call) => call[0] === "merge").length,
+        correction ? 0 : 1,
+      );
+      assert.equal(row.merged, undefined);
+    } finally {
+      await f.close();
+    }
+  }
+});
+
+await test("a merge outside the tracked manual approval flow still requires reconciliation", async () => {
+  const f = await fixture();
+  try {
+    f.configure({ planMerge: "manual", externallyMerged: true });
+    await assert.rejects(f.run(), /merged outside the retained exact-head/u);
+    assert.equal(f.store.attempt(f.initial.id).merged, undefined);
   } finally {
     await f.close();
   }
@@ -540,7 +721,11 @@ await test("a stale Ready receipt cannot merge a corrected head", async () => {
 await test("a project policy disabled after readiness prevents the future pinned request", async () => {
   const f = await fixture();
   try {
-    f.configure({ disableBeforeMerge: true, maxWaits: 3 });
+    f.configure({
+      planMerge: "project-policy",
+      disableBeforeMerge: true,
+      maxWaits: 3,
+    });
     await assert.rejects(f.run(), /Delivery interrupted/u);
     assert.equal(f.calls.filter((call) => call[0] === "merge").length, 0);
     assert.ok(f.calls.some((call) => call[0] === "pr" && call[1] === "ready"));

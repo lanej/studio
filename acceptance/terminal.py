@@ -213,6 +213,8 @@ const ready=store.create({json.dumps(str(project))}, 'terminal-fixture', 'Explor
 store.change(ready.id,row=>{{
  const source=store.get(record.id);
  row.specification={{...source.specification,acceptedRevision:row.revision,exchange:undefined,draft:{{...source.specification.draft,blockingQuestions:[],decisions:[{{id:'D1',decision:'Choose work timing',basis:'decided',evidence:'After review',disposition:'resolved',uncertainty:'None'}}]}}}};
+ row.specification.draft.decisions.push({{id:'D2',decision:'Integrate locally without publishing a PR.',basis:'decided',evidence:'The operator selected local delivery for R1.',disposition:'resolved',uncertainty:'None'}});
+ row.specification.draft.deliveryPolicy={{decisionId:'D2',pullRequests:'none'}};
  row.specification.draft.coverage={{domains:[],assessments:coveragePropertyCatalog.filter(p=>p.domain==="universal").map(p=>({{propertyId:p.id,status:"satisfied",reason:"Reviewed against R1 and the recorded timing decision"}}))}};
  row.specification.coverageRevision=coverageToken(row.specification);
 }});
@@ -582,6 +584,11 @@ interactive.close();
             os.write(master, b"j\r")
             wait_until(lambda: all(text in "\n".join(screen.display) for text in
                                    ["Check the review flow", "Work starts after review", "Depends on · first"]))
+            for _ in range(12):
+                if "Opens a PR" in "\n".join(screen.display):
+                    break
+                os.write(master, b"j")
+                pump(.08)
             wait_text("Opens a PR")
             capture("delivery-plan")
             os.write(master, b"\x1b")
@@ -593,6 +600,8 @@ interactive.close();
             os.write(master, b"\r")
             pump(.3)
             os.write(master, b"/socrates\r")
+            wait_text("Specification")
+            os.write(master, b"/socrates-status spec\r")
             wait_text("Keep the lead free for research")
             os.write(master, b"\x1b")
             pump(.2)
@@ -667,11 +676,13 @@ interactive.close();
             os.write(master, b"/tasks close\r")
             pump(.2)
             os.write(master, b"/archives\r")
-            pump(.5)
-            assert "Archive run" in "\n".join(screen.display), screen.display
-            os.write(master, b"Archive run")
-            pump(.2)
-            assert "Damaged entry" not in "\n".join(screen.display), screen.display
+            wait_text("Search archives")
+            wait_text("Damaged entry")
+            for char in "Archive run":
+                os.write(master, char.encode())
+                pump(.03)
+            wait_until(lambda: "Archive run" in "\n".join(screen.display) and
+                       "Damaged entry" not in "\n".join(screen.display))
             capture("archives")
             os.write(master, b"\r")
             pump(.5)

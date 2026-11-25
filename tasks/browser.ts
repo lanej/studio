@@ -9,6 +9,7 @@ import {
 import { taskTree, type Task, type TreeRow } from "../beads.ts";
 import { NavigationKey } from "../runtime.ts";
 import { selectorText } from "@lanej/pi-components";
+import { pendingDecision, ExecutionPhase } from "../execution/store.ts";
 import { githubLink } from "../github-links.ts";
 import { taskStatusGlyph } from "../ui.ts";
 import {
@@ -16,6 +17,7 @@ import {
   needsAttention,
   ownedAttempt,
   parkedDetails,
+  decisionDetails,
   plain,
   retainedEvidence,
   taskLinks,
@@ -31,6 +33,7 @@ export interface BrowserSource {
   load: () => Promise<TaskSnapshot>;
   show: (id: string) => Promise<Task>;
   retry?: (id: string) => Promise<void>;
+  answer?: (id: string, request: string, question: string) => Promise<boolean>;
   diff?: (
     attempt: import("../execution/store.ts").Execution,
   ) => Promise<string>;
@@ -43,6 +46,7 @@ type Action =
   | { kind: "link"; id: string }
   | { kind: "disclosure"; section: string }
   | { kind: "retry"; id: string }
+  | { kind: "answer"; id: string; request: string; question: string }
   | { kind: "diff"; id: string }
   | { kind: "pane"; id: string };
 interface DetailLine {
@@ -237,8 +241,38 @@ export class TaskBrowser {
       lines.push({ text: this.theme.bold(line) });
     text("");
     text(taskNarrative(task, this.snapshot));
+    const decision = decisionDetails(task, this.snapshot);
+    if (decision !== undefined) {
+      text("");
+      text(decision);
+    }
     const parked = parkedDetails(task, this.snapshot);
     const owned = ownedAttempt(task, this.snapshot);
+    const pending = owned === undefined ? undefined : pendingDecision(owned);
+    if (owned !== undefined && pending !== undefined) {
+      const blocked = this.snapshot.answerBlocked?.get(owned.id);
+      if (
+        this.source.answer !== undefined &&
+        owned.phase === ExecutionPhase.AwaitingDecision &&
+        blocked === undefined
+      ) {
+        text(
+          "Answering queues this same attempt and starts/resumes the scheduler, including other ready work. Existing scope, verification and review remain required.",
+        );
+        lines.push({
+          text: "↗ Answer operator decision (guards checked on invocation)",
+          action: {
+            kind: "answer",
+            id: owned.id,
+            request: pending.id,
+            question: pending.question,
+          },
+        });
+      } else
+        text(
+          `Answer unavailable: ${blocked ?? "this request's writer or authority needs reconciliation"}`,
+        );
+    }
     if (parked !== undefined && owned !== undefined) {
       text("");
       text(parked);
@@ -261,7 +295,11 @@ export class TaskBrowser {
           text(diff.text);
         }
       }
-      if (owned.interactive !== undefined)
+      if (pending !== undefined)
+        text(
+          "Retry unavailable: answer the explicit operator decision instead.",
+        );
+      else if (owned.interactive !== undefined)
         text(
           "Retry unavailable: interactive attempts retain their original pane binding; automatic replacement is unavailable.",
         );
@@ -603,6 +641,25 @@ export class TaskBrowser {
         this.done(action.id);
       } else if (action?.kind === "link") {
         this.inspect(action.id);
+      } else if (
+        action?.kind === "answer" &&
+        this.source.answer !== undefined
+      ) {
+        const answer = this.source.answer;
+        this.clearDiff(action.id);
+        this.run(async () => {
+          const recorded = await answer(
+            action.id,
+            action.request,
+            action.question,
+          );
+          this.update(await this.source.load());
+          this.notice = recorded
+            ? "Answer recorded; same attempt queued. Verification and review remain required."
+            : "Answer cancelled.";
+        }).catch((error: unknown) => {
+          this.report(error);
+        });
       } else if (action?.kind === "retry" && this.source.retry !== undefined) {
         const retry = this.source.retry;
         this.clearDiff(action.id);

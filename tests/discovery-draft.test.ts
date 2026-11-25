@@ -317,6 +317,77 @@ await test("only the current assessed specification and linked plan can reach ha
   assert.equal(store.get(first.id).approved, planDigest(linked));
 });
 
+await test("the frozen publication decision assigns PRs to the intended beads and survives final review", async (t) => {
+  const {
+    project,
+    store,
+    save,
+    firstTask,
+    draft,
+    approve,
+    ctx,
+    reviewUI,
+    review,
+    runner,
+  } = await discoveryFixture(t);
+  await save();
+  const record = store.list(project)[0];
+  assert.ok(record !== undefined);
+  store.change(record.id, (row) => {
+    const spec = readySpecification(row.revision);
+    const decision = spec.draft.decisions[0];
+    assert.ok(decision !== undefined);
+    decision.decision = "Publish the CLI bead for manual merge.";
+    decision.evidence = "The operator selected the CLI as the publishing bead.";
+    spec.draft.deliveryPolicy = {
+      decisionId: "D20",
+      pullRequests: "selected",
+      publish: ["cli"],
+      merge: "manual",
+    };
+    row.specification = {
+      ...spec,
+      coverageRevision: coverageToken(spec),
+      status: SpecStatus.Frozen,
+      approvalAt: "2026-11-24T00:00:00Z",
+    };
+  });
+  const prep = { ...firstTask, requirements: ["R1"], owns: ["lib"] };
+  const cli = {
+    ...prep,
+    key: "cli",
+    title: "Ship the CLI",
+    owns: ["cli"],
+    blockedBy: [prep.key],
+  };
+  await save({ ...draft, tasks: [prep] });
+  await assert.rejects(
+    approve.handler("", ctx),
+    /missing publishing beads: cli/u,
+  );
+  await save({ ...draft, tasks: [prep, cli] });
+  const approvedDraft = store.get(record.id).leadPlan.draft;
+  assert.ok(approvedDraft != null);
+  assert.deepEqual(
+    approvedDraft.tasks.map((task) => [task.key, task.delivery]),
+    [
+      [prep.key, "local"],
+      ["cli", "pull-request"],
+    ],
+  );
+  assert.equal(approvedDraft.pullRequestMerge, "manual");
+  const revise = runner.getCommand("plan-delivery");
+  assert.ok(revise !== undefined);
+  await assert.rejects(
+    revise.handler("cli local", ctx),
+    /conflicts with decision D20/u,
+  );
+  assert.deepEqual(store.get(record.id).leadPlan.draft, approvedDraft);
+  await approve.handler("", { ...ctx, ui: reviewUI });
+  assert.equal(review.openings, 1);
+  assert.equal(store.get(record.id).handoff, undefined);
+});
+
 await test("ending discovery preserves the unfinished specification and leaves no runtime receipt", async (t) => {
   const { project, discovery, store, ctx, runner, prompt, save } =
     await discoveryFixture(t);

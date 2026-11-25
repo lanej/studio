@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ActivityState, ConditionState } from "@lanej/pi-components";
+import { readySpecification } from "./fixtures/socrates.ts";
 import { coverageToken } from "../socrates/assessment.ts";
 import {
   socratesPresentation,
@@ -196,4 +197,18 @@ await test("legacy and undrafted specifications remain unassessed even when work
     present({ ...legacy, draft: null }).activity.label,
     "Specification not drafted",
   );
+});
+
+await test("a missing publication decision remains visible after the properties are satisfied", () => {
+  const ready = readySpecification("brief-v1");
+  const before = present(ready);
+  const spec = {
+    ...ready,
+    draft: { ...ready.draft, deliveryPolicy: undefined },
+  };
+  const after = present({ ...spec, coverageRevision: coverageToken(spec) });
+  assert.equal(after.activity.label, "PR decision open");
+  assert.match(after.dockColumns[0]?.summary ?? "", /which beads open PRs/u);
+  assert.equal(before.activity.label, "Awaiting review");
+  assert.deepEqual(after.conditions, before.conditions);
 });

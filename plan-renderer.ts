@@ -6,7 +6,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { selectorText } from "@lanej/pi-components";
 import { z } from "zod";
-import { deliveryOutcome, draftSchema, taskReviewLines } from "./lead-plan.ts";
+import { draftSchema, taskReviewLines } from "./lead-plan.ts";
 import { planGraph, planGraphColor, renderGraphPrefix } from "./plan-graph.ts";
 
 const previewTaskLimit = 6;
@@ -90,13 +90,7 @@ export function renderPlanCall(
         lines.push(
           `${renderGraphPrefix(row.prefix, color)}  ${theme.fg("text", singleLine(task.title))}${hold}`,
         );
-        lines.push(
-          ...wrapTextWithAnsi(
-            `  ${task.key} · ${deliveryOutcome(task.delivery)}${task.delivery === undefined ? " (default)" : ""}`,
-            width,
-          ),
-        );
-        graphLines += connectors.length + 2;
+        graphLines += connectors.length + 1;
         shown++;
       }
       if (shown < graph.length) {
@@ -118,7 +112,7 @@ export function renderPlanCall(
               width,
             ),
             ...wrapTextWithAnsi(
-              selectorText(taskReviewLines(task).join("\n")),
+              selectorText(taskReviewLines(task, "proposal").join("\n")),
               width,
             ),
           );

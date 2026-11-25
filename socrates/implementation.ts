@@ -369,6 +369,13 @@ export function implementationPresentation(
       }
     } else if (phase === ImplementationPhase.Tracking)
       issue = "No current observation for this bead.";
+    const unassigned =
+      task.delivery === undefined &&
+      phase === ImplementationPhase.Proposed &&
+      source.bead === undefined;
+    const delivery = unassigned
+      ? "To be decided"
+      : `${deliveryOutcome(task.delivery)}${task.delivery === undefined ? " (default)" : ""}`;
     const evidence = [
       task.description,
       `Acceptance · ${task.acceptance}`,
@@ -380,14 +387,14 @@ export function implementationPresentation(
         : [`Depends on · ${task.blockedBy.join(", ")}`]),
       `Owns · ${task.owns.length === 0 ? "Entire isolated checkout" : task.owns.join(", ")}`,
       ...(task.hold === true ? ["Admission · On hold"] : []),
-      `Delivery · ${deliveryOutcome(task.delivery)}${task.delivery === undefined ? " (default)" : ""}`,
+      `Delivery · ${delivery}`,
       `Verification · ${task.check === undefined || task.check.length === 0 ? "Independent criterion review; no executable agreed" : JSON.stringify(task.check)}`,
       ...(beadId === undefined ? [] : [`Bead · ${beadId}`]),
       ...(issue === undefined ? [] : [issue]),
     ].join("\n\n");
     return {
       id: task.key,
-      label: `${task.title} · ${deliveryOutcome(task.delivery)}${task.delivery === undefined ? " (default)" : ""}`,
+      label: task.title,
       state,
       status: statusLabels[state],
       wave: waves.get(task.key) ?? 1,

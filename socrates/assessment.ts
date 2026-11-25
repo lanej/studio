@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import {
+  deliveryPolicySchema,
+  draftDeliveryPolicy,
+} from "./delivery-policy.ts";
 import type { LeadSpecification } from "./spec.ts";
 
 export const coverageDomains = ["engineering", "research", "writing"] as const;
@@ -167,6 +171,7 @@ export function coverageToken(
   spec: Pick<LeadSpecification, "acceptedRevision" | "version" | "draft">,
 ): string {
   const draft = spec.draft;
+  const policy = draftDeliveryPolicy(draft);
   // Project the semantic fields in a fixed order. Coverage and approval are observations about them.
   const content =
     draft === null
@@ -191,6 +196,10 @@ export function coverageToken(
             evidence: entry.evidence,
           })),
           blockingQuestions: draft.blockingQuestions,
+          deliveryPolicy:
+            policy === undefined
+              ? undefined
+              : deliveryPolicySchema.parse(policy),
         };
   return createHash("sha256")
     .update(
