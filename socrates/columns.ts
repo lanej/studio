@@ -19,6 +19,15 @@ import {
 } from "./implementation.ts";
 import { SpecStatus, type LeadSpecification } from "./spec.ts";
 
+import type { CoverageStatus } from "./assessment.ts";
+
+export const conditionStates = {
+  satisfied: ConditionState.Satisfied,
+  partial: ConditionState.Partial,
+  open: ConditionState.Open,
+  "not-applicable": ConditionState.NotApplicable,
+} satisfies Record<CoverageStatus, ConditionState>;
+
 function mark(
   label: string,
   glyph: string,

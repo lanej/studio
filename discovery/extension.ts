@@ -21,11 +21,10 @@ import {
   describePlan,
   draftSchema,
   planDigest,
-  publicationPrerequisites,
   reviseDelivery,
 } from "../lead-plan.ts";
 import { isEntry, PiEntryType } from "../runtime.ts";
-import { reviewPlan } from "../ui.ts";
+import { reviewHandoff } from "./handoff-review.ts";
 import {
   applyDeliveryPolicy,
   Discoveries,
@@ -506,31 +505,18 @@ export function registerDiscovery(
             ? await prepareInteractiveHandoff(record)
             : undefined;
         if (
-          !(await reviewPlan(
-            ctx,
-            `Approve ${record.title}`,
-            [
+          !(await reviewHandoff(ctx, {
+            title: record.title,
+            draft,
+            specification: record.specification,
+            project: target.root,
+            sourceId: target.id,
+            profile: target.profile,
+            execution:
               interactive === undefined
-                ? "Execution · background"
-                : `Execution · interactive in Zellij ${interactive.session}, tab ${String(interactive.tab)}`,
-              `Project · ${target.root}\nBeads · ${target.id}\nProfile · ${target.profile}`,
-              record.specification === undefined
-                ? "Recovery of the previously approved handoff"
-                : specText(record.specification),
-              ...draft.tasks
-                .filter((task) => task.delivery === TaskDelivery.PullRequest)
-                .map((publisher) => {
-                  const local = publicationPrerequisites(draft, publisher)
-                    .filter(
-                      (task) => task.delivery !== TaskDelivery.PullRequest,
-                    )
-                    .map((task) => task.key);
-                  return `PR from ${publisher.key} · Includes ${[...local, publisher.key].join(", ")}`;
-                }),
-              describePlan(draft),
-            ].join("\n\n"),
-            "create tasks and implement",
-          ))
+                ? "background"
+                : `interactive in Zellij ${interactive.session}, tab ${String(interactive.tab)}`,
+          }))
         )
           return;
         const current = await requireBinding(ctx);

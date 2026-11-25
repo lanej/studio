@@ -158,25 +158,61 @@ export function publicationPrerequisites(
   );
 }
 
+export function publicationGroups(draft: LeadDraft) {
+  return orderedTasks(draft)
+    .filter((task) => task.delivery === TaskDelivery.PullRequest)
+    .map((publisher) => ({
+      publisher,
+      local: publicationPrerequisites(draft, publisher).filter(
+        (dependency) => dependency.delivery !== TaskDelivery.PullRequest,
+      ),
+    }));
+}
+
+export function taskReviewFields(
+  task: LeadDraft["tasks"][number],
+  intent: "proposal" | "execution" = "execution",
+  deliveryLabel?: string,
+): [string, string][] {
+  const fields: [string, string][] = [["Acceptance", task.acceptance]];
+  if (task.requirements.length > 0)
+    fields.push(["Requirements", task.requirements.join(", ")]);
+  const delivery =
+    deliveryLabel ??
+    (task.delivery === undefined && intent === "proposal"
+      ? "To be decided"
+      : deliveryOutcome(task.delivery) +
+        (task.delivery === undefined ? " (default)" : ""));
+  fields.push(
+    [
+      "Owns",
+      task.owns.length === 0
+        ? "the entire isolated checkout"
+        : task.owns.join(", "),
+    ],
+    ["Admission", task.hold === true ? "on hold" : "when ready"],
+    ["Delivery", delivery],
+    [
+      "Verification",
+      task.check === undefined || task.check.length === 0
+        ? "independent criterion review; no executable agreed"
+        : JSON.stringify(task.check),
+    ],
+  );
+  if (task.blockedBy.length > 0)
+    fields.push(["Blocked by", task.blockedBy.join(", ")]);
+  return fields;
+}
+
 export function taskReviewLines(
   task: LeadDraft["tasks"][number],
   intent: "proposal" | "execution" = "execution",
 ): string[] {
   return [
     task.description,
-    `Acceptance · ${task.acceptance}`,
-    ...(task.requirements.length > 0
-      ? [`Requirements · ${task.requirements.join(", ")}`]
-      : []),
-    `Owns · ${task.owns.length === 0 ? "the entire isolated checkout" : task.owns.join(", ")}`,
-    `Admission · ${task.hold === true ? "on hold" : "when ready"}`,
-    task.delivery === undefined && intent === "proposal"
-      ? "Delivery · To be decided"
-      : `Delivery · ${deliveryOutcome(task.delivery)}${task.delivery === undefined ? " (default)" : ""}`,
-    `Verification · ${task.check === undefined || task.check.length === 0 ? "independent criterion review; no executable agreed" : JSON.stringify(task.check)}`,
-    ...(task.blockedBy.length > 0
-      ? [`Blocked by · ${task.blockedBy.join(", ")}`]
-      : []),
+    ...taskReviewFields(task, intent).map(
+      ([label, value]) => `${label} · ${value}`,
+    ),
   ];
 }
 
