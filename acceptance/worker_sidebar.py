@@ -1,0 +1,266 @@
+"""Exercise the live worker roster against owned fixture receipts in an approved lead."""
+import json
+from pathlib import Path
+import subprocess
+
+question = "If the selected bead disappears on refresh, should focus move to its parent?"
+draft = "Keep the graph visible while I inspect the worker."
+worker_prompt = "Walk me through the focus change before I answer the worker."
+worker_reply = """The lead keeps the draft and cursor while you inspect an assignment.
+
+If the selected bead still exists after a refresh, the graph keeps that selection. If the bead has disappeared, the worker needs a rule for where focus should land.
+
+The parent is a reasonable choice when it remains in the graph. It preserves the context of the original task. The next visible row is another option when the parent is gone.
+
+Answering the question resumes the same assignment. The reviewer can then check that the agreed fallback works on the updated graph.
+
+The resize and draft-preservation assignments can continue independently while you decide."""
+
+
+def check_worker_sidebar(terminal_type, project, env, output, authority, served_beads, ready_draft):
+    root = Path(__file__).resolve().parents[1]
+    source = """
+import { SessionManager } from '@earendil-works/pi-coding-agent';
+import { Discoveries } from './discovery/store.ts';
+import { draftSchema, planDigest } from './lead-plan.ts';
+import { runtimeProjectSchema } from './config.ts';
+import { coverageToken } from './socrates/assessment.ts';
+import { ExecutionStore, executionSchema } from './execution/store.ts';
+const [project, sourceJson, question, draftJson] = process.argv.slice(1);
+const authority = JSON.parse(sourceJson);
+const session = SessionManager.create(project);
+const discoveries = new Discoveries();
+const runtime = new ExecutionStore();
+const record = discoveries.create(project, session.getSessionId(), 'Lead focus and graph navigation');
+const titles = {
+  base: 'Record the graph selection',
+  restore: 'Restore the selected graph node',
+  resize: 'Keep the graph visible on resize',
+  review: 'Preserve the draft when focus changes',
+};
+const tasks = Object.entries(titles).map(([key,title]) => ({
+  key,title, description:title, acceptance: 'Keep the lead usable through refresh.',
+  blockedBy: key === 'base' ? [] : ['base'], owns:[key+'.ts'], requirements:['R1'],
+}));
+const graph = draftSchema.parse({summary:'Preserve the lead draft across graph navigation.', tasks});
+const target = runtimeProjectSchema.parse({root:project, source:authority, profile:'personal', base:'main', beadsWorkspace:project, beadsDatabase:'fixture'});
+const linked = discoveries.change(record.id, row => {
+  row.specification = {status:'frozen',version:1,acceptedRevision:row.revision,draft:JSON.parse(draftJson)};
+  row.specification.coverageRevision = coverageToken(row.specification);
+  row.leadPlan.draft = graph;
+  row.approved = planDigest(graph);
+  row.graph = Object.fromEntries(tasks.map(task => [task.key, 'worker-'+task.key]));
+  row.graph.root = 'worker-root';
+  row.handoff = {operation:crypto.randomUUID(), revision:row.revision, digest:row.approved, phase:'complete',target:{...target,id:authority.projectId}};
+});
+const beads = {};
+for (const task of tasks) {
+  const id = crypto.randomUUID();
+  const bead = {id:linked.graph[task.key],title:task.title,status:task.key==='base'?'closed':'in_progress',
+    assignee:task.key==='base'?'':'pi:'+id, revision:'fixture-revision', acceptance_criteria:task.acceptance,
+    metadata:{'studio.graph':linked.revision,'studio.approval':linked.approved,'studio.task':task}};
+  beads[bead.id] = bead;
+  if(task.key==='base') continue;
+  const launchToken = crypto.randomUUID();
+  runtime.saveAttempt(executionSchema.parse({id,project:authority.projectId,bead,revision:bead.revision,profile:'personal',
+    phase:{restore:'awaiting-decision',resize:'running',review:'reviewing'}[task.key],launchToken, launchSettled:task.key==='restore', message:'',
+    operatorDecisions:task.key==='restore'?[{id:crypto.randomUUID(),at:new Date().toISOString(),question,
+      binding:{project:authority.projectId,bead:bead.id,revision:bead.revision,launchToken,contract:'a'.repeat(64)}}]:undefined}));
+}
+session.appendMessage({role:'user',content:'Keep the lead usable while workers implement graph navigation.',timestamp:Date.now()});
+session.appendMessage({role:'assistant',content:[{type:'text',text:'The approved graph has four beads. The selection record is complete, so the three dependent assignments can proceed.\\n\\nThe implementation graph shows their dependencies. Each worker below it is linked to the bead it owns.'}],
+  api:'openai-completions',provider:'fixture',model:'tiny',stopReason:'stop',timestamp:Date.now(),
+  usage:{input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}}});
+session.appendCustomEntry('studio:discovery',{id:linked.id,project});
+console.log(JSON.stringify({beads,target,session:session.getSessionFile()}));
+runtime.close();
+discoveries.close();
+"""
+    result = subprocess.run(
+        ["bun", "--no-env-file", "-e", source, str(project), json.dumps(authority), question, json.dumps(ready_draft)],
+        cwd=root, env=env, text=True, capture_output=True, timeout=30,
+    )
+    if result.returncode:
+        raise AssertionError(result.stderr)
+    fixture = json.loads(result.stdout)
+    served_beads.update(fixture["beads"])
+    config = project.parent / "worker-config.json"
+    config.write_text(json.dumps({"runtime": {"enabled": False, "projects": [fixture["target"]]}}))
+    console = terminal_type(project, {**env, "STUDIO_CONFIG": str(config)}, output, fixture["session"])
+    try:
+        def roster():
+            return console.rail_text().partition("Workers")[2]
+
+        console.wait(lambda: all(label in roster() for label in ("Needs input", "Implementing", "Reviewing")),
+                     "Current workers and reviewer did not appear below the graph")
+        assert question in " ".join(roster().split()), roster()
+        assert "2 active · 1 needs you" in roster(), roster()
+        console.send(worker_prompt + "\r")
+        console.wait(lambda: "while you decide." in console.text(), "The lead did not finish its reply")
+        console.send(draft)
+        console.contains(draft)
+
+        def passive_roster():
+            rail = console.rail_text()
+            assert "› " not in rail and "Enter inspect" not in rail and "Space fold" not in rail, rail
+            return rail
+
+        def open_workers():
+            console.send("\x1bw")
+            console.contains("Enter inspect")
+            # The active selection is inside a pane laid over the middle of the lead.
+            # Neither the bottom dock nor the right sidebar can satisfy these bounds.
+            console.wait(lambda: any("› " in line[:console.screen.columns // 2]
+                                     for line in console.screen.display[1:-1]),
+                         "The worker picker did not open over the lead")
+            console.framed_pane("Workers")
+
+        def check_question_preview():
+            top, bottom, left, right = console.framed_pane("Workers")
+            lines = [line[left + 1:right] for line in console.screen.display[top + 1:bottom]]
+            # The wide view has a list next to the preview. On narrow terminals
+            # the preview starts underneath the three current assignments.
+            preview = " ".join(" ".join(line.rsplit("│", 1)[-1].split()) for line in lines)
+            assert question in " ".join(preview.split()), preview
+
+        def select_first():
+            for _ in range(3):
+                console.send("k")
+            console.contains("worker-restore")
+
+        def dismiss_workers():
+            console.send("\x1b")
+            console.wait(lambda: "Enter inspect" not in console.text(),
+                         "Escape did not close the worker pane")
+            console.contains(draft)
+
+        before = passive_roster()
+        assert "at processTicksAndRejections" not in console.text(), console.text()
+        console.capture("worker-sidebar")
+
+        # Place the cursor before the period. Moving the pane selection and
+        # dismissing the pane must preserve both the draft and its insertion point.
+        console.send("\x1b[D")
+        open_workers()
+        console.contains("worker-restore")
+        check_question_preview()
+        console.capture("worker-float")
+        top, bottom, left, right = console.framed_pane("Workers")
+        transcript_before = console.screen.display[:top] + console.screen.display[bottom + 1:]
+        console.send(f"\x1b[<64;{(left + right) // 2 + 1};{(top + bottom) // 2 + 1}M")
+        assert transcript_before == console.screen.display[:top] + console.screen.display[bottom + 1:], console.text()
+        console.send("j")
+        console.contains("worker-resize")
+        dismiss_workers()
+        assert before == passive_roster(), console.rail_text()
+        console.send("!")
+        console.contains(draft[:-1] + "!.")
+        console.send("\x7f")
+        console.contains(draft)
+
+        open_workers()
+        select_first()
+        console.send("j")
+        console.contains("worker-resize")
+        console.send("\r")
+        console.contains("Brief & acceptance")
+        console.inspector_contains("Keep the graph visible on resize")
+        console.centered_inspector("Tasks ·")
+        console.capture("worker-task")
+        console.send("\x1b")
+        console.wait(lambda: "Brief & acceptance" not in console.text(),
+                     "Escape did not leave the task inspector")
+        console.contains(draft)
+        assert before == passive_roster(), console.rail_text()
+
+        console.resize(60, 24)
+        console.contains("1 needs you")
+        console.contains(draft)
+        assert "Enter inspect" not in console.text(), console.text()
+        console.capture("worker-dock")
+        open_workers()
+        select_first()
+        check_question_preview()
+        console.capture("worker-float")
+        dismiss_workers()
+
+        console.resize(128, 34)
+        console.wait_for_rail()
+        open_workers()
+        select_first()
+        console.send("j")
+        console.contains("worker-resize")
+        # Current Beads ownership may change while the operator is inspecting
+        # an assignment. Enter must never target a replacement implicitly.
+        served_beads["worker-resize"]["assignee"] = "pi:replacement"
+        console.wait(lambda: "Assignment changed" in console.text(),
+                     "The worker pane retained a stale Beads assignment", timeout=12)
+        console.send("\r")
+        console.send("\x1b[C")
+        assert "Assignment changed" in console.text() and "Brief & acceptance" not in console.text(), console.text()
+        console.send("j")
+        console.wait(lambda: "Assignment changed" not in console.text() and "Enter inspect" in console.text(),
+                     "An explicit move did not select a current assignment")
+        dismiss_workers()
+        console.wait(lambda: "Implementing" not in roster() and "1 active" in roster(),
+                     "The status panel retained a stale worker count")
+        passive_roster()
+        console.send("\x1b[C")
+        console.send(" Still here.")
+        console.contains(draft + " Still here.")
+
+        open_workers()
+        select_first()
+        console.send("\r")
+        console.contains("Brief & acceptance")
+        console.resize(100, 32)
+        for _ in range(16):
+            console.send("\t")
+            if "› ↗ Answer operator decision" in console.text():
+                break
+        console.contains("› ↗ Answer operator decision")
+        console.capture("operator-question")
+        console.resize(60, 32)
+        console.contains("› ↗ Answer operator decision")
+        console.capture("operator-question")
+        console.send("\r")
+        console.contains("Esc cancel")
+
+        def answer_lines():
+            top, bottom, left, right = console.framed_pane()
+            return [line[left + 1:right].strip() for line in console.screen.display[top + 1:bottom]]
+
+        assert question in " ".join(answer_lines()), console.text()
+        console.send("Use the parent when it is still visible.")
+        console.send("\x1b[13;2u")
+        console.send("Otherwise select the first remaining bead.")
+        console.contains("Otherwise select the first remaining bead.")
+        assert "Use the parent when it is still visible." in answer_lines(), console.text()
+        assert "Otherwise select the first remaining bead." in answer_lines(), console.text()
+        console.capture("operator-answer-question")
+        console.resize(100, 32)
+        assert question in " ".join(answer_lines()), console.text()
+        console.capture("operator-answer-question")
+        console.send("\x1b")
+        console.contains("Answer cancelled")
+        console.contains("Brief & acceptance")
+        console.send("\x1b")
+        console.wait(lambda: "Brief & acceptance" not in console.text(), "Escape did not return to the lead")
+        console.contains(draft + " Still here.")
+        console.contains("1 needs you")
+
+        console.resize(128, 34)
+        console.wait_for_rail()
+        console.send("\x1bs")
+        console.wait(lambda: console.rail_start() is None, "Alt+S did not hide the status column")
+        console.send("\x15")
+        console.send("/workers\r")
+        console.contains("Enter inspect")
+        console.framed_pane("Workers")
+        console.send("\x1bw")
+        console.wait(lambda: "Enter inspect" not in console.text(), "Alt+W did not close the command-opened pane")
+        console.send("Back in the lead.")
+        console.contains("Back in the lead.")
+        assert console.rail_start() is None, console.text()
+    finally:
+        console.close()

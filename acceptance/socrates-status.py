@@ -25,6 +25,7 @@ import uuid
 
 import pyte
 from local_provider import tool_delta
+from worker_sidebar import check_worker_sidebar, worker_prompt, worker_reply
 from PIL import Image, ImageDraw, ImageFont
 
 
@@ -65,6 +66,10 @@ class Provider(BaseHTTPRequestHandler):
         if self.path == '/v0/beads/context':
             value = {'project_id': beads_project, 'backend': 'dolt', 'dolt_mode': 'server',
                      'capabilities': ['project.enforce', 'issues.get', 'issues.create', 'issues.update']}
+        elif self.path.partition('?')[0] == '/v0/beads/issues':
+            value = {'items': list(linked_beads.values()), 'has_more': False}
+        elif self.path.partition('?')[0] == '/v0/beads/dependencies':
+            value = {'items': [], 'missing': []}
         elif self.path.startswith('/v0/beads/issues/') and self.path.rsplit('/', 1)[1] in linked_beads:
             value = linked_beads[self.path.rsplit('/', 1)[1]]
         else:
@@ -117,6 +122,8 @@ Harmony depends on the same check. After the revision, the sidebar and inspector
 
 Should the native test change R1 and check both views?""")
         delta = {"role": "assistant", "content": reply}
+        if user_messages and worker_prompt in user_messages[-1]:
+            delta = {"role": "assistant", "content": worker_reply}
         last = request["messages"][-1]
         if user_messages and "Explain which properties remain open" in user_messages[-1]:
             if last["role"] == "user":
@@ -220,9 +227,41 @@ class Terminal:
         for key in keys:
             self.send(key)
 
+    def centered_lines(self):
+        """Read the overlay's viewport without the lead or sidebar alongside it."""
+        width = min(100, self.screen.columns - 4)
+        left = (self.screen.columns - width) // 2
+        return [line[left:left + width] for line in self.screen.display]
+
+    def framed_pane(self, title=None):
+        """Find the actual frame and check its insets against the live terminal."""
+        lines = self.screen.display
+        top, header = next((y, line) for y, line in enumerate(lines)
+                           if "╭" in line and "╮" in line and (title is None or title in line))
+        left, right = header.index("╭"), header.rindex("╮")
+        bottom = next(y for y, line in enumerate(lines[top + 1:], top + 1)
+                      if line[left] == "╰" and line[right] == "╯")
+        assert 0 < left < right < self.screen.columns - 1 and 0 < top < bottom < self.screen.lines - 1, self.text()
+        assert abs(left - (self.screen.columns - right - 1)) <= 1, self.text()
+        assert abs(top - (self.screen.lines - bottom - 1)) <= 1, self.text()
+        return top, bottom, left, right
+
+    def inspector_contains(self, text):
+        self.wait(lambda: text in " ".join(" ".join(self.centered_lines()).split()), f"Missing {text!r} in the inspector")
+
+    def centered_inspector(self, title, footer=None):
+        lines = self.centered_lines()
+        top = next((y for y, line in enumerate(lines) if line.startswith(" " + title)), None)
+        footers = (footer,) if footer else ("Esc close", "? keys")
+        bottom = next((y for y, line in enumerate(lines) if any(hint in line for hint in footers)
+                       and top is not None and y > top), None)
+        assert top is not None and bottom is not None and 0 < top < bottom < self.screen.lines - 1, self.text()
+        assert abs(top - (self.screen.lines - bottom - 1)) <= 1, self.text()
+        return lines[top:bottom + 1]
+
     def board_rows(self):
         rows = []
-        for line in self.screen.display:
+        for line in self.centered_lines():
             if line.strip() == "? keys":
                 return rows
             rows.append(line.split("│"))
@@ -278,7 +317,7 @@ class Terminal:
         # before sending another key, which could otherwise become an Alt chord.
         self.contains("Esc back")
         self.send("\x1b")
-        self.wait(lambda: any(line.strip() == "? keys" for line in self.screen.display),
+        self.wait(lambda: any(line.strip() == "? keys" for line in self.centered_lines()),
                   "Escape did not return from the evidence detail to the board")
 
     def rail_start(self):
@@ -656,22 +695,33 @@ def run(output):
             terminal.wait(lambda: terminal.rail_start() is None and "Specification" in terminal.text() and
                           "Implementation" in terminal.text(), "The narrow console did not restore the status dock")
             terminal.contains("What evidence still needs a decision?")
-            terminal.contains("▸ Specification")
+            def compact_dock():
+                return any("Specification" in line and "2 open" in line for line in terminal.screen.display)
+
+            terminal.wait(compact_dock, "The compact dock did not show the specification counts")
+            # Send a real SGR mouse press and release on the former disclosure.
+            row = next(y for y, line in enumerate(terminal.screen.display, 1)
+                       if "Specification" in line and "2 open" in line)
+            terminal.send(f"\x1b[<0;3;{row}M\x1b[<0;3;{row}m")
+            terminal.send("!")
+            terminal.contains("What evidence still needs a decision?!")
+            assert compact_dock(), terminal.text()
+            terminal.send("\x7f")
             terminal.assert_foreground("2 open", "status.error")
             terminal.assert_foreground("2 partial", "status.warning")
             terminal.capture("status-narrow-dock")
             terminal.send("\x1bs")
-            terminal.contains("▾ Specification")
+            terminal.contains("share a draft")
             terminal.contains("What evidence still needs a decision?")
-            dock = terminal.text().rpartition("▾ Specification")[2].partition("Implementation")[0]
+            dock = terminal.text().rpartition("Specification")[2].partition("Implementation")[0]
             assert "share a draft" in " ".join(dock.split()), dock
             terminal.assert_mark("Scope", "○", "status.error")
             terminal.capture("status-narrow-properties")
             terminal.send("\x1bs")
-            terminal.contains("▸ Specification")
+            terminal.wait(compact_dock, "Alt+S did not collapse the detail in the dock")
             terminal.send("\x15")
             terminal.send("/socrates\r")
-            terminal.contains("▾ Specification")
+            terminal.contains("share a draft")
             terminal.wait(lambda: terminal.rail_start() is None, "A narrow terminal reserved a side column")
             terminal.send("What would cover the handoff?")
             terminal.resize(wide_columns, wide_rows)
@@ -680,6 +730,7 @@ def run(output):
             terminal.send("\x15")
             terminal.send("/socrates-status inspect\r")
             terminal.contains("Needs attention")
+            terminal.centered_inspector("Status inspection")
             terminal.contains("▸ Satisfied 9")
             terminal.contains("Wave 2")
             terminal.wait(lambda: any("Specification" in line and "Implementation" in line for line in terminal.screen.display), "Wide inspector did not show parallel columns")
@@ -697,7 +748,7 @@ def run(output):
             terminal.assert_mark("Verification", "◐", "status.warning")
             terminal.assert_mark("Harmony", "○", "status.error")
             terminal.send("\r")
-            terminal.contains("Question and resume are covered.")
+            terminal.inspector_contains("Question and resume are covered.")
             terminal.assert_foreground("◐ Partial", "status.warning")
             terminal.close_detail()
             terminal.send("\t")
@@ -708,7 +759,7 @@ def run(output):
             terminal.contains("Implementation")
             terminal.contains("Specification")
             terminal.send("\r")
-            terminal.contains("Toggling the sidebar preserves the complete unsent prompt.")
+            terminal.inspector_contains("Toggling the sidebar preserves the complete unsent prompt.")
             terminal.contains("Requirements · R1")
             terminal.contains("Depends on · assess")
             terminal.capture("status-board-task-detail")
@@ -716,7 +767,7 @@ def run(output):
             terminal.send("\t")
             terminal.wait_for_selection("Verification")
             terminal.send("\r")
-            terminal.contains("Question and resume are covered.")
+            terminal.inspector_contains("Question and resume are covered.")
             terminal.capture("status-board-property-detail")
             terminal.close_detail()
             terminal.resize(wide_columns, wide_rows)
@@ -755,7 +806,7 @@ def run(output):
             terminal.assert_foreground("13 recheck", "focus")
             terminal.select_row("Problem First")
             terminal.send("\r")
-            terminal.contains("Previous assessment: Satisfied")
+            terminal.inspector_contains("Previous assessment: Satisfied")
             terminal.assert_foreground("↺ Recheck", "focus")
             terminal.capture("status-board-recheck")
             terminal.close_detail()
@@ -811,7 +862,7 @@ def run(output):
             def selected_task(title):
                 terminal.wait(lambda: any(line.lstrip().startswith('› ') and
                                           (line.rstrip().endswith('  ' + title) or '  ' + title + ' · ' in line)
-                                          for line in terminal.screen.display),
+                                          for line in terminal.centered_lines()),
                               f"The plan graph did not select {title!r}")
             selected_task('Record property evidence')
             for title in ('Keep the lead available', 'Verify the handoff'):
@@ -819,14 +870,18 @@ def run(output):
                 selected_task(title)
             terminal.assert_mark('Verify the handoff', '×', 'status.error')
             linked_beads['bd-verify']['status'] = 'open'
-            terminal.wait(lambda: '1 open' in terminal.text() or 'Open' in next((line for line in terminal.screen.display if 'Verify the handoff' in line), ''), 'Live task status did not refresh')
+            terminal.wait(lambda: any("1 open" in line for line in terminal.centered_lines()),
+                          "The open count in the plan inspector did not refresh", timeout=15)
             terminal.send('\r')
-            terminal.contains('The selected bead matches the reviewed work.')
+            terminal.inspector_contains('The selected bead matches the reviewed work.')
             assert set(bead_reads) == {'/v0/beads/context', *(f'/v0/beads/issues/{key}' for key in linked_beads)}, bead_reads
             assert not provider_errors, provider_errors
         finally:
             release_response.set()
             terminal.close()
+        check_worker_sidebar(Terminal, project, env, output,
+                             {'url': f'http://127.0.0.1:{provider.server_port}', 'projectId': beads_project, 'reviewOnly': True},
+                             linked_beads, records['readyDraft'])
         terminal = Terminal(project, env, output, records['planOnlySession'], mode='regular')
         try:
             terminal.wait_for_rail()
@@ -855,12 +910,13 @@ def run(output):
             terminal.send("/plan\r")
             terminal.contains("Enter details")
             terminal.contains("Record property evidence")
-            assert 'No Socrates specification' not in terminal.text() and 'Wave 1' not in terminal.text(), terminal.text()
+            plan_view = "\n".join(terminal.centered_inspector("Standalone work breakdown", "Enter details"))
+            assert 'No Socrates specification' not in plan_view and 'Wave 1' not in plan_view, plan_view
             terminal.resize(60, 24)
             terminal.contains("Review changes in the dock")
             terminal.capture("status-board-plan-only")
             terminal.send("\r")
-            terminal.contains("Old assessments remain inspectable after a revision.")
+            terminal.inspector_contains("Old assessments remain inspectable after a revision.")
             terminal.send("\x1b")
             terminal.contains("Enter details")
             terminal.send("\x1b")

@@ -1,3 +1,4 @@
+import type { InspectWorkerTask } from "../tasks/panel.ts";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -33,13 +34,26 @@ import {
 import {
   assessmentRevision,
   implementationPresentation,
+  implementationRead,
   type ImplementationObservation,
   type ImplementationPresentation,
   type ImplementationSource,
 } from "./implementation.ts";
 import { createPlanInspector } from "./plan-inspector.ts";
 import { planGraphColor } from "../plan-graph.ts";
-import { renderSocratesSections, renderStatusSidebar } from "./sidebar.ts";
+import { focusTaskPane } from "../task-run.ts";
+import { WorkerPane } from "./worker-pane.ts";
+import {
+  floatingPaneHeight,
+  floatingPaneOptions,
+  paneMouse,
+} from "../floating-pane.ts";
+import {
+  renderSocratesSections,
+  renderStatusSidebar,
+  renderWorkerCompact,
+  type WorkerSidebarView,
+} from "./sidebar.ts";
 import { createImplementationWatch } from "./implementation-watch.ts";
 
 export interface SocratesObservation extends ImplementationSource {
@@ -278,6 +292,7 @@ export function registerSocratesPresentation(
   pi: ExtensionAPI,
   read: (ctx: ExtensionContext) => SocratesObservation | undefined,
   viewSpecification: (ctx: ExtensionContext) => Promise<void>,
+  inspectWorkerTask?: InspectWorkerTask,
 ) {
   const live: SocratesActivity = { working: false, paused: false };
   const tools = new Map<string, string>();
@@ -294,6 +309,9 @@ export function registerSocratesPresentation(
     typeof layoutTui.setRightColumn === "function" &&
     sidebarWidth(layoutTui.terminal.columns) > 0;
   let inspecting = false;
+  const workerPane = new WorkerPane();
+  let workerKey: string | undefined;
+  let workers: WorkerSidebarView = { rows: [] };
   const render = () => {
     for (const request of renders) request();
   };
@@ -303,14 +321,34 @@ export function registerSocratesPresentation(
     render();
   }
   function project() {
+    const observed = watch.observation();
+    if (observed?.key !== workerKey) {
+      workerPane.reset();
+      workerKey = observed?.key;
+    }
+    workers =
+      observed?.state === "current"
+        ? {
+            rows: observed.workers ?? [],
+            evidenceError: observed.workerEvidenceError,
+          }
+        : { rows: [] };
+    workerPane.setRows(
+      workers.rows,
+      observed?.state === "unavailable"
+        ? observed.message
+        : workers.evidenceError,
+      observed?.state === "loading",
+    );
     snapshot =
       binding === undefined
         ? undefined
-        : socratesPresentation(binding, live, watch.observation());
+        : socratesPresentation(binding, live, observed);
     render();
   }
   const watch = createImplementationWatch({ changed: project });
   const clear = (ctx: ExtensionContext) => {
+    workerPane.reset();
     binding = undefined;
     snapshot = undefined;
     watch.setSource(undefined);
@@ -349,69 +387,64 @@ export function registerSocratesPresentation(
           {
             invalidate() {},
             render(width) {
-              if (snapshot === undefined || inspecting) return [];
+              if (snapshot === undefined) return [];
               return renderStatusSidebar(
                 snapshot,
                 { ...statusTheme(theme), lane: planGraphColor(theme) },
                 width,
                 tui.terminal.rows,
+                workers,
               ).map((line) => surface(theme, line, width));
             },
           },
           (width) =>
-            sidebarOpen && !inspecting && snapshot !== undefined
-              ? sidebarWidth(width)
-              : 0,
+            sidebarOpen && snapshot !== undefined ? sidebarWidth(width) : 0,
         );
         return {
           invalidate() {},
           dispose() {
+            workerPane.close();
             tui.setRightColumn?.(undefined);
             layoutTui = undefined;
             renders.delete(repaint);
           },
-          handleMouse(event) {
-            if (
-              event.type !== "press" ||
-              event.button !== "left" ||
-              event.y !== 0
-            )
-              return undefined;
-            resizeStatus();
-            return { handled: true };
-          },
           render(width) {
-            if (snapshot === undefined || inspecting || usesSidebar())
-              return [];
+            if (snapshot === undefined || usesSidebar()) return [];
             const maxRows = Math.max(
               1,
               Math.min(dockExpanded ? 8 : 3, Math.floor(tui.terminal.rows / 3)),
             );
             const inner = Math.max(0, width - 3);
             const colors = statusTheme(theme);
+            const roster = renderWorkerCompact(
+              workers,
+              colors,
+              inner,
+              Math.max(1, maxRows - 1),
+              dockExpanded,
+            );
+            const statusRows = maxRows - roster.length;
             const rows =
-              dockExpanded && snapshot.prioritizeSpecification
-                ? renderSocratesSections(
-                    snapshot,
-                    { ...colors, lane: planGraphColor(theme) },
-                    inner,
-                    maxRows,
-                    true,
-                  )
-                : renderStatusDock({
-                    columns: snapshot.dockColumns,
-                    theme: colors,
-                    width: inner,
-                    expanded: dockExpanded,
-                    maxRows,
-                  });
-            return rows.map((line, index) => {
-              const edge =
-                index === 0
-                  ? theme.fg("accent", dockExpanded ? "▾ " : "▸ ")
-                  : "  ";
-              return surface(theme, edge + line, width);
-            });
+              statusRows === 0
+                ? []
+                : dockExpanded && snapshot.prioritizeSpecification
+                  ? renderSocratesSections(
+                      snapshot,
+                      { ...colors, lane: planGraphColor(theme) },
+                      inner,
+                      statusRows,
+                      true,
+                    )
+                  : renderStatusDock({
+                      columns: snapshot.dockColumns,
+                      theme: colors,
+                      width: inner,
+                      expanded: dockExpanded,
+                      maxRows: statusRows,
+                    });
+            return [...rows, ...roster].map((line) =>
+              surface(theme, `  ${line}`, width),
+            );
           },
         };
       },
@@ -478,7 +511,7 @@ export function registerSocratesPresentation(
           const options = {
             title: initial.title,
             theme: statusTheme(theme),
-            height: () => Math.max(1, Math.floor(tui.terminal.rows * 0.7)),
+            height: () => floatingPaneHeight(tui.terminal.rows),
             requestRender: () => {
               tui.requestRender();
             },
@@ -515,6 +548,11 @@ export function registerSocratesPresentation(
           renders.add(repaint);
           return {
             ...panel,
+            handleMouse(event) {
+              return paneMouse(event, (delta) => {
+                panel.handleInput(delta < 0 ? "k" : "j");
+              });
+            },
             render(width) {
               const inner = Math.max(1, width - 2);
               return panel
@@ -528,12 +566,7 @@ export function registerSocratesPresentation(
         },
         {
           overlay: true,
-          overlayOptions: {
-            anchor: "top-right",
-            width: "100%",
-            maxHeight: "70%",
-            margin: { top: 1, bottom: 1 },
-          },
+          overlayOptions: floatingPaneOptions,
         },
       );
     } finally {
@@ -547,6 +580,52 @@ export function registerSocratesPresentation(
     if (snapshot === undefined) return;
     resizeStatus();
   };
+  const openWorkers = (ctx: ExtensionContext) => {
+    if (!ctx.hasUI || inspecting) return;
+    refresh(ctx);
+    const request =
+      binding === undefined ? undefined : implementationRead(binding);
+    if (
+      request === undefined ||
+      request.key !== workerKey ||
+      layoutTui === undefined
+    ) {
+      ctx.ui.notify(
+        "Worker assignments are available after plan approval.",
+        "info",
+      );
+      return;
+    }
+    const report = (error: unknown) => {
+      if (workerKey === request.key)
+        ctx.ui.notify(
+          error instanceof Error ? error.message : String(error),
+          "warning",
+        );
+    };
+    workerPane.open(layoutTui, ctx.ui.theme, {
+      inspect: (row) => {
+        inspectWorkerTask?.(ctx, request.authority, row.beadId).catch(report);
+      },
+      focusPane: (row, signal) =>
+        focusTaskPane(request.authority, row.beadId, row.attemptId, signal),
+      onError: report,
+    });
+  };
+  pi.registerCommand("workers", {
+    description: "Browse worker assignments and inspect their tasks",
+    handler: (_argument, ctx) => {
+      openWorkers(ctx);
+      return Promise.resolve();
+    },
+  });
+  pi.registerShortcut("alt+w", {
+    description: "Open or close the worker assignment pane",
+    handler: (ctx) => {
+      if (workerPane.focused) workerPane.close();
+      else openWorkers(ctx);
+    },
+  });
   pi.registerShortcut("alt+s", {
     description: "Show or collapse lead status",
     handler: toggle,

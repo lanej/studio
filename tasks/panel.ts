@@ -1,23 +1,42 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { OverlayHandle } from "@earendil-works/pi-tui";
+import type { StudioConfig } from "../config.ts";
 import {
+  floatingPaneOptions,
+  floatingPaneHeight,
+  paneMouse,
+  paintPaneLine,
+} from "../floating-pane.ts";
+import { Text, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { DecisionEditor } from "./decision-editor.ts";
+import {
+  closesTaskBrowser,
   loadTaskSnapshot,
   TaskBrowser,
   type BrowserSource,
 } from "./browser.ts";
 
-interface PanelSource extends BrowserSource {
-  key: string;
-  focusPane: (id: string) => Promise<void>;
+export type InspectWorkerTask = (
+  ctx: ExtensionContext,
+  authority: NonNullable<StudioConfig["beadsService"]>,
+  beadId: string,
+) => Promise<void>;
+
+export interface PanelSource extends BrowserSource {
+  focusPane: (
+    id: string,
+    attemptId: string | undefined,
+    signal: AbortSignal,
+  ) => Promise<void>;
 }
 type PanelContext = Pick<ExtensionContext, "hasUI"> & {
-  ui: Pick<ExtensionContext["ui"], "custom" | "notify">;
+  ui: Pick<ExtensionContext["ui"], "custom" | "notify" | "onTerminalInput">;
 };
 
 export class TaskPanel {
   private generation = 0;
-  private key: string | undefined;
-  private handle: OverlayHandle | undefined;
+  private paneFocus: AbortController | undefined;
+  private removeInputGuard: (() => void) | undefined;
+  private closeAnswer: (() => void) | undefined;
   private closeView: (() => void) | undefined;
   private timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -25,46 +44,58 @@ export class TaskPanel {
 
   close(): void {
     this.generation++;
+    this.paneFocus?.abort();
+    this.paneFocus = undefined;
+    this.removeInputGuard?.();
+    this.removeInputGuard = undefined;
     clearTimeout(this.timer);
     this.timer = undefined;
     const close = this.closeView;
     this.closeView = undefined;
-    this.handle = undefined;
-    this.key = undefined;
+    this.closeAnswer?.();
+    this.closeAnswer = undefined;
     close?.();
   }
 
-  focus(): void {
-    this.handle?.focus();
+  async editAnswer(
+    ctx: PanelContext,
+    question: string,
+  ): Promise<string | undefined> {
+    const generation = this.generation;
+    const answer = await ctx.ui.custom<string | undefined>(
+      (tui, theme, _keys, done) => {
+        if (generation !== this.generation) done(undefined);
+        else
+          this.closeAnswer = () => {
+            done(undefined);
+          };
+        return new DecisionEditor(tui, theme, question, done);
+      },
+      { overlay: true, overlayOptions: floatingPaneOptions },
+    );
+    if (generation !== this.generation) return undefined;
+    this.closeAnswer = undefined;
+    return answer;
   }
 
   async open(
     ctx: PanelContext,
-    source: PanelSource,
+    getSource: (current: () => boolean) => Promise<PanelSource | undefined>,
     initialId?: string,
   ): Promise<void> {
     if (!ctx.hasUI) return;
-    if (
-      this.key === source.key &&
-      this.handle !== undefined &&
-      initialId === undefined
-    ) {
-      this.handle.unfocus();
-      return;
-    }
     this.close();
     const generation = this.generation;
-    this.key = source.key;
-    const snapshot = await loadTaskSnapshot(source, initialId).catch(
-      (error: unknown) => {
-        if (generation !== this.generation) return undefined;
-        this.close();
-        throw error;
-      },
-    );
-    if (snapshot === undefined || generation !== this.generation) return;
     const current = () => generation === this.generation;
-    const failed = (error: unknown) => {
+
+    // Pi attaches a custom overlay in a microtask. Protect the lead draft if a
+    // terminal sends more keys in the same read as the command/shortcut.
+    this.removeInputGuard = ctx.ui.onTerminalInput((input) => {
+      if (closesTaskBrowser(input)) this.close();
+      return { consume: true };
+    });
+    let start: (() => Promise<void>) | undefined;
+    const fail = (error: unknown) => {
       if (!current()) return;
       this.close();
       ctx.ui.notify(
@@ -72,70 +103,107 @@ export class TaskPanel {
         "error",
       );
     };
-    const view = ctx.ui.custom<undefined>(
-      (tui, theme, _keys, done) => {
-        if (!current()) {
-          done(undefined);
-          return { invalidate() {}, render: () => [] };
-        }
-        this.closeView = () => {
-          done(undefined);
-        };
-        const leave = () => {
-          this.handle?.unfocus();
-          tui.requestRender();
-        };
-        const browser = new TaskBrowser(
-          snapshot,
-          source,
-          theme,
-          () => Math.max(1, tui.terminal.rows - 5),
-          () => {
-            tui.requestRender();
-          },
-          (id) => {
-            if (id === undefined) this.close();
-            else {
-              leave();
-              source.focusPane(id).catch((error: unknown) => {
-                if (current())
-                  ctx.ui.notify(
-                    error instanceof Error ? error.message : String(error),
-                    "error",
-                  );
-              });
+    try {
+      await ctx.ui.custom<undefined>(
+        (tui, theme, _keys, done) => {
+          this.closeView = () => {
+            done(undefined);
+          };
+          const loading = new Text(
+            theme.fg("accent", "Tasks") + " · Loading…   Esc close",
+            1,
+            0,
+          );
+          let browser: TaskBrowser | undefined;
+          const schedule = () => {
+            if (!current() || browser === undefined) return;
+            const view = browser;
+            this.timer = setTimeout(() => {
+              view.refresh().then(schedule, fail);
+            }, this.refreshMs);
+            this.timer.unref();
+          };
+          start = async () => {
+            const source = await getSource(current);
+            if (!current()) return;
+            if (source === undefined) {
+              this.close();
+              return;
             }
+            const snapshot = await loadTaskSnapshot(source, initialId);
+            if (!current()) return;
+            browser = new TaskBrowser(
+              snapshot,
+              source,
+              theme,
+              () => floatingPaneHeight(tui.terminal.rows),
+              () => {
+                tui.requestRender();
+              },
+              (id, attemptId) => {
+                if (id === undefined) this.close();
+                else if (this.paneFocus === undefined) {
+                  const focus = new AbortController();
+                  this.paneFocus = focus;
+                  source.focusPane(id, attemptId, focus.signal).then(
+                    () => {
+                      if (current()) this.close();
+                    },
+                    (error: unknown) => {
+                      if (!current()) return;
+                      this.paneFocus = undefined;
+                      ctx.ui.notify(
+                        error instanceof Error ? error.message : String(error),
+                        "error",
+                      );
+                    },
+                  );
+                }
+              },
+              initialId,
+            );
+            schedule();
+            tui.requestRender();
+          };
+          return {
+            capturesViewportInput: true,
+            invalidate() {
+              loading.invalidate();
+              browser?.invalidate();
+            },
+            render(width) {
+              return (
+                browser?.render(width) ??
+                loading
+                  .render(width)
+                  .map((line) => paintPaneLine(theme, "userMessageBg", line))
+              );
+            },
+            handleInput: (input: string) => {
+              if (browser !== undefined) browser.handleInput(input);
+              else if (closesTaskBrowser(input)) this.close();
+            },
+            handleMouse(event: TuiMouseEvent) {
+              return browser?.handleMouse(event) ?? paneMouse(event);
+            },
+            dispose() {
+              browser?.dispose();
+            },
+          };
+        },
+        {
+          overlay: true,
+          overlayOptions: floatingPaneOptions,
+          onHandle: () => {
+            if (!current()) return;
+            this.removeInputGuard?.();
+            this.removeInputGuard = undefined;
+            start?.().catch(fail);
           },
-          initialId,
-          { focused: () => this.handle?.isFocused() === true, leave },
-        );
-        const schedule = () => {
-          if (!current()) return;
-          this.timer = setTimeout(() => {
-            browser.refresh().then(schedule, failed);
-          }, this.refreshMs);
-          this.timer.unref();
-        };
-        schedule();
-        return browser;
-      },
-      {
-        overlay: true,
-        overlayOptions: {
-          width: 80,
-          maxHeight: 24,
-          anchor: "top-right",
-          margin: { bottom: 5 },
-          nonCapturing: true,
         },
-        onHandle: (handle) => {
-          if (current()) this.handle = handle;
-          else handle.hide();
-        },
-      },
-    );
-    view.then(() => {
+      );
+    } finally {
       if (current()) this.close();
-    }, failed);
+    }
   }
 }

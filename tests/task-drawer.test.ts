@@ -105,7 +105,23 @@ await test("pane focus follows the selected task and wide titles remain bounded"
   component.render(60);
   component.handleInput("\x1b[C");
   assert.deepEqual(calls, []);
-  component.handleInput("j");
+  assert.equal(
+    component.handleMouse({
+      type: "wheel",
+      button: "none",
+      x: 5,
+      y: 3,
+      screenX: 7,
+      screenY: 6,
+      width: 60,
+      height: 24,
+      shift: false,
+      alt: false,
+      ctrl: false,
+      wheelDelta: 1,
+    }).handled,
+    true,
+  );
   assert.match(component.render(60).join("\n"), /Wide 漢字/u);
   component.handleInput("\x1b[C");
   assert.deepEqual(calls, [related.id]);

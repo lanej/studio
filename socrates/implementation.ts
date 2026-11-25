@@ -1,3 +1,5 @@
+import { readTaskEvidence } from "../tasks/evidence.ts";
+import { workerAssignments, type WorkerAssignment } from "../tasks/workers.ts";
 import type { StudioConfig } from "../config.ts";
 import { TaskStatus, knownTaskStatus } from "../beads.ts";
 import { HandoffPhase, type Discovery } from "../discovery/store.ts";
@@ -64,12 +66,19 @@ export interface ImplementationRead {
   key: string;
   authority: BeadsAuthority;
   ids: readonly string[];
+  matches(bead: NativeBead): boolean;
 }
 
 export type ImplementationObservation =
   | { key: string; state: "loading" }
   | { key: string; state: "unavailable"; message?: string | undefined }
-  | { key: string; state: "current"; tasks: readonly NativeBead[] };
+  | {
+      key: string;
+      state: "current";
+      tasks: readonly NativeBead[];
+      workers?: readonly WorkerAssignment[];
+      workerEvidenceError?: string | undefined;
+    };
 
 export interface ImplementationPresentation {
   phase: ImplementationPhase;
@@ -175,10 +184,13 @@ export function implementationRead(
     draft.tasks.length === 0
       ? ["root"]
       : orderedTasks(draft).map((task) => task.key);
-  const ids = keys.flatMap((key) => {
-    const id = link.ids[key];
-    return id === undefined ? [] : [id];
-  });
+  const keyByBead = new Map(
+    keys.flatMap((key) => {
+      const id = link.ids[key];
+      return id === undefined ? [] : [[id, key] as const];
+    }),
+  );
+  const ids = [...keyByBead.keys()];
   return {
     key: JSON.stringify([
       source.revision,
@@ -189,6 +201,25 @@ export function implementationRead(
     ]),
     authority: link.authority,
     ids,
+    matches(bead) {
+      const key = keyByBead.get(bead.id);
+      if (key === undefined) return false;
+      if (!link.discovery) {
+        return key === "root"
+          ? source.bead !== undefined && sameBrief(source.bead, bead)
+          : bead.metadata["pi.plan"] === link.digest &&
+              bead.metadata["pi.plan_key"] === key;
+      }
+      const task = bead.metadata["studio.task"];
+      return (
+        bead.metadata["studio.graph"] === source.revision &&
+        bead.metadata["studio.approval"] === link.digest &&
+        typeof task === "object" &&
+        task !== null &&
+        "key" in task &&
+        task.key === key
+      );
+    },
   };
 }
 
@@ -207,7 +238,25 @@ export async function readImplementation(
       result.status === "fulfilled" ? [result.value] : [],
     );
     if (tasks.length === 0) return { key: request.key, state: "unavailable" };
-    return { key: request.key, state: "current", tasks };
+    const observed = { key: request.key, state: "current" as const, tasks };
+    // The lead observes its assigned children. Its own root can also be in progress.
+    const active = tasks.filter(
+      (bead) =>
+        knownTaskStatus(bead.status) === TaskStatus.InProgress &&
+        bead.id !== source.bead?.id &&
+        bead.assignee.startsWith("pi:") &&
+        request.matches(bead),
+    );
+    if (active.length === 0) return observed;
+    const project = request.authority.projectId;
+    const owners = active.map((bead) => bead.assignee.slice("pi:".length));
+    const evidence = readTaskEvidence(project, undefined, owners);
+    return {
+      ...observed,
+      workers: workerAssignments(project, active, evidence),
+      workerEvidenceError:
+        evidence.evidenceError ?? evidence.interactiveEvidenceError,
+    };
   } catch (error) {
     return {
       key: request.key,
@@ -352,20 +401,7 @@ export function implementationPresentation(
         : ImplementationState.Unknown;
     let issue: string | undefined;
     if (phase === ImplementationPhase.Tracking && bead !== undefined) {
-      const graphTask = bead.metadata["studio.task"];
-      const associated =
-        link?.discovery === true
-          ? bead.metadata["studio.graph"] === source.revision &&
-            bead.metadata["studio.approval"] === link.digest &&
-            typeof graphTask === "object" &&
-            graphTask !== null &&
-            "key" in graphTask &&
-            graphTask.key === task.key
-          : task.key === "root"
-            ? source.bead !== undefined && sameBrief(source.bead, bead)
-            : bead.metadata["pi.plan"] === link?.digest &&
-              bead.metadata["pi.plan_key"] === task.key;
-      if (!associated || duplicateIds.has(bead.id))
+      if (request?.matches(bead) !== true || duplicateIds.has(bead.id))
         issue = "The observed bead no longer identifies this approved task.";
       else {
         const known = knownTaskStatus(bead.status);

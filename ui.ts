@@ -4,6 +4,12 @@ import type {
   ThemeColor,
 } from "@earendil-works/pi-coding-agent";
 import { matchesKey, Text, truncateToWidth } from "@earendil-works/pi-tui";
+import {
+  floatingPaneHeight,
+  floatingPaneOptions,
+  paintPaneLine,
+  paneMouse,
+} from "./floating-pane.ts";
 import { knownTaskStatus, TaskStatus } from "./beads.ts";
 import { NavigationKey } from "./runtime.ts";
 
@@ -30,43 +36,68 @@ export function taskStatusGlyph(
 export async function showTask(
   ctx: ExtensionContext,
   details: string,
+  layout: "inline" | "floating" = "inline",
 ): Promise<void> {
-  await ctx.ui.custom<undefined>((tui, theme, _keys, done) => {
-    const text = new Text(theme.fg("text", details), 0, 0);
-    let offset = 0;
-    let maximum = 0;
-    return {
-      invalidate() {
-        text.invalidate();
-      },
-      render(width) {
-        const lines = text.render(width);
-        const height = Math.max(3, tui.terminal.rows - 5);
-        maximum = Math.max(0, lines.length - height);
-        offset = Math.min(offset, maximum);
-        return lines.slice(offset, offset + height);
-      },
-      handleInput(input) {
-        if (
-          matchesKey(input, NavigationKey.Escape) ||
-          matchesKey(input, NavigationKey.Enter) ||
-          matchesKey(input, NavigationKey.Cancel)
-        )
-          done(undefined);
-        else if (
-          matchesKey(input, NavigationKey.Down) ||
-          matchesKey(input, NavigationKey.VimDown)
-        )
-          offset = Math.min(maximum, offset + 1);
-        else if (
-          matchesKey(input, NavigationKey.Up) ||
-          matchesKey(input, NavigationKey.VimUp)
-        )
-          offset = Math.max(0, offset - 1);
-        tui.requestRender();
-      },
-    };
-  });
+  const floating = layout === "floating";
+  await ctx.ui.custom<undefined>(
+    (tui, theme, _keys, done) => {
+      const text = new Text(theme.fg("text", details), 0, 0);
+      let offset = 0;
+      let maximum = 0;
+      return {
+        invalidate() {
+          text.invalidate();
+        },
+        render(width) {
+          const inner = floating ? Math.max(1, width - 2) : width;
+          const lines = text.render(inner);
+          const height = floating
+            ? floatingPaneHeight(tui.terminal.rows)
+            : Math.max(3, tui.terminal.rows - 5);
+          maximum = Math.max(0, lines.length - height);
+          offset = Math.min(offset, maximum);
+          const visible = lines.slice(offset, offset + height);
+          return floating
+            ? visible.map((line) =>
+                paintPaneLine(
+                  theme,
+                  "userMessageBg",
+                  truncateToWidth(` ${line}`, width, "", true),
+                ),
+              )
+            : visible;
+        },
+        handleMouse(event) {
+          if (!floating) return undefined;
+          return paneMouse(event, (delta) => {
+            offset = Math.max(0, Math.min(maximum, offset + delta));
+          });
+        },
+        handleInput(input) {
+          if (
+            matchesKey(input, NavigationKey.Escape) ||
+            matchesKey(input, NavigationKey.Enter) ||
+            matchesKey(input, NavigationKey.Cancel)
+          )
+            done(undefined);
+          else if (
+            matchesKey(input, NavigationKey.Down) ||
+            matchesKey(input, NavigationKey.VimDown)
+          )
+            offset = Math.min(maximum, offset + 1);
+          else if (
+            matchesKey(input, NavigationKey.Up) ||
+            matchesKey(input, NavigationKey.VimUp)
+          )
+            offset = Math.max(0, offset - 1);
+          tui.requestRender();
+        },
+      };
+    },
+    floating
+      ? { overlay: true, overlayOptions: floatingPaneOptions }
+      : undefined,
+  );
 }
 
 // Wave details use the existing themed terminal surface. The action stays

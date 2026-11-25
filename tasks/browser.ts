@@ -1,12 +1,14 @@
-import type { Theme, ThemeBg } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import {
   matchesKey,
+  type TuiMouseEvent,
   hyperlink,
   Text,
   truncateToWidth,
   visibleWidth,
 } from "@earendil-works/pi-tui";
 import { taskTree, type Task, type TreeRow } from "../beads.ts";
+import { paintPaneLine, paneMouse } from "../floating-pane.ts";
 import { NavigationKey } from "../runtime.ts";
 import { selectorText } from "@lanej/pi-components";
 import { pendingDecision, ExecutionPhase } from "../execution/store.ts";
@@ -38,10 +40,6 @@ export interface BrowserSource {
     attempt: import("../execution/store.ts").Execution,
   ) => Promise<string>;
 }
-interface PanelControls {
-  focused: () => boolean;
-  leave: () => void;
-}
 type Action =
   | { kind: "link"; id: string }
   | { kind: "disclosure"; section: string }
@@ -52,6 +50,15 @@ type Action =
 interface DetailLine {
   text: string;
   action?: Action;
+}
+
+export function closesTaskBrowser(input: string): boolean {
+  return (
+    matchesKey(input, NavigationKey.Escape) ||
+    matchesKey(input, NavigationKey.Cancel) ||
+    matchesKey(input, "alt+t") ||
+    input === "q"
+  );
 }
 
 export class TaskBrowser {
@@ -85,9 +92,11 @@ export class TaskBrowser {
     private readonly theme: Pick<Theme, "fg" | "bg" | "bold" | "getBgAnsi">,
     private readonly height: () => number,
     private readonly changed: () => void,
-    private readonly done: (paneTask: string | undefined) => void,
+    private readonly done: (
+      paneTask: string | undefined,
+      attemptId?: string,
+    ) => void,
     initialId?: string,
-    private readonly panel?: PanelControls,
   ) {
     this.rows = taskTree(snapshot.tasks);
     this.selected = initialId ?? this.rows[0]?.task.id;
@@ -156,17 +165,6 @@ export class TaskBrowser {
   private pad(text: string, width: number): string {
     const clipped = truncateToWidth(text, Math.max(1, width));
     return clipped + " ".repeat(Math.max(0, width - visibleWidth(clipped)));
-  }
-
-  private paint(color: ThemeBg, text: string): string {
-    const background = this.theme.getBgAnsi(color);
-    // Truncation and nested fills reset ANSI colors; restore this region's fill.
-    return this.theme.bg(
-      color,
-      text
-        .replaceAll("\x1b[0m", `\x1b[0m${background}`)
-        .replaceAll("\x1b[49m", background),
-    );
   }
 
   private wrapped(text: string, width: number): string[] {
@@ -379,12 +377,14 @@ export class TaskBrowser {
   }
 
   render(width: number): string[] {
-    const height = Math.max(1, Math.min(24, this.height()));
+    const height = Math.max(1, this.height());
     if (width < 1) return [];
     if (width < 3 || height < 6)
       return this.wrapped(this.row?.task.title ?? "No tasks yet", width)
         .slice(0, height)
-        .map((line) => this.paint("userMessageBg", this.pad(line, width)));
+        .map((line) =>
+          paintPaneLine(this.theme, "userMessageBg", this.pad(line, width)),
+        );
     const inner = Math.max(1, width - 2);
     const split = width >= 76 && this.rows.length > 0;
     const treeWidth = split ? Math.min(31, Math.floor(inner * 0.41)) : inner;
@@ -413,7 +413,9 @@ export class TaskBrowser {
         const branch = this.theme.fg("muted", row.branch ?? "");
         const label = `${selected ? "›" : " "} ${branch}${glyph} ${plain(row.task.title)}${row.warning === undefined ? "" : " ⚠"}`;
         const padded = this.pad(label, treeWidth);
-        return selected ? this.paint("selectedBg", padded) : padded;
+        return selected
+          ? paintPaneLine(this.theme, "selectedBg", padded)
+          : padded;
       });
     const details = this.details(detailWidth);
     this.actions = details.flatMap((line, index) =>
@@ -451,7 +453,11 @@ export class TaskBrowser {
         return this.focus === "inspector" &&
           actionIndex >= 0 &&
           actionIndex === this.activeAction
-          ? this.paint("selectedBg", this.pad(`› ${label}`, detailWidth))
+          ? paintPaneLine(
+              this.theme,
+              "selectedBg",
+              this.pad(`› ${label}`, detailWidth),
+            )
           : this.pad(label, detailWidth);
       });
     const body = Array.from({ length: this.bodyHeight }, (_, index) =>
@@ -462,15 +468,9 @@ export class TaskBrowser {
             : detail[index]) ?? ""),
     );
     const hint =
-      this.panel !== undefined && !this.panel.focused()
-        ? "Alt+T inspect  /tasks close"
-        : this.focus === "tree"
-          ? this.panel === undefined
-            ? "j/k move  Enter inspect  r refresh  Esc close"
-            : "j/k move  Enter inspect  Esc lead  q close"
-          : this.panel === undefined
-            ? "j/k scroll  Tab links  Enter open  Esc back"
-            : "j/k scroll  Tab links  ← tree  Esc lead";
+      this.focus === "tree"
+        ? "j/k move  Enter inspect  r refresh  Esc close"
+        : "j/k scroll  Tab links  Enter open  ← tree  Esc close";
     const context =
       this.notice.length > 0
         ? this.notice
@@ -479,7 +479,7 @@ export class TaskBrowser {
     const clock = this.busy ? "Reading…" : this.snapshot.observedAt;
     const header =
       this.pad(
-        this.theme.bold(heading),
+        this.theme.fg("accent", this.theme.bold(heading)),
         Math.max(1, inner - visibleWidth(clock) - 2),
       ) +
       "  " +
@@ -491,7 +491,9 @@ export class TaskBrowser {
       this.theme.fg("borderMuted", "─".repeat(inner)),
       this.theme.fg("muted", context),
       this.theme.fg("muted", hint),
-    ].map((line) => this.paint("userMessageBg", ` ${this.pad(line, inner)} `));
+    ].map((line) =>
+      paintPaneLine(this.theme, "userMessageBg", ` ${this.pad(line, inner)} `),
+    );
   }
 
   private update(snapshot: TaskSnapshot): void {
@@ -545,7 +547,6 @@ export class TaskBrowser {
   }
 
   private inspect(id: string): void {
-    if (this.busy && this.panel === undefined) return;
     const origin = this.selected;
     this.focus = "inspector";
     this.activeAction = -1;
@@ -566,34 +567,31 @@ export class TaskBrowser {
     });
   }
 
+  private focusPane(id: string): void {
+    const assignee = this.snapshot.tasks.find(
+      (task) => task.id === id,
+    )?.assignee;
+    this.done(
+      id,
+      assignee?.startsWith("pi:") === true ? assignee.slice(3) : undefined,
+    );
+  }
+
+  handleMouse(event: TuiMouseEvent) {
+    return paneMouse(event, (delta) => {
+      for (let i = 0; i < Math.min(this.bodyHeight, Math.abs(delta)); i++)
+        this.handleInput(delta > 0 ? "j" : "k");
+    });
+  }
+
   handleInput(input: string): void {
     if (this.closed) return;
-    if (this.panel !== undefined) {
-      if (
-        matchesKey(input, NavigationKey.Escape) ||
-        matchesKey(input, NavigationKey.Cancel) ||
-        matchesKey(input, "alt+t")
-      ) {
-        this.panel.leave();
-        return;
-      }
-      if (input === "q") {
-        this.done(undefined);
-        return;
-      }
-    }
-    if (
-      matchesKey(input, NavigationKey.Cancel) ||
-      (matchesKey(input, NavigationKey.Escape) && this.focus === "tree")
-    ) {
+    if (closesTaskBrowser(input)) {
       this.closed = true;
       this.done(undefined);
       return;
     }
-    if (
-      matchesKey(input, NavigationKey.Escape) ||
-      matchesKey(input, NavigationKey.Left)
-    ) {
+    if (matchesKey(input, NavigationKey.Left)) {
       this.focus = "tree";
       this.activeAction = -1;
     } else if (matchesKey(input, NavigationKey.Refresh)) {
@@ -637,8 +635,7 @@ export class TaskBrowser {
         if (this.expanded.has(key)) this.expanded.delete(key);
         else this.expanded.add(key);
       } else if (action?.kind === "pane") {
-        if (this.panel === undefined) this.closed = true;
-        this.done(action.id);
+        this.focusPane(action.id);
       } else if (action?.kind === "link") {
         this.inspect(action.id);
       } else if (
@@ -653,6 +650,7 @@ export class TaskBrowser {
             action.request,
             action.question,
           );
+          if (this.closed) return;
           this.update(await this.source.load());
           this.notice = recorded
             ? "Answer recorded; same attempt queued. Verification and review remain required."
@@ -707,8 +705,7 @@ export class TaskBrowser {
       this.selected !== undefined &&
       this.snapshot.focusable.has(this.selected)
     ) {
-      if (this.panel === undefined) this.closed = true;
-      this.done(this.selected);
+      this.focusPane(this.selected);
     } else {
       const direction =
         matchesKey(input, NavigationKey.VimDown) ||

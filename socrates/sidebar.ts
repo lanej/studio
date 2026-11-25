@@ -14,6 +14,15 @@ import {
 import { planGraph, renderGraphPrefix } from "../plan-graph.ts";
 import { taskMarks } from "./columns.ts";
 import {
+  renderWorkerCompact,
+  type WorkerSidebarView,
+} from "./worker-section.ts";
+
+export {
+  renderWorkerCompact,
+  type WorkerSidebarView,
+} from "./worker-section.ts";
+import {
   ImplementationState,
   type ImplementationPresentation,
 } from "./implementation.ts";
@@ -290,6 +299,46 @@ export function renderSocratesSections(
   width: number,
   height: number,
   compact = false,
+  workers?: WorkerSidebarView,
+): string[] {
+  const showWorkers =
+    workers !== undefined &&
+    (workers.rows.length > 0 || workers.evidenceError !== undefined);
+  if (!showWorkers)
+    return renderPlanSections(snapshot, theme, width, height, compact);
+  if (width < 3 || height < 1) return [];
+  const gap = !compact && height >= 6 ? 1 : 0;
+  const workerBudget = Math.max(1, Math.floor(height / 2));
+  const roster = renderWorkerCompact(workers, theme, width, workerBudget, true);
+  const plan = renderPlanSections(
+    snapshot,
+    theme,
+    width,
+    height - roster.length - gap,
+    compact,
+  );
+  return [
+    ...plan,
+    ...(plan.length > 0 && gap > 0 ? [theme.muted("─".repeat(width))] : []),
+    ...(roster.length === workerBudget &&
+    plan.length + gap + workerBudget < height
+      ? renderWorkerCompact(
+          workers,
+          theme,
+          width,
+          height - plan.length - gap,
+          true,
+        )
+      : roster),
+  ];
+}
+
+function renderPlanSections(
+  snapshot: SidebarSnapshot,
+  theme: GraphTheme,
+  width: number,
+  height: number,
+  compact: boolean,
 ): string[] {
   const spec = snapshot.dockColumns.find(
     (column) => column.id === "specification",
@@ -331,10 +380,18 @@ export function renderStatusSidebar(
   theme: GraphTheme,
   width: number,
   height: number,
+  workers?: WorkerSidebarView,
 ): string[] {
   if (width < 6 || height < 1 || snapshot.dockColumns.length === 0) return [];
   const inner = width - 3;
-  const rows = renderSocratesSections(snapshot, theme, inner, height);
+  const rows = renderSocratesSections(
+    snapshot,
+    theme,
+    inner,
+    height,
+    false,
+    workers,
+  );
   const divider = theme.muted("│");
   return Array.from(
     { length: height },

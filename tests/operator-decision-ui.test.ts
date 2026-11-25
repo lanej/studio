@@ -9,6 +9,12 @@ import {
   pendingDecision,
 } from "../execution/store.ts";
 import { StudioProfile } from "../config.ts";
+import {
+  ProcessTerminal,
+  TuiMainScreen,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
+import { DecisionEditor } from "../tasks/decision-editor.ts";
 import { TaskBrowser } from "../tasks/browser.ts";
 import {
   decisionDetails,
@@ -26,6 +32,58 @@ const theme: Pick<Theme, "fg" | "bg" | "bold" | "getBgAnsi"> = {
   bold: (value) => value,
   getBgAnsi: () => "",
 };
+await test("long questions scroll independently of multiline answers, and Escape discards the draft", () => {
+  class TestTui extends TuiMainScreen {
+    override requestRender(): void {}
+  }
+  const tui = new TestTui(new ProcessTerminal());
+  const results: (string | undefined)[] = [];
+  const question =
+    "Question begins " +
+    "Which contract should be kept? ".repeat(56) +
+    "Final option?";
+  const editor = new DecisionEditor(tui, theme, question, (answer) => {
+    results.push(answer);
+  });
+  editor.focused = true;
+  const render = () => editor.render(36).join("\n");
+  assert.match(render(), /Question begins/u);
+  assert.equal(
+    editor.handleMouse({
+      type: "wheel",
+      button: "none",
+      x: 5,
+      y: 2,
+      screenX: 7,
+      screenY: 6,
+      width: 36,
+      height: 18,
+      shift: false,
+      alt: false,
+      ctrl: false,
+      wheelDelta: 3,
+    }).handled,
+    true,
+  );
+  assert.doesNotMatch(render(), /Question begins/u);
+  for (let index = 0; index < 20; index++) editor.handleInput("\x1b[6~");
+  assert.match(render(), /Final option/u);
+  const first = "Keep this requirement. ".repeat(20);
+  editor.handleInput("\x1b[200~" + first + "\x1b[201~");
+  editor.handleInput("\x1b[13;2u");
+  editor.handleInput("Second line");
+  assert.match(render(), /Second line/u);
+  assert.ok(editor.render(36).every((line) => visibleWidth(line) === 36));
+  editor.handleInput("\r");
+  assert.deepEqual([...results], [first + "\nSecond line"]);
+  const cancelled = new DecisionEditor(tui, theme, question, (answer) => {
+    results.push(answer);
+  });
+  cancelled.handleInput("Unsubmitted answer");
+  cancelled.handleInput("\x1b");
+  assert.deepEqual(results, [first + "\nSecond line", undefined]);
+});
+
 await test("only explicit owned decisions offer Answer and capture the original request across a dialog refresh", async () => {
   const directory = await mkdtemp(join(tmpdir(), "decision-ui-"));
   const store = new ExecutionStore(directory);

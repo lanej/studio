@@ -6,7 +6,7 @@
 import argparse
 import atexit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from threading import Thread
+from threading import Event, Thread
 import fcntl
 import gzip
 import json
@@ -83,6 +83,7 @@ class DiscoveryProvider(BaseHTTPRequestHandler):
         }
         if path == "/v0/beads/issues":
             self.server.issue_reads += 1
+            self.server.allow_issue_reads.wait(15)
             status, body = self.server.issue_listing
         else:
             status, body = (200, pages[path]) if path in pages else (404, {})
@@ -119,6 +120,8 @@ class DiscoveryProvider(BaseHTTPRequestHandler):
 
 with tempfile.TemporaryDirectory(prefix="studio-terminal-") as directory, ThreadingHTTPServer(("127.0.0.1", 0), DiscoveryProvider) as provider:
     provider.issue_listing = (200, {"items": review_tasks, "has_more": False})
+    provider.allow_issue_reads = Event()
+    provider.allow_issue_reads.set()
     Thread(target=provider.serve_forever, daemon=True).start()
     atexit.register(provider.shutdown)
     home = Path(directory).resolve()
@@ -365,42 +368,57 @@ interactive.close();
                 os.write(master, b"/tasks\r")
                 wait_text("No tasks yet")
                 empty_view = "\n".join(screen.display)
-                for label in ["Tasks", "Tasks added in Beads", "Alt+T inspect"]:
+                for label in ["Tasks", "Tasks added in Beads", "Esc close"]:
                     assert label in empty_view, empty_view
                 assert review_project not in empty_view, empty_view
                 assert "Tasks · Beads" in empty_view, empty_view
                 assert "Review finding" not in empty_view and "Changes requested" not in empty_view, empty_view
                 assert all(task["title"] not in empty_view for task in review_tasks), empty_view
                 capture("task-empty")
-                os.write(master, b"/tasks close\r")
+                os.write(master, b"\x1b")
                 pump(.35)
                 assert "No tasks yet" not in "\n".join(screen.display), screen.display
 
                 provider.issue_listing = (200, {"items": review_tasks, "has_more": False})
-                os.write(master, b"/tasks\r")
-                wait_text("Diff presentation")
-                os.write(master, b"jk background draft")
+                os.write(master, b"preserved lead draft")
                 pump(.2)
-                passive = "\n".join(screen.display)
+                before_response = provider.responses
+                before_read = provider.issue_reads
+                provider.allow_issue_reads.clear()
+                try:
+                    os.write(master, b"\x1bt")
+                    wait_text("Loading…")
+                    wait_until(lambda: provider.issue_reads > before_read)
+                    os.write(master, b"j\r")
+                    pump(.2)
+                    os.write(master, b"\x1b")
+                    wait_until(lambda: "Loading…" not in "\n".join(screen.display))
+                finally:
+                    provider.allow_issue_reads.set()
+                pump(.3)
+                assert "preserved lead draft" in "\n".join(screen.display), screen.display
+                assert provider.responses == before_response
+                assert "Enter inspect" not in "\n".join(screen.display), screen.display
+                os.write(master, b"\x1bt")
+                wait_text("Diff presentation")
+                wait_text("Enter inspect")
                 assert any("›" in line and "Diff presentation" in line for line in screen.display), screen.display
-                assert "jk background draft" in passive, passive
                 capture("task-status-panel")
                 completed = [dict(task, status="closed") if task["id"] == "ui-12.1" else task for task in review_tasks]
                 provider.issue_listing = (200, {"items": completed, "has_more": False})
                 wait_until(lambda: any("● Inline replacements" in line for line in screen.display), timeout=8)
-                assert "jk background draft" in "\n".join(screen.display), screen.display
-                assert "Alt+T inspect" in "\n".join(screen.display), screen.display
                 capture("task-status-updated")
-                # A provider response confirms the lead accepts submissions with the panel open.
+                os.write(master, b"\x1bt")
+                wait_text("preserved lead draft")
+                wait_until(lambda: "Enter inspect" not in "\n".join(screen.display))
                 os.write(master, b"\x15")
                 before_response = provider.responses
                 os.write(master, (review_question + "\r").encode())
                 wait_until(lambda: provider.responses > before_response)
                 pump(.5)
-                assert "Alt+T inspect" in "\n".join(screen.display), screen.display
                 provider.issue_listing = (200, {"items": review_tasks, "has_more": False})
-                os.write(master, b"\x1bt")
-                wait_text("Esc lead")
+                os.write(master, b"/tasks\r")
+                wait_text("Enter inspect")
                 os.write(master, b"r")
                 pump(.4)
                 os.write(master, b"j\r")
@@ -422,8 +440,6 @@ interactive.close();
                 pump(.2)
                 os.write(master, b"/tasks ui-12.2\r")
                 wait_text("Enclosing declarations")
-                os.write(master, b"\x1bt")
-                wait_text("Esc lead")
                 os.write(master, b"\t\t\t\r")
                 for _ in range(24):
                     if "example/studio#7" in "\n".join(screen.display): break
@@ -437,34 +453,23 @@ interactive.close();
                 pump(.2)
                 os.write(master, b"/tasks ui-12.1\r")
                 wait_text("The reviewer found:")
-                os.write(master, b"\x1bt")
-                wait_text("Esc lead")
-                os.write(master, b"\x1b")
-                wait_text("Alt+T inspect")
-                os.write(master, b"preserved lead draft")
-                pump(.2)
-                os.write(master, b"\x1bt")
-                wait_text("Esc lead")
-                assert "Inline replacements" in "\n".join(screen.display), screen.display
                 os.write(master, b"\x1b[D")
                 pump(.2)
                 assert any("›" in line and "Inline replacements" in line for line in screen.display), screen.display
-                os.write(master, b"q")
+                os.write(master, b"\x1b")
                 pump(.3)
-                assert "Alt+T inspect" not in "\n".join(screen.display), screen.display
-                assert "preserved lead draft" in "\n".join(screen.display), screen.display
-                os.write(master, b"\x15")
-                # A direct lookup opens passively too; focus must still be explicit.
+                assert "Enter inspect" not in "\n".join(screen.display), screen.display
                 os.write(master, b"/tasks ui-12.1\r")
                 wait_text("The reviewer found:")
-                assert "Alt+T inspect" in "\n".join(screen.display), screen.display
                 provider.issue_listing = (503, {"code": "unavailable", "reason": "Service unavailable"})
+                reads_before_failure = provider.issue_reads
+                wait_until(lambda: provider.issue_reads > reads_before_failure, timeout=12)
                 wait_text("Beads HTTP 503", timeout=8)
                 assert "Inline replacements" in "\n".join(screen.display), screen.display
                 capture("task-status-unavailable")
                 provider.issue_listing = (200, {"items": review_tasks, "has_more": False})
                 wait_until(lambda: "Beads HTTP 503" not in "\n".join(screen.display), timeout=8)
-                os.write(master, b"/tasks close\r")
+                os.write(master, b"\x1b")
                 pump(.3)
                 reads = provider.issue_reads
                 pump(5.3)
@@ -643,10 +648,9 @@ interactive.close();
             assert "├─ ○ Idle compaction" in view and "│  └─ ● Check idle guard" in view, screen.display
             if columns == 80:
                 selected_row = next(y for y, line in enumerate(screen.display) if "›" in line and "◐ Studio" in line)
-                assert screen.buffer[selected_row][columns-3].bg.upper() == theme["userMessageBg"].lstrip("#"), screen.display
+                assert screen.buffer[selected_row][columns-4].bg.upper() == theme["userMessageBg"].lstrip("#"), screen.display
             capture("tasks")
-            os.write(master, b"\x1bt")
-            wait_text("Esc lead")
+            wait_text("Enter inspect")
             os.write(master, b"j\r")
             pump(.5)
             view = "\n".join(screen.display)
@@ -672,8 +676,6 @@ interactive.close();
             pump(.4)
             assert any("›" in line and "Idle compaction" in line for line in screen.display), screen.display
             os.write(master, b"\x1b")
-            pump(.2)
-            os.write(master, b"/tasks close\r")
             pump(.2)
             os.write(master, b"/archives\r")
             wait_text("Search archives")
@@ -723,7 +725,7 @@ interactive.close();
             except subprocess.TimeoutExpired: process.kill(); process.wait(timeout=5)
     provider.shutdown()
 if args.task_review:
-    print("Native passive task updates, retained lead input, deliberate focus/return, review details, close cleanup, and service recovery passed at 80x24 and 60x20.")
+    print("Native floating task updates, retained lead input, keyboard navigation and focus return, review details, close cleanup, and service recovery passed at 80x24 and 60x20.")
 else:
     print(f"Native Pi discovery title entry, project picker, cancellation, saved-answer resume, and breakdown review passed at {wide_viewport[0]} and 60 columns.")
     if not args.discovery_only:
