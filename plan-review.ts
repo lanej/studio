@@ -18,6 +18,7 @@ interface ReviewField {
 export interface PlanReview {
   draft: LeadDraft;
   context?: readonly ReviewField[];
+  publications?: readonly ReviewField[];
   specification?: string;
 }
 
@@ -35,6 +36,7 @@ function renderFields(
   fields: readonly ReviewField[],
   theme: ReviewTheme,
   width: number,
+  exact = false,
 ): string[] {
   const labels = fields.map(({ label }) => oneLine(label));
   const indent = Math.max(0, ...labels.map(visibleWidth)) + 2;
@@ -44,7 +46,15 @@ function renderFields(
     const label = labels[index] ?? "";
     const name = theme.fg("muted", label);
     const [first = "", ...rest] = wrapTextWithAnsi(
-      clean(value),
+      exact
+        ? value
+            .replaceAll("\\", "\\\\")
+            .replace(
+              /\p{Cc}/gu,
+              (character) =>
+                `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
+            )
+        : clean(value),
       valueWidth,
     ).map((line) => theme.fg(tone ?? "text", line));
     if (!inline) return [...wrapTextWithAnsi(name, width), first, ...rest];
@@ -55,7 +65,7 @@ function renderFields(
 }
 
 export function renderPlanReview(
-  { draft, context = [], specification }: PlanReview,
+  { draft, context = [], publications = [], specification }: PlanReview,
   theme: ReviewTheme,
   width: number,
 ): string[] {
@@ -67,7 +77,7 @@ export function renderPlanReview(
     wrapTextWithAnsi(theme.fg("accent", theme.bold(value)), width);
   const lines: string[] = [];
   if (context.length > 0)
-    lines.push(...renderFields(context, theme, width), "");
+    lines.push(...renderFields(context, theme, width, true), "");
 
   lines.push(...section("Task dependencies"));
   if (graph.length === 0) lines.push(...wrap("No child tasks"));
@@ -78,6 +88,13 @@ export function renderPlanReview(
       ...connectors.map((line) => renderGraphPrefix(line, color).trimEnd()),
     );
   }
+
+  if (publications.length > 0)
+    lines.push(
+      "",
+      ...section("PR publication"),
+      ...renderFields(publications, theme, width),
+    );
 
   lines.push("", ...section("Plan summary"), ...wrap(draft.summary));
   if (draft.pullRequestMerge !== undefined)

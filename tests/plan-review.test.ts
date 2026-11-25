@@ -1,13 +1,9 @@
-import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import {
-  stripTerminalSequences,
-  visibleWidth,
-  type Component,
-} from "@earendil-works/pi-tui";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { expect, test } from "bun:test";
 import { draftSchema } from "../lead-plan.ts";
 import { renderPlanReview, type PlanReview } from "../plan-review.ts";
-import { reviewPlan } from "../ui.ts";
+import { createPlanApproval } from "../ui.ts";
 
 type TestTheme = Pick<Theme, "fg" | "bold">;
 const theme: TestTheme = {
@@ -56,6 +52,8 @@ const review: PlanReview = {
     { label: "Project", value: "/example/local-project" },
     { label: "Beads", value: "example-beads" },
     { label: "Profile", value: "personal" },
+  ],
+  publications: [
     { label: "PR from publish", value: "Includes source, publish" },
   ],
   specification: "Objective · Scope is frozen.\n\nDecision · Merge manually.",
@@ -72,6 +70,31 @@ test("approval displays the colored dependency graph and complete structured con
     "  │",
     "  ●  Publish the result",
   ]);
+  expect(graphStart).toBeLessThan(plain.indexOf("PR publication"));
+  const exactContext = renderPlanReview(
+    {
+      ...review,
+      context: [{ label: "Project", value: "/example/\x1b[31mproject" }],
+    },
+    theme,
+    80,
+  )
+    .map(stripTerminalSequences)
+    .join("\n");
+  expect(exactContext).toContain("/example/\\u001b[31mproject");
+  const literalContext = renderPlanReview(
+    {
+      ...review,
+      context: [{ label: "Project", value: "/example/\\u001b[31mproject" }],
+    },
+    theme,
+    80,
+  )
+    .map(stripTerminalSequences)
+    .join("\n");
+  expect(literalContext).toContain("/example/\\\\u001b[31mproject");
+  expect(literalContext).not.toBe(exactContext);
+
   const raw = rendered.join("\n");
   expect(raw).toContain("\x1b[36m├");
   expect(raw).toContain("\x1b[33m╮");
@@ -79,10 +102,10 @@ test("approval displays the colored dependency graph and complete structured con
   expect(raw).not.toContain("\x1b[35m");
   const all = plain.join("\n");
   for (const expected of [
-    "Execution        interactive in Zellij work, tab 2",
-    "Project          /example/local-project",
-    "Beads            example-beads",
-    "Profile          personal",
+    "Execution  interactive in Zellij work, tab 2",
+    "Project    /example/local-project",
+    "Beads      example-beads",
+    "Profile    personal",
     "PR from publish  Includes source, publish",
     "Keep the first scope local.\nPreserve the next paragraph.",
     "Acceptance    Local integration is verified.",
@@ -107,69 +130,45 @@ test("approval displays the colored dependency graph and complete structured con
 });
 
 function mountReview() {
-  const mounted: { component?: Component; decision?: boolean } = {};
-  const terminal = { rows: 11 };
-  const ctx = {
-    ui: {
-      custom(
-        mount: (
-          tui: { terminal: typeof terminal; requestRender: () => void },
-          theme: TestTheme,
-          keys: undefined,
-          done: (decision: boolean) => void,
-        ) => Component,
-      ) {
-        return new Promise<boolean>((resolve) => {
-          mounted.component = mount(
-            { terminal, requestRender() {} },
-            theme,
-            undefined,
-            (decision) => {
-              mounted.decision = decision;
-              resolve(decision);
-            },
-          );
-        });
-      },
+  const result: { decision?: boolean } = {};
+  const component = createPlanApproval(
+    { terminal: { rows: 11 }, requestRender() {} },
+    theme,
+    (decision) => {
+      result.decision = decision;
     },
-  } as unknown as ExtensionContext;
-  const approval = reviewPlan(
-    ctx,
     "Approve the change",
     review,
     "start implementation",
   );
-  const component = mounted.component;
-  if (component === undefined)
-    throw new Error("Review component was not mounted");
-  return { component, approval, mounted };
+  return { component, result };
 }
 
-test("review requires a rendered final viewport and Escape cancels at any position", async () => {
+test("review requires a rendered final viewport and Escape cancels at any position", () => {
   const approving = mountReview();
   const enter = "\r";
   approving.component.handleInput?.(enter);
-  expect(approving.mounted.decision).toBeUndefined();
+  expect(approving.result.decision).toBeUndefined();
   expect(
     approving.component.render(80).map(stripTerminalSequences).at(-1),
   ).toContain("Enter next page");
   approving.component.handleInput?.(enter);
-  expect(approving.mounted.decision).toBeUndefined();
+  expect(approving.result.decision).toBeUndefined();
   expect(
     approving.component.render(42).every((line) => visibleWidth(line) <= 42),
   ).toBe(true);
 
   // Repeated input may reach the end before the terminal has drawn it.
   for (let i = 0; i < 100; i++) approving.component.handleInput?.(enter);
-  expect(approving.mounted.decision).toBeUndefined();
+  expect(approving.result.decision).toBeUndefined();
   const final = approving.component.render(42).map(stripTerminalSequences);
   expect(final).toContain("Decision · Merge manually.");
   expect(final.at(-1)).toBe("Enter start implementation · Esc cancel");
   approving.component.handleInput?.(enter);
-  expect(await approving.approval).toBe(true);
+  expect(approving.result.decision).toBe(true);
 
   const cancelling = mountReview();
   cancelling.component.render(24);
   cancelling.component.handleInput?.("\x1b");
-  expect(await cancelling.approval).toBe(false);
+  expect(cancelling.result.decision).toBe(false);
 });

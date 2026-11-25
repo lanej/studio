@@ -56,6 +56,8 @@ export default function(pi) {{
         {{label:'Project',value:{json.dumps(str(project))}}},
         {{label:'Beads',value:'a937016c-0f84-46a8-b579-333cbf926866'}},
         {{label:'Profile',value:'personal'}},
+      ],
+      publications: [
         {{label:'PR from json-export',value:'Includes event-schema, json-export'}},
         {{label:'PR from export-guide',value:'Includes event-schema, export-guide'}},
       ],
