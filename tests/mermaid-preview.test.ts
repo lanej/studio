@@ -115,7 +115,10 @@ await test("a split fullscreen viewport paints a cropped Kitty image and its sid
     const sidebarStart = row.indexOf("Socrates");
     assert.ok(sidebarStart >= 0);
     assert.equal(visibleWidth(row.slice(0, sidebarStart)), 48);
-    assert.ok(output.indexOf("Socrates") < output.lastIndexOf("\x1b_Ga="));
+    const sidebarWrite = output.indexOf("Socrates");
+    assert.ok(
+      sidebarWrite >= 0 && sidebarWrite < output.lastIndexOf("\x1b_Ga="),
+    );
   };
   verifySidebar();
   assert.ok(output.includes(data.slice(0, 4096)));
@@ -125,7 +128,7 @@ await test("a split fullscreen viewport paints a cropped Kitty image and its sid
   scroll.scrollBy(2);
   ui.renderNow();
   verifySidebar();
-  assert.match(output, /a=p,[^\x1b]*y=[1-9]\d*,h=\d+,r=4/u);
+  assert.match(output, /a=p,[\w,=]+y=[1-9]\d*,h=\d+,r=4/u);
   assert.ok(!output.includes(data.slice(0, 4096)));
 });
 
