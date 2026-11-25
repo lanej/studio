@@ -4,12 +4,14 @@
 # ///
 """Native Pi fork, foreground loop, and uncertain restoration against a loopback provider."""
 import argparse
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import import_module
 import json
 import os
 from pathlib import Path
 import signal
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -45,10 +47,173 @@ class Provider(BaseHTTPRequestHandler):
             pass
 
 
+class OwnedPty:
+    """Track one spawned terminal; restored terminals may reuse its FD number."""
+    def __init__(self, process, master):
+        self.process = process
+        self.master = master
+        self.master_closed = False
+        self.master_attempted = False
+        self.master_error = None
+        self.signal_sent = None
+        self.closed = False
+        self.failure = None
+
+    def hangup(self):
+        if self.master_attempted:
+            if self.master_error is not None:
+                raise RuntimeError("Owned descriptor close was uncertain; refusing to close a possibly reused FD") from self.master_error
+            return
+        self.master_attempted = True
+        try:
+            os.close(self.master)
+            self.master_closed = True
+        except BaseException as error:
+            self.master_error = error
+            raise
+
+    def require_owned_leader(self):
+        if self.process.poll() is not None:
+            raise RuntimeError("Owned terminal leader already exited; refusing to signal a potentially reused process group")
+        if os.getpgid(self.process.pid) != self.process.pid:
+            raise RuntimeError("Owned terminal leader no longer has its expected process group; refusing to signal")
+
+    def remember_failure(self, error):
+        self.failure = error
+        # Descriptor ownership is independent of process/group uncertainty.
+        try:
+            self.hangup()
+        except BaseException as close_error:
+            cleanup_note(error, f"Independent descriptor cleanup failed: {close_error!r}")
+
+    def verify_group_quiet(self, deadline=None):
+        while True:
+            remaining = 2 if deadline is None else max(.001, min(2, deadline - time.monotonic()))
+            snapshot = subprocess.run(["ps", "-A", "-o", "pgid=,stat="], check=True, text=True, capture_output=True, timeout=remaining).stdout
+            live = False
+            for line in snapshot.splitlines():
+                fields = line.split()
+                if len(fields) != 2 or not fields[0].isdigit():
+                    raise RuntimeError("Cannot verify owned process-group cleanup from ps")
+                live |= int(fields[0]) == self.process.pid and not fields[1].startswith("Z")
+            if not live:
+                return
+            if deadline is None or time.monotonic() >= deadline:
+                raise RuntimeError(f"Owned leader exited but group {self.process.pid} still has unverified live members; retaining workspace")
+            # Observe actual group exit within the existing termination budget;
+            # never signal a group again after its owned leader has exited.
+
+    def crash(self):
+        try:
+            # Deliver the crash before hangup; Darwin can drain the PTY while
+            # exiting, so close the master before waiting for the killed host.
+            deadline = time.monotonic() + 5
+            self.require_owned_leader()
+            os.killpg(self.process.pid, signal.SIGKILL)
+            self.signal_sent = signal.SIGKILL
+            self.hangup()
+            code = self.process.wait(timeout=5)
+            self.verify_group_quiet(deadline)
+            self.closed = True
+            return {"pid": self.process.pid, "signal": "SIGKILL", "signalAcceptedBeforeHangup": True, "masterClosedBeforeWait": self.master_closed, "exitCode": code, "groupQuiet": True}
+        except BaseException as error:
+            self.remember_failure(error)
+            raise
+
+    def close(self):
+        if self.closed:
+            return
+        if self.failure is not None:
+            self.hangup()
+            raise RuntimeError("Earlier owned-PTY cleanup failed; retaining process and workspace uncertainty") from self.failure
+        try:
+            deadline = None
+            if self.process.poll() is None:
+                deadline = time.monotonic() + 5
+                if self.signal_sent != signal.SIGKILL:
+                    try:
+                        self.require_owned_leader()
+                        os.killpg(self.process.pid, signal.SIGTERM)
+                        self.signal_sent = signal.SIGTERM
+                    except ProcessLookupError:
+                        pass
+                self.hangup()
+                try:
+                    self.process.wait(timeout=max(0, deadline - time.monotonic()))
+                except subprocess.TimeoutExpired:
+                    if self.signal_sent == signal.SIGKILL:
+                        raise
+                    self.require_owned_leader()
+                    os.killpg(self.process.pid, signal.SIGKILL)
+                    self.signal_sent = signal.SIGKILL
+                    deadline = time.monotonic() + 5
+                    self.process.wait(timeout=5)
+            else:
+                self.hangup()
+            self.verify_group_quiet(deadline)
+            self.closed = True
+        except BaseException as error:
+            self.remember_failure(error)
+            raise
+
+
+@contextmanager
+def fixture_directory(retention, parent):
+    directory = Path(tempfile.mkdtemp(prefix="st-loop-", dir=parent)).resolve()
+    try:
+        yield directory
+    finally:
+        if retention["cleanup_failed"]:
+            print(f"Retained uncertain fixture workspace: {directory}", file=sys.stderr, flush=True)
+        else:
+            shutil.rmtree(directory)
+
+
+def cleanup_note(error, message):
+    # The native fixture requires Python 3.11; its isolated helper regressions
+    # also run with the system Python used by the source checks.
+    error.__notes__ = [*getattr(error, "__notes__", []), message]
+
+
+def cleanup_pty(owned, home, retention):
+    try:
+        owned.close()
+    except BaseException as error:
+        retention["cleanup_failed"] = True
+        receipt = {"pid": owned.process.pid, "group": owned.process.pid, "master": owned.master, "masterClosed": owned.master_closed, "masterCloseAttempted": owned.master_attempted, "descriptorFailure": repr(owned.master_error), "signalSent": owned.signal_sent, "returnCode": owned.process.returncode, "failure": repr(error), "originatingFailure": repr(owned.failure), "workspaceRetained": str(home)}
+        try:
+            (home / "session-loop-cleanup.json").write_text(json.dumps(receipt, indent=2) + "\n")
+        except OSError as recording_error:
+            cleanup_note(error, f"Could not persist cleanup receipt: {recording_error}")
+        cleanup_note(error, f"Owned PTY cleanup remains uncertain; retained {home}; receipt {receipt}")
+        return error
+    return None
+
+
+def report_cleanup_errors(primary, errors):
+    if primary is not None:
+        for error in errors:
+            cleanup_note(primary, f"Additional fixture cleanup failure: {error!r}; {getattr(error, '__notes__', [])}")
+    elif errors:
+        for index, error in enumerate(errors[1:], 2):
+            cleanup_note(errors[0], f"Additional independent cleanup failure #{index}: {error!r}; {getattr(error, '__notes__', [])}")
+        raise errors[0]
+
+
+def process_identity(pid):
+    result = subprocess.run(["ps", "-p", str(pid), "-o", "pgid=,stat=,lstart="], env={**os.environ, "LC_ALL": "C", "TZ": "UTC"}, text=True, capture_output=True, timeout=2)
+    if result.returncode == 1 and not result.stdout.strip():
+        return None
+    result.check_returncode()
+    group, state, started = result.stdout.strip().split(maxsplit=2)
+    return {"pid": pid, "group": int(group), "state": state, "started": started}
+
+
 def run(output):
     global slow
     temp_parent = "/private/tmp" if sys.platform == "darwin" else None
-    with tempfile.TemporaryDirectory(prefix="st-loop-", dir=temp_parent) as directory, ThreadingHTTPServer(("127.0.0.1", 0), Provider) as provider:
+    retention = {"cleanup_failed": False}
+    with fixture_directory(retention, temp_parent) as directory, ThreadingHTTPServer(("127.0.0.1", 0), Provider) as provider:
         home = Path(directory).resolve()
         agent = home / ".pi/agent"
         agent.mkdir(parents=True)
@@ -61,7 +226,8 @@ def run(output):
         subprocess.run([sys.executable, str(root / "scripts/configure.py"), str(root), str(agent)], env=env, check=True, stdout=subprocess.DEVNULL, timeout=30)
         fixture = home / "fixture.ts"
         probe_file = home / "editor-probe.json"
-        fixture.write_text("""import { writeFileSync } from "node:fs";
+        shutdown_probe = home / "shutdown-probe.jsonl"
+        fixture.write_text("""import { writeFileSync, appendFileSync } from "node:fs";
 export default function(pi) {
   let settled = 0;
   let timer;
@@ -73,11 +239,11 @@ export default function(pi) {
     }, 10);
     timer.unref();
   });
-  pi.on("session_shutdown", () => { clearInterval(timer); });
+  pi.on("session_shutdown", (event, ctx) => { clearInterval(timer); appendFileSync(SHUTDOWN_FILE, JSON.stringify({pid: process.pid, session: ctx.sessionManager.getSessionId(), reason: event.reason}) + "\\n"); });
   pi.on("agent_settled", (_event, ctx) => { pi.appendEntry("fixture:settled", {session: ctx.sessionManager.getSessionId(), sequence: ++settled}); });
   pi.registerCommand("fixture-dialog", {handler: async (_arg, ctx) => { await ctx.ui.input("Loop admission dialog", "Leave open to verify admission"); }});
 }
-""".replace("PROBE_FILE", json.dumps(str(probe_file))))
+""".replace("PROBE_FILE", json.dumps(str(probe_file))).replace("SHUTDOWN_FILE", json.dumps(str(shutdown_probe))))
         settings = json.loads((agent / "settings.json").read_text())
         settings.setdefault("extensions", []).append(str(fixture))
         (agent / "settings.json").write_text(json.dumps(settings))
@@ -99,6 +265,7 @@ console.log(JSON.stringify({session:session.getSessionFile(),point,discovery:dis
         original = Path(session).read_text()
         Thread(target=provider.serve_forever, daemon=True).start()
         terminal = ui.Terminal(project, env, output, session, columns=120, rows=42)
+        owned = OwnedPty(terminal.process, terminal.master)
 
         def editor():
             try:
@@ -287,14 +454,26 @@ console.log(JSON.stringify({session:session.getSessionFile(),point,discovery:dis
             terminal.wait(held.is_set, "Interrupted provider iteration did not start")
             pending = record()["intent"]
             assert pending is not None
-            os.killpg(terminal.process.pid, signal.SIGKILL)
-            terminal.process.wait(timeout=5)
-            os.close(terminal.master)
+            host_owner = record()["owner"]
+            assert host_owner is not None
+            host_before = process_identity(host_owner["pid"])
+            assert host_before is not None and host_before["started"] == host_owner["started"] and not host_before["state"].startswith("Z"), host_before
+            assert host_before["group"] == owned.process.pid, host_before
+            shutdown_before = len(shutdown_probe.read_text().splitlines()) if shutdown_probe.exists() else 0
+            crash_receipt = owned.crash()
+            host_after = process_identity(host_owner["pid"])
+            assert host_after is None or host_after["started"] != host_owner["started"] or host_after["state"].startswith("Z"), host_after
+            new_shutdowns = [json.loads(line) for line in shutdown_probe.read_text().splitlines()[shutdown_before:]] if shutdown_probe.exists() else []
+            assert not any(row["pid"] == host_owner["pid"] for row in new_shutdowns), new_shutdowns
+            assert record()["intent"] == pending
+            crash_receipt["host"] = {"before": host_before, "after": host_after, "originalIdentityStopped": True, "orderlyShutdownObserved": False}
             terminal = None
+            owned = None
             release.set()
             slow = False
             before = len(requests)
             terminal = ui.Terminal(project, env, output, session, columns=120, rows=42)
+            owned = OwnedPty(terminal.process, terminal.master)
             terminal.contains("Loop paused")
             terminal.contains("Uncertain/pending")
             terminal.pump(1)
@@ -321,12 +500,26 @@ console.log(JSON.stringify({session:session.getSessionFile(),point,discovery:dis
                 journal = [json.loads(row[0]) for row in db.execute("SELECT record FROM iterations")]
             uncertain = [row for row in journal if row["id"] == pending["id"]]
             assert len(uncertain) == 1 and uncertain[0]["state"] == "uncertain" and "acknowledgedAt" in uncertain[0], uncertain
-            print(json.dumps({"providerRequests": len(requests), "settledLoopIterations": record()["count"], "iterationJournalEntries": len(journal), "forkPointVerified": True, "parentUnchangedAtFork": True, "childDiscoveryIsolated": True, "nativeSelectorPaused": True, "draftPreserved": True, "queuedInputRetained": True, "stoppedActiveTurnSettled": True, "uncertainIntentPreservedAndAcknowledged": True, "automaticReplayRequests": 0}), flush=True)
+            print(json.dumps({"providerRequests": len(requests), "settledLoopIterations": record()["count"], "iterationJournalEntries": len(journal), "forkPointVerified": True, "parentUnchangedAtFork": True, "childDiscoveryIsolated": True, "nativeSelectorPaused": True, "draftPreserved": True, "queuedInputRetained": True, "stoppedActiveTurnSettled": True, "uncertainIntentPreservedAndAcknowledged": True, "automaticReplayRequests": 0, "crash": crash_receipt}), flush=True)
         finally:
+            primary = sys.exception()
             release.set()
-            if terminal is not None:
-                terminal.close()
-            provider.shutdown()
+            errors = []
+            if owned is not None:
+                error = cleanup_pty(owned, home, retention)
+                if error is not None:
+                    errors.append(error)
+            try:
+                provider.shutdown()
+            except BaseException as error:
+                retention["cleanup_failed"] = True
+                cleanup_note(error, f"Provider shutdown remains uncertain; retained {home}; address {provider.server_address}")
+                try:
+                    (home / "session-loop-provider-cleanup.json").write_text(json.dumps({"failure": repr(error), "address": provider.server_address, "workspaceRetained": str(home)}, indent=2) + "\n")
+                except OSError as recording_error:
+                    cleanup_note(error, f"Could not persist provider cleanup receipt: {recording_error}")
+                errors.append(error)
+            report_cleanup_errors(primary, errors)
 
 
 if __name__ == "__main__":
