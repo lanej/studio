@@ -15,7 +15,7 @@
     "studio": "scripts/studio",
     "test": "bun test tests/",
     "test:beads-native": "bun acceptance/beads-control.ts",
-    "test:pi-native": "bun acceptance/pi-models.ts && bun acceptance/pi-resources.ts",
+    "test:pi-native": "bun acceptance/pi-models.ts && bun acceptance/pi-resources.ts && bun test ./acceptance/model-tools.ts",
     "format": "bun scripts/check-typescript.mjs fmt",
     "check": "bun scripts/check-typescript.mjs all",
     "lint": "bun scripts/check-typescript.mjs lint",
@@ -49,6 +49,7 @@
     "@vscode/tree-sitter-wasm": "0.3.1",
     "@tintinweb/pi-subagents": "0.26.2",
     "commander": "^14.0.0",
+    "pi-codex-tools": "0.4.2",
     "pi-git-diff": "0.1.1",
     "zod": "^4.0.0",
     "@lanej/pi-components": "file:./vendor/pi-components",
@@ -83,6 +84,7 @@
   },
   "patchedDependencies": {
     "@earendil-works/pi-coding-agent@1.6.0": "patches/pi-coding-agent-1.6.0.patch",
-    "@earendil-works/pi-tui@1.6.0": "patches/pi-tui-right-column.patch"
+    "@earendil-works/pi-tui@1.6.0": "patches/pi-tui-right-column.patch",
+    "pi-codex-tools@0.4.2": "patches/pi-codex-tools-0.4.2.patch"
   }
 }

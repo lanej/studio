@@ -98,6 +98,11 @@ test("shared runtime inputs and the full CLI integration retain their consumers"
     "bun.lock",
     "config.ts",
     "code-intelligence/new-server.ts",
+    "model-tools/rendering.ts",
+    "model-tools/patch-diagnostics.ts",
+    "model-tools/patch-edits.ts",
+    "model-tools/codex-patch-runner.mjs",
+    "model-tools/policy.ts",
     "scripts/ci-selection.ts",
     "tests/ci-selection.test.ts",
   ])
@@ -122,6 +127,10 @@ test("shared runtime inputs and the full CLI integration retain their consumers"
   for (const path of [
     "acceptance/operator-decision.ts",
     "acceptance/operator-decision-ui.py",
+    "model-tools/extension.ts",
+    "model-tools/operations.ts",
+    "model-tools/dialects/claude.ts",
+    "model-tools/dialects/codex.ts",
   ]) {
     await access(fileURLToPath(new URL(`../${path}`, import.meta.url)));
     assert.deepEqual(await selected(path), ["check.yml", "beads.yml"]);
