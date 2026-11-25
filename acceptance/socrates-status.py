@@ -45,6 +45,8 @@ linked_sentence = "The handoff check can start once the lead sidebar is complete
 wide_columns, wide_rows = 128, 34
 resolve_prompt = "Check that revising R1 marks its evidence stale. Keep all four beads local."
 review_ready = "The specification is ready to freeze. Review the four beads and their dependencies before handoff."
+scope_gap = "The lead and its dock share a draft. Decide whether another session sees those changes."
+risk_gap = "Results are tagged by project. Verify a delayed poll cannot update a different session."
 verification_gap = "Question and resume are covered. A stale assessment still needs a native check."
 harmony_gap = "The dock and inspector read the same draft. Confirm they flag the same property after a revision."
 
@@ -293,14 +295,19 @@ class Terminal:
         self.wait(lambda: verification_gap in property_text() and "Harmony" in property_text(),
                   "The rail omitted the verification gap before the plan was ready")
         if self.screen.columns == wide_columns:
-            assert harmony_gap in property_text(), self.rail_text()
+            assert all(gap in property_text() for gap in (scope_gap, risk_gap, harmony_gap)), self.rail_text()
         rail = self.rail_text()
         spec, _, plan = rail.partition("Implementation")
         assert spec.count("\n") > len([line for line in plan.splitlines() if line.strip()]), rail
         assert "Proposed beads" not in plan, rail
         assert "Draft" in plan.splitlines()[0], rail
-        assert "◇" in plan and "/plan" in plan, rail
-        assert "Review changes in the dock" not in plan, rail
+        if self.screen.columns == wide_columns:
+            self.check_dependency_graph()
+            assert "/plan" not in plan, rail
+        else:
+            # One row can remain if the next task and its connector need two.
+            assert any(line.strip().endswith("/plan") for line in plan.splitlines()[-2:]), rail
+            assert "Review changes in the dock" not in plan, rail
         self.assert_background("Specification", "surface.raised", start=self.rail_start())
         self.assert_background("Verification", "surface.raised", start=self.rail_start())
 
@@ -454,8 +461,8 @@ function create(title, next) {{
 }}
 const covered=create('Status inspection',{{...draft,coverage:{{...draft.coverage,assessments:[
   ...draft.coverage.assessments,
-  {{propertyId:'scope',status:'open',reason:'The lead and its dock share a draft. Decide whether another session sees those changes.'}},
-  {{propertyId:'risk',status:'partial',reason:'Results are tagged by project. Verify a delayed poll cannot update a different session.'}}
+  {{propertyId:'scope',status:'open',reason:{json.dumps(scope_gap)}}},
+  {{propertyId:'risk',status:'partial',reason:{json.dumps(risk_gap)}}}
 ]}}}});
 const readyDraft={{...draft,
   decisions:[

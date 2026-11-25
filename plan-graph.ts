@@ -21,8 +21,9 @@ export interface PlanGraphRow<T extends GraphTask> {
 }
 
 const node = "●";
+// Frost belongs to the rail itself. Task titles use the surrounding text color.
 const laneColors: readonly ThemeColor[] = [
-  "accent",
+  "border",
   "syntaxNumber",
   "syntaxString",
   "syntaxKeyword",

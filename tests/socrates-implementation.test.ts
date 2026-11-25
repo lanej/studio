@@ -154,14 +154,20 @@ await test("sidebar draws dependency forks and joins, clipping at task boundarie
     ],
   );
   assert.deepEqual(graph.nodeLines, [0, 2, 4, 6]);
-  assert.deepEqual(fitSidebarGraph(graph, 3, theme), [
-    graph.lines[0],
-    "+3 more · /plan",
-  ]);
-  assert.deepEqual(fitSidebarGraph(graph, 4, theme), [
-    ...graph.lines.slice(0, 3),
-    "+2 more · /plan",
-  ]);
+  // If the next task cannot fit with its connector and overflow count,
+  // stop at the previous task. At seven rows the whole graph fits exactly.
+  for (const [height, expected] of [
+    [0, []],
+    [1, graph.lines.slice(0, 1)],
+    [2, [...graph.lines.slice(0, 1), "+3 more · /plan"]],
+    [3, [...graph.lines.slice(0, 1), "+3 more · /plan"]],
+    [4, [...graph.lines.slice(0, 3), "+2 more · /plan"]],
+    [5, [...graph.lines.slice(0, 3), "+2 more · /plan"]],
+    [6, [...graph.lines.slice(0, 5), "+1 more · /plan"]],
+    [7, graph.lines],
+  ] as const) {
+    assert.deepEqual(fitSidebarGraph(graph, height, theme), expected);
+  }
   const snapshot = {
     implementation,
     dockColumns: [implementationColumn(implementation)],

@@ -1,297 +1,297 @@
 {
-  "theme": "studio-dark",
+  "theme": "nord",
   "symbols": "unicode",
   "roles": {
-    "surface": "#181818",
-    "surface.raised": "#252525",
-    "surface.selected": "#393939",
-    "border": "#96938D",
-    "text": "#E9E6DF",
-    "text.strong": "#FFF9EF",
-    "text.muted": "#B9B5AC",
-    "text.inverse": "#181818",
-    "accent": "#86DBC6",
-    "accent.secondary": "#AADCCE",
-    "focus": "#DCB9DE",
-    "status.success": "#B0D897",
-    "status.warning": "#F2C77F",
-    "status.error": "#FF9A8F",
-    "status.info": "#86DBC6",
-    "status.attention": "#EEAD8A",
-    "status.idle": "#B9B5AC",
-    "status.off": "#ADA9A2",
-    "syntax.comment": "#ADA9A2",
-    "syntax.keyword": "#EEAD8A",
-    "syntax.function": "#86DBC6",
-    "syntax.string": "#B0D897",
-    "syntax.type": "#AADCCE",
-    "syntax.number": "#DCB9DE",
-    "syntax.constant": "#E9E6DF",
-    "syntax.operator": "#D0CBC1",
-    "syntax.special": "#F2C77F",
-    "syntax.variable": "#E9E6DF",
-    "diff.add": "#B0D897",
-    "diff.change": "#F2C77F",
-    "diff.delete": "#FF9A8F",
-    "diff.add.bg": "#292D27",
-    "diff.change.bg": "#302D26",
-    "diff.delete.bg": "#302929",
-    "diff.add.dim": "#A5BD98",
-    "diff.change.dim": "#C2B298",
-    "diff.delete.dim": "#CF9F98",
-    "selection.bg": "#393939",
-    "selection.fg": "#FFF9EF",
-    "match": "#B0D897",
-    "tab.active.bg": "#DCB9DE",
-    "tab.active.fg": "#181818",
-    "tab.inactive.bg": "#181818",
-    "tab.inactive.fg": "#B9B5AC",
-    "frame.inactive.fg": "#B9B5AC",
-    "keyhint": "#86DBC6",
-    "heading": "#86DBC6",
-    "link": "#86DBC6",
-    "prompt": "#86DBC6",
-    "diff.add.emph.bg": "#33382E",
-    "diff.delete.emph.bg": "#3C2F2F",
-    "git.file.conflicted": "#FF9A8F",
-    "git.file.stashed": "#E6DFD4",
-    "git.file.deleted": "#FF9A8F",
-    "git.file.renamed": "#86DBC6",
-    "git.file.modified": "#F2C77F",
-    "git.file.staged": "#B0D897",
-    "git.file.untracked": "#B9B5AC",
-    "git.file.typechanged": "#DCB9DE",
-    "git.file.ahead": "#B0D897",
-    "git.file.behind": "#F2C77F",
-    "git.file.branch": "#B9B5AC",
-    "git.file.conflicted.dim": "#CF9F98",
-    "git.file.stashed.dim": "#BAB6AF",
-    "git.file.deleted.dim": "#CF9F98",
-    "git.file.renamed.dim": "#9BC4B9",
-    "git.file.modified.dim": "#C2B298",
-    "git.file.staged.dim": "#A5BD98",
-    "git.file.untracked.dim": "#B9B5AC",
-    "git.file.typechanged.dim": "#BCA8BF",
-    "git.file.ahead.dim": "#A5BD98",
-    "git.file.behind.dim": "#C2B298",
-    "git.file.branch.dim": "#B9B5AC",
-    "file.directory": "#B9B5AC",
-    "file.executable": "#B0D897",
-    "file.special": "#DCB9DE",
-    "file.archive": "#EEAD8A",
-    "file.project": "#F2C77F"
+    "surface": "#2E3440",
+    "surface.raised": "#3B4252",
+    "surface.selected": "#434C5E",
+    "border": "#88C0D0",
+    "text": "#ECEFF4",
+    "text.strong": "#ECEFF4",
+    "text.muted": "#D8DEE9",
+    "text.inverse": "#2E3440",
+    "accent": "#ECEFF4",
+    "accent.secondary": "#E5E9F0",
+    "focus": "#EDC2E5",
+    "status.success": "#A9C492",
+    "status.warning": "#EBCB8B",
+    "status.error": "#FFA2A8",
+    "status.info": "#ECEFF4",
+    "status.attention": "#F5A991",
+    "status.idle": "#D8DEE9",
+    "status.off": "#D8DEE9",
+    "syntax.comment": "#D8DEE9",
+    "syntax.keyword": "#F5A991",
+    "syntax.function": "#ECEFF4",
+    "syntax.string": "#A9C492",
+    "syntax.type": "#EBCB8B",
+    "syntax.number": "#EDC2E5",
+    "syntax.constant": "#ECEFF4",
+    "syntax.operator": "#D8DEE9",
+    "syntax.special": "#EBCB8B",
+    "syntax.variable": "#ECEFF4",
+    "diff.add": "#A9C492",
+    "diff.change": "#EBCB8B",
+    "diff.delete": "#FFA2A8",
+    "diff.add.bg": "#414A4C",
+    "diff.change.bg": "#4C4C4C",
+    "diff.delete.bg": "#453B47",
+    "diff.add.dim": "#6E806A",
+    "diff.change.dim": "#968769",
+    "diff.delete.dim": "#7E4D57",
+    "selection.bg": "#434C5E",
+    "selection.fg": "#ECEFF4",
+    "match": "#A9C492",
+    "tab.active.bg": "#B48EAD",
+    "tab.active.fg": "#2E3440",
+    "tab.inactive.bg": "#2E3440",
+    "tab.inactive.fg": "#D8DEE9",
+    "frame.inactive.fg": "#979DA9",
+    "keyhint": "#ECEFF4",
+    "heading": "#ECEFF4",
+    "link": "#ECEFF4",
+    "prompt": "#ECEFF4",
+    "diff.add.emph.bg": "#515D57",
+    "diff.delete.emph.bg": "#5A424D",
+    "git.file.conflicted": "#FFA2A8",
+    "git.file.stashed": "#E5E9F0",
+    "git.file.deleted": "#FFA2A8",
+    "git.file.renamed": "#ECEFF4",
+    "git.file.modified": "#EBCB8B",
+    "git.file.staged": "#A9C492",
+    "git.file.untracked": "#D8DEE9",
+    "git.file.typechanged": "#EDC2E5",
+    "git.file.ahead": "#A9C492",
+    "git.file.behind": "#EBCB8B",
+    "git.file.branch": "#D8DEE9",
+    "git.file.conflicted.dim": "#8C515B",
+    "git.file.stashed.dim": "#A5AAB2",
+    "git.file.deleted.dim": "#8C515B",
+    "git.file.renamed.dim": "#D8DEE9",
+    "git.file.modified.dim": "#A99671",
+    "git.file.staged.dim": "#7A8E71",
+    "git.file.untracked.dim": "#D8DEE9",
+    "git.file.typechanged.dim": "#856E87",
+    "git.file.ahead.dim": "#7A8E71",
+    "git.file.behind.dim": "#A99671",
+    "git.file.branch.dim": "#D8DEE9",
+    "file.directory": "#D8DEE9",
+    "file.executable": "#A9C492",
+    "file.special": "#EDC2E5",
+    "file.archive": "#F5A991",
+    "file.project": "#EBCB8B"
   },
   "components": {
     "text": {
-      "fg": "#E9E6DF"
+      "fg": "#ECEFF4"
     },
     "text.muted": {
-      "fg": "#B9B5AC"
+      "fg": "#D8DEE9"
     },
     "heading": {
-      "fg": "#86DBC6",
+      "fg": "#ECEFF4",
       "bold": true
     },
     "keyhint": {
-      "fg": "#86DBC6"
+      "fg": "#ECEFF4"
     },
     "selection": {
-      "fg": "#FFF9EF",
-      "bg": "#393939"
+      "fg": "#ECEFF4",
+      "bg": "#434C5E"
     },
     "status.success": {
-      "fg": "#B0D897"
+      "fg": "#A9C492"
     },
     "status.warning": {
-      "fg": "#F2C77F"
+      "fg": "#EBCB8B"
     },
     "status.error": {
-      "fg": "#FF9A8F"
+      "fg": "#FFA2A8"
     },
     "status.attention": {
-      "fg": "#EEAD8A",
+      "fg": "#F5A991",
       "bold": true
     },
     "tab.active": {
-      "fg": "#181818",
-      "bg": "#DCB9DE",
+      "fg": "#2E3440",
+      "bg": "#B48EAD",
       "bold": true
     },
     "tab.inactive": {
-      "fg": "#B9B5AC",
-      "bg": "#181818"
+      "fg": "#D8DEE9",
+      "bg": "#2E3440"
     },
     "input": {
-      "fg": "#E9E6DF",
-      "bg": "#252525"
+      "fg": "#ECEFF4",
+      "bg": "#3B4252"
     },
     "preview": {
-      "fg": "#E9E6DF",
-      "bg": "#181818"
+      "fg": "#ECEFF4",
+      "bg": "#2E3440"
     },
     "operation": {
-      "fg": "#E9E6DF"
+      "fg": "#ECEFF4"
     },
     "code": {
-      "fg": "#E9E6DF"
+      "fg": "#ECEFF4"
     },
     "diff": {
-      "fg": "#E9E6DF"
+      "fg": "#ECEFF4"
     },
     "git.file.conflicted": {
       "symbol": "\uf071",
-      "fg": "#FF9A8F",
+      "fg": "#FFA2A8",
       "bold": true,
       "dim": false,
-      "dim_fg": "#CF9F98"
+      "dim_fg": "#8C515B"
     },
     "git.file.stashed": {
       "symbol": "\uf187",
-      "fg": "#BAB6AF",
+      "fg": "#A5AAB2",
       "bold": false,
       "dim": true,
-      "dim_fg": "#BAB6AF"
+      "dim_fg": "#A5AAB2"
     },
     "git.file.deleted": {
       "symbol": "\uf1f8",
-      "fg": "#FF9A8F",
+      "fg": "#FFA2A8",
       "bold": false,
       "dim": false,
-      "dim_fg": "#CF9F98"
+      "dim_fg": "#8C515B"
     },
     "git.file.renamed": {
       "symbol": "\uf02b",
-      "fg": "#86DBC6",
+      "fg": "#ECEFF4",
       "bold": false,
       "dim": false,
-      "dim_fg": "#9BC4B9"
+      "dim_fg": "#D8DEE9"
     },
     "git.file.modified": {
       "symbol": "\uf040",
-      "fg": "#F2C77F",
+      "fg": "#EBCB8B",
       "bold": false,
       "dim": false,
-      "dim_fg": "#C2B298"
+      "dim_fg": "#A99671"
     },
     "git.file.staged": {
       "symbol": "",
-      "fg": "#B0D897",
+      "fg": "#A9C492",
       "bold": false,
       "dim": false,
-      "dim_fg": "#A5BD98"
+      "dim_fg": "#7A8E71"
     },
     "git.file.untracked": {
       "symbol": "\uf059",
-      "fg": "#B9B5AC",
+      "fg": "#D8DEE9",
       "bold": false,
       "dim": false,
-      "dim_fg": "#B9B5AC"
+      "dim_fg": "#D8DEE9"
     },
     "git.file.typechanged": {
       "symbol": "\uf074",
-      "fg": "#DCB9DE",
+      "fg": "#EDC2E5",
       "bold": false,
       "dim": false,
-      "dim_fg": "#BCA8BF"
+      "dim_fg": "#856E87"
     },
     "git.file.ahead": {
       "symbol": "\uf062",
-      "fg": "#B0D897",
+      "fg": "#A9C492",
       "bold": false,
       "dim": false,
-      "dim_fg": "#A5BD98"
+      "dim_fg": "#7A8E71"
     },
     "git.file.behind": {
       "symbol": "\uf063",
-      "fg": "#F2C77F",
+      "fg": "#EBCB8B",
       "bold": false,
       "dim": false,
-      "dim_fg": "#C2B298"
+      "dim_fg": "#A99671"
     },
     "git.file.branch": {
       "symbol": "\uf418",
-      "fg": "#B9B5AC",
+      "fg": "#D8DEE9",
       "bold": false,
       "dim": false,
-      "dim_fg": "#B9B5AC"
+      "dim_fg": "#D8DEE9"
     },
     "git.hunk.add": {
       "symbol": "\u2503",
-      "fg": "#B0D897"
+      "fg": "#A9C492"
     },
     "git.hunk.change": {
       "symbol": "\u2503",
-      "fg": "#F2C77F"
+      "fg": "#EBCB8B"
     },
     "git.hunk.delete": {
       "symbol": "\u2581",
-      "fg": "#FF9A8F"
+      "fg": "#FFA2A8"
     },
     "git.hunk.topdelete": {
       "symbol": "^",
-      "fg": "#FF9A8F"
+      "fg": "#FFA2A8"
     },
     "git.hunk.changedelete": {
       "symbol": "~",
-      "fg": "#F2C77F"
+      "fg": "#EBCB8B"
     },
     "git.hunk.untracked": {
       "symbol": "\u2506",
-      "fg": "#B0D897"
+      "fg": "#A9C492"
     },
     "git.staged_hunk.add": {
       "symbol": "\u2503",
-      "fg": "#A5BD98"
+      "fg": "#6E806A"
     },
     "git.staged_hunk.change": {
       "symbol": "\u2503",
-      "fg": "#C2B298"
+      "fg": "#968769"
     },
     "git.staged_hunk.delete": {
       "symbol": "\u2581",
-      "fg": "#CF9F98"
+      "fg": "#7E4D57"
     },
     "git.staged_hunk.topdelete": {
       "symbol": "\u2594",
-      "fg": "#CF9F98"
+      "fg": "#7E4D57"
     },
     "git.staged_hunk.changedelete": {
       "symbol": "~",
-      "fg": "#C2B298"
+      "fg": "#968769"
     },
     "git.branch_hunk.add": {
       "symbol": "\u2502",
-      "fg": "#A5BD98"
+      "fg": "#6E806A"
     },
     "git.branch_hunk.change": {
       "symbol": "\u2502",
-      "fg": "#C2B298"
+      "fg": "#968769"
     },
     "git.branch_hunk.delete": {
       "symbol": "_",
-      "fg": "#CF9F98"
+      "fg": "#7E4D57"
     },
     "git.branch_hunk.topdelete": {
       "symbol": "^",
-      "fg": "#CF9F98"
+      "fg": "#7E4D57"
     }
   },
   "ansi": [
-    "#252525",
-    "#FF9A8F",
-    "#B0D897",
-    "#F2C77F",
-    "#A5C4DF",
-    "#DCB9DE",
-    "#86DBC6",
-    "#E6DFD4",
-    "#96938D",
-    "#FF9A8F",
-    "#B0D897",
-    "#F2C77F",
-    "#A5C4DF",
-    "#DCB9DE",
-    "#AADCCE",
-    "#FFF9EF"
+    "#3B4252",
+    "#BF616A",
+    "#A3BE8C",
+    "#EBCB8B",
+    "#81A1C1",
+    "#B48EAD",
+    "#88C0D0",
+    "#E5E9F0",
+    "#4C566A",
+    "#BF616A",
+    "#A3BE8C",
+    "#EBCB8B",
+    "#81A1C1",
+    "#B48EAD",
+    "#8FBCBB",
+    "#ECEFF4"
   ]
 }

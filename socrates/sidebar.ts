@@ -269,8 +269,8 @@ function specificationRows(
 
 function implementationRows(
   column: StatusColumn,
-  implementation: ImplementationPresentation,
-  theme: GraphTheme,
+  graph: SidebarGraph,
+  theme: StatusTheme,
   width: number,
   height: number,
   preview: boolean,
@@ -278,7 +278,6 @@ function implementationRows(
   if (height <= 0) return [];
   const rows = [sectionHeading(column, theme, width)];
   if (height === 1) return rows;
-  const graph = renderSidebarGraph(implementation, theme, width);
   if (!preview) {
     const context = wrapped(
       column.summary ??
@@ -310,42 +309,28 @@ export function renderSocratesSections(
     (column) => column.id === "implementation",
   );
   if (width < 3 || height < 1) return [];
-  if (spec === undefined)
-    return plan === undefined
-      ? []
-      : implementationRows(
-          plan,
-          snapshot.implementation,
-          theme,
-          width,
-          height,
-          false,
-        );
   if (plan === undefined)
-    return specificationRows(spec, theme, width, height, true);
+    return spec === undefined
+      ? []
+      : specificationRows(spec, theme, width, height, true);
+  const graph = renderSidebarGraph(snapshot.implementation, theme, width);
+  if (spec === undefined)
+    return implementationRows(plan, graph, theme, width, height, false);
   const priority = snapshot.prioritizeSpecification;
   const gap = compact || height < 6 ? 0 : 1;
   const available = height - gap;
-  const previewHeight =
-    snapshot.implementation.rows.length > 0 && !compact ? 5 : 1;
+  // Reserve a short preview while the spec is open. The graph gets every row
+  // the properties leave unused, even while the plan is still a draft.
+  const reservedForPlan = compact ? 1 : Math.min(5, 1 + graph.lines.length);
   const specBudget = priority
-    ? available - Math.min(previewHeight, Math.floor(available / 3))
+    ? available - Math.min(reservedForPlan, Math.floor(available / 3))
     : Math.min(8, Math.max(1, Math.floor(available / 3)));
   const rows = specificationRows(spec, theme, width, specBudget, priority);
-  const planHeight = priority
-    ? Math.min(previewHeight, available - rows.length)
-    : available - rows.length;
+  const planHeight = available - rows.length;
   if (planHeight > 0) {
     if (gap > 0) rows.push(theme.muted("─".repeat(width)));
     rows.push(
-      ...implementationRows(
-        plan,
-        snapshot.implementation,
-        theme,
-        width,
-        planHeight,
-        priority,
-      ),
+      ...implementationRows(plan, graph, theme, width, planHeight, priority),
     );
   }
   return rows;

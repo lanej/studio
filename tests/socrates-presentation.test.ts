@@ -218,7 +218,7 @@ await test("a missing publication decision remains visible after the properties 
   assert.deepEqual(after.conditions, before.conditions);
 });
 
-await test("the side panel wraps unresolved reasons before showing a small draft graph", () => {
+await test("the side panel wraps unresolved reasons and fills the remaining rows with the draft graph", () => {
   const plain = (text: string) => text;
   const theme = {
     accent: plain,
@@ -278,15 +278,26 @@ await test("the side panel wraps unresolved reasons before showing a small draft
   assert.match(rows[0] ?? "", /^Specification +◇ Draft · v1$/u);
   const heading = rows.findIndex((line) => line.startsWith("Implementation"));
   assert.match(rows[heading] ?? "", /^Implementation +◇ Draft$/u);
-  assert.ok(rows.slice(heading + 1).length <= 4);
   assert.match(text, /├─╮.*\+2 more · \/plan/u);
-  assert.doesNotMatch(text, /Proposed beads|\d proposed/u);
+  // With two more rows the preview could reach the next task and its branch.
+  assert.ok(26 - rows.length < 2);
+  const roomy = renderSocratesSections(panel, theme, 48, 34);
+  const roomyText = roomy.join(" ").replace(/\s+/gu, " ");
+  assert.ok(roomyText.includes(reason), roomyText);
+  assert.match(
+    roomyText,
+    /Implementation +◇ Draft.*schema.*├─╮.*load.*save.*├─╯.*audit/u,
+  );
+  assert.doesNotMatch(roomyText, /more · \/plan|Proposed beads|\d proposed/u);
   for (const height of [1, 3, 8, 20]) {
     const compact = renderSocratesSections(panel, theme, 57, height, true);
     assert.ok(compact.length <= height);
     assert.ok(compact.every((line) => visibleWidth(line) <= 57));
     if (height >= 3)
-      assert.match(compact.at(-1) ?? "", /^Implementation +◇ Draft$/u);
+      assert.ok(
+        compact.some((line) => /^Implementation +◇ Draft$/u.test(line)),
+      );
+    if (height === 20) assert.match(compact.join(" "), /schema/u);
   }
   const ready = readySpecification("brief-v1");
   const readyPanel = observe(ready);

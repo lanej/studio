@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  backgroundAnsi,
+  colorToOklch,
   colorToRgb,
   foregroundAnsi,
   indexedColor,
@@ -11,11 +13,24 @@ import palette from "../resources/colors.json" with { type: "json" };
 import theme from "../resources/theme.json" with { type: "json" };
 import { planGraphColor } from "../plan-graph.ts";
 
-function renderedColor(hex: string, mode: TerminalColorMode) {
+function renderedColor(
+  hex: string,
+  mode: TerminalColorMode,
+  background = false,
+) {
   const color = parseColor(hex);
-  if (mode === "truecolor") return colorToRgb(color);
+  const ansi = background
+    ? backgroundAnsi(color, mode)
+    : foregroundAnsi(color, mode);
+  if (mode === "truecolor") {
+    const rgb = colorToRgb(color);
+    assert.equal(
+      ansi,
+      `\x1b[${background ? "48" : "38"};2;${String(rgb.r)};${String(rgb.g)};${String(rgb.b)}m`,
+    );
+    return rgb;
+  }
   // Use the exact xterm index selected by the installed TUI.
-  const ansi = foregroundAnsi(color, mode);
   const index = /;5;(\d+)m$/u.exec(ansi)?.[1];
   assert.ok(index !== undefined, ansi);
   return colorToRgb(indexedColor(Number(index)));
@@ -29,7 +44,7 @@ function luminance({ r, g, b }: ReturnType<typeof colorToRgb>): number {
   return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
 }
 
-await test("Studio foregrounds remain readable on neutral terminal surfaces", () => {
+await test("Nord text stays readable on every surface in truecolor and 256-color mode", () => {
   const colors = Object.entries(theme.colors);
   const backgrounds = colors.filter(([token]) => token.endsWith("Bg"));
   const foregrounds = colors.filter(([token]) => !token.endsWith("Bg"));
@@ -40,16 +55,35 @@ await test("Studio foregrounds remain readable on neutral terminal surfaces", ()
     "mdQuoteBorder",
     "thinkingOff",
   ]);
+  assert.equal(palette.theme, "nord");
+  assert.equal(theme.colors.userMessageBg, "#3B4252");
+  assert.equal(theme.colors.selectedBg, "#434C5E");
   for (const mode of ["truecolor", "256color"] as const) {
+    const surfaces: string[] = [
+      theme.export.pageBg,
+      theme.colors.userMessageBg,
+      theme.colors.selectedBg,
+    ].map((hex) => backgroundAnsi(parseColor(hex), mode));
+    assert.equal(
+      new Set(surfaces).size,
+      surfaces.length,
+      `Distinct Polar Night surfaces in ${mode}`,
+    );
     for (const [surface, hex] of [
       ...backgrounds,
       ...Object.entries(theme.export),
     ]) {
-      const background = renderedColor(hex, mode);
-      assert.equal(background.r, background.g, surface);
-      assert.equal(background.g, background.b, surface);
+      const background = renderedColor(hex, mode, true);
       for (const [token, color] of foregrounds) {
         const foreground = renderedColor(color, mode);
+        if (!decorativeTokens.has(token)) {
+          const { c, h } = colorToOklch({ kind: "rgb", ...foreground });
+          // Allow the slight cool cast of Snow Storm. Reserve blue and teal hues for strokes.
+          assert.ok(
+            c < 0.035 || h < 165 || h > 280,
+            `${mode} renders ${token} as blue text`,
+          );
+        }
         const contrast =
           (luminance(foreground) + 0.05) / (luminance(background) + 0.05);
         assert.ok(

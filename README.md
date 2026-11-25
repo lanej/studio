@@ -81,18 +81,18 @@ studio lead -- --help
 
 Run `uv run --script acceptance/shell-header.py --output /path/to/captures` to verify retained Bash tool headers in native Pi without executing the displayed commands. Native PTY terminal-cell captures show the [wide compound headers](docs/assets/shell-header-128.png) and [narrow wrapping](docs/assets/shell-header-60.png), including timeout and elapsed-time displays.
 
-### Studio’s dark palette
+### Nord in Studio
 
-| Role | Color | Where it appears |
+| Role | Nord colors | Where they appear |
 | --- | --- | --- |
-| Export canvas, panel, selection | `#181818`, `#252525`, `#393939` | Neutral charcoal surfaces, progressively lighter for a raised panel and a selected row |
-| Body and secondary text | `#E9E6DF`, `#B9B5AC` | Property names, evidence, and supporting text |
-| Accent | `#86DBC6` mint | Links, focused activity, and primary graph lane |
-| Attention | `#F2C77F` amber | Open, partial, or stale properties, distinguished by glyph |
-| Success | `#B0D897` sage | Satisfied properties and completed work |
-| Error | `#FF9A8F` coral | Failures and blocked work |
+| Export canvas, panel, selection | Polar Night `#2E3440`, `#3B4252`, `#434C5E` | Three distinct surface levels |
+| Text and links | Snow Storm `#ECEFF4` | Property names, headings, and link labels |
+| Secondary text | Snow Storm `#D8DEE9` | Evidence, metadata, and link URLs |
+| Attention | Aurora yellow `#EBCB8B` | Open, partial, and stale properties, distinguished by glyph |
+| Success and error | Tints of Aurora green `#A9C492` and red `#FFA2A8` | Satisfied properties, failures, and blocked work |
+| Rules and graph rails | Frost `#88C0D0` | Structural lines and the primary dependency lane |
 
-The default theme uses neutral backgrounds for selections, messages, tools and the sidebar. Its text colors meet a 4.5:1 contrast target on each of those surfaces in truecolor and xterm 256-color mode. The surrounding terminal retains its canvas and opacity. The installer preserves a separately selected Pi theme.
+Studio raises the lightness of Aurora hues used for text where the original swatch loses contrast on a selected row. The bundled theme targets at least 4.5:1 contrast for text on every painted surface in truecolor and xterm 256-color mode. The surrounding terminal retains its canvas and opacity, and installation preserves a separately selected Pi theme.
 
 ## Session forks and prompt loops
 
@@ -114,7 +114,7 @@ Use `/socrates` when you want to develop a specification and decide how the work
 
 Socrates uses repository evidence where available and asks one question when a decision needs your judgment. During the dialogue it saves both a specification and a provisional breakdown. Each proposed bead describes a deliverable, its requirement links, its dependencies and how to verify it. An answer can split a bead, combine two of them, or change which one can start first. Open `/plan` to inspect the current breakdown at any point.
 
-![The Socrates sidebar shows the remaining specification gaps above a compact implementation preview](docs/assets/socrates-properties-128.png)
+![The Socrates sidebar shows four open or partial properties and the complete four-bead graph below them](docs/assets/socrates-properties-128.png)
 
 `/spec-freeze` becomes available once all applicable properties have current supporting evidence, the remaining properties have a reason for being inapplicable, and blocking questions and open decisions are resolved. `/spec-reopen` retains the previous specification version before reopening it.
 
@@ -122,11 +122,11 @@ Invoking `/socrates` opens the status panel, including when resuming a discovery
 
 In a narrower terminal, status moves above the editor. The dock takes at most three rows minimized or eight expanded, capped at a third of the terminal height. Alt+S toggles its size. Invoking `/socrates` expands the narrow dock. Subsequent updates respect a manual collapse. An independently installed Pi host without Studio’s right-column layout uses the dock at all widths.
 
-The specification shows **○ Open**, **◐ Partial**, and **● Satisfied**. Each assessed property needs evidence; a partial assessment names what already holds and the remaining gap. Muted **○ Not assessed** and **− Not applicable** have separate groups. After a recorded answer, revised brief or reopened specification, **↺ Recheck** preserves previous evidence and removes the property from the satisfied count. Satisfied properties fold together. During discovery, the sidebar gives open, partial and stale properties room to show their evidence or remaining gap. Specification and Implementation each have one header with the current stage. The graph gets a short preview while the specification needs attention and more space when it is ready for review or frozen.
+The specification shows **○ Open**, **◐ Partial**, and **● Satisfied**. Each assessed property needs evidence; a partial assessment names what already holds and the remaining gap. Muted **○ Not assessed** and **− Not applicable** have separate groups. After a recorded answer, revised brief or reopened specification, **↺ Recheck** preserves previous evidence and removes the property from the satisfied count. Satisfied properties fold together. Specification and Implementation each have one header with the current stage. During discovery, open, partial and stale properties get room for their explanations first. The dependency graph uses the remaining rows, even during discovery. On a shorter terminal, a count shows how many tasks remain and `/plan` opens the full graph.
 
 The implementation column shows the proposed beads and their dependencies as the plan develops. For approved work, Studio periodically reads the linked beads from the recorded project and shows their actual states. The sidebar uses the same Git-style branches and joins as `/plan`. Node glyphs show bead state, so a status change preserves the graph order. Missing or unverifiable observations stay unknown. Requirement IDs connect tasks to the specification; the property count and the bead count measure different things. A closed bead is a Beads status, not a claim that the feature shipped.
 
-![The four-bead dependency graph gets more space when the specification is ready for review](docs/assets/socrates-proposed-beads-128.png)
+![The four-bead dependency graph appears below a folded group of satisfied properties once the specification is ready for review](docs/assets/socrates-proposed-beads-128.png)
 
 The lead shows each draft as a compact dependency graph. Read it from top to bottom. A fork shows tasks that share a prerequisite. A join shows where a task needs multiple predecessors. Open `/plan` to browse the full graph and see current task states. **j/k** selects a task, **Enter** opens its scope, dependencies, acceptance criteria and verification, and **Esc** returns. To compare specification evidence with implementation progress, use `/socrates-status inspect` and **Tab** between columns. Closing either inspector restores the previous layout.
 
