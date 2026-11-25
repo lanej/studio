@@ -5,16 +5,198 @@ import { mkdtempSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { Discoveries, HandoffPhase } from "../discovery/store.ts";
+import {
+  executionSchema,
+  ExecutionPhase,
+  ExecutionStore,
+  projectSchema,
+} from "../execution/store.ts";
+import { publicationPrerequisites as completedPrerequisites } from "../execution/publication-graph.ts";
 import { TaskBeads, beadSchema } from "../task-service.ts";
 import { startTask } from "../task-run.ts";
-import { StudioProfile } from "../config.ts";
+import { configSchema, exampleConfig, StudioProfile } from "../config.ts";
+import { ExecutionBeads } from "../execution/beads.ts";
+import { retainClaim } from "../execution/recovery.ts";
 import { expect, test } from "bun:test";
 import {
   describePlan,
   draftSchema,
+  LeadMode,
   planDigest,
+  publicationPrerequisites,
   reviseDelivery,
 } from "../lead-plan.ts";
+
+test("publication uses each local predecessor once and respects already published dependencies", () => {
+  const tasks = [
+    { key: "shared" },
+    { key: "other" },
+    { key: "shipped", delivery: "pull-request", blockedBy: ["shared"] },
+    { key: "private" },
+    { key: "next", blockedBy: ["other", "shared"] },
+    {
+      key: "publish",
+      delivery: "pull-request",
+      blockedBy: ["other", "next", "shipped", "shared"],
+    },
+  ].map((task) => ({
+    ...task,
+    title: task.key,
+    description: task.key,
+    acceptance: task.key,
+  }));
+  const draft = draftSchema.parse({ summary: "Dependent publishers", tasks });
+  const publisher = draft.tasks.at(-1);
+  assert.ok(publisher !== undefined);
+  assert.deepEqual(
+    publicationPrerequisites(draft, publisher).map(({ key }) => key),
+    ["other", "shipped", "next"],
+  );
+});
+
+test("an older background handoff resolves the approved graph and rejects changed metadata or targets", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "studio-original-handoff-"));
+  const store = new ExecutionStore(directory);
+  const discoveries = new Discoveries(directory);
+  try {
+    const id = randomUUID();
+    const project = projectSchema.parse({
+      id,
+      root: directory,
+      source: { url: "http://127.0.0.1:9", projectId: id },
+      profile: StudioProfile.Personal,
+      base: "main",
+      beadsWorkspace: directory,
+      beadsDatabase: "test",
+    });
+    const discovery = discoveries.create(
+      directory,
+      "session",
+      "Original handoff",
+    );
+    const draft = draftSchema.parse({
+      summary: "Publish one",
+      tasks: [
+        {
+          key: "publish",
+          title: "Release",
+          description: "Ship it",
+          acceptance: "Done",
+          delivery: "pull-request",
+        },
+      ],
+    });
+    const digest = planDigest(draft);
+    const ids = { root: "parent", publish: "publisher" };
+    store.saveIntent(discovery.revision, { digest, ids });
+    discoveries.change(
+      discovery.id,
+      (row) => {
+        row.leadPlan = { mode: LeadMode.Planning, draft };
+        row.approved = digest;
+        row.graph = ids;
+        row.handoff = {
+          operation: randomUUID(),
+          digest,
+          revision: row.revision,
+          phase: HandoffPhase.Complete,
+          target: project,
+        };
+      },
+      true,
+    );
+    const bead = beadSchema.parse({
+      id: ids.publish,
+      title: "Release",
+      description: "Ship it",
+      acceptance_criteria: "Done",
+      status: "in_progress",
+      revision: "1",
+      metadata: {
+        "studio.graph": discovery.revision,
+        "studio.approval": digest,
+        "studio.root": ids.root,
+        "studio.task": draft.tasks[0],
+      },
+    });
+    const attempt = executionSchema.parse({
+      id: randomUUID(),
+      project: id,
+      phase: ExecutionPhase.Allocating,
+      profile: project.profile,
+      message: "Starting",
+      bead,
+    });
+    store.enroll(project);
+    store.saveAttempt(attempt);
+    const service = new ExecutionBeads(project.source);
+    const config = configSchema.parse(exampleConfig);
+    const claimed = {
+      ...bead,
+      assignee: `pi:${attempt.id}`,
+      metadata: { ...bead.metadata, "pi.attempt": attempt.id },
+    };
+    await assert.rejects(
+      retainClaim(
+        store,
+        service,
+        attempt.id,
+        {
+          ...claimed,
+          metadata: {
+            ...claimed.metadata,
+            "studio.task": { ...draft.tasks[0], delivery: "local" },
+          },
+        },
+        config,
+      ),
+      /approved task graph/u,
+    );
+    assert.equal(store.attempt(attempt.id).phase, ExecutionPhase.Allocating);
+    await retainClaim(store, service, attempt.id, claimed, config);
+    assert.equal(store.attempt(attempt.id).phase, ExecutionPhase.Queued);
+    const standalone = {
+      ...claimed,
+      id: "externally-created",
+      metadata: { "pi.attempt": attempt.id },
+    };
+    await retainClaim(store, service, attempt.id, standalone, config);
+    assert.equal(store.attempt(attempt.id).bead?.id, standalone.id);
+    assert.deepEqual(completedPrerequisites(store, project, attempt), []);
+    assert.throws(
+      () =>
+        completedPrerequisites(store, { ...project, base: "release" }, attempt),
+      /target branch/u,
+    );
+    assert.throws(
+      () =>
+        completedPrerequisites(store, project, {
+          ...attempt,
+          bead: { ...bead, metadata: {} },
+        }),
+      /approved task graph/u,
+    );
+    assert.throws(
+      () =>
+        completedPrerequisites(store, project, {
+          ...attempt,
+          bead: {
+            ...bead,
+            metadata: {
+              ...bead.metadata,
+              "studio.pullRequestMerge": "project-policy",
+            },
+          },
+        }),
+      /approved task graph/u,
+    );
+  } finally {
+    discoveries.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test("delivery revisions change the approved draft and retain the explicit default", () => {
   const draft = draftSchema.parse({

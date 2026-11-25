@@ -5,6 +5,11 @@ import { z } from "zod";
 import { octo } from "../delivery.ts";
 import { draftSchema } from "../lead-plan.ts";
 import { safeGit, networkGit } from "./git.ts";
+import {
+  assertPublicationHead,
+  fetchPublicationTarget,
+  publicationTarget,
+} from "./publication-base.ts";
 import { mergePolicy } from "./policy.ts";
 import {
   hasManualMergeApproval,
@@ -132,14 +137,6 @@ export async function deliverAssignment(
   const mergeMode = draftSchema.shape.pullRequestMerge.parse(
     initial.bead?.metadata["studio.pullRequestMerge"],
   );
-  const mayRequestMerge = async (target: { id: string; head: string }) => {
-    if (mergeMode !== "manual")
-      return (await adapters.mergePolicy(project.id)).enabled;
-    if (!hasManualMergeApproval(store.attempt(initial.id), target))
-      return false;
-    await adapters.requireManualMergeAuthority(project);
-    return true;
-  };
   const cwd = initial.checkout?.path;
   if (
     cwd === undefined ||
@@ -194,6 +191,21 @@ export async function deliverAssignment(
     },
   };
 
+  const mayRequestMerge = async (target: { id: string; head: string }) => {
+    const current = store.attempt(initial.id);
+    if (mergeMode === "manual") {
+      if (!hasManualMergeApproval(current, target)) return false;
+      await adapters.requireManualMergeAuthority(project);
+    } else if (!(await adapters.mergePolicy(project.id)).enabled) return false;
+    await assertPublicationHead(
+      store,
+      project,
+      current,
+      target.head,
+      dependencies,
+    );
+    return true;
+  };
   let attempt = store.attempt(initial.id);
   if (attempt.agent === undefined) {
     const registration = z
@@ -280,10 +292,19 @@ export async function deliverAssignment(
       );
     const body = join(directory, "body.md");
     await writeFile(body, saved.body, { mode: 0o600 });
+    await assertPublicationHead(
+      store,
+      project,
+      store.attempt(initial.id),
+      initial.head,
+      dependencies,
+    );
     await dependencies.networkGit(project.root, [
       "push",
       "origin",
       `${initial.head}:refs/heads/${initial.checkout?.branch ?? ""}`,
+      "--no-follow-tags",
+      "--recurse-submodules=no",
     ]);
     await call(
       authority,
@@ -298,7 +319,7 @@ export async function deliverAssignment(
       "--head",
       initial.checkout?.branch ?? "",
       "--base",
-      project.base.replace(/^origin\//u, ""),
+      publicationTarget(project),
     );
     store.change(initial.id, (row) => {
       row.phase = ExecutionPhase.Delivery;
@@ -321,7 +342,7 @@ export async function deliverAssignment(
         "--head",
         initial.checkout?.branch ?? "",
         "--base",
-        project.base.replace(/^origin\//u, ""),
+        publicationTarget(project),
         "--request-id",
         initial.id,
         "--track",
@@ -427,23 +448,18 @@ export async function deliverAssignment(
           throw new Error(
             "The merged PR has no matching authorized exact-head intent; assess task criteria before completion",
           );
-        await dependencies.networkGit(project.root, [
-          "fetch",
-          "origin",
-          project.base.replace(/^origin\//u, ""),
-        ]);
-        const merged = (
-          await dependencies.networkGit(project.root, [
-            "rev-parse",
-            "FETCH_HEAD",
-          ])
-        ).trim();
+        const merged = await fetchPublicationTarget(
+          project,
+          initial.id,
+          dependencies.networkGit,
+        );
         const paths = (
           await dependencies.safeGit(project.root, cwd, [
             "diff",
+            "--no-renames",
             "--name-only",
             "-z",
-            z.string().parse(attempt.base),
+            z.string().parse(attempt.publicationBase?.remote ?? attempt.base),
             z.string().parse(attempt.head),
           ])
         )
@@ -456,7 +472,7 @@ export async function deliverAssignment(
             z.string().parse(attempt.head),
             merged,
             "--",
-            ...paths,
+            ...paths.map((path) => `:(literal)${path}`),
           ]);
         store.change(initial.id, (row) => {
           row.merged = merged;
@@ -965,10 +981,13 @@ async function pushCorrection(
     throw new Error(
       "Correction is not independently reviewed at the reported head",
     );
+  await assertPublicationHead(store, project, record, draft.head, dependencies);
   await dependencies.networkGit(project.root, [
     "push",
     "origin",
     `${draft.head}:refs/heads/${record.checkout.branch}`,
+    "--no-follow-tags",
+    "--recurse-submodules=no",
   ]);
   store.change(id, (row) => {
     clearReadiness(row);
