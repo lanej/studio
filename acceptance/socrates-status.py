@@ -353,11 +353,17 @@ class Terminal:
 
     def check_lead_wrap(self, sentence):
         """Prove every word remains visible and that the lead itself received a smaller width."""
-        x = self.rail_start()
-        assert x is not None, self.text()
-        # Leave the rail's border and padding out of the lead text.
-        self.wait(lambda: sentence in " ".join(" ".join(line[:x].rstrip(" │┃") for line in self.screen.display).split()),
+        def wrapped_frame():
+            # A PTY read can end between the two section headers during a repaint.
+            x = self.rail_start()
+            if x is None:
+                return False
+            lead = " ".join(line[:x].rstrip(" │┃") for line in self.screen.display)
+            return sentence in " ".join(lead.split())
+
+        self.wait(wrapped_frame,
                   f"The lead clipped or covered part of {sentence!r}")
+        x = self.rail_start()
         assert not any(sentence in line[:x] for line in self.screen.display), f"Lead did not wrap at the rail\n{self.text()}"
 
     def assert_mark(self, label, mark, tone):
