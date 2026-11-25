@@ -250,14 +250,17 @@ await test("Pi sends native tool contracts, executes calls and restores the acti
       [
         "*** Begin Patch",
         "*** Add File: message.txt",
+        "*** Reason: Give the client an initial greeting.",
         "+hello",
         "*** Update File: previous.ts",
+        "*** Reason: Allow a second attempt after transient failures.",
         "*** Move to: renamed.ts",
         "@@",
         "-export const retries = 1;",
         "+export const retries = 2;",
         ...["two", "three", "four"].flatMap((name) => [
           `*** Add File: ${name}.ts`,
+          `*** Reason: Provide the ${name} module.`,
           "+export {};",
         ]),
         "*** End Patch",
@@ -293,6 +296,7 @@ await test("Pi sends native tool contracts, executes calls and restores the acti
     })
     .parse(codexTools.find(({ name }) => name === "apply_patch"));
   assert.match(patchTool.format.definition, /\*\*\* Begin Patch/u);
+  assert.match(patchTool.format.definition, /\*\*\* Reason: /u);
   assert.ok(
     !codexTools.some(({ name }) => ["edit", "write", "bash"].includes(name)),
   );
@@ -324,6 +328,7 @@ await test("Pi sends native tool contracts, executes calls and restores the acti
     studioPatchEdits: [
       {
         path: "previous.ts",
+        reason: "Allow a second attempt after transient failures.",
         moveTo: "renamed.ts",
         diff: "-1 export const retries = 1;\n+1 export const retries = 2;",
         studioSyntax: { replacements: [{ original: "1", updated: "2" }] },
@@ -357,7 +362,21 @@ await test("Pi sends native tool contracts, executes calls and restores the acti
     messagesReply({ name: "Read", input: { file_path: file } }),
     messagesReply({
       name: "Edit",
-      input: { file_path: file, old_string: "hello", new_string: "goodbye" },
+      input: {
+        file_path: file,
+        old_string: "hello",
+        new_string: "incorrect",
+        reason: "   ",
+      },
+    }),
+    messagesReply({
+      name: "Edit",
+      input: {
+        file_path: file,
+        old_string: "hello",
+        new_string: "goodbye",
+        reason: "Give departing clients a farewell.",
+      },
     }),
     messagesReply({
       name: "Bash",
@@ -366,7 +385,7 @@ await test("Pi sends native tool contracts, executes calls and restores the acti
     messagesReply(),
   );
   await session.prompt("Change the greeting");
-  assert.equal(requests.length, 4);
+  assert.equal(requests.length, 5);
   const claudeTools = payload.parse(requests[0]).tools;
   for (const name of ["Read", "Edit", "Write", "Bash"])
     assert.ok(
@@ -379,11 +398,14 @@ await test("Pi sends native tool contracts, executes calls and restores the acti
   const edit = z
     .object({ input_schema: z.object({ required: z.array(z.string()) }) })
     .parse(claudeTools.find(({ name }) => name === "Edit"));
-  for (const key of ["file_path", "old_string", "new_string"])
+  for (const key of ["file_path", "old_string", "new_string", "reason"])
     assert.ok(edit.input_schema.required.includes(key), key);
   const claudeRead = lastClaudeToolResult(requests[1], "toolu_Read");
   assert.ok(claudeRead.content.includes("1\thello"));
-  const claudeDenial = lastClaudeToolResult(requests[3], "toolu_Bash");
+  const missingReason = lastClaudeToolResult(requests[2], "toolu_Edit");
+  assert.equal(missingReason.is_error, true);
+  assert.match(missingReason.content, /reason/u);
+  const claudeDenial = lastClaudeToolResult(requests[4], "toolu_Bash");
   assert.equal(claudeDenial.is_error, true);
   assert.ok(claudeDenial.content.includes(shellDenial));
   const expectedShellInput = { command: deniedCommand, timeout: 2.5 };
@@ -395,8 +417,32 @@ await test("Pi sends native tool contracts, executes calls and restores the acti
 
   await session.setModel(mantle);
   requests.length = 0;
-  replies.push(responsesReply());
-  await session.prompt("Inspect the gateway workspace");
+  // Every hunk must have a reason before the first file changes, including on the JSON transport.
+  const gatewayAdd = [
+    "*** Add File: first.txt",
+    "*** Reason: Preserve the example header.",
+    "+*** Reason: literal source",
+  ];
+  const gatewayReply = (id: string, lines: string[]) =>
+    responsesReply({
+      type: "function_call",
+      name: "apply_patch",
+      call_id: id,
+      id: `fc_${id}`,
+      arguments: JSON.stringify({
+        patch: ["*** Begin Patch", ...lines, "*** End Patch"].join("\n"),
+      }),
+    });
+  replies.push(
+    gatewayReply("blank", [
+      ...gatewayAdd,
+      "*** Delete File: message.txt",
+      "*** Reason:    ",
+    ]),
+    gatewayReply("missing", [...gatewayAdd, "*** Delete File: message.txt"]),
+    responsesReply(),
+  );
+  await session.prompt("Update the gateway workspace");
   const gatewayTools = payload.parse(requests[0]).tools;
   const gatewayPatch = gatewayTools.find(({ name }) => name === "apply_patch");
   z.object({
@@ -405,6 +451,58 @@ await test("Pi sends native tool contracts, executes calls and restores the acti
       properties: z.object({ patch: z.object({ type: z.literal("string") }) }),
     }),
   }).parse(gatewayPatch);
+  await assert.rejects(readFile(join(cwd, "first.txt")), { code: "ENOENT" });
+  assert.equal(await readFile(file, "utf8"), "goodbye\n");
+  for (const id of ["blank", "missing"]) {
+    const item = resultInput
+      .parse(requests[2])
+      .input.find(
+        (entry) =>
+          entry.type === "function_call_output" && entry["call_id"] === id,
+      );
+    assert.match(z.string().parse(item?.["output"]), /\*\*\* Reason:/u);
+  }
+  replies.push(
+    gatewayReply("valid", [
+      ...gatewayAdd,
+      "*** Update File: first.txt",
+      "*** Reason: Give readers a starting value.",
+      "@@",
+      " *** Reason: literal source",
+      "+one",
+      "*** Update File: first.txt",
+      "*** Reason: Show how the value changes.",
+      "@@",
+      " one",
+      "+two",
+    ]),
+    responsesReply(),
+  );
+  await session.prompt("Store the example header");
+  assert.equal(
+    await readFile(join(cwd, "first.txt"), "utf8"),
+    "*** Reason: literal source\none\ntwo\n",
+  );
+  const recorded = session.sessionManager
+    .getBranch()
+    .findLast(
+      (entry) =>
+        entry.type === "message" &&
+        entry.message.role === "toolResult" &&
+        entry.message.toolName === "apply_patch",
+    );
+  assert.ok(
+    recorded?.type === "message" && recorded.message.role === "toolResult",
+  );
+  assert.partialDeepStrictEqual(recorded.message.details, {
+    studioPatchEdits: [
+      { kind: "added", reason: "Preserve the example header." },
+      {
+        kind: "updated",
+        reason: "Give readers a starting value. Show how the value changes.",
+      },
+    ],
+  });
 
   await session.setModel(other);
   requests.length = 0;
@@ -428,7 +526,9 @@ await test("Pi sends native tool contracts, executes calls and restores the acti
   await restricted.session.bindExtensions({ mode: "rpc" });
   requests.length = 0;
   replies.push(
-    patchReply("*** Begin Patch\n*** Delete File: message.txt\n*** End Patch"),
+    patchReply(
+      "*** Begin Patch\n*** Delete File: message.txt\n*** Reason: Remove the fixture.\n*** End Patch",
+    ),
     responsesReply(),
   );
   await restricted.session.prompt("Inspect this read-only workspace");

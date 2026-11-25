@@ -106,7 +106,7 @@ await test(
     });
     const apply = (patch: string) => applyPatch(ctx, patch);
     const literal = [`'\`$(exit 17)' `, "x".repeat(160_000)].join("");
-    const add = `*** Begin Patch\n*** Add File: large.txt\n+${literal}\n*** Delete File: obsolete.txt\n*** End Patch`;
+    const add = `*** Begin Patch\n*** Add File: large.txt\n*** Reason: Preserve the original input.\n+${literal}\n*** Delete File: obsolete.txt\n*** Reason: Remove the obsolete copy.\n*** End Patch`;
     const denied = await apply(add);
     assert.equal(denied.isError, true);
     assert.match(JSON.stringify(denied.content), /Bash is blocked/u);
@@ -120,14 +120,14 @@ await test(
     await assert.rejects(readFile(deleted), { code: "ENOENT" });
 
     const invalid = await apply(
-      "*** Begin Patch\n*** Delete File: large.txt\n*** Update File: missing.txt\n@@\n-old\n+new\n*** End Patch",
+      "*** Begin Patch\n*** Delete File: large.txt\n*** Reason: Remove the duplicate.\n*** Update File: missing.txt\n*** Reason: Refresh the example.\n@@\n-old\n+new\n*** End Patch",
     );
     assert.equal(invalid.isError, true);
     assert.match(JSON.stringify(invalid.content), /missing\.txt/u);
     assert.equal(await readFile(added, "utf8"), `${literal}\n`);
 
     const last = await apply(
-      `*** Begin Patch\n*** Update File: large.txt\n*** Move to: moved.txt\n@@\n-${literal}\n+complete\n*** End Patch`,
+      `*** Begin Patch\n*** Update File: large.txt\n*** Reason: Publish the final text.\n*** Move to: moved.txt\n@@\n-${literal}\n+complete\n*** End Patch`,
     );
     assert.equal(last.isError, false, JSON.stringify(last.content));
     assert.equal(await readFile(moved, "utf8"), "complete\n");
@@ -231,6 +231,7 @@ await test(
       file_path: path,
       old_string: before,
       new_string: after,
+      reason: "Apply the new rate.",
     };
     const claude = component("Edit", replacement);
     const edit = await replaceText(ctx, {
@@ -238,7 +239,7 @@ await test(
       oldText: before,
       newText: after,
       replaceAll: false,
-      reason: "Update the rate.",
+      reason: replacement.reason,
     });
     assert.equal(edit.isError, false);
     claude.setArgsComplete();
@@ -248,6 +249,7 @@ await test(
     const patch = [
       "*** Begin Patch",
       `*** Update File: ${path}`,
+      `*** Reason: ${replacement.reason}`,
       "@@",
       `-${before}`,
       `+${after}`,
@@ -262,6 +264,7 @@ await test(
     assert.match(preview, /rates\.ts/u);
     assert.doesNotMatch(preview, /\*\*\* (?:Begin Patch|Update File)|25 → 50/u);
     codex.updateArgs({ patch });
+    assert.match(plain(codex, 62), /rates\.ts[^\n]+Apply the new rate\./u);
     codex.setArgsComplete();
     const patched = await applyPatch(ctx, patch);
     assert.equal(patched.isError, false);
@@ -276,8 +279,9 @@ await test(
         const view = plain(codex, width);
         const canonical = plain(claude, width);
         assertPatchTitle(view);
-        assert.match(view, /rates\.ts/u);
+        assert.match(view, /rates\.ts[^\n]+Apply the new rate\./u);
         assert.match(canonical.trimStart(), /^Edit\s+rates\.ts/u);
+        assert.match(canonical, /rates\.ts[^\n]+Apply the new rate\./u);
         assert.match(canonical, /╭ function computeRate/u);
         assert.match(canonical, /~\s*9 .*25 → 50/u);
         assert.match(canonical, /10 +return value/u);
@@ -364,8 +368,10 @@ await test(
     const multiFile = [
       "*** Begin Patch",
       "*** Add File: active.ts",
+      "*** Reason: Enable the active flag.",
       "+export const active = true;",
       "*** Delete File: archived.ts",
+      "*** Reason: Retire the archived flag.",
       "*** End Patch",
     ].join("\n");
     await writeFile(
@@ -373,6 +379,10 @@ await test(
       "export const archived = false;\n",
     );
     const multi = component("apply_patch", { patch: multiFile });
+    assert.match(
+      plain(multi, 100),
+      /\+\s+active\.ts[^\n]+Enable the active flag\./u,
+    );
     multi.setArgsComplete();
     multi.setExpanded(true);
     const multiple = await applyPatch(ctx, multiFile);
@@ -384,16 +394,26 @@ await test(
     multi.updateResult(multiple);
     const applied = plain(multi, 100);
     assertPatchTitle(applied);
-    assert.match(applied, /^ *active\.ts *$/mu);
-    assert.match(applied, /^ *archived\.ts *$/mu);
-    assert.match(applied, /export const active = true/u);
+    assert.match(
+      applied,
+      /2 files *\n *\n *\+ active\.ts[^\n]+Enable the active flag\./u,
+    );
+    assert.match(applied, /export const active = true; *\n *\n *archived\.ts/u);
+    assert.match(applied, /^ *archived\.ts[^\n]+Retire the archived flag\./mu);
+    assert.match(applied, /^ +1 +export const active = true/mu);
+    assert.doesNotMatch(applied, /Added file|\+\s*1 +export const active/u);
     assert.match(applied, /export const archived = false/u);
     assert.doesNotMatch(applied, /\*\*\* (?:Add File|Delete File|End Patch)/u);
 
-    const legacy = component("apply_patch", { patch: multiFile });
+    const legacy = component("apply_patch", {
+      patch: multiFile.replaceAll(/^\*\*\* Reason: .*\n/gmu, ""),
+    });
     legacy.setArgsComplete();
     legacy.updateResult({ ...multiple, details: undefined });
-    assertPatchTitle(plain(legacy, 100));
+    const replay = plain(legacy, 100);
+    assertPatchTitle(replay);
+    assert.match(replay, /\+\s+active\.ts/u);
+    assert.doesNotMatch(replay, /Enable the active flag|\*\*\* Reason/u);
 
     // Replay the request after the deletion. Its failed preflight must stay visible.
     const failed = await applyPatch(ctx, multiFile);
@@ -403,10 +423,47 @@ await test(
     error.updateResult(failed);
     const failure = plain(error, 100);
     assertPatchTitle(failure);
+    assert.match(failure, /archived\.ts[^\n]+Retire the archived flag\./u);
     assert.match(failure, /Cannot delete missing file 'archived\.ts'/u);
     assert.doesNotMatch(
       failure,
       /Success\. Updated|export const archived = false/u,
     );
+  },
+);
+
+await test(
+  "the creation glyph follows the committed change, including edits without a preview",
+  processDeadline,
+  async (t) => {
+    const { cwd, ctx, component } = await conversationFixture(t);
+    await writeFile(join(cwd, "existing.txt"), "retained\n");
+    const patch = [
+      "*** Begin Patch",
+      "*** Add File: generated.txt",
+      "*** Reason: Store the generated sample.",
+      `+${"x".repeat(70_000)}`,
+      "*** Add File: existing.txt",
+      "*** Reason: Include the missing example.",
+      "+retained",
+      "+example",
+      "*** End Patch",
+    ].join("\n");
+    const output = await applyPatch(ctx, patch);
+    assert.equal(output.isError, false, JSON.stringify(output.content));
+    const card = component("apply_patch", { patch });
+    card.setArgsComplete();
+    card.updateResult(output);
+    const view = plain(card, 100);
+    assert.match(view, /^ +existing\.txt[^\n]+Include the missing example\./mu);
+    assert.doesNotMatch(view, /\+\s+existing\.txt/u);
+    assert.match(view, /\+\s*2 +example/u);
+    assert.match(
+      view,
+      /^ +\+ generated\.txt[^\n]+Store the generated sample\./mu,
+    );
+    assert.match(view, /2 files *\n *\n *\+ generated\.txt/u);
+    assert.match(view, /Diff unavailable *\n *\n *existing\.txt/u);
+    assert.doesNotMatch(view, /Added file/u);
   },
 );

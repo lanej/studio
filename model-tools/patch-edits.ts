@@ -18,6 +18,7 @@ export const patchEdits = z
     z.object({
       kind: z.enum(["added", "updated", "deleted"]),
       path: z.string(),
+      reason: z.string().optional(),
       moveTo: z.string().optional(),
       overwrote: z.literal(true).optional(),
       diff: z.string().optional(),
@@ -32,7 +33,7 @@ export const patchEdits = z
   )
   .max(1000);
 type PatchEdit = z.infer<typeof patchEdits>[number];
-type FileChange = Pick<PatchEdit, "path" | "kind" | "moveTo">;
+type FileChange = Pick<PatchEdit, "path" | "kind" | "moveTo" | "reason">;
 interface Mutation {
   kind: "add" | "update" | "delete";
   path: string;

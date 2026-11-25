@@ -1,7 +1,7 @@
 import { registerCodingRenderer } from "../model-tools/rendering.ts";
 import type { StudioConfig } from "../config.ts";
 import {
-  displayEditReason,
+  editFileHeading,
   inlineDiagnosticLines,
   syntaxDiffRows,
 } from "./diff.ts";
@@ -10,7 +10,6 @@ import {
   syntaxReplacement,
   type SyntaxReplacement,
 } from "./syntax-analysis.ts";
-import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -124,26 +123,31 @@ export function registerDiagnosticRendering(
       ...(name === "edit" && renderCall !== undefined
         ? {
             renderCall(args, theme, context) {
-              const native = renderCall(args, theme, context);
-              const edit = z.object({ reason: z.string() }).safeParse(args);
-              const reason = edit.success
-                ? displayEditReason(edit.data.reason)
-                : "";
+              const edit = z
+                .object({
+                  reason: z.string().optional(),
+                  addedFile: z.boolean().optional(),
+                })
+                .safeParse(args);
+              const { reason, addedFile } = edit.success ? edit.data : {};
+              const native = renderCall(args, theme, {
+                ...context,
+                renderEditHeading: (pathLabel) =>
+                  editFileHeading(
+                    theme,
+                    context.displayToolName ?? "edit",
+                    pathLabel,
+                    reason,
+                    addedFile,
+                  ),
+              });
               return {
                 invalidate() {
                   native.invalidate();
                 },
                 render(width) {
                   const value = diffs.get(context.toolCallId);
-                  if (value === undefined) {
-                    const nativeRows = native.render(width);
-                    return reason.length > 0 && width > 0
-                      ? [
-                          ...nativeRows,
-                          ...wrapTextWithAnsi(theme.fg("muted", reason), width),
-                        ]
-                      : nativeRows;
-                  }
+                  if (value === undefined) return native.render(width);
                   return syntaxDiffRows(
                     value.diff,
                     value.path,
@@ -157,7 +161,8 @@ export function registerDiagnosticRendering(
                       displayToolName: context.displayToolName,
                       scopes: value.scopes,
                       replacements: value.replacements,
-                      reason,
+                      reason: reason ?? "",
+                      addedFile,
                     },
                   );
                 },

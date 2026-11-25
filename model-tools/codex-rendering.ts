@@ -1,5 +1,5 @@
 import type { Theme, ToolRenderers } from "@earendil-works/pi-coding-agent";
-import { Box, Container, Text } from "@earendil-works/pi-tui";
+import { Box, Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { selectorText } from "@lanej/pi-components";
 import { resolve } from "node:path";
 import { z } from "zod";
@@ -8,6 +8,7 @@ import {
   diagnosticSnapshot,
   type DiagnosticSnapshot,
 } from "../code-intelligence/diagnostics.ts";
+import { editFileHeading } from "../code-intelligence/diff.ts";
 import { patchSuccess } from "./codex-patch-runner.mjs";
 import { patchEditCallId } from "./patch-diagnostics.ts";
 import { patchEdits } from "./patch-edits.ts";
@@ -30,13 +31,6 @@ const feedback = z.object({
   }),
 });
 
-function fileHeading(theme: Theme, toolName: string, path: string) {
-  const label = theme.fg("accent", selectorText(path));
-  return toolName === ""
-    ? label
-    : `${theme.fg("toolTitle", theme.bold(toolName))} ${label}`;
-}
-
 // While arguments are arriving, only show context supplied in the call. Absolute
 // line numbers and enclosing scopes come from the executor's saved file images.
 function preview(
@@ -49,15 +43,30 @@ function preview(
   const patch = args.success ? args.data.patch : "";
   const limit = context.argsComplete && context.expanded ? 65536 : 4096;
   const source = selectorText(patch.slice(0, limit).replaceAll("\r\n", "\n"));
+  const sourceLines = source.split("\n");
   const lines: string[] = [];
   let fileCount = 0;
-  for (const line of source.split("\n")) {
+  let addedFile = false;
+  for (const [i, line] of sourceLines.entries()) {
     const file = /^\*\*\* (Add|Delete|Update) File: (.+)/u.exec(line);
     if (file !== null) {
       fileCount++;
-      lines.push(theme.fg("accent", file[2] ?? ""));
-      if (file[1] === "Add") lines.push(theme.fg("muted", "Add file"));
-      if (file[1] === "Delete") lines.push(theme.fg("muted", "Delete file"));
+      addedFile = file[1] === "Add";
+      const intent = /^\*\*\* Reason: (.*)$/u.exec(
+        sourceLines[i + 1] ?? "",
+      )?.[1];
+      const note = [intent, file[1] === "Delete" ? "Delete file" : ""]
+        .filter(Boolean)
+        .join(" · ");
+      lines.push(
+        editFileHeading(
+          theme,
+          "",
+          theme.fg("accent", file[2] ?? ""),
+          note,
+          addedFile,
+        ),
+      );
     } else if (fileCount > 0 && line.startsWith("*** Move to: ")) {
       lines.push(
         theme.fg("muted", `Move to ${line.slice("*** Move to: ".length)}`),
@@ -65,7 +74,8 @@ function preview(
     } else if (fileCount > 0 && !context.isError) {
       if (line.startsWith("@@ "))
         lines.push(theme.fg("accent", `╭ ${line.slice(3)}`));
-      if (line.startsWith("+")) lines.push(theme.fg("toolDiffAdded", line));
+      if (line.startsWith("+"))
+        lines.push(addedFile ? line.slice(1) : theme.fg("toolDiffAdded", line));
       if (line.startsWith("-")) lines.push(theme.fg("toolDiffRemoved", line));
       if (line.startsWith(" ")) lines.push(theme.fg("toolDiffContext", line));
     }
@@ -86,15 +96,14 @@ function preview(
   return box;
 }
 
-function changeReason(file: AppliedFile) {
+function fileStatus(file: AppliedFile) {
   if (file.moveTo !== undefined) {
     const moved = `Moved from ${selectorText(file.path)}`;
     return file.overwrote === true
       ? `${moved} · replaced existing destination`
       : moved;
   }
-  if (file.kind === "added")
-    return file.overwrote === true ? "Replaced file" : "Added file";
+  if (file.kind === "added" && file.overwrote === true) return "Replaced file";
   if (file.kind === "deleted") return "Deleted file";
   return "";
 }
@@ -180,7 +189,7 @@ export function patchEditRenderers(
       const batch = files.length > 1;
       if (batch) {
         const count = lastEdit.size;
-        const header = new Box(context.outputPad, 0, (row) =>
+        const header = new Box(context.outputPad, 1, (row) =>
           theme.bg("toolSuccessBg", row),
         );
         const title = theme.fg("toolTitle", theme.bold(toolName));
@@ -188,13 +197,16 @@ export function patchEditRenderers(
           "muted",
           `${String(count)} ${count === 1 ? "file" : "files"}`,
         );
-        header.addChild(new Text(`\n${title}  ${countLabel}`, 0, 0));
+        header.addChild(new Text(`${title}  ${countLabel}`, 0, 0));
         body.addChild(header);
       }
       for (const [i, file] of visible.entries()) {
         const path = file.moveTo ?? file.path;
-        const reason = changeReason(file);
-        const args = { path: selectorText(path), reason };
+        const addedFile = file.kind === "added" && file.overwrote !== true;
+        const reason = [file.reason, fileStatus(file)]
+          .filter(Boolean)
+          .join(" · ");
+        const args = { path: selectorText(path), reason, addedFile };
         const id = patchEditCallId(context.toolCallId, i);
         const annotation = remaining.get(id);
         remaining.delete(id);
@@ -210,20 +222,26 @@ export function patchEditRenderers(
         if (hasDiff) {
           body.addChild(call(args, theme, child));
         } else {
-          const box = new Box(context.outputPad, 1, (row) =>
+          const box = new Box(context.outputPad, 0, (row) =>
             theme.bg("toolSuccessBg", row),
           );
+          if (!batch) box.addChild(new Spacer());
           box.addChild(
-            new Text(fileHeading(theme, child.displayToolName, path), 0, 0),
+            new Text(
+              editFileHeading(
+                theme,
+                child.displayToolName,
+                theme.fg("accent", args.path),
+                reason,
+                addedFile,
+              ),
+              0,
+              0,
+            ),
           );
-          const note = [
-            reason,
-            file.diff === undefined ? "Diff unavailable" : "",
-          ]
-            .filter(Boolean)
-            .join(" · ");
-          if (note !== "")
-            box.addChild(new Text(theme.fg("muted", note), 0, 0));
+          if (file.diff === undefined)
+            box.addChild(new Text(theme.fg("muted", "Diff unavailable"), 0, 0));
+          box.addChild(new Spacer());
           body.addChild(box);
         }
         body.addChild(

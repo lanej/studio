@@ -1,6 +1,10 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { z } from "zod";
+import {
+  editReason,
+  requireEditReason,
+} from "../../code-intelligence/edit-tool.ts";
 import { readFile, replaceText, runShell, writeFile } from "../operations.ts";
 import { piShellArguments, type ShellRequest } from "../shell.ts";
 
@@ -97,10 +101,12 @@ const edit = defineTool({
       file_path: filePath,
       old_string: Type.String({ minLength: 1 }),
       new_string: Type.String(),
+      reason: editReason,
       replace_all: Type.Optional(Type.Boolean()),
     },
     { additionalProperties: false },
   ),
+  prepareArguments: requireEditReason,
   execute(_id, args, _signal, onUpdate, ctx) {
     return replaceText(
       ctx,
@@ -109,7 +115,7 @@ const edit = defineTool({
         oldText: args.old_string,
         newText: args.new_string,
         replaceAll: args.replace_all === true,
-        reason: "No rationale supplied with this Edit.",
+        reason: args.reason,
       },
       onUpdate,
     );
@@ -148,6 +154,7 @@ const streamedFile = z
     file_path: z.string(),
     old_string: z.string(),
     new_string: z.string(),
+    reason: z.string(),
     replace_all: z.boolean(),
   })
   .partial()
@@ -181,6 +188,7 @@ export const claudeTools = [
         // A single-match preview is inaccurate for replace_all. The settled diff covers every replacement.
         return {
           path: input.file_path,
+          reason: input.reason,
           ...(input.replace_all === true
             ? {}
             : { oldText: input.old_string, newText: input.new_string }),

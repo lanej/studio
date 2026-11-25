@@ -11,8 +11,12 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
+  colorToRgb,
   getCapabilities,
   hyperlink,
+  parseColor,
+  rgbColor,
+  type Color,
   sliceByColumn,
   stripTerminalSequences,
   truncateToWidth,
@@ -27,7 +31,42 @@ export function displayEditReason(reason: string): string {
 }
 
 type Highlighter = (text: string, language: string) => string[];
-type DiffTheme = Pick<Theme, "fg" | "bg" | "bold">;
+type HeadingTheme = Pick<Theme, "fg" | "bold">;
+type DiffTheme = HeadingTheme &
+  Pick<Theme, "bg" | "style"> & {
+    colors: Pick<Theme["colors"], "toolDiffAdded" | "toolDiffRemoved">;
+  };
+
+export function editFileHeading(
+  theme: HeadingTheme,
+  toolName: string,
+  pathLabel: string,
+  reason = "",
+  addedFile = false,
+): string {
+  const name =
+    toolName === "" ? "" : `${theme.fg("toolTitle", theme.bold(toolName))} `;
+  const glyph = addedFile ? `${theme.fg("toolDiffAdded", "+")} ` : "";
+  const inlay = displayEditReason(reason);
+  return (
+    name +
+    glyph +
+    pathLabel +
+    (inlay === "" ? "" : theme.fg("muted", `  · ${inlay}`))
+  );
+}
+
+// Choose the more legible ink for the active theme's addition/removal fill.
+function tokenInk(fill: Color) {
+  const { r, g, b } = colorToRgb(fill);
+  const linear = (channel: number) => {
+    const v = channel / 255;
+    return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  const luminance =
+    0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+  return luminance > 0.179 ? rgbColor(0, 0, 0) : rgbColor(255, 255, 255);
+}
 interface DiffLine {
   raw: string;
   prefix: string | undefined;
@@ -68,6 +107,53 @@ export function parseDiffLines(diff: string): DiffLine[] {
     else if (line.prefix === "-") delta--;
   }
   return lines;
+}
+
+interface ChangedToken {
+  start: number;
+  original: string;
+  updated: string;
+}
+
+// Match saved Tree-sitter ranges against both file images before painting any token.
+function changedTokens(
+  lines: DiffLine[],
+  replacements: readonly SyntaxReplacement[] = [],
+) {
+  const tokens = new Map<DiffLine, ChangedToken>();
+  if (replacements.length === 0) return tokens;
+  const byRow = new Map(replacements.map((change) => [change.row, change]));
+  const removed = new Map<string, DiffLine>();
+  for (const [index, line] of lines.entries()) {
+    if (line.prefix === "-") {
+      removed.set(line.number, line);
+      continue;
+    }
+    if (line.prefix !== "+") {
+      removed.clear();
+      continue;
+    }
+    const old = removed.get(line.number);
+    const change = byRow.get(index);
+    if (
+      old === undefined ||
+      change === undefined ||
+      !line.rawCode.startsWith(change.updated, change.start)
+    )
+      continue;
+    const prefix = line.rawCode.slice(0, change.start);
+    const suffix = line.rawCode.slice(change.start + change.updated.length);
+    if (old.rawCode !== prefix + change.original + suffix) continue;
+    const token = {
+      start: visibleWidth(clean(prefix)),
+      original: clean(change.original),
+      updated: clean(change.updated),
+    };
+    tokens.set(old, token);
+    tokens.set(line, token);
+    removed.delete(line.number);
+  }
+  return tokens;
 }
 
 export function inlineDiagnosticLines(diff: string): ReadonlySet<number> {
@@ -135,6 +221,7 @@ export function syntaxDiffRows(
   diagnostics: DiagnosticSnapshot["diagnostics"] = [],
   details: {
     reason?: string;
+    addedFile?: boolean | undefined;
     displayToolName?: string | undefined;
     scopes?: readonly DiffScope[];
     replacements?: readonly SyntaxReplacement[];
@@ -185,6 +272,7 @@ export function syntaxDiffRows(
   const pad = (text: string, columns: number) =>
     text + " ".repeat(Math.max(0, columns - visibleWidth(text)));
   const toolBackground = theme.bg("toolSuccessBg", "").replace("\x1b[49m", "");
+  const restoreBackground = toolBackground === "" ? "\x1b[49m" : toolBackground;
   const background = (line: DiffLine, row: string): string => {
     const color =
       line.prefix === "+"
@@ -192,23 +280,67 @@ export function syntaxDiffRows(
         : line.prefix === "-"
           ? display.removed_background
           : undefined;
-    if (color === undefined) return row;
+    if (color === undefined)
+      return row.replaceAll("\x1b[49m", restoreBackground);
     const rgb = [1, 3, 5].map((offset) =>
       Number.parseInt(color.slice(offset, offset + 2), 16),
     );
     const start = `\x1b[48;2;${rgb.join(";")}m`;
     return (
       start +
-      row.replaceAll("\x1b[0m", `\x1b[0m${start}`) +
-      (toolBackground === "" ? "\x1b[49m" : toolBackground)
+      row
+        .replaceAll("\x1b[0m", `\x1b[0m${start}`)
+        .replaceAll("\x1b[49m", start) +
+      restoreBackground
     );
   };
-  const tone = (line: DiffLine) =>
-    line.prefix === "+"
-      ? "toolDiffAdded"
-      : line.prefix === "-"
-        ? "toolDiffRemoved"
-        : "toolDiffContext";
+  const lineLabel = (mark: string, number: string) => {
+    const tone =
+      mark === "+"
+        ? "toolDiffAdded"
+        : mark === "-"
+          ? "toolDiffRemoved"
+          : "warning";
+    return (
+      (mark === " " ? " " : theme.fg(tone, theme.bold(mark))) +
+      theme.fg("toolDiffContext", `${number.padStart(digits)} `)
+    );
+  };
+  const tokens = changedTokens(lines, details.replacements);
+  const token = (
+    text: string,
+    tone: "toolDiffAdded" | "toolDiffRemoved",
+    override?: string,
+  ) => {
+    const bg =
+      override === undefined ? theme.colors[tone] : parseColor(override);
+    return theme.style(text, { bg, fg: tokenInk(bg), bold: true });
+  };
+  const markedCode = (line: DiffLine, compact: boolean) => {
+    const removed = line.prefix === "-";
+    const code = (removed ? line.before : line.after) ?? line.code;
+    const change = tokens.get(line);
+    if (change === undefined) return code;
+    const text = removed ? change.original : change.updated;
+    const fill = compact
+      ? token(change.original, "toolDiffRemoved", display.removed_background) +
+        theme.fg("dim", " → ") +
+        token(change.updated, "toolDiffAdded", display.added_background)
+      : token(text, removed ? "toolDiffRemoved" : "toolDiffAdded");
+    // Restore the file card after the token, or let the configured row tint take over.
+    const painted = compact
+      ? fill.replaceAll("\x1b[49m", restoreBackground)
+      : fill;
+    return (
+      sliceByColumn(code, 0, change.start) +
+      painted +
+      sliceByColumn(
+        code,
+        change.start + visibleWidth(text),
+        Number.POSITIVE_INFINITY,
+      )
+    );
+  };
   const cell = (
     line: DiffLine | undefined,
     side: "before" | "after",
@@ -220,7 +352,9 @@ export function syntaxDiffRows(
         theme.fg("toolDiffContext", clean(line.raw)),
         columns,
       ).map((row) => pad(row, columns));
-    const code = (side === "before" ? line.before : line.after) ?? line.code;
+    const code = tokens.has(line)
+      ? markedCode(line, false)
+      : ((side === "before" ? line.before : line.after) ?? line.code);
     const number = side === "before" ? line.beforeNumber : line.afterNumber;
     const issues = side === "after" ? (issuesByLine.get(number) ?? []) : [];
     const ranges =
@@ -231,9 +365,9 @@ export function syntaxDiffRows(
               (issue.endLine ?? issue.line) >= Number(number),
           )
         : [];
-    const label = theme.fg(
-      tone(line),
-      `${line.prefix}${number.padStart(digits)} `,
+    const label = lineLabel(
+      details.addedFile === true ? " " : line.prefix,
+      number,
     );
     const indent = columns > gutter ? " ".repeat(gutter) : "";
     let cursor = 0;
@@ -291,70 +425,25 @@ export function syntaxDiffRows(
         (newRows[row] ?? " ".repeat(rightWidth)),
     );
   };
-  const compactWordRows = (): Map<DiffLine, string> | undefined => {
-    if (details.replacements === undefined || details.replacements.length === 0)
-      return undefined;
-    const replacements = new Map(
-      details.replacements.map((change) => [change.row, change]),
-    );
-    const pending = new Map<string, DiffLine>();
-    const rows = new Map<DiffLine, string>();
-    for (const [index, line] of lines.entries()) {
-      if (line.prefix === "-") {
-        pending.set(line.number, line);
-        continue;
-      }
-      if (line.prefix !== "+") {
-        if (pending.size > 0) return undefined;
-        continue;
-      }
-      const removed = pending.get(line.number);
-      if (removed === undefined) return undefined;
-      pending.delete(line.number);
+  const compact =
+    tokens.size > 0 &&
+    lines.every((line) => {
+      if (line.prefix !== "+" && line.prefix !== "-") return true;
+      const change = tokens.get(line);
+      if (change === undefined) return false;
+      if (line.prefix === "-") return true;
       const number = Number(line.afterNumber);
-      if (
-        activeIssues.some(
+      return (
+        gutter + visibleWidth(line.code) + visibleWidth(change.original) + 3 <=
+          inner &&
+        !activeIssues.some(
           (issue) =>
             issue.line <= number && (issue.endLine ?? issue.line) >= number,
         )
-      )
-        return undefined;
-      const codeWidth = visibleWidth(line.code);
-      if (gutter + Math.max(codeWidth, visibleWidth(removed.code)) >= inner)
-        return undefined;
-      const change = replacements.get(index);
-      if (
-        change === undefined ||
-        !line.rawCode.startsWith(change.updated, change.start)
-      )
-        return undefined;
-      const prefix = line.rawCode.slice(0, change.start);
-      const suffix = line.rawCode.slice(change.start + change.updated.length);
-      // A saved range must still explain the entire difference between this pair of lines.
-      if (removed.rawCode !== prefix + change.original + suffix)
-        return undefined;
-      const original = clean(change.original);
-      const replacement = clean(change.updated);
-      if (gutter + codeWidth + visibleWidth(original) + 3 > inner)
-        return undefined;
-      const code = line.after ?? line.code;
-      const prefixWidth = visibleWidth(clean(prefix));
-      const suffixStart = prefixWidth + visibleWidth(replacement);
-      rows.set(
-        line,
-        theme.fg("toolDiffContext", `~${line.number.padStart(digits)} `) +
-          sliceByColumn(code, 0, prefixWidth) +
-          background(removed, theme.fg("toolDiffRemoved", original)) +
-          theme.fg("dim", " → ") +
-          background(line, theme.fg("toolDiffAdded", replacement)) +
-          sliceByColumn(code, suffixStart, Number.POSITIVE_INFINITY),
       );
-    }
-    return pending.size === 0 ? rows : undefined;
-  };
+    });
   const body: string[] = [];
   const scopes = new Map(details.scopes?.map(({ row, label }) => [row, label]));
-  const compact = hasAdditions && hasDeletions ? compactWordRows() : undefined;
   let index = 0;
   while (index < lines.length) {
     const line = lines[index];
@@ -372,9 +461,9 @@ export function syntaxDiffRows(
           inner,
         ),
       );
-    if (compact !== undefined) {
-      const replacement = compact.get(line);
-      if (replacement !== undefined) body.push(replacement);
+    if (compact) {
+      if (line.prefix === "+")
+        body.push(lineLabel("~", line.number) + markedCode(line, true));
       else if (line.prefix !== "-") body.push(...cell(line, "after", inner));
     } else if (!split) {
       body.push(...cell(line, line.prefix === "-" ? "before" : "after", inner));
@@ -404,18 +493,16 @@ export function syntaxDiffRows(
   const pathLabel = getCapabilities().hyperlinks
     ? hyperlink(label, pathToFileURL(rawPath).href)
     : label;
-  const reason = displayEditReason(details.reason ?? "");
-  const toolName = details.displayToolName ?? "edit";
-  const header =
-    toolName === ""
-      ? pathLabel
-      : `${theme.fg("toolTitle", theme.bold(toolName))} ${pathLabel}`;
+  const header = editFileHeading(
+    theme,
+    details.displayToolName ?? "edit",
+    pathLabel,
+    details.reason,
+    details.addedFile,
+  );
   return [
-    "",
+    ...(details.displayToolName === "" ? [] : [""]),
     ...wrapTextWithAnsi(header, inner),
-    ...(reason.length > 0
-      ? wrapTextWithAnsi(theme.fg("muted", reason), inner)
-      : [""]),
     ...body,
     "",
   ].map((line) =>

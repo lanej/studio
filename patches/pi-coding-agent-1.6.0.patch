@@ -515,15 +515,17 @@ index cc28afe3a71e57f933fffe7bcf9fc0ec399e5332..fce3f21553be2a671044c6510883e3ae
          "clearOnShrink": {
            "type": "boolean",
 diff --git a/dist/core/extensions/types.d.ts b/dist/core/extensions/types.d.ts
-index f784e083e2644e0fb14fe023c94ec7c8605b819a..2c6c86045223dce9b5574cd1b39b6b016b63f948 100644
+index f784e083e2644e0fb14fe023c94ec7c8605b819a..f249f05f3366068eeb1f8b8c39b756eb80a09998 100644
 --- a/dist/core/extensions/types.d.ts
 +++ b/dist/core/extensions/types.d.ts
-@@ -365,6 +365,8 @@ export interface ToolRenderResultOptions {
+@@ -365,6 +365,10 @@
  }
  /** Context passed to tool renderers. */
  export interface ToolRenderContext<TState = any, TArgs = any> extends KeybindingHints {
 +    /** Visible tool name when reusing a native renderer. An empty edit name shows only its file path. */
 +    displayToolName?: string;
++    /** Format a Studio edit heading using the native styled path, including in previews and errors. */
++    renderEditHeading?: (pathLabel: string) => string;
      /** Current tool call arguments. Shared across call/result renders for the same tool call. */
      args: TArgs;
      /** Unique id for this tool execution. Stable across call/result renders for the same tool call. */
@@ -541,22 +543,23 @@ index 43430f16caa03ec9b2c57a5e105b257f4b11416b..dabb4e6914085175b8ee4331acb3b9e0
          },
          renderResult(result, options, _theme, context) {
 diff --git a/dist/core/tools/renderers/edit.js b/dist/core/tools/renderers/edit.js
-index a64a3d1da0d346cf6df32489c5f1346ad1e173b9..f155c0fcec395a19f9e6cef80d048bbfe158ca39 100644
+index a64a3d1da0d346cf6df32489c5f1346ad1e173b9..d512d874b6ab2ca6b43ec446bb42bc822fc7ddee 100644
 --- a/dist/core/tools/renderers/edit.js
 +++ b/dist/core/tools/renderers/edit.js
-@@ -48,9 +48,9 @@ function getRenderablePreviewInput(args) {
+@@ -48,9 +48,10 @@
      }
      return null;
  }
 -function formatEditCall(args, theme, cwd) {
-+function formatEditCall(args, theme, cwd, toolName = "edit") {
++function formatEditCall(args, theme, cwd, toolName = "edit", renderHeading) {
      const pathDisplay = renderToolPath(str(args?.file_path ?? args?.path), theme, cwd);
 -    return `${theme.fg("toolTitle", theme.bold("edit"))} ${pathDisplay}`;
++    if (renderHeading) return renderHeading(pathDisplay);
 +    return toolName === "" ? pathDisplay : `${theme.fg("toolTitle", theme.bold(toolName))} ${pathDisplay}`;
  }
  function formatEditResult(args, preview, result, theme, isError) {
      const rawPath = str(args?.file_path ?? args?.path);
-@@ -84,11 +84,11 @@ function getEditHeaderBg(preview, settledError, theme) {
+@@ -84,11 +85,11 @@
      }
      return (text) => theme.bg("toolPendingBg", text);
  }
@@ -566,11 +569,19 @@ index a64a3d1da0d346cf6df32489c5f1346ad1e173b9..f155c0fcec395a19f9e6cef80d048bbf
      component.setPaddingX(outputPad);
      component.clear();
 -    component.addChild(new Text(formatEditCall(args, theme, cwd), 0, 0));
-+    component.addChild(new Text(formatEditCall(args, theme, cwd, toolName), 0, 0));
++    component.addChild(new Text(formatEditCall(args, theme, cwd, toolName, component.renderEditHeading), 0, 0));
      if (!component.preview) {
          return component;
      }
-@@ -132,7 +132,7 @@ export const editRenderers = {
+@@ -114,6 +115,7 @@
+ export const editRenderers = {
+     renderCall(args, theme, context) {
+         const component = getEditCallRenderComponent(context.state, context.lastComponent);
++        component.renderEditHeading = context.renderEditHeading;
+         const previewInput = getRenderablePreviewInput(args);
+         const argsKey = previewInput ? JSON.stringify({ path: previewInput.path, edits: previewInput.edits }) : undefined;
+         if (component.previewArgsKey !== argsKey) {
+@@ -132,7 +134,7 @@
                  }
              });
          }
@@ -579,7 +590,7 @@ index a64a3d1da0d346cf6df32489c5f1346ad1e173b9..f155c0fcec395a19f9e6cef80d048bbf
      },
      renderResult(result, _options, theme, context) {
          const callComponent = context.state.callComponent;
-@@ -151,7 +151,7 @@ export const editRenderers = {
+@@ -151,7 +153,7 @@
                  changed = true;
              }
              if (changed) {

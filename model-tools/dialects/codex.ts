@@ -43,10 +43,15 @@ const patch = defineTool({
   name: "apply_patch",
   label: "Apply patch",
   description:
-    "Apply a Codex patch to files in the working directory. The patch begins with *** Begin Patch and ends with *** End Patch.",
+    "Apply a Codex patch, from *** Begin Patch to *** End Patch. Immediately after each Add File, Update File, or Delete File header, include '*** Reason: ' followed by one short sentence explaining why that file changes. For moves, put the reason before *** Move to:.",
   promptSnippet: "Add, update, move, or delete files with a patch",
   parameters: Type.Object(
-    { patch: Type.String({ description: "The complete Codex patch text" }) },
+    {
+      patch: Type.String({
+        description:
+          "The complete patch, including a *** Reason: line for each file.",
+      }),
+    },
     { additionalProperties: false },
   ),
   constrainedSampling: {

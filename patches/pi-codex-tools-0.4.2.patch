@@ -1,8 +1,39 @@
 diff --git a/src/apply-patch.ts b/src/apply-patch.ts
-index ac97eef95a9174a48b1c827a0b465a328ae6ca19..6e7aab1b735b9a6b7d9f006ec48de9f79c3ba062 100644
+index ac97eef95a9174a48b1c827a0b465a328ae6ca19..a2ff64d8b3bf87189bfa89b53e86a2ca2dd7a562 100644
 --- a/src/apply-patch.ts
 +++ b/src/apply-patch.ts
-@@ -53,6 +53,10 @@ export interface ApplyPatchResult {
+@@ -15,10 +15,11 @@ begin_patch: "*** Begin Patch" LF
+ end_patch: "*** End Patch" LF?
+ 
+ hunk: add_hunk | delete_hunk | update_hunk
+-add_hunk: "*** Add File: " filename LF add_line+
+-delete_hunk: "*** Delete File: " filename LF
+-update_hunk: "*** Update File: " filename LF change_move? change?
++add_hunk: "*** Add File: " filename LF reason add_line+
++delete_hunk: "*** Delete File: " filename LF reason
++update_hunk: "*** Update File: " filename LF reason change_move? change?
+ filename: /(.+)/
++reason: "*** Reason: " /(.+)/ LF
+ add_line: "+" /(.*)/ LF -> line
+ 
+ change_move: "*** Move to: " filename LF
+@@ -41,18 +42,23 @@ export interface UpdateChunk {
+   endOfFile: boolean;
+ }
+ 
+-export type ApplyPatchHunk =
++export type ApplyPatchHunk = { reason: string } & (
+   | { kind: "add"; path: string; content: string }
+   | { kind: "delete"; path: string }
+-  | { kind: "update"; path: string; moveTo?: string; chunks: UpdateChunk[] };
++  | { kind: "update"; path: string; moveTo?: string; chunks: UpdateChunk[] }
++);
+ 
+ export interface ApplyPatchResult {
+-  changes: Array<{ kind: "added" | "updated" | "deleted"; path: string; moveTo?: string }>;
++  changes: Array<{ kind: "added" | "updated" | "deleted"; path: string; reason: string; moveTo?: string }>;
+ }
+ 
  export interface ApplyPatchOptions {
    cwd: string;
    signal?: AbortSignal;
@@ -13,19 +44,84 @@ index ac97eef95a9174a48b1c827a0b465a328ae6ca19..6e7aab1b735b9a6b7d9f006ec48de9f7
  }
  
  export function parseApplyPatch(input: string): ApplyPatchHunk[] {
-@@ -222,9 +226,9 @@ function headerPath(line: string, marker: string, lineNumber: number): string {
+@@ -81,7 +87,8 @@ export function parseApplyPatch(input: string): ApplyPatchHunk[] {
+ 
+     if (trimmed.startsWith("*** Add File: ")) {
+       const path = headerPath(trimmed, "*** Add File: ", index + 1);
+-      index++;
++      const reason = fileReason(lines, index + 1);
++      index += 2;
+       const content: string[] = [];
+       while (index < lines.length - 1 && !isHunkHeader(lines[index])) {
+         if (!lines[index].startsWith("+")) {
+@@ -93,20 +100,22 @@ export function parseApplyPatch(input: string): ApplyPatchHunk[] {
+       if (content.length === 0) {
+         throw new Error(`Add hunk for '${path}' must contain at least one line.`);
+       }
+-      hunks.push({ kind: "add", path, content: `${content.join("\n")}\n` });
++      hunks.push({ kind: "add", path, reason, content: `${content.join("\n")}\n` });
+       continue;
+     }
+ 
+     if (trimmed.startsWith("*** Delete File: ")) {
+       const path = headerPath(trimmed, "*** Delete File: ", index + 1);
+-      hunks.push({ kind: "delete", path });
+-      index++;
++      const reason = fileReason(lines, index + 1);
++      hunks.push({ kind: "delete", path, reason });
++      index += 2;
+       continue;
+     }
+ 
+     if (trimmed.startsWith("*** Update File: ")) {
+       const path = headerPath(trimmed, "*** Update File: ", index + 1);
+-      index++;
++      const reason = fileReason(lines, index + 1);
++      index += 2;
+       let moveTo: string | undefined;
+       if (index < lines.length - 1 && lines[index].startsWith("*** Move to: ")) {
+         moveTo = headerPath(lines[index], "*** Move to: ", index + 1);
+@@ -177,7 +186,7 @@ export function parseApplyPatch(input: string): ApplyPatchHunk[] {
+       if (chunks.length === 0 || chunks.every((chunk) => chunk.oldLines.length === 0 && chunk.newLines.length === 0)) {
+         throw new Error(`Update hunk for '${path}' must contain change lines.`);
+       }
+-      hunks.push({ kind: "update", path, moveTo, chunks });
++      hunks.push({ kind: "update", path, moveTo, reason, chunks });
+       continue;
+     }
+ 
+@@ -214,6 +223,15 @@ function isUpdateBoundary(line: string): boolean {
+   );
  }
  
- type PlannedOperation =
++// Consume metadata only in the header. A context or added line can contain the literal marker.
++function fileReason(lines: string[], index: number): string {
++  const prefix = "*** Reason: ";
++  const line = lines[index] ?? "";
++  const reason = line.startsWith(prefix) ? line.slice(prefix.length).trim() : "";
++  if (!reason) throw new Error(`Expected '*** Reason: <why this file changes>' at patch line ${index + 1}.`);
++  return reason;
++}
++
+ function headerPath(line: string, marker: string, lineNumber: number): string {
+   const path = line.slice(marker.length).trim();
+   if (!path) throw new Error(`Missing path at patch line ${lineNumber}.`);
+@@ -221,10 +239,11 @@ function headerPath(line: string, marker: string, lineNumber: number): string {
+   return path;
+ }
+ 
+-type PlannedOperation =
 -  | { kind: "add"; path: string; displayPath: string; content: string }
++type PlannedOperation = { reasons: Set<string> } & (
 +  | { kind: "add"; path: string; displayPath: string; content: string; overwrote?: boolean }
    | { kind: "delete"; path: string; displayPath: string }
 -  | { kind: "update"; path: string; displayPath: string; moveTo?: string; moveDisplayPath?: string; chunkGroups: UpdateChunk[][]; content: string };
-+  | { kind: "update"; path: string; displayPath: string; moveTo?: string; moveDisplayPath?: string; overwrote?: boolean; original?: string; chunkGroups: UpdateChunk[][]; content: string };
++  | { kind: "update"; path: string; displayPath: string; moveTo?: string; moveDisplayPath?: string; overwrote?: boolean; original?: string; chunkGroups: UpdateChunk[][]; content: string }
++);
  
  type VirtualFile = { exists: boolean; isDirectory: boolean; isFile: boolean; isSymbolicLink?: boolean; content?: string };
  
-@@ -239,10 +243,11 @@ export async function applyPatch(input: string, options: ApplyPatchOptions): Pro
+@@ -239,10 +258,11 @@ export async function applyPatch(input: string, options: ApplyPatchOptions): Pro
    });
  
    return withMutationLocks(lockPaths, async () => {
@@ -38,7 +134,15 @@ index ac97eef95a9174a48b1c827a0b465a328ae6ca19..6e7aab1b735b9a6b7d9f006ec48de9f7
        throwIfAborted(options.signal);
        if (operation.kind === "add") {
          await writeTargetFile(operation.path, operation.content, options.signal);
-@@ -270,8 +275,16 @@ export async function applyPatch(input: string, options: ApplyPatchOptions): Pro
+@@ -261,6 +281,7 @@ export async function applyPatch(input: string, options: ApplyPatchOptions): Pro
+       changes: operations.map((operation) => ({
+         kind: operation.kind === "add" ? "added" : operation.kind === "delete" ? "deleted" : "updated",
+         path: operation.displayPath,
++        reason: [...operation.reasons].join(" "),
+         ...(operation.kind === "update" && operation.moveDisplayPath ? { moveTo: operation.moveDisplayPath } : {}),
+       })),
+     };
+@@ -270,8 +291,16 @@ export async function applyPatch(input: string, options: ApplyPatchOptions): Pro
  async function planOperations(
    hunks: ApplyPatchHunk[],
    cwd: string,
@@ -56,7 +160,7 @@ index ac97eef95a9174a48b1c827a0b465a328ae6ca19..6e7aab1b735b9a6b7d9f006ec48de9f7
    const operations: PlannedOperation[] = [];
    const virtualFiles = new Map<string, VirtualFile>();
  
-@@ -299,12 +312,14 @@ async function planOperations(
+@@ -299,12 +328,15 @@ async function planOperations(
        if (source.file.isDirectory || (source.file.exists && !source.file.isFile)) {
          throw new Error(`Cannot add file over non-file '${hunk.path}'.`);
        }
@@ -67,11 +171,25 @@ index ac97eef95a9174a48b1c827a0b465a328ae6ca19..6e7aab1b735b9a6b7d9f006ec48de9f7
        source.file.content = hunk.content;
        operations.push({
          kind: "add",
++        reasons: new Set([hunk.reason]),
 +        overwrote,
          path: source.absolute,
          displayPath: sourceDisplay,
          content: hunk.content,
-@@ -344,7 +359,9 @@ async function planOperations(
+@@ -315,7 +347,7 @@ async function planOperations(
+     if (hunk.kind === "delete") {
+       if (!source.file.exists) throw new Error(`Cannot delete missing file '${hunk.path}'.`);
+       if (!source.file.isSymbolicLink && (source.file.isDirectory || !source.file.isFile)) throw new Error(`Cannot delete non-file '${hunk.path}'.`);
+-      operations.push({ kind: "delete", path: source.absolute, displayPath: sourceDisplay });
++      operations.push({ kind: "delete", path: source.absolute, displayPath: sourceDisplay, reasons: new Set([hunk.reason]) });
+       source.file.exists = false;
+       source.file.isSymbolicLink = false;
+       source.file.content = undefined;
+@@ -341,10 +373,13 @@ async function planOperations(
+       const sourceEntry = await getVirtualFile(hunk.path, false);
+       operations.push({
+         kind: "update",
++        reasons: new Set([hunk.reason]),
          path: sourceEntry.absolute,
          displayPath: sourceDisplay,
          moveTo: destination.absolute,
@@ -81,8 +199,16 @@ index ac97eef95a9174a48b1c827a0b465a328ae6ca19..6e7aab1b735b9a6b7d9f006ec48de9f7
          chunkGroups: [[...hunk.chunks]],
          content,
        });
-@@ -367,6 +384,7 @@ async function planOperations(
+@@ -361,12 +396,15 @@ async function planOperations(
+     const previous = operations.at(-1);
+     if (previous?.kind === "update" && previous.path === source.absolute && !previous.moveTo) {
+       previous.content = content;
++      previous.reasons.add(hunk.reason);
+       previous.chunkGroups.push([...hunk.chunks]);
+     } else {
+       operations.push({
          kind: "update",
++        reasons: new Set([hunk.reason]),
          path: source.absolute,
          displayPath: sourceDisplay,
 +        original: retainOriginal(original),
