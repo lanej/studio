@@ -26,6 +26,7 @@ import uuid
 import pyte
 from local_provider import tool_delta
 from PIL import Image, ImageDraw, ImageFont
+from socrates_fixture import message_text
 
 
 root = Path(__file__).resolve().parents[1]
@@ -52,6 +53,63 @@ scope_gap = "The lead and its dock share a draft. Decide whether another session
 risk_gap = "Results are tagged by project. Verify a delayed poll cannot update a different session."
 verification_gap = "Question and resume are covered. A stale assessment still needs a native check."
 harmony_gap = "The dock and inspector read the same draft. Confirm they flag the same property after a revision."
+ownership_prompt = "Let's settle who owns assessment freshness when an operator edits a requirement."
+ownership_question = "Which component owns assessment freshness after a requirement changes?"
+ownership_answer = "The discovery store"
+ownership_criterion = "After a requirement changes, reopening the sidebar shows the stale assessment recorded by the discovery store."
+release_diagram = Event()
+
+
+def ownership_turn(request, draft):
+    """Model a decision-driven C4 turn against the native discovery tools."""
+    last = request["messages"][-1]
+    call = last.get("tool_call_id")
+    if last["role"] == "user" or call == "ask-owner":
+        resolved = call == "ask-owner"
+        if resolved:
+            assert message_text(last) == f"Operator answer for D1: {ownership_answer}", last
+        else:
+            system = "\n".join(message_text(m) for m in request["messages"] if m["role"] == "system")
+            host = system.split("# Pi host adapter", 1)[1]
+            assert all(term in host for term in ("C4", "ownership", "Mermaid", "sequence diagram", "ask_user_question")), host
+        decision = {**draft["decisions"][0], "decision": "Choose the owner of assessment freshness",
+                    "disposition": "resolved" if resolved else "open", "basis": "decided" if resolved else "observed",
+                    "evidence": ownership_answer if resolved else "The operator asked to settle ownership.",
+                    "uncertainty": "None" if resolved else ownership_question}
+        scope = {"propertyId": "scope", "status": "satisfied" if resolved else "open",
+                 "reason": ownership_answer if resolved else ownership_question}
+        coverage = {**draft["coverage"], "focus": "verification" if resolved else "scope", "assessments": [
+            scope if item["propertyId"] == "scope" else item for item in draft["coverage"]["assessments"]
+        ]}
+        return tool_delta("record-owner" if resolved else "draft-ownership", "draft_socrates_specification", {
+            **draft, "decisions": [decision], "blockingQuestions": [] if resolved else [ownership_question],
+            "requirements": [{"id": "R1", "outcome": "Keep assessment freshness consistent",
+                              "acceptance": ownership_criterion if resolved else "Reopen the sidebar after a requirement changes."}],
+            "coverage": coverage,
+        })
+    if call == "draft-ownership":
+        assert "Draft saved" in message_text(last), last
+        return tool_delta("ownership-diagram", "show_diagram", {
+            "title": "Assessment ownership", "systemId": "studio", "view": "container",
+            "nodes": [
+                {"id": "studio", "kind": "system", "label": "Studio", "detail": "Develops a specification with the operator."},
+                {"id": "lead", "kind": "container", "label": "Lead console", "detail": "Captures requirement edits."},
+                {"id": "store", "kind": "container", "label": "Discovery store", "detail": "Persists the current draft."},
+                {"id": "sidebar", "kind": "container", "label": "Status sidebar", "detail": "Displays the current assessments."},
+            ],
+            "edges": [{"from": "lead", "to": "store", "label": "Saves revisions"},
+                      {"from": "sidebar", "to": "store", "label": "Reads assessments"}],
+        })
+    if call == "ownership-diagram":
+        assert message_text(last) == "Diagram shown.", last
+        assert release_diagram.wait(20), "Native diagram was not visible"
+        return tool_delta("ask-owner", "ask_user_question", {
+            "decisionId": "D1", "question": ownership_question,
+            "options": [{"label": ownership_answer, "description": "Persist freshness once for every view."},
+                        {"label": "Each view", "description": "Determine freshness every time a view opens."}],
+        })
+    assert call == "record-owner" and "Draft saved" in message_text(last), last
+    return {"role": "assistant", "content": "The ownership decision is recorded."}
 
 
 class Provider(BaseHTTPRequestHandler):
@@ -122,7 +180,9 @@ Harmony depends on the same check. After the revision, the sidebar and inspector
 Should the native test change R1 and check both views?""")
         delta = {"role": "assistant", "content": reply}
         last = request["messages"][-1]
-        if user_messages and "Explain which properties remain open" in user_messages[-1]:
+        if user_messages and ownership_prompt in user_messages[-1]:
+            delta = ownership_turn(request, self.server.in_progress_draft)
+        elif user_messages and "Explain which properties remain open" in user_messages[-1]:
             if last["role"] == "user":
                 guidance_received.set()
                 if not release_reassessment.wait(20):
@@ -878,6 +938,27 @@ def run(output):
             terminal.contains("Problem First")
             terminal.assert_mark("Problem First", "○", "status.error")
             assert "Review changes in the dock" not in terminal.rail_text(), terminal.rail_text()
+            terminal.send(ownership_prompt + "\r")
+            terminal.contains("Assessment ownership")
+            terminal.contains("Discovery store")
+            terminal.wait_for_rail()
+            terminal.capture("socrates-draft-diagram")
+            release_diagram.set()
+            terminal.contains(ownership_question)
+            terminal.contains(ownership_answer)
+            with sqlite3.connect(home / "state/discoveries.sqlite") as db:
+                query = "SELECT record FROM discoveries WHERE json_extract(record, '$.title') = 'Fresh discovery'"
+                pending = json.loads(db.execute(query).fetchone()[0])["specification"]
+                assert pending["exchange"]["prompt"]["question"] == ownership_question and "answer" not in pending["exchange"]
+                assert pending["draft"]["blockingQuestions"] == [ownership_question]
+                terminal.send("\r")
+                terminal.contains("The ownership decision is recorded.")
+                saved = json.loads(db.execute(query).fetchone()[0])["specification"]
+            assert "exchange" not in saved and saved["draft"]["blockingQuestions"] == [], saved
+            assert saved["draft"]["decisions"][0]["evidence"] == ownership_answer, saved
+            assert saved["draft"]["requirements"][0]["acceptance"] == ownership_criterion, saved
+            assert any(item["propertyId"] == "scope" and item["status"] == "satisfied"
+                       for item in saved["draft"]["coverage"]["assessments"]), saved
         finally:
             terminal.close()
             provider.shutdown()
@@ -892,4 +973,4 @@ if __name__ == "__main__":
         run(parser.parse_args().output)
     finally:
         faulthandler.cancel_dump_traceback_later()
-    print("Native property-first planning, reviewed graph expansion, palette surfaces, and fullscreen, regular and narrow terminal interactions passed.")
+    print("Native property-first planning, design diagrams and decisions, reviewed graph expansion, palette surfaces, and fullscreen, regular and narrow terminal interactions passed.")
