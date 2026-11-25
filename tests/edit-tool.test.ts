@@ -244,4 +244,11 @@ await test("Claude Edit keeps exact matching and literal replace_all inside Stud
   assert.equal(await readFile(path, "utf8"), original);
   await replace("“one”\ntwo", "all");
   assert.equal(await readFile(path, "utf8"), "\uFEFF$&\r\n$1\r\n$&\r\n$1\r\n");
+
+  const braces = "}\n}\n}\n";
+  await writeFile(path, braces);
+  await assert.rejects(replace("}\n}", "exact"), /multiple locations/u);
+  assert.equal(await readFile(path, "utf8"), braces);
+  await replace("}\n}", "all");
+  assert.equal(await readFile(path, "utf8"), "$&\n$1\n}\n");
 });

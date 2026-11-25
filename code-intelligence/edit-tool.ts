@@ -116,10 +116,7 @@ async function exactEdit(
     const first = before.indexOf(oldText);
     if (first === -1)
       throw new Error("old_string does not match the file exactly.");
-    if (
-      mode === "exact" &&
-      before.indexOf(oldText, first + oldText.length) !== -1
-    )
+    if (mode === "exact" && before.indexOf(oldText, first + 1) !== -1)
       throw new Error(
         "old_string matches multiple locations. Add context or set replace_all.",
       );
