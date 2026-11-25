@@ -6,7 +6,9 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -19,7 +21,7 @@ import { z } from "zod";
 const execute = promisify(execFile);
 const root = fileURLToPath(new URL("../", import.meta.url));
 
-await test("manifest-only source exports include the imported history binding module", async () => {
+await test("manifest-only source exports preserve extension modules and the installed editor runtime", async () => {
   const temporary = await mkdtemp(join(tmpdir(), "studio-source-export-"));
   try {
     // Start from the checked-in snapshot boundary. Exporting from Git first
@@ -65,8 +67,11 @@ await test("manifest-only source exports include the imported history binding mo
       await readFile(join(root, "keybindings.ts")),
     );
     for (const resource of [
-      "resources/nvim/bootstrap.lua",
-      "resources/nvim/lua/studio_documents.lua",
+      "package.json",
+      "bun.lock",
+      "documents/editor.ts",
+      "documents/provider.ts",
+      "documents/workspace.ts",
     ]) {
       assert.deepEqual(
         await readFile(join(artifact, resource)),
@@ -86,6 +91,34 @@ await test("manifest-only source exports include the imported history binding mo
         join(temporary, "build"),
       ],
       { env, timeout: 15_000 },
+    );
+    // Reuse installed dependencies to exercise their public resource exports
+    // from the source artifact without a network install.
+    await symlink(join(root, "node_modules"), join(artifact, "node_modules"));
+    const report = z
+      .object({ available: z.literal(true), paths: z.array(z.string()) })
+      .parse(
+        JSON.parse(
+          (
+            await execute(
+              process.execPath,
+              [
+                "--no-env-file",
+                "-e",
+                'import { inspectPackageResources } from "./package-resources.ts"; console.log(JSON.stringify(await inspectPackageResources()));',
+              ],
+              { cwd: artifact, env, timeout: 15_000 },
+            )
+          ).stdout,
+        ),
+      );
+    assert.ok(
+      (await Promise.all(report.paths.map((path) => realpath(path)))).includes(
+        await realpath(
+          fileURLToPath(import.meta.resolve("@lanej/editor-interop/neovim")),
+        ),
+      ),
+      "the exported Studio resource check resolves the installed editor package's public runtime",
     );
   } finally {
     await rm(temporary, { recursive: true, force: true });

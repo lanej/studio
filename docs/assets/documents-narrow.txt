@@ -1,5 +1,5 @@
                                                                                         
-                                             Studio · conflict · specification          
+                                             Editor · conflict · Specification          
                                             ↻   1 # Specification   Answered · Clarified
  draft_socrates_specification                   3                                       
  objective="Review the complete proposal        5 ## Objective                          
@@ -13,7 +13,7 @@
                                                17 ## Scope 2                            
                                                18                                       
  document_feedback_outcome                     19 Selection feedback with outcomes      
- requestId="13037-2809b00b74b43-1f"            21                                       
+ requestId="af9b-28732e6ae1e04-3"              21                                       
  summary="Clarified the acceptance check."     23 ## Requirement R1                     
  Clarified the acceptance check.               24                                       
                                                26 id = "R1"                             
@@ -27,6 +27,6 @@
   Review the complete proposal in Neovim.      38                                       
 ───────────────────────────────────────────    39 Saving updates Studio; explicit Studio
                                                    review alone freezes the specifica@@@
-─────────────────────────────────────────── <d6b/specification.md [+] 1,1            Top
- ▸ ~/project ↱ main               tiny ◔9%                                              
+─────────────────────────────────────────── <29479e706920a01fa.md [+] 1,1            Top
+ ▸ ~/project ↱ main              tiny ◔10%                                              
                                                                                         

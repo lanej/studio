@@ -35,7 +35,7 @@ Saved specifications without current decision metadata or complete assessments o
 
 ## Send feedback on a selection
 
-Select lines and run `:EditorComment`, or use the buffer-local `<localleader>sc` mapping. Enter a short question or direction; cancellation sends nothing. Studio receives the exact selected text, including unsaved edits, together with the document, range, and revision. Sending feedback does not save the document or answer a pending Socrates question.
+Select lines and run `:EditorComment`, or use the buffer-local `<localleader>sc` mapping. Without a selection, the command attaches the current line. Enter a short question or direction; cancellation sends nothing. Studio receives the exact selected text, including unsaved edits, together with the document, range, and revision. Sending feedback does not save the document or answer a pending Socrates question.
 
 Studio processes comments when its conversation is available. If you switch to another discovery before a comment is handled, the request remains associated with its original document and is parked rather than sent to the new selection. The full response appears in Studio chat. Neovim shows a compact pending or response marker, a short outcome, and navigation to the resulting changes. A response can explain a decision without changing the document.
 

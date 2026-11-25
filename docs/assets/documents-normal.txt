@@ -1,5 +1,5 @@
                                                                                                                                                 
-                                                                         Studio · saved · specification                                         
+                                                                         Editor · saved · Specification                                         
  Inspect this proposal with me.                                           1 # Specification                                                     
                                                                           3                                                                     
                                                                           5 ## Objective                                                        
@@ -27,6 +27,6 @@
   Inspect the complete proposal in Neovim.                               39 Saving updates the draft without approving it.                      
 ───────────────────────────────────────────────────────────────────────  41                                                                     
                                                                          43 ## Decision D1                                                      
-─────────────────────────────────────────────────────────────────────── <944a4be6c015d18c87f9de6945c2c1fd6b/specification.md  1,1            Top
+─────────────────────────────────────────────────────────────────────── <6ce89201e3eb9fc5b5218a2d3b3436229479e706920a01fa.md  1,1            Top
  ▸ ~/project ↱ main                                           tiny ◔0%                                                                          
                                                                                                                                                 
