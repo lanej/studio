@@ -623,19 +623,23 @@ index f784e083e2644e0fb14fe023c94ec7c8605b819a..f8f2bc42806c1301f0d6dee3fd9c4616
      getCallableTools?: () => readonly AgentTool[];
  }
 diff --git a/dist/core/tools/renderers/bash.js b/dist/core/tools/renderers/bash.js
-index 43430f16caa03ec9b2c57a5e105b257f4b11416b..3d10b5d4531683646a9bf5a5f3549b8bdf120571 100644
+index 43430f16caa03ec9b2c57a5e105b257f4b11416b..4b9ec6614ff4d1785e86a61a7d7893336799cc39 100644
 --- a/dist/core/tools/renderers/bash.js
 +++ b/dist/core/tools/renderers/bash.js
-@@ -20,7 +20,7 @@ function formatShellCall(args, prompt) {
+@@ -20,9 +20,10 @@ function formatShellCall(args, prompt) {
      const commandDisplay = command === null ? invalidArgText(theme) : command ? command : theme.fg("toolOutput", "...");
      return theme.fg("toolTitle", theme.bold(`${prompt} ${commandDisplay}`)) + timeoutSuffix;
  }
 -function rebuildBashResultRenderComponent(component, result, options, showImages, timerText) {
 +function rebuildBashResultRenderComponent(component, result, options, showImages, timerText, renderShellOutput) {
      component.clear();
-     let output = getTextOutput(result, showImages).trim();
+-    let output = getTextOutput(result, showImages).trim();
++    const text = getTextOutput(result, showImages);
++    let output = renderShellOutput ? text.trimEnd() : text.trim();
      const truncation = result.details?.truncation;
-@@ -31,7 +31,10 @@ function rebuildBashResultRenderComponent(component, result, options, showImages
+     const fullOutputPath = result.details?.fullOutputPath;
+     if (!options.isPartial && truncation?.truncated && fullOutputPath && output.endsWith("]")) {
+@@ -31,7 +32,10 @@ function rebuildBashResultRenderComponent(component, result, options, showImages
              output = output.slice(0, footerStart).trimEnd();
          }
      }
@@ -647,7 +651,7 @@ index 43430f16caa03ec9b2c57a5e105b257f4b11416b..3d10b5d4531683646a9bf5a5f3549b8b
          const styledOutput = output
              .split("\n")
              .map((line) => theme.fg("toolOutput", line))
-@@ -65,7 +68,7 @@ function rebuildBashResultRenderComponent(component, result, options, showImages
+@@ -65,7 +69,7 @@ function rebuildBashResultRenderComponent(component, result, options, showImages
          }
          component.addChild(new Text(`\n${theme.fg("warning", `[${warnings.join(". ")}]`)}`, 0, 0));
      }
@@ -656,7 +660,7 @@ index 43430f16caa03ec9b2c57a5e105b257f4b11416b..3d10b5d4531683646a9bf5a5f3549b8b
          component.addChild(new Text(`\n${theme.fg("muted", timerText)}`, 0, 0));
  }
  /** Shell renderers are shared by bash and powershell, which differ only in the prompt they display. */
-@@ -74,13 +77,13 @@ export function createShellRenderers(prompt) {
+@@ -74,13 +78,13 @@ export function createShellRenderers(prompt) {
          renderCall(args, _theme, context) {
              startToolTimer(context);
              const text = context.lastComponent ?? new Text("", 0, 0);

@@ -457,7 +457,7 @@ export function registerSearchRendering(pi: ExtensionAPI): void {
               ? { ...context, lastComponent: undefined }
               : context,
           );
-        if (!eligible || block?.type !== "text") return fallback();
+        if (!eligible) return fallback();
         const highlighted = highlightSearchOutput(name, args, block.text);
         if (highlighted === block.text) return fallback();
         const component: Component = {

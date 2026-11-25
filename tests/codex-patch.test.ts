@@ -261,11 +261,37 @@ await test("Codex discovery displays TypeScript tokens in both compact and expan
   assert.ok(!shell.render(100).some((line) => line.includes(highlighted)));
 });
 
+await test("Codex shell excerpts preserve the first source line's indentation", async (t) => {
+  const { component } = await conversationFixture(t);
+  const source = ["    return result;", "      next();"];
+  for (const command of ["sed -n '17,18p' file.ts", "rg -A1 result file.ts"]) {
+    const shell = component("shell_command", { command });
+    shell.setArgsComplete();
+    shell.updateResult({
+      content: [{ type: "text", text: source.join("\n") + "\n" }],
+      isError: false,
+    });
+    for (const expanded of [false, true]) {
+      shell.setExpanded(expanded);
+      const rows = shell
+        .render(80)
+        .map((row) => stripTerminalSequences(row).trimEnd());
+      for (const line of source)
+        assert.ok(
+          rows.some((row) => row.endsWith(line)),
+          `${command}: missing indentation on ${line.trimStart()}`,
+        );
+    }
+  }
+});
+
 await test("finished shell results put size, hidden rows and slow duration on the command", async (t) => {
   const { component, theme } = await conversationFixture(t);
   const bindings = getKeybindings();
   setKeybindings(new KeybindingsManager({ "app.tools.expand": "ctrl+y" }));
-  t.after(() => setKeybindings(bindings));
+  t.after(() => {
+    setKeybindings(bindings);
+  });
   const args = { command: "printf lines" };
   const shell = component("shell_command", args);
   const text = "first\ntwo\nthree\nfour\nfive\nlast";
