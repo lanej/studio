@@ -273,8 +273,10 @@ async function fixture() {
       assert.equal(store.attempt(id).review, "Independent exact-head approval");
       const attempt = store.attempt(id);
       if (attempt.bead?.metadata["studio.pullRequestMerge"] === "manual") {
-        assert.equal(attempt.manualMergeApproval?.notice, args[1]);
-        assert.equal(attempt.manualMergeApproval?.head, attempt.head);
+        const approval = attempt.manualMergeApproval;
+        assert.ok(approval !== undefined);
+        assert.equal(approval.notice, args[1]);
+        assert.equal(approval.head, attempt.head);
         assert.ok(manualAuthority);
       } else assert.ok(enabled);
       if (blockMerge) {
@@ -563,7 +565,10 @@ await test("one manual approval can merge with automatic merging off and survive
       lostQueuedMerge: true,
       onWait() {
         const row = f.store.attempt(f.initial.id);
-        if (row.readyNotice && !row.manualMergeApproval)
+        if (
+          row.readyNotice !== undefined &&
+          row.manualMergeApproval === undefined
+        )
           f.store.change(row.id, consentToReady);
       },
     });
@@ -599,7 +604,7 @@ await test("manual approval does not carry over to a fresh corrected head or a r
         maxWaits: 8,
         onWait() {
           const row = f.store.attempt(f.initial.id);
-          if (row.readyNotice && !approved) {
+          if (row.readyNotice !== undefined && !approved) {
             f.store.change(row.id, consentToReady);
             approved = true;
             if (correction) f.configure({ finding: true });

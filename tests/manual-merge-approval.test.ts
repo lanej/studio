@@ -151,7 +151,7 @@ await test("manual consent records the ready PR and head once despite an unrelat
   });
   const approved = f.store.attempt(f.id);
   const receipt = approved.manualMergeApproval;
-  assert.ok(receipt);
+  assert.ok(receipt !== undefined);
   assert.equal(receipt.head, head);
   assert.equal(receipt.notice, f.delivery.readyNotice?.id);
   assert.equal(receipt.pr, f.delivery.pr);
