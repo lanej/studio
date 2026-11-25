@@ -1,3 +1,5 @@
+import type { PaneKeybindings } from "./pane-keybindings.ts";
+import type { OpenTasks } from "./tasks/panel.ts";
 import { admittedDiagramAlias } from "./model-tools/extension.ts";
 import { diagramTool } from "./diagram/extension.ts";
 import { mermaidTool } from "./diagram/mermaid-tool.ts";
@@ -85,6 +87,8 @@ export function registerLeadControls(
   id: string,
   requireBinding: (ctx: ExtensionContext) => Promise<Attempt>,
   approvalPending: (active: boolean) => void,
+  openTasks?: OpenTasks,
+  keybindings?: PaneKeybindings,
 ) {
   const mode = () => db.get(id).leadPlan?.mode;
   const socrates = registerSocrates(
@@ -93,6 +97,8 @@ export function registerLeadControls(
     id,
     requireBinding,
     approvalPending,
+    openTasks,
+    keybindings,
   );
   const permits = (name: string, ctx: ExtensionContext) => {
     const tool = admittedDiagramAlias(pi, name, ctx.model?.id) ?? name;

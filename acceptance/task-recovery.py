@@ -61,7 +61,6 @@ with tempfile.TemporaryDirectory(prefix="st-rec-ui-", dir="/private/tmp" if sys.
                 terminal.contains("recovery-fixture-ready")
                 terminal.send(f"/tasks {fixture['task']}\r")
                 terminal.contains("Deliberate verifier rejection")
-                terminal.send("\x1bt")
                 if mode == "retained":
                     terminal.contains("Verification failed")
                     terminal.capture("failed-check")

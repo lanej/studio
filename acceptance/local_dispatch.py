@@ -307,7 +307,6 @@ def exercise_interactive_dispatch(fixture: Fixture, terminal: Terminal, lead: in
             assert "Withheld launch acknowledgement" in diagnostics.read_text()
             type_line(lead, "/tasks " + first["bead"]["id"])
             terminal.until("task inspector offers existing pane", lambda: "focus worker pane" in capture().lower())
-            terminal.write_to_pane(lead, *b"\x1b[116;3u")  # Alt+T
             terminal.write_to_pane(lead, *b"\x1b[C")  # Right
             terminal.until("task inspector focuses the worker", lambda:
                            any(item["id"] == pane and item["is_focused"] for item in terminal.terminals()))
