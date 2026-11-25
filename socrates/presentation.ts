@@ -21,7 +21,11 @@ import {
   draftCoverage,
   type CoverageStatus,
 } from "./assessment.ts";
-import { hasSettledDeliveryPolicy, SpecStatus } from "./spec.ts";
+import {
+  hasSettledDeliveryPolicy,
+  specificationGaps,
+  SpecStatus,
+} from "./spec.ts";
 import { implementationColumn, specificationColumn } from "./columns.ts";
 import {
   assessmentRevision,
@@ -32,7 +36,7 @@ import {
 } from "./implementation.ts";
 import { createPlanInspector } from "./plan-inspector.ts";
 import { planGraphColor } from "../plan-graph.ts";
-import { renderStatusSidebar } from "./sidebar.ts";
+import { renderSocratesSections, renderStatusSidebar } from "./sidebar.ts";
 import { createImplementationWatch } from "./implementation-watch.ts";
 
 export interface SocratesObservation extends ImplementationSource {
@@ -55,6 +59,7 @@ export interface SocratesPresentation {
   implementation: ImplementationPresentation;
   columns: StatusColumn[];
   dockColumns: StatusColumn[];
+  prioritizeSpecification: boolean;
 }
 
 const conditionStates = {
@@ -84,6 +89,7 @@ export function socratesPresentation(
       id: observation.id,
       title: label,
       conditions: [],
+      prioritizeSpecification: false,
       activity,
       summary: "",
       implementation,
@@ -196,6 +202,12 @@ export function socratesPresentation(
     id: observation.id,
     title: label,
     conditions,
+    prioritizeSpecification:
+      spec.acceptedRevision !== revision ||
+      (spec.status !== SpecStatus.Frozen &&
+        (counts.satisfied + counts.notApplicable < conditions.length ||
+          (observation.bead === undefined &&
+            specificationGaps(spec, revision).length > 0))),
     activity: currentActivity,
     summary,
     implementation,
@@ -222,22 +234,26 @@ function statusTheme(theme: Theme): StatusTheme {
   };
 }
 
-// Nested selected rows and terminal truncation reset the background. Restore the panel surface after either reset.
+// ANSI resets inside a padded row should return to the panel's text and surface.
 function surface(theme: Theme, line: string, width: number): string {
   const background = theme.getBgAnsi("userMessageBg");
+  const foreground = theme.getFgAnsi("text");
   const padded = truncateToWidth(line, width, "", true);
-  return theme.bg(
-    "userMessageBg",
+  return theme.style(
     padded
-      .replaceAll("\x1b[0m", `\x1b[0m${background}`)
+      .replaceAll("\x1b[0m", `\x1b[0m${foreground}${background}`)
+      .replaceAll("\x1b[39m", foreground)
       .replaceAll("\x1b[49m", background),
+    { fg: "text", bg: "userMessageBg" },
   );
 }
 
 const widgetKey = "studio:socrates";
 
 function sidebarWidth(columns: number): number {
-  return columns >= 104 ? Math.min(48, Math.floor(columns / 3)) : 0;
+  return columns >= 104
+    ? Math.min(56, columns - 68, Math.floor(columns * 0.4))
+    : 0;
 }
 
 /** UI state is session-local; no timer or saved focus can establish agent activity. */
@@ -354,13 +370,25 @@ export function registerSocratesPresentation(
               1,
               Math.min(dockExpanded ? 8 : 3, Math.floor(tui.terminal.rows / 3)),
             );
-            return renderStatusDock({
-              columns: snapshot.dockColumns,
-              theme: statusTheme(theme),
-              width: Math.max(0, width - 3),
-              expanded: dockExpanded,
-              maxRows,
-            }).map((line, index) => {
+            const inner = Math.max(0, width - 3);
+            const colors = statusTheme(theme);
+            const rows =
+              dockExpanded && snapshot.prioritizeSpecification
+                ? renderSocratesSections(
+                    snapshot,
+                    { ...colors, lane: planGraphColor(theme) },
+                    inner,
+                    maxRows,
+                    true,
+                  )
+                : renderStatusDock({
+                    columns: snapshot.dockColumns,
+                    theme: colors,
+                    width: inner,
+                    expanded: dockExpanded,
+                    maxRows,
+                  });
+            return rows.map((line, index) => {
               const edge =
                 index === 0
                   ? theme.fg("accent", dockExpanded ? "▾ " : "▸ ")

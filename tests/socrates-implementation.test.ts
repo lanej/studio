@@ -165,6 +165,7 @@ await test("sidebar draws dependency forks and joins, clipping at task boundarie
   const snapshot = {
     implementation,
     dockColumns: [implementationColumn(implementation)],
+    prioritizeSpecification: false,
   };
   const sidebar = renderStatusSidebar(snapshot, theme, 35, 24).join("\n");
   assert.match(sidebar, /├─╮/u);

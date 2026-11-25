@@ -207,7 +207,11 @@ await test("a daily lead codes directly and can save and revise a private plan w
   assert.equal(first.handoff, undefined);
   const marker = session.getLeafEntry();
   assert.ok(marker?.type === "custom");
-  assert.deepEqual(marker.data, { id: first.id, project: first.project });
+  assert.deepEqual(marker.data, {
+    id: first.id,
+    project: first.project,
+    session: session.getSessionId(),
+  });
   const revised = {
     ...draft,
     summary: "Revised proposal for operator review",
@@ -458,6 +462,51 @@ await test("legacy handoffs keep their receipt when switching conversations and 
   });
   await assert.rejects(save(), /Unknown discovery/u);
   assert.equal(store.list(project).length, 2);
+});
+
+await test("a fork requires an explicit selection to reuse a parent discovery", async (t) => {
+  const { project, store, runner, session, save, draft } =
+    await discoveryFixture(t);
+  await save();
+  const first = store.list(project)[0];
+  assert.ok(first !== undefined);
+  store.change(first.id, (row) => {
+    row.approved = planDigest(draft);
+  });
+  // A fork can navigate before its tombstone without reviving parent authority.
+  const parentRecord = store.get(first.id);
+  session.newSession({ parentSession: "fixture-parent.jsonl" });
+  const inherited = session.appendCustomEntry("studio:discovery", {
+    id: first.id,
+    project: first.project,
+  });
+  await runner.emit({
+    type: "session_start",
+    reason: "fork",
+    previousSessionFile: "fixture-parent.jsonl",
+  });
+  const tombstone = session.getLeafEntry();
+  assert.ok(tombstone?.type === "custom");
+  assert.deepEqual(tombstone.data, {
+    id: null,
+    project: first.project,
+    session: session.getSessionId(),
+  });
+  session.branch(inherited);
+  await save();
+  const child = store.list(project)[0];
+  assert.ok(child !== undefined);
+  assert.notEqual(child.id, first.id);
+  assert.equal(child.conversation, session.getSessionId());
+  assert.deepEqual(store.get(first.id), parentRecord);
+  // An explicit child-session selection follows normal approval rules.
+  session.appendCustomEntry("studio:discovery", {
+    id: first.id,
+    project: first.project,
+    session: session.getSessionId(),
+  });
+  await assert.rejects(save(), /already approved/u);
+  assert.deepEqual(store.get(first.id), parentRecord);
 });
 
 await test("a lead can change merge policy only after a handoff to the configured project authority", async (t) => {

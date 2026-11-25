@@ -277,8 +277,7 @@ export function implementationPresentation(
       source.bead === undefined &&
       source.specification?.status !== SpecStatus.Frozen
     ) {
-      label =
-        source.specification === undefined ? "Local plan" : "Proposed beads";
+      label = source.specification === undefined ? "Local plan" : "Draft";
       detail = "Draft work breakdown";
     } else {
       label = "Awaiting approval";

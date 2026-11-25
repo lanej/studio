@@ -24,6 +24,7 @@ import time
 import uuid
 
 import pyte
+from local_provider import tool_delta
 from PIL import Image, ImageDraw, ImageFont
 
 
@@ -39,9 +40,13 @@ bead_reads = []
 initial_prompt = "Let me inspect this proposal while keeping our conversation open."
 # A native Markdown paragraph that fits the full terminal, but wraps in the lead column.
 resume_sentence = "The same property evidence feeds both the sidebar and its revision history before the two results are compared."
-review_sentence = "The live handoff check still needs a linked bead and a fresh assessment before the review can finish."
+review_sentence = "Changing one requirement should mark its old assessment stale while keeping the original evidence available in the inspector."
 linked_sentence = "The handoff check can start once the lead sidebar is complete and its linked dependency has closed."
 wide_columns, wide_rows = 128, 34
+resolve_prompt = "Check that revising R1 marks its evidence stale. Keep all four beads local."
+review_ready = "The specification is ready to freeze. Review the four beads and their dependencies before handoff."
+verification_gap = "Question and resume are covered. A stale assessment still needs a native check."
+harmony_gap = "The dock and inspector read the same draft. Confirm they flag the same property after a revision."
 
 
 class Provider(BaseHTTPRequestHandler):
@@ -100,13 +105,26 @@ The blocked bead can run after the sidebar produces its accepted result.""" if l
 {resume_sentence}
 
 One decision remains: how should we verify that an assessment is marked stale when its requirement changes?""" if resuming
-                 else f"""Once the evidence is recorded, the sidebar and assessment history can be built in parallel. Reviewing changes in the dock needs both.
+                 else f"""Verification is partial. We can save a question and resume it. We still need to exercise a change to the underlying requirement.
 
 {review_sentence}
 
-Verification already covers question and resume. A native check of stale assessments would close the remaining gap.
+Harmony depends on the same check. After the revision, the sidebar and inspector should flag the same property.
 
-The open decision is how to verify that a revised requirement marks the old assessment stale.""")
+Should the native test change R1 and check both views?""")
+        delta = {"role": "assistant", "content": reply}
+        last = request["messages"][-1]
+        if user_messages and resolve_prompt in user_messages[-1]:
+            if last["role"] == "user":
+                delta = tool_delta("close-properties", "draft_socrates_specification", self.server.ready_draft)
+            elif last.get("tool_call_id") == "close-properties":
+                if "Properties satisfied" not in str(last["content"]):
+                    provider_errors.append(str(last["content"]))
+                delta = tool_delta("confirm-graph", "draft_implementation_plan", self.server.graph_draft)
+            elif last.get("tool_call_id") == "confirm-graph":
+                if "Draft saved" not in str(last["content"]):
+                    provider_errors.append(str(last["content"]))
+                delta = {"role": "assistant", "content": review_ready}
         result = {
             "id": "socrates-status-fixture",
             "object": "chat.completion.chunk",
@@ -114,8 +132,8 @@ The open decision is how to verify that a revised requirement marks the old asse
             "model": "tiny",
             "choices": [{
                 "index": 0,
-                "delta": {"role": "assistant", "content": reply},
-                "finish_reason": "stop",
+                "delta": delta,
+                "finish_reason": "tool_calls" if "tool_calls" in delta else "stop",
             }],
         }
         self.wfile.write(("data: " + json.dumps(result) + "\n\ndata: [DONE]\n\n").encode())
@@ -267,6 +285,32 @@ class Terminal:
     def wait_for_rail(self):
         self.wait(lambda: self.rail_start() is not None, "The native console did not show a right status column")
 
+    def check_property_focus(self):
+        """Read the wrapped rationales in the rail itself, with the editor still present."""
+        self.wait_for_rail()
+        def property_text():
+            return " ".join(self.rail_text().partition("Implementation")[0].split())
+        self.wait(lambda: verification_gap in property_text() and "Harmony" in property_text(),
+                  "The rail omitted the verification gap before the plan was ready")
+        if self.screen.columns == wide_columns:
+            assert harmony_gap in property_text(), self.rail_text()
+        rail = self.rail_text()
+        spec, _, plan = rail.partition("Implementation")
+        assert spec.count("\n") > len([line for line in plan.splitlines() if line.strip()]), rail
+        assert "Proposed beads" not in plan, rail
+        assert "Draft" in plan.splitlines()[0], rail
+        assert "◇" in plan and "/plan" in plan, rail
+        assert "Review changes in the dock" not in plan, rail
+        self.assert_background("Specification", "surface.raised", start=self.rail_start())
+        self.assert_background("Verification", "surface.raised", start=self.rail_start())
+
+    def assert_background(self, text, role, start=0):
+        for y, line in enumerate(self.screen.display):
+            x = line.find(text, start)
+            if x >= 0 and self.screen.buffer[y][x].bg.upper() == palette["roles"][role].lstrip("#").upper():
+                return
+        raise AssertionError(f"Missing {role} behind {text!r}\n{self.text()}")
+
     def check_dependency_graph(self):
         path = ("Record property evidence", "├─╮", "Keep the lead available",
                 "Keep assessment history", "├─╯", "Review changes in the dock")
@@ -310,18 +354,23 @@ class Terminal:
         os.killpg(self.process.pid, signal.SIGWINCH)
         self.pump(0.3)
 
-    def capture(self, name):
+    def capture(self, name, *, rail_image=False):
         if self.output is None:
             return
         self.output.mkdir(parents=True, exist_ok=True)
         fonts = [
-            "/System/Library/Fonts/Menlo.ttc",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-            "/usr/share/fonts/truetype/liberation2/LiberationMono-Regular.ttf",
+            ("/System/Library/Fonts/Menlo.ttc", "/System/Library/Fonts/Menlo.ttc", 1),
+            ("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf", 0),
+            ("/usr/share/fonts/truetype/liberation2/LiberationMono-Regular.ttf", "/usr/share/fonts/truetype/liberation2/LiberationMono-Bold.ttf", 0),
         ]
-        font = next((ImageFont.truetype(path, 15) for path in fonts if Path(path).is_file()), ImageFont.load_default())
+        font = bold = ImageFont.load_default()
+        for regular_path, bold_path, bold_index in fonts:
+            if Path(regular_path).is_file():
+                font = ImageFont.truetype(regular_path, 16)
+                bold = ImageFont.truetype(bold_path, 16, index=bold_index) if Path(bold_path).is_file() else font
+                break
         braille_path = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
-        braille = ImageFont.truetype(str(braille_path), 15) if braille_path.is_file() else font
+        braille = ImageFont.truetype(str(braille_path), 16) if braille_path.is_file() else font
         cell_width, cell_height = 10, 21
         # Retain the complete native console so both docks and explicitly opened overlays can be judged in context.
         first, last = 0, self.screen.lines
@@ -344,9 +393,17 @@ class Terminal:
                     fg, bg = bg, fg
                 top = (y - first) * cell_height
                 draw.rectangle((x * cell_width, top, (x + 1) * cell_width, top + cell_height), fill=bg)
-                glyph_font = braille if len(cell.data) == 1 and "\u2800" <= cell.data <= "\u28ff" else font
+                glyph_font = bold if cell.bold else font
+                if len(cell.data) == 1 and "\u2800" <= cell.data <= "\u28ff":
+                    glyph_font = braille
                 draw.text((x * cell_width, top), cell.data, font=glyph_font, fill=fg)
         image.save(self.output / f"{name}-{self.screen.columns}.png")
+        if rail_image:
+            start = self.rail_start()
+            assert start is not None, self.text()
+            divider = self.screen.display[0].rfind("│", 0, start)
+            assert divider >= 0, self.text()
+            image.crop((divider * cell_width, 0, image.width, image.height)).save(self.output / "socrates-property-sidebar.png")
         (self.output / f"{name}-{self.screen.columns}.txt").write_text(self.text() + "\n")
         (self.output / f"{name}-{self.screen.columns}.ansi").write_bytes(self.raw)
 
@@ -383,8 +440,8 @@ const draft = {{
   coverage: {{domains:[], focus:'verification', assessments:[
     {{propertyId:'problem-first',status:'satisfied',reason:'The operator cannot see which properties remain unresolved.'}},
     {{propertyId:'clarity',status:'satisfied',reason:'Assessment and activity are separate observations.'}},
-    {{propertyId:'verification',status:'partial',reason:'Question and resume are covered. A stale assessment still needs a native check.'}},
-    {{propertyId:'harmony',status:'open',reason:'The verification decision still needs to be incorporated.'}}
+    {{propertyId:'verification',status:'partial',reason:{json.dumps(verification_gap)}}},
+    {{propertyId:'harmony',status:'open',reason:{json.dumps(harmony_gap)}}}
   ]}}
 }};
 function create(title, next) {{
@@ -395,7 +452,33 @@ function create(title, next) {{
   }});
   return record.id;
 }}
-const covered=create('Status inspection',draft);
+const covered=create('Status inspection',{{...draft,coverage:{{...draft.coverage,assessments:[
+  ...draft.coverage.assessments,
+  {{propertyId:'scope',status:'open',reason:'The lead and its dock share a draft. Decide whether another session sees those changes.'}},
+  {{propertyId:'risk',status:'partial',reason:'Results are tagged by project. Verify a delayed poll cannot update a different session.'}}
+]}}}});
+const readyDraft={{...draft,
+  decisions:[
+    {{...draft.decisions[0],disposition:'resolved',basis:'decided',evidence:'The operator chose a native check after revising R1.',uncertainty:'None'}},
+    {{id:'D2',decision:'Integrate the reviewed beads locally.',disposition:'resolved',basis:'decided',evidence:'The operator requested local integration for the plan.',uncertainty:'None'}}
+  ],
+  deliveryPolicy:{{decisionId:'D2',pullRequests:'none'}},
+  coverage:{{domains:[], assessments:Object.entries({{
+    'problem-first':'The operator needs to see unresolved properties during discovery.',
+    interpretation:'The sidebar and inspector present the same stored assessments.',
+    clarity:'Open and partial marks distinguish missing evidence from incomplete evidence.',
+    scope:'R1 covers the lead sidebar, retained assessments and review in the dock.',
+    context:'The lead remains usable while the sidebar shows progress.',
+    parsimony:'The sidebar renders the same dependency graph as the plan inspector.',
+    success:'Both surfaces identify the unresolved property after a revision.',
+    verification:'D1 specifies a native check that revising R1 invalidates its assessment.',
+    constraints:'Planning preserves the unsent prompt and performs no Beads operations.',
+    stakeholders:'The operator reviews the assessment and approves handoff.',
+    risk:'Revising a requirement invalidates its prior assessment.',
+    'execution-readiness':'Each bead has a requirement, acceptance criterion and dependency list.',
+    harmony:'The same assessment supplies both surfaces and the two graphs show the same dependencies.'
+  }}).map(([propertyId,reason])=>({{propertyId,status:'satisfied',reason}}))}}
+}};
 const breakdown=draftSchema.parse({{summary:'Keep the lead available during handoff.',tasks:[
   {{key:'assess',title:'Record property evidence',description:'Persist the rationale for each assessed property.',acceptance:'Old assessments remain inspectable after a revision.',requirements:['R1'],owns:['socrates/assessment.ts']}},
   {{key:'dock',title:'Keep the lead available',description:'Keep coverage and linked work visible beside the conversation.',acceptance:'Toggling the sidebar preserves the complete unsent prompt.',requirements:['R1'],blockedBy:['assess'],owns:['socrates/presentation.ts']}}
@@ -411,7 +494,7 @@ const graphDraft = draftSchema.parse({{...breakdown,tasks:[...breakdown.tasks,
 ]}});
 store.change(covered,row=>{{row.leadPlan.draft=graphDraft;row.planSpecificationRevision=coverageToken(row.specification);}});
 store.change(planOnly.id,row=>{{row.leadPlan.draft=graphDraft;}});
-const approved=create('Specification and linked work', draft);
+const approved=create('Specification and linked work', readyDraft);
 const activeBreakdown=draftSchema.parse({{...breakdown,tasks:[...breakdown.tasks,{{key:'verify',title:'Verify the handoff',description:'Confirm the evidence at the live boundary.',acceptance:'The selected bead matches the reviewed work.',requirements:['R1'],blockedBy:['dock']}}]}});
 const linked=store.change(approved,row=>{{
   row.specification.status=SpecStatus.Frozen; row.specification.approvalAt='2026-11-24T00:00:00Z';
@@ -434,7 +517,7 @@ function sessionFor(record) {{
  }}
  return manager.getSessionFile();
 }}
-console.log(JSON.stringify({{covered,question,unknown,approved,beads,session:sessionFor(covered),planOnlySession:sessionFor(planOnly.id)}}));store.close();
+console.log(JSON.stringify({{covered,question,unknown,approved,beads,readyDraft,graphDraft,session:sessionFor(covered),planOnlySession:sessionFor(planOnly.id)}}));store.close();
 """
     result = subprocess.run(["bun", "--no-env-file", "-e", source], env=env, cwd=root, text=True, capture_output=True, check=True, timeout=30)
     return json.loads(result.stdout)
@@ -460,6 +543,8 @@ def run(output):
         settings["retry"] = {"enabled": False, "maxRetries": 0}
         settings_path.write_text(json.dumps(settings))
         records = seed(project, env, f'http://127.0.0.1:{provider.server_port}')
+        provider.ready_draft = records['readyDraft']
+        provider.graph_draft = records['graphDraft']
         linked_beads.update(records['beads'])
         Thread(target=provider.serve_forever, daemon=True).start()
         terminal = Terminal(project, env, output, records['session'])
@@ -483,17 +568,16 @@ def run(output):
                 "Studio's native session did not finish initialization",
             )
             terminal.wait_for_session()
-            terminal.contains("Proposed beads")
-            terminal.check_dependency_graph()
+            terminal.check_property_focus()
             terminal.send("\x1bs")
             terminal.wait(lambda: terminal.rail_start() is None, "Alt+S did not collapse the sidebar")
             terminal.send("/socrates\r")
             terminal.wait_for_rail()
-            terminal.check_dependency_graph()
+            terminal.check_property_focus()
             terminal.check_lead_wrap(resume_sentence)
             assert not bead_reads, bead_reads
             terminal.assert_mark("Verification", "◐", "status.warning")
-            draft = "Describe the proposed bead dependencies and how the review process should handle late specification changes."
+            draft = "Explain which properties remain open and what evidence would settle them after late specification changes."
             terminal.send(draft)
             terminal.check_lead_wrap(draft)
             terminal.send("\x1b[D")
@@ -510,8 +594,13 @@ def run(output):
                                       for request in received_requests for m in request["messages"] if m["role"] == "user"),
                           "The submitted prompt lost its contents or cursor position")
             terminal.check_lead_wrap(review_sentence)
-            terminal.check_dependency_graph()
-            terminal.capture("socrates-sidebar-graph")
+            terminal.check_property_focus()
+            terminal.capture("socrates-sidebar-properties", rail_image=True)
+            terminal.resize(104, 26)
+            terminal.check_property_focus()
+            terminal.capture("socrates-sidebar-properties")
+            terminal.resize(wide_columns, wide_rows)
+            terminal.wait_for_rail()
             terminal.send("What evidence still needs a decision?")
             terminal.resize(60, 24)
             terminal.wait(lambda: terminal.rail_start() is None and "Specification" in terminal.text() and
@@ -522,6 +611,9 @@ def run(output):
             terminal.send("\x1bs")
             terminal.contains("▾ Specification")
             terminal.contains("What evidence still needs a decision?")
+            dock = terminal.text().rpartition("▾ Specification")[2].partition("Implementation")[0]
+            assert "share a draft" in " ".join(dock.split()), dock
+            terminal.capture("status-narrow-properties")
             terminal.send("\x1bs")
             terminal.contains("▸ Specification")
             terminal.send("\x15")
@@ -553,6 +645,7 @@ def run(output):
             terminal.close_detail()
             terminal.send("\t")
             terminal.select_row("Keep the lead available")
+            terminal.assert_background("Keep the lead available", "selection.bg")
             terminal.capture("status-board-wide")
             terminal.resize(60, 24)
             terminal.contains("Implementation")
@@ -574,6 +667,15 @@ def run(output):
             terminal.contains("Enter")
             terminal.send("?")
             terminal.send("\x1b")
+
+            terminal.wait_for_rail()
+            terminal.send(resolve_prompt + "\r")
+            terminal.check_lead_wrap(review_ready)
+            terminal.check_dependency_graph()
+            assert "Proposed beads" not in terminal.rail_text(), terminal.rail_text()
+            assert "Verification" not in terminal.rail_text(), terminal.rail_text()
+            assert not bead_reads, bead_reads
+            terminal.capture("socrates-sidebar-graph")
 
             resume_discovery("Question in progress", 3)
             terminal.contains("Which verification boundary should we use?")
@@ -727,4 +829,4 @@ if __name__ == "__main__":
         run(parser.parse_args().output)
     finally:
         faulthandler.cancel_dump_traceback_later()
-    print("Native fullscreen and regular sidebars, cursor and width restoration, narrow fallback, folding, evidence, question/resume, and plan-only inspection passed.")
+    print("Native property-first planning, reviewed graph expansion, palette surfaces, and fullscreen, regular and narrow terminal interactions passed.")

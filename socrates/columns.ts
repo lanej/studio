@@ -110,7 +110,7 @@ export const taskMarks = {
 
 const phaseMarks = {
   [ImplementationPhase.NotPlanned]: mark("", "–", "-", "muted"),
-  [ImplementationPhase.Proposed]: mark("", "◇", ":", "warning"),
+  [ImplementationPhase.Proposed]: mark("", "◇", ":", "muted"),
   [ImplementationPhase.HandoffPending]: mark("", "◐", "*", "accent"),
   [ImplementationPhase.HandoffUncertain]: mark("", "!", "!", "error"),
   [ImplementationPhase.LinkChanged]: mark("", "↺", "!", "warning"),
@@ -157,7 +157,6 @@ export function implementationColumn(
   const version = impl.specificationVersion;
   const linked =
     phase === ImplementationPhase.Tracking ||
-    phase === ImplementationPhase.Proposed ||
     phase === ImplementationPhase.Loading;
   const needsExplanation =
     phase === ImplementationPhase.HandoffUncertain ||
@@ -179,7 +178,6 @@ export function implementationColumn(
       ImplementationState.Open,
       ImplementationState.Deferred,
       ImplementationState.Closed,
-      ImplementationState.Proposed,
       ImplementationState.Unknown,
     ]
       .filter((state) => impl.counts[state] > 0)
@@ -229,38 +227,24 @@ export function specificationColumn(
     spec.status === SpecStatus.Frozen
       ? `Frozen · ${version}`
       : `Draft · ${version}`;
-  let status = mark(
+  const status = mark(
     phase,
     spec.status === SpecStatus.Frozen ? "◆" : "◇",
     ":",
     spec.status === SpecStatus.Frozen ? "accent" : "muted",
   );
-  let summary = spec.draft?.objective;
-  switch (activity.state) {
-    case ActivityState.Working:
-      status = mark(`${activity.label} · ${version}`, "◐", "*", "accent");
-      summary =
-        activity.label === "Answer recorded"
-          ? "Updating the draft"
-          : (activity.detail ?? summary);
-      break;
-    case ActivityState.Paused:
-      status = mark(
-        `${activity.label.length === 0 ? "Paused" : activity.label} · ${version}`,
-        "‖",
-        "|",
-        "warning",
-      );
-      summary = activity.detail;
-      break;
-    case ActivityState.Waiting:
-      status = mark(`${activity.label} · ${version}`, "◷", "?", "warning");
-      summary = activity.detail;
-      break;
-    case ActivityState.Idle:
-      if (activity.detail !== undefined) summary = activity.detail;
-      break;
-  }
+  const summary =
+    activity.state === ActivityState.Idle
+      ? (activity.detail ?? spec.draft?.objective)
+      : [
+          activity.label.length === 0 ? "Paused" : activity.label,
+          activity.label === "Answer recorded" &&
+          activity.state === ActivityState.Working
+            ? "Updating the draft"
+            : activity.detail,
+        ]
+          .filter((part) => part !== undefined)
+          .join(" · ");
   const groups = propertyGroups(conditions);
   const requirements = spec.draft?.requirements ?? [];
   if (requirements.length > 0)

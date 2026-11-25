@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ActivityState, ConditionState } from "@lanej/pi-components";
+import { visibleWidth } from "@earendil-works/pi-tui";
+import { LeadMode, draftSchema } from "../lead-plan.ts";
+import { renderSocratesSections } from "../socrates/sidebar.ts";
 import { readySpecification } from "./fixtures/socrates.ts";
 import { coverageToken } from "../socrates/assessment.ts";
 import {
@@ -210,5 +213,107 @@ await test("a missing publication decision remains visible after the properties 
   assert.equal(after.activity.label, "PR decision open");
   assert.match(after.dockColumns[0]?.summary ?? "", /which beads open PRs/u);
   assert.equal(before.activity.label, "Awaiting review");
+  assert.equal(before.prioritizeSpecification, false);
+  assert.equal(after.prioritizeSpecification, true);
   assert.deepEqual(after.conditions, before.conditions);
+});
+
+await test("the side panel wraps unresolved reasons before showing a small draft graph", () => {
+  const plain = (text: string) => text;
+  const theme = {
+    accent: plain,
+    muted: plain,
+    warning: plain,
+    success: plain,
+    error: plain,
+    selected: plain,
+    bold: plain,
+    lane: (_lane: number, text: string) => text,
+  };
+  const reason =
+    "The tests cover opening the current transcript. Reopening the archived copy still needs a comparison against the saved bytes.";
+  const spec = specification({
+    domains: ["engineering"],
+    assessments: [
+      { propertyId: "verification", status: "partial", reason },
+      {
+        propertyId: "policy-mechanism-separation",
+        status: "open",
+        reason: "Check who decides whether to retry the write.",
+      },
+    ],
+    focus: "policy-mechanism-separation",
+  });
+  const plan = draftSchema.parse({
+    summary: "Review the changes together.",
+    tasks: ["schema", "load", "save", "audit"].map((key, index) => ({
+      key,
+      title: key,
+      description: key,
+      acceptance: key,
+      blockedBy: index === 3 ? ["load", "save"] : index === 0 ? [] : ["schema"],
+    })),
+  });
+  const observe = (specification: LeadSpecification) =>
+    socratesPresentation(
+      {
+        id: "session",
+        label: "Plan",
+        revision: "brief-v1",
+        specification,
+        leadPlan: { mode: LeadMode.Planning, draft: plan },
+      },
+      working,
+    );
+  const panel = observe(spec);
+  assert.equal(panel.prioritizeSpecification, true);
+  const rows = renderSocratesSections(panel, theme, 33, 26);
+  const text = rows.join(" ").replace(/\s+/gu, " ");
+  assert.ok(text.includes(reason), text);
+  assert.ok(text.includes("Separation of policy and mechanism"), text);
+  assert.ok(
+    text.indexOf("Separation of policy and mechanism") <
+      text.indexOf("Verification"),
+  );
+  assert.match(rows[0] ?? "", /^Specification +◇ Draft · v1$/u);
+  const heading = rows.findIndex((line) => line.startsWith("Implementation"));
+  assert.match(rows[heading] ?? "", /^Implementation +◇ Draft$/u);
+  assert.ok(rows.slice(heading + 1).length <= 4);
+  assert.match(text, /├─╮.*\+2 more · \/plan/u);
+  assert.doesNotMatch(text, /Proposed beads|\d proposed/u);
+  for (const height of [1, 3, 8, 20]) {
+    const compact = renderSocratesSections(panel, theme, 57, height, true);
+    assert.ok(compact.length <= height);
+    assert.ok(compact.every((line) => visibleWidth(line) <= 57));
+    if (height >= 3)
+      assert.match(compact.at(-1) ?? "", /^Implementation +◇ Draft$/u);
+  }
+  const ready = readySpecification("brief-v1");
+  const readyPanel = observe(ready);
+  assert.equal(readyPanel.prioritizeSpecification, false);
+  assert.match(
+    renderSocratesSections(readyPanel, theme, 33, 26).join(" "),
+    /├─╯.*audit/u,
+  );
+  const frozen = observe({ ...ready, status: SpecStatus.Frozen });
+  assert.equal(frozen.prioritizeSpecification, false);
+  assert.match(
+    renderSocratesSections(frozen, theme, 33, 26).join(" "),
+    /For approval.*├─╯.*audit/u,
+  );
+  const changedFrozen = present(
+    { ...ready, status: SpecStatus.Frozen },
+    idle,
+    "new-brief",
+  );
+  assert.equal(changedFrozen.prioritizeSpecification, true);
+  assert.match(
+    renderSocratesSections(changedFrozen, theme, 33, 20).join(" "),
+    /Brief changed.*Recheck/u,
+  );
+  const stale = observe({ ...ready, coverageRevision: undefined });
+  assert.equal(stale.prioritizeSpecification, true);
+  const short = renderSocratesSections(stale, theme, 33, 18).join(" ");
+  assert.match(short, /Recheck.*Previous assessment/u);
+  assert.match(short, /\+\d+ more properties/u);
 });

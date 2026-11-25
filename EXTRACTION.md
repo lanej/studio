@@ -4,7 +4,7 @@ Prepared from [lanej/dotfiles at d33526d125a69ea5be9faf12eb8507014d20e170](https
 
 `vendor/task-runtime` is derived from `tools/task-runtime` at that revision, with Bun commands, strict-lint adaptations, and configured worktree-executable support. Paseo retains its original client. Update the client, schema and generated declarations together, then run `bun run check:beads-api` in the vendor package and Studio acceptance checks. Its Beads schema provenance is in `vendor/task-runtime/api/README.md`.
 
-`resources/socrates` and the generated theme and palette are snapshots from the same revision. Their authoring sources remain in dotfiles. Refresh them deliberately and rerun native Pi resource and terminal acceptance. Keep `LICENSE.session-snap`, `LICENSE.smart-plan`, and `generated/zellij/LICENSE.md` with redistributed source.
+`resources/socrates` is a snapshot from the same revision. Its authoring sources remain in dotfiles. Studio adapted the extracted Nord palette and Pi theme into its own dark palette in `resources/colors.json` and `resources/theme.json`. Keep their semantic roles aligned and rerun the palette, native Pi resource, and terminal acceptance tests when changing them. The Pi theme keeps its registered name `dotfiles` for existing installations. Keep `LICENSE.session-snap`, `LICENSE.smart-plan`, and `generated/zellij/LICENSE.md` with redistributed source.
 
 `acceptance/install-worktree-manager` retains the checksum-verifying dotfiles installer for the CI fixture version. `acceptance/zellij_pty.py` retains the generic PTY helper from dotfiles; it does not run the workstation navigation detectors. External native tools remain independently installed.
 

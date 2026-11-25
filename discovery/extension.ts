@@ -31,7 +31,11 @@ import {
 } from "./store.ts";
 
 const selectionType = "studio:discovery";
-const markerSchema = z.object({ id: z.uuid().nullable(), project: z.string() });
+const markerSchema = z.object({
+  id: z.uuid().nullable(),
+  project: z.string(),
+  session: z.string().optional(),
+});
 
 function discoveryStatus(record: Discovery): string {
   const spec = record.specification;
@@ -70,12 +74,20 @@ export function registerDiscovery(
     if (marker === undefined || !isEntry(marker, PiEntryType.Custom))
       return undefined;
     const parsed = markerSchema.safeParse(marker.data);
-    return parsed.success && parsed.data.project === project
+    return parsed.success &&
+      parsed.data.project === project &&
+      (parsed.data.session === ctx.sessionManager.getSessionId() ||
+        (parsed.data.session === undefined &&
+          ctx.sessionManager.getHeader()?.parentSession === undefined))
       ? (parsed.data.id ?? undefined)
       : undefined;
   };
-  const bind = (record: Discovery): void => {
-    pi.appendEntry(selectionType, { id: record.id, project: record.project });
+  const bind = (record: Discovery, ctx: ExtensionContext): void => {
+    pi.appendEntry(selectionType, {
+      id: record.id,
+      project: record.project,
+      session: ctx.sessionManager.getSessionId(),
+    });
     selected = record.id;
     onSelectionChange?.();
   };
@@ -84,6 +96,7 @@ export function registerDiscovery(
       storage((db) =>
         db.create(ctx.cwd, ctx.sessionManager.getSessionId(), title),
       ),
+      ctx,
     );
   };
   const get = (): Discovery => {
@@ -107,6 +120,15 @@ export function registerDiscovery(
     const record = storage((db) => db.find(id));
     return record?.project === realpathSync(ctx.cwd) ? record : undefined;
   };
+  pi.on("session_start", (event, ctx) => {
+    selected = undefined;
+    if (event.reason === "fork")
+      pi.appendEntry(selectionType, {
+        id: null,
+        project: realpathSync(ctx.cwd),
+        session: ctx.sessionManager.getSessionId(),
+      });
+  });
   pi.on("before_agent_start", async (event, ctx) => {
     const record = selectedRecord(ctx);
     selected = record?.id;
@@ -250,7 +272,7 @@ export function registerDiscovery(
         )
           throw new Error("Open /discoveries again for this conversation");
         if (record.id !== current) {
-          bind(record);
+          bind(record, ctx);
           socrates.refresh(ctx);
         }
       } finally {

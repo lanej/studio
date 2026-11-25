@@ -4,11 +4,9 @@ import {
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import {
-  renderStatusCounts,
   renderStatusMark,
   selectorText,
   type StatusColumn,
-  type StatusGroup,
   type StatusItem,
   type StatusTheme,
 } from "@lanej/pi-components";
@@ -103,206 +101,270 @@ function align(left: string, right: string, width: number): string {
   );
 }
 
-function excerpt(text: string, width: number): string[] {
-  const lines = wrapTextWithAnsi(inline(text), width);
-  const first = lines[0];
-  if (first === undefined || first.length === 0) return [];
+interface SidebarSnapshot {
+  dockColumns: readonly StatusColumn[];
+  implementation: ImplementationPresentation;
+  prioritizeSpecification: boolean;
+}
+
+function sectionHeading(
+  column: StatusColumn,
+  theme: StatusTheme,
+  width: number,
+): string {
+  const title = theme.bold(inline(column.title));
+  if (column.status === undefined) return title;
+  const phase = renderStatusMark(column.status, theme);
+  const phaseWidth = Math.max(0, width - visibleWidth(title) - 1);
+  if (visibleWidth(phase) <= phaseWidth) return align(title, phase, width);
+  // A tracked plan's spec version also appears in the inspector.
+  const short = renderStatusMark(
+    {
+      ...column.status,
+      label: column.status.label
+        .replace(/ · spec v\d+$/u, "")
+        .replace(/^Awaiting approval$/u, "For approval"),
+    },
+    theme,
+  );
+  return `${title} ${truncateToWidth(short, phaseWidth, "…")}`;
+}
+
+function wrapped(text: string | undefined, width: number): string[] {
+  if (text === undefined || text.length === 0 || width <= 0) return [];
+  return wrapTextWithAnsi(inline(text), width);
+}
+
+/** Ellipsize only the last visible line when the viewport really runs out. */
+function excerpt(lines: string[], height: number, width: number): string[] {
+  if (height <= 0) return [];
+  if (lines.length <= height) return lines;
   return [
-    first,
-    ...(lines.length < 2
-      ? []
-      : [truncateToWidth(lines.slice(1).join(" "), width, "…")]),
+    ...lines.slice(0, height - 1),
+    truncateToWidth(lines.slice(height - 1).join(" "), width, "…"),
   ];
 }
 
-function itemLines(
+function propertyTitle(
   item: StatusItem,
-  group: StatusGroup,
-  column: StatusColumn,
+  focusId: string | undefined,
   theme: StatusTheme,
   width: number,
 ): string[] {
-  const { status } = item;
-  const glyph = theme[status.tone](inline(status.glyph));
-  const subject = `${glyph} ${inline(item.label)}`;
-  const state =
-    group.showStatusLabels === false
-      ? ""
-      : theme[status.tone](inline(status.label));
-  const suffix =
-    item.id === column.focusId ? `${theme.accent("◆")} ${state}` : state;
-  if (suffix.length === 0) return [truncateToWidth(subject, width, "…")];
-  if (visibleWidth(subject) + visibleWidth(suffix) + 1 <= width)
-    return [align(subject, suffix, width)];
-  const reference = inline(item.summary ?? "");
-  const detail =
-    reference.length > 0 ? `${suffix} · ${theme.muted(reference)}` : suffix;
-  return [truncateToWidth(subject, width, "…"), `  ${detail}`];
+  const mark = theme[item.status.tone];
+  const label = inline(item.label);
+  const glyph = mark(inline(item.status.glyph));
+  const state = mark(inline(item.status.label));
+  const suffix = item.id === focusId ? `${theme.accent("◆")} ${state}` : state;
+  const title = `${glyph} ${label}`;
+  if (visibleWidth(title) + visibleWidth(suffix) + 1 <= width)
+    return [align(title, suffix, width)];
+  const lines = wrapped(label, width - 2).map(
+    (line, i) => (i === 0 ? `${glyph} ` : "  ") + line,
+  );
+  const last = lines.at(-1);
+  if (
+    last !== undefined &&
+    visibleWidth(last) + visibleWidth(suffix) + 1 <= width
+  )
+    lines[lines.length - 1] = align(last, suffix, width);
+  else lines.push(`  ${suffix}`);
+  return lines;
 }
 
-interface RailSection {
-  heading: string[];
-  summary: string[];
-  rows: string[];
-  counts: string[];
-  evidence: { after: number; lines: string[] } | undefined;
-  graph?: SidebarGraph;
-}
-
-function section(
+function specificationRows(
   column: StatusColumn,
-  theme: GraphTheme,
+  theme: StatusTheme,
   width: number,
-  implementation: ImplementationPresentation,
-): RailSection {
-  const title = theme.bold(inline(column.title));
-  const phase =
-    column.status === undefined ? "" : renderStatusMark(column.status, theme);
-  const heading =
-    phase.length === 0
-      ? [title]
-      : visibleWidth(title) + visibleWidth(phase) + 2 <= width
-        ? [align(title, phase, width)]
-        : [title, phase];
-  const summary = excerpt(column.summary ?? "", width).map(theme.muted);
-  const counts = wrapTextWithAnsi(
-    renderStatusCounts(column.counts ?? [], theme),
-    width,
-  ).filter((line) => line.length > 0);
-  if (column.id === "implementation" && implementation.rows.length > 0) {
-    const graph = renderSidebarGraph(implementation, theme, width);
-    return {
-      heading,
-      summary,
-      counts,
-      rows: graph.lines,
-      evidence: undefined,
-      graph,
-    };
+  height: number,
+  prioritize: boolean,
+): string[] {
+  if (height <= 0) return [];
+  const rows = [sectionHeading(column, theme, width)];
+  const attention =
+    column.groups.find(({ id }) => id === "attention")?.items ?? [];
+  const ordered = [...attention].sort(
+    (a, b) => Number(b.id === column.focusId) - Number(a.id === column.focusId),
+  );
+  const groups = column.groups.filter((group) => group.collapsed === true);
+  const reserve = ordered.length === 0 ? Math.min(2, groups.length) : 3;
+  const contextHeight = Math.min(
+    prioritize ? 5 : 2,
+    Math.floor(height / 3),
+    Math.max(0, height - 1 - reserve),
+  );
+  rows.push(
+    ...excerpt(
+      wrapped(column.summary ?? column.emptyMessage, width),
+      contextHeight,
+      width,
+    ).map(theme.muted),
+  );
+
+  // Give each visible property a name and a readable start to its reason. Share
+  // the remaining lines so a lengthy assessment cannot crowd out the next gap.
+  const cards = ordered.map((item) => ({
+    title: propertyTitle(item, column.focusId, theme, width),
+    reason: wrapped(item.details, width - 2),
+    shown: 0,
+  }));
+  let room = height - rows.length;
+  let visible = 0;
+  for (const [index, card] of cards.entries()) {
+    const minimum = Math.min(2, card.reason.length);
+    const more = index + 1 < cards.length ? 1 : 0;
+    if (card.title.length + minimum + more > room && visible > 0) break;
+    if (card.title.length > room) break;
+    card.shown = Math.min(
+      minimum,
+      Math.max(0, room - card.title.length - more),
+    );
+    room -= card.title.length + card.shown;
+    visible++;
   }
-  const rows: string[] = [];
-  let evidence: RailSection["evidence"];
-  for (const group of column.groups) {
-    const first = group.items[0];
-    if (first === undefined) continue;
-    if (group.collapsed === true) {
+  const omitted = cards.length - visible;
+  const footerHeight = Math.min(room, omitted > 0 ? 1 : groups.length);
+  room -= footerHeight;
+  const shown = cards.slice(0, visible);
+  while (room > 0) {
+    const unfinished = shown.filter((card) => card.shown < card.reason.length);
+    if (unfinished.length === 0) break;
+    for (const card of unfinished.slice(0, room)) {
+      card.shown++;
+      room--;
+    }
+  }
+  for (const card of shown) {
+    rows.push(
+      ...card.title,
+      ...excerpt(card.reason, card.shown, width - 2).map((line) =>
+        theme.muted(`  ${line}`),
+      ),
+    );
+  }
+  if (omitted > 0) {
+    if (footerHeight > 0)
+      rows.push(theme.muted(`+${String(omitted)} more properties`));
+    return rows;
+  }
+  for (const group of groups.slice(0, footerHeight)) {
+    const showNames = prioritize && group.id === "unknown" && room > 0;
+    const mark = showNames ? "○" : "▸";
+    rows.push(
+      theme[group.tone ?? "muted"](
+        `${mark} ${inline(group.label)} ${String(group.items.length)}`,
+      ),
+    );
+    if (showNames) {
+      const names = group.items.map((item) => inline(item.label)).join(" · ");
       rows.push(
-        theme[group.tone ?? "muted"](
-          `▸ ${inline(first.status.glyph)} ${inline(group.label)} ${String(group.items.length)}`,
+        ...excerpt(wrapped(names, width - 2), room, width - 2).map((line) =>
+          theme.muted(`  ${line}`),
         ),
       );
-      continue;
-    }
-    const focus = group.items.find((item) => item.id === column.focusId);
-    const ordered =
-      focus === undefined
-        ? group.items
-        : [focus, ...group.items.filter((item) => item !== focus)];
-    for (const item of ordered) {
-      rows.push(...itemLines(item, group, column, theme, width));
-      if (
-        column.id === "specification" &&
-        item.details !== undefined &&
-        (evidence === undefined || column.focusId === item.id)
-      ) {
-        evidence = {
-          after: rows.length,
-          lines: excerpt(item.details, width - 2).map((line) =>
-            theme.muted(`  ${line}`),
-          ),
-        };
-      }
     }
   }
-  if (rows.length === 0 && column.emptyMessage !== undefined) {
-    rows.push(...excerpt(column.emptyMessage, width).map(theme.muted));
-  }
-  return { heading, summary, counts, rows, evidence };
+  return rows;
 }
 
-function draw(
-  section: RailSection,
+function implementationRows(
+  column: StatusColumn,
+  implementation: ImplementationPresentation,
+  theme: GraphTheme,
+  width: number,
   height: number,
-  theme: StatusTheme,
+  preview: boolean,
 ): string[] {
-  const { heading, summary, rows, evidence } = section;
-  const remaining = height - heading.length;
-  if (remaining <= 0) return heading.slice(0, height);
-  // Keep the first actionable entry visible on a short terminal.
-  const context = summary.slice(
-    0,
-    Math.max(0, remaining - Math.min(rows.length, 2)),
-  );
-  const bodyHeight = remaining - context.length;
-  if (section.graph !== undefined)
-    return [
-      ...heading,
-      ...context,
-      ...fitSidebarGraph(section.graph, bodyHeight, theme),
-    ];
-  if (rows.length > bodyHeight) {
-    const counts = section.counts.slice(0, Math.max(0, bodyHeight - 2));
-    return [
-      ...heading,
-      ...context,
-      ...counts,
-      ...rows.slice(0, bodyHeight - counts.length),
-    ];
-  }
-  const body = [...rows];
-  if (evidence !== undefined)
-    body.splice(
-      evidence.after,
-      0,
-      ...evidence.lines.slice(0, bodyHeight - rows.length),
+  if (height <= 0) return [];
+  const rows = [sectionHeading(column, theme, width)];
+  if (height === 1) return rows;
+  const graph = renderSidebarGraph(implementation, theme, width);
+  if (!preview) {
+    const context = wrapped(
+      column.summary ??
+        (graph.lines.length === 0 ? column.emptyMessage : undefined),
+      width,
     );
-  return [...heading, ...context, ...body];
+    const count = Math.min(
+      2,
+      Math.max(0, height - rows.length - Math.min(graph.lines.length, 2)),
+    );
+    rows.push(...excerpt(context, count, width).map(theme.muted));
+  }
+  rows.push(...fitSidebarGraph(graph, height - rows.length, theme));
+  return rows;
 }
 
-/** Passive companion to the lead. Mount at the right edge with the editor retaining keyboard focus. */
+/** Keep the plan in view during discovery, then give its dependency graph the available space. */
+export function renderSocratesSections(
+  snapshot: SidebarSnapshot,
+  theme: GraphTheme,
+  width: number,
+  height: number,
+  compact = false,
+): string[] {
+  const spec = snapshot.dockColumns.find(
+    (column) => column.id === "specification",
+  );
+  const plan = snapshot.dockColumns.find(
+    (column) => column.id === "implementation",
+  );
+  if (width < 3 || height < 1) return [];
+  if (spec === undefined)
+    return plan === undefined
+      ? []
+      : implementationRows(
+          plan,
+          snapshot.implementation,
+          theme,
+          width,
+          height,
+          false,
+        );
+  if (plan === undefined)
+    return specificationRows(spec, theme, width, height, true);
+  const priority = snapshot.prioritizeSpecification;
+  const gap = compact || height < 6 ? 0 : 1;
+  const available = height - gap;
+  const previewHeight =
+    snapshot.implementation.rows.length > 0 && !compact ? 5 : 1;
+  const specBudget = priority
+    ? available - Math.min(previewHeight, Math.floor(available / 3))
+    : Math.min(8, Math.max(1, Math.floor(available / 3)));
+  const rows = specificationRows(spec, theme, width, specBudget, priority);
+  const planHeight = priority
+    ? Math.min(previewHeight, available - rows.length)
+    : available - rows.length;
+  if (planHeight > 0) {
+    if (gap > 0) rows.push(theme.muted("─".repeat(width)));
+    rows.push(
+      ...implementationRows(
+        plan,
+        snapshot.implementation,
+        theme,
+        width,
+        planHeight,
+        priority,
+      ),
+    );
+  }
+  return rows;
+}
+
+/** Passive companion to the lead. The editor retains keyboard focus. */
 export function renderStatusSidebar(
-  snapshot: {
-    dockColumns: readonly StatusColumn[];
-    implementation: ImplementationPresentation;
-  },
+  snapshot: SidebarSnapshot,
   theme: GraphTheme,
   width: number,
   height: number,
 ): string[] {
-  const columns = snapshot.dockColumns;
-  if (width < 4 || height < 1 || columns.length === 0) return [];
-  const inner = width - 3; // Divider and one inset cell on each side of the content.
-  const sections = columns
-    .slice(0, 2)
-    .map((column) => section(column, theme, inner, snapshot.implementation));
-  const natural = sections.map(
-    ({ heading, summary, rows, evidence }) =>
-      heading.length +
-      summary.length +
-      rows.length +
-      (evidence?.lines.length ?? 0),
-  );
-  const gap = sections.length === 2 && height >= 6 ? 1 : 0;
-  const available = height - gap;
-  const firstBudget = Math.min(
-    natural[0] ?? 0,
-    Math.max(
-      Math.ceil(available / sections.length),
-      available - (natural[1] ?? 0),
-    ),
-  );
-  const lines = sections.flatMap((part, index) =>
-    index === 0
-      ? draw(part, firstBudget, theme)
-      : [
-          ...(gap === 0 ? [] : [theme.muted("─".repeat(inner))]),
-          ...draw(part, available - firstBudget, theme),
-        ],
-  );
+  if (width < 6 || height < 1 || snapshot.dockColumns.length === 0) return [];
+  const inner = width - 3;
+  const rows = renderSocratesSections(snapshot, theme, inner, height);
   const divider = theme.muted("│");
   return Array.from(
     { length: height },
     (_, index) =>
-      `${divider} ${truncateToWidth(lines[index] ?? "", inner, "…", true)} `,
+      `${divider} ${truncateToWidth(rows[index] ?? "", inner, "…", true)} `,
   );
 }
