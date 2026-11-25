@@ -14,7 +14,10 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--with-integrations", action="store_true", help="Also exercise native worktree-backed delegation")
 parser.add_argument("--installation-only", action="store_true", help="Exercise export and installation without repeating source quality and unit checks")
 args = parser.parse_args()
-command_timeout = 240 if os.environ.get("GITHUB_ACTIONS") == "true" else 90
+ci = os.environ.get("GITHUB_ACTIONS") == "true"
+command_timeout = 240 if ci else 90
+# Exported-source quality checks rebuild the compiler programs on cold CI runners.
+quality_timeout = 600 if ci else command_timeout
 bun = shutil.which("bun")
 assert bun, "Install Bun satisfying package.json engines.bun before standalone acceptance"
 current_version = subprocess.check_output([bun, "--version"], text=True).strip().split("+", 1)[0]
@@ -42,8 +45,15 @@ with tempfile.TemporaryDirectory(prefix="studio-standalone-") as temporary:
            "PATH": str(guard) + os.pathsep + os.environ["PATH"]}
     env.pop("STUDIO_CONFIG", None)
     env.pop("STUDIO_STATE_DIR", None)
-    def run(args, expected=0, cwd=None, stderr_contains=None):
-        result = subprocess.run(args, cwd=cwd or source, env=env, text=True, capture_output=True, timeout=command_timeout)
+    def run(args, expected=0, cwd=None, stderr_contains=None, timeout=command_timeout):
+        try:
+            result = subprocess.run(args, cwd=cwd or source, env=env, text=True, capture_output=True, timeout=timeout)
+        except subprocess.TimeoutExpired as error:
+            def tail(output):
+                if isinstance(output, bytes):
+                    output = output.decode("utf-8", errors="replace")
+                return (output or "")[-8000:]
+            raise AssertionError((args, f"Timed out after {timeout} seconds", tail(error.stdout), tail(error.stderr))) from error
         assert result.returncode == expected, (args, result.stdout[-4000:], result.stderr[-8000:])
         if stderr_contains is not None:
             assert stderr_contains in result.stderr, (args, result.stderr)
@@ -66,8 +76,8 @@ with tempfile.TemporaryDirectory(prefix="studio-standalone-") as temporary:
     run([bun, "install", "--frozen-lockfile", "--ignore-scripts"])
     if not args.installation_only:
         run([bun, "install", "--cwd", ".typescript-quality", "--frozen-lockfile", "--ignore-scripts"])
-        run([bun, "run", "typecheck"])
-        run([bun, "run", "lint"])
+        run([bun, "run", "typecheck"], timeout=quality_timeout)
+        run([bun, "run", "lint"], timeout=quality_timeout)
         run([bun, "run", "test"])
         run([bun, "run", "test:pi-native"])
     report = json.loads(run([str(source / "scripts/studio"), "doctor"]))
