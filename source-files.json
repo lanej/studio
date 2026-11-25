@@ -234,6 +234,7 @@
   "tasks/model.ts",
   "tasks/panel.ts",
   "tests/allocation.test.ts",
+  "tests/beads-http-fixture.test.ts",
   "tests/ci-selection.test.ts",
   "tests/cli-completion.test.ts",
   "tests/diagnostics.test.ts",
