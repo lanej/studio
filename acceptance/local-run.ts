@@ -28,16 +28,6 @@ const runtime = z.object({ bd: z.string(), dolt: z.string() }).parse(
 const bd = process.env["STUDIO_NATIVE_BD"] ?? runtime.bd;
 const dolt = process.env["STUDIO_NATIVE_DOLT"] ?? runtime.dolt;
 
-// The interactive controller uses the managed child runner; do not depend on unit-test order.
-if (process.env["STUDIO_ACCEPTANCE_CASE"] === "interactive-dispatch")
-  await execute(
-    process.execPath,
-    [join(root, "scripts/prepare-delegation.mjs")],
-    {
-      cwd: root,
-    },
-  );
-
 await withBeadsHttp(bd, dolt, async (fixture, source) => {
   const env: NodeJS.ProcessEnv = {
     ...Object.fromEntries(

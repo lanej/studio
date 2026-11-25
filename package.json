@@ -46,7 +46,6 @@
     "@lumis-sh/wasm-json": "0.26.7",
     "@silvia-odwyer/photon-node": "0.3.4",
     "@vscode/tree-sitter-wasm": "0.3.1",
-    "@tintinweb/pi-subagents": "0.26.2",
     "commander": "^14.0.0",
     "pi-codex-tools": "0.4.2",
     "pi-git-diff": "0.1.1",

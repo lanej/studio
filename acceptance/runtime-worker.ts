@@ -674,10 +674,6 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     await rename(temporary, configFile);
   };
   await saveConfig();
-  await run(process.execPath, [join(root, "scripts/prepare-delegation.mjs")], {
-    cwd: root,
-    env,
-  });
   const graph = randomUUID();
   const service = new ExecutionBeads(source);
   const prefix = await service.prefix();

@@ -365,14 +365,6 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       },
     };
     await writeFile(configFile, JSON.stringify(config));
-    await run(
-      process.execPath,
-      [join(root, "scripts/prepare-delegation.mjs")],
-      {
-        cwd: root,
-        env,
-      },
-    );
     store.enroll(project);
     const enrolled = store.project(project.id);
     const configured = (await loadConfig(configFile)).runtime.projects[0];

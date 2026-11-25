@@ -1,6 +1,6 @@
 # Studio runtime
 
-Studio separates the daily-driver lead, the approved work queue, and execution. The lead is a native Pi conversation that can research, edit and test code directly in the current checkout. Beads owns tasks and dependency readiness. Studio stores discovery and execution receipts outside disposable checkouts. The pinned Pi subagent runner executes workers and reviewers in native sessions; the native worktree manager owns their checkouts. Octo owns PR publication, feedback, and merge effects.
+Studio separates the daily-driver lead, the approved work queue, and execution. The lead is a native Pi conversation that can research, edit and test code directly in the current checkout. Beads owns tasks and dependency readiness. Studio stores discovery and execution receipts outside disposable checkouts. Studio runs workers and reviewers in native Pi sessions. The native worktree manager owns their checkouts. Octo owns PR publication, feedback, and merge effects.
 
 ## Discovery and approval
 
@@ -18,7 +18,7 @@ Approval creates a controller-owned root and executable children in Beads and st
 
 `/plan-approve interactive` records the approved plan and target Zellij server and tab before creating tasks. Interactive approval requires a compatible running supervisor, a tab with synchronized input off, local delivery, owned paths, and a verifier. The supervisor persists one launch token before sending the pane request. The pane registers its token, process incarnation, and terminal identity against the existing attempt before allocation or inference. A lost acknowledgement can settle through that registration. Unavailable or uncertain launches retain the attempt for inspection.
 
-The Pi worker and controller share the registered process so checkout mutations use the existing owner fence. Reviewer sessions use the separate read-only runner. Pi accepts operator guidance during inference and displays queued messages. When the worker settles, the controller verifies, commits, independently reviews, and integrates the accepted result. Interactive verification or review failures park for inspection. The runtime keeps the same review and Beads completion gates for dependencies.
+The Pi worker and controller share the registered process so checkout mutations use the existing owner fence. Studio opens a separate read-only session for each review. Pi accepts operator guidance during inference and displays queued messages. When the worker settles, the controller verifies, commits, independently reviews, and integrates the accepted result. Interactive verification or review failures park for inspection. The runtime keeps the same review and Beads completion gates for dependencies.
 
 ## Independent ownership
 
@@ -60,6 +60,6 @@ Beads completion for required PR delivery waits for Octo-confirmed merge, fetche
 
 ## Acceptance evidence
 
-The native fixtures use the pinned Pi host and runner, actual worktree manager, Beads HTTP/CLI, Dolt, and a deterministic local provider. They cover lead closure during work, separate worker/reviewer sessions, held/dependency admission, atomic readiness changes, deterministic graph reconciliation, and restart after integration before task closure. Separate native isolation fixtures exercise controller-state denial and Git callback suppression. Terminal acceptance drives bare and titled `/socrates`, project-scoped picker selection and Escape, and resume of a saved answer in a new native Pi conversation. It captures the picker and breakdown review at narrow and wide widths, and the open question at the wide width. Deterministic Octo fixtures exercise delivery policy and receipt handling without real GitHub mutations.
+The native fixtures exercise Studio child sessions with the pinned Pi host, native worktree manager, Beads HTTP/CLI, Dolt, and a deterministic local provider. They cover lead closure during work, separate worker/reviewer sessions, held/dependency admission, atomic readiness changes, deterministic graph reconciliation, and restart after integration before task closure. Separate native isolation fixtures exercise controller-state denial and Git callback suppression. Terminal acceptance drives bare and titled `/socrates`, project-scoped picker selection and Escape, and resume of a saved answer in a new native Pi conversation. It captures the picker and breakdown review at narrow and wide widths, and the open question at the wide width. Deterministic Octo fixtures exercise delivery policy and receipt handling without real GitHub mutations.
 
 Controlled provider and service fixtures establish runtime wiring and recovery. They do not establish live provider or GitHub delivery acceptance. Source checks, hosted CI, installed release identity, and an already-running process are separate observations. Use the native scripts in `package.json` and inspect their retained results before enabling a live project.

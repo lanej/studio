@@ -391,14 +391,14 @@ test("native workflow filters cover static imports and literal process inputs", 
     }
     if (item.workflow === "beads.yml") {
       assert(
-        processInputs.has("scripts/prepare-delegation.mjs"),
-        "The real preparation invocation must be detected",
+        processInputs.has("scripts/studio"),
+        "The runtime fixture must invoke the Studio launcher",
       );
-      const missingPreparation = definition.on.pull_request.paths.filter(
-        (path) => path !== "scripts/prepare-delegation.mjs",
+      const withoutLauncher = definition.on.pull_request.paths.filter(
+        (path) => path !== "scripts/studio",
       );
       assert.equal(
-        matchesPaths(missingPreparation, ["scripts/prepare-delegation.mjs"]),
+        matchesPaths(withoutLauncher, ["scripts/studio"]),
         false,
         "Removing the dynamic-exec dependency must lose selection",
       );

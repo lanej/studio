@@ -59,7 +59,6 @@ with (agent / ".studio-configure.lock").open("a") as lock:
             raise SystemExit("Preserving the existing dotfiles.json theme link; configure its source explicitly.")
     elif theme_link.exists():
         raise SystemExit("Preserving the local dotfiles.json theme; configure its source explicitly.")
-    subprocess.run([*bun_command, str(package / "scripts/prepare-delegation.mjs")], check=True)
     # Retain both sides of an interrupted settings update so retry/upgrade can remove only owned registrations.
     atomic_json(registration, {"packages": list(dict.fromkeys([*managed, str(package)]))})
     theme_link.parent.mkdir(parents=True, exist_ok=True)

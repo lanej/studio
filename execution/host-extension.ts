@@ -17,7 +17,7 @@ export default function runtimeHost(pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => {
     const store = new ExecutionStore();
     try {
-      await executeAssignment(pi, ctx, id, controller.signal, token);
+      await executeAssignment(ctx, id, controller.signal, token);
     } catch (error) {
       store.change(id, (record) => {
         if (

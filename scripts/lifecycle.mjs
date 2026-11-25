@@ -80,7 +80,6 @@ try {
     writeFileSync(join(stage, "source-files.json"), JSON.stringify([...new Set([...names, "source-files.json"])].sort()) + "\n");
     const bun = selected.path;
     run([bun, 'install', '--frozen-lockfile', '--ignore-scripts'], stage);
-    run([bun, 'scripts/prepare-delegation.mjs'], stage);
     run([bun, 'scripts/check-build.mjs'], stage);
     let revision = null;
     try {

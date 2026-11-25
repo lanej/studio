@@ -1,6 +1,4 @@
 import type {
-  AgentSession,
-  ExtensionAPI,
   ExtensionContext,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
@@ -10,7 +8,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { WorktreeManager } from "../vendor/task-runtime/worktrees.ts";
-import { AgentRole, ReasoningLevel, loadConfig } from "../config.ts";
+import { AgentRole, loadConfig } from "../config.ts";
 import { requireIntegration } from "../integrations.ts";
 import { snapshotTools } from "../delegation.ts";
 import { processStart, run } from "../process.ts";
@@ -42,6 +40,7 @@ import {
   requireDecisionPublicationReconciled,
 } from "./decisions.ts";
 import { withAllocation } from "./allocation.ts";
+import { runChild } from "./child-session.ts";
 
 const workerResult = z.object({
   summary: z.string().min(1).max(8000),
@@ -150,7 +149,6 @@ export function startAssignmentHeartbeat(
   };
 }
 export async function executeAssignment(
-  pi: ExtensionAPI,
   ctx: ExtensionContext,
   id: string,
   signal: AbortSignal,
@@ -298,7 +296,6 @@ export async function executeAssignment(
       ctx.model.id !== attempt.controller.model
     )
       throw new Error("The control host did not retain its admitted model");
-    const runner = await import("../plugin-runner.mjs");
     let round = 0;
     const child = async (
       role: AgentRole.Worker | AgentRole.Reviewer,
@@ -322,7 +319,6 @@ export async function executeAssignment(
         `${role}-${String(round++)}`,
       );
       mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
-      let session: AgentSession | undefined;
       const tools = await snapshotTools(checkout.path, head, git);
       const workerTools =
         role === AgentRole.Worker
@@ -344,60 +340,44 @@ export async function executeAssignment(
         await check();
         return result;
       }
-      try {
-        const result = await runner.runChild(ctx, role, prompt, {
-          pi,
-          cwd: checkout.path,
-          configCwd: project.root,
-          model,
-          thinkingLevel: selection.reasoning,
-          maxTurns: role === AgentRole.Worker ? 32 : 12,
-          signal: abort,
-          agentId: `${id}-${role}-${String(round)}`,
-          sessionDir,
-          driverTools: workerTools ?? [
-            ...tools,
-            ...reviewTools,
-            ...(await snapshotTools(
-              checkout.path,
-              attempt.base ?? head,
-              git,
-            ).then((items) =>
-              items.map((tool) => ({
-                ...tool,
-                name: `base_${tool.name}`,
-              })),
-            )),
-          ],
-          onSessionCreated(created) {
-            session = created;
-            if (
-              created.model?.id !== model.id ||
-              created.model.provider !== model.provider ||
-              z.enum(ReasoningLevel).safeParse(created.thinkingLevel).data !==
-                selection.reasoning
-            )
-              throw new Error(
-                "The child did not retain its admitted model/reasoning",
-              );
-            const file = created.sessionManager.getSessionFile();
-            store.change(id, (row) => {
-              row.sessions.push(file ?? created.sessionManager.getSessionId());
-              if (role === AgentRole.Worker) row.worker = selection;
-              else row.reviewer = selection;
-            });
-          },
-        });
-        if (result.aborted || result.failure !== undefined)
-          throw new Error(
-            result.failure ??
-              "Execution cancelled; retain this attempt before recovery",
-          );
-        await check();
-        return result.responseText;
-      } finally {
-        session?.dispose();
-      }
+      const result = await runChild(ctx, role, prompt, {
+        agentId: id,
+        cwd: checkout.path,
+        model,
+        thinkingLevel: selection.reasoning,
+        maxTurns: role === AgentRole.Worker ? 32 : 12,
+        signal: abort,
+        sessionDir,
+        tools: workerTools ?? [
+          ...tools,
+          ...reviewTools,
+          ...(await snapshotTools(
+            checkout.path,
+            attempt.base ?? head,
+            git,
+          ).then((items) =>
+            items.map((tool) => ({
+              ...tool,
+              name: `base_${tool.name}`,
+            })),
+          )),
+        ],
+        onSessionCreated(created) {
+          const file = created.sessionManager.getSessionFile();
+          store.change(id, (row) => {
+            row.sessions.push(file ?? created.sessionManager.getSessionId());
+            if (role === AgentRole.Worker) row.worker = selection;
+            else row.reviewer = selection;
+          });
+        },
+      });
+      if (result.aborted || result.failure !== undefined)
+        throw new Error(
+          result.failure ??
+            "Execution cancelled; retain this attempt before recovery",
+        );
+      await check();
+      return result.responseText;
     };
     const metadata = taskMetadata.parse(
       acceptedBead.metadata["studio.task"] ?? {},

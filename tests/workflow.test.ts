@@ -237,10 +237,6 @@ await test(
         join(bundle, "resources"),
       ])
         await mkdir(path, { recursive: true });
-      await execute(process.execPath, ["scripts/prepare-delegation.mjs"], {
-        cwd: root,
-        timeout: 10_000,
-      });
       await execute(
         process.execPath,
         [

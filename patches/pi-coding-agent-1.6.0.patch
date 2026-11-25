@@ -863,3 +863,16 @@ index be4a571d0f5ab07f482d8d634f937e0448787c1d..bcea3cb865d57c26d1f6ea24d51a0e33
          }
          finally {
              this.scopes.delete(toolCall.id);
+diff --git a/dist/core/model-registry.d.ts b/dist/core/model-registry.d.ts
+--- a/dist/core/model-registry.d.ts
++++ b/dist/core/model-registry.d.ts
+@@ -19,7 +19,8 @@ export { clearApiKeyCache } from "./provider-composer.ts";
+  * Coding-agent internals use ModelRuntime directly.
+  */
+ export declare class ModelRegistry {
+-    private readonly runtime;
++    /** The host's configured model and credential runtime, shared with Studio's child sessions. */
++    readonly runtime: ModelRuntime;
+     constructor(runtime: ModelRuntime);
+     /** Reload models.json asynchronously. Await before making synchronous registry reads. */
+     refresh(options?: ModelsRefreshOptions): Promise<ModelsRefreshResult>;

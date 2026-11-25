@@ -10,7 +10,6 @@ import {
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import type {
-  AgentSession,
   ExtensionAPI,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
@@ -22,9 +21,9 @@ import {
   StudioProfile,
   knownProvider,
   loadConfig,
-  ReasoningLevel,
 } from "./config.ts";
 import { processFailure, run } from "./process.ts";
+import { runChild } from "./execution/child-session.ts";
 
 export const delegateTool = "studio_delegate";
 const roles = [AgentRole.Explorer, AgentRole.Reviewer] as const;
@@ -417,14 +416,12 @@ export function registerDelegation(
       active.set(id, controller);
       onChange();
       let attempt: Attempt | undefined;
-      let child: AgentSession | undefined;
       try {
         const abort =
           signal === undefined
             ? controller.signal
             : AbortSignal.any([signal, controller.signal]);
         abort.throwIfAborted();
-        const runner = await import("./plugin-runner.mjs");
         const [head, listing] = await Promise.all([
           run("git", ["rev-parse", "--verify", "HEAD"], { cwd: ctx.cwd }),
           run("git", ["worktree", "list", "--porcelain", "-z"], {
@@ -452,34 +449,22 @@ export function registerDelegation(
         const record = attempt;
         record.state = State.Ready;
         save(record);
-        const driverTools = await snapshotTools(worktree.path, source);
+        const tools = await snapshotTools(worktree.path, source);
         abort.throwIfAborted();
         record.state = State.Launching;
         save(record);
         const sessionDir = join(stateHome(), "sessions", id);
         mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
-        const result = await runner.runChild(ctx, role, brief, {
-          pi,
+        const result = await runChild(ctx, role, brief, {
+          agentId: id,
           cwd: worktree.path,
-          configCwd: ctx.cwd,
           model,
           thinkingLevel: settings.reasoning,
           maxTurns: 8,
           signal: abort,
-          agentId: id,
           sessionDir,
-          driverTools,
+          tools,
           onSessionCreated(session) {
-            child = session;
-            if (
-              session.model?.provider !== model.provider ||
-              session.model.id !== model.id ||
-              z.enum(ReasoningLevel).safeParse(session.thinkingLevel).data !==
-                settings.reasoning
-            )
-              throw new Error(
-                "The child runtime changed the requested model or reasoning level",
-              );
             record.session = session.sessionManager.getSessionId();
             const file = session.sessionManager.getSessionFile();
             if (file !== undefined) record.sessionFile = file;
@@ -515,7 +500,6 @@ export function registerDelegation(
         }
         throw new Error(`Delegation ${id}: ${processFailure(error).message}`);
       } finally {
-        child?.dispose();
         active.delete(id);
         onChange();
       }
