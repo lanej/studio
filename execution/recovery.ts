@@ -13,6 +13,7 @@ import {
   type ExecutionStore,
   ExecutionPhase,
   VerificationPhase,
+  pendingDecision,
   type Execution,
   type RuntimeProject,
 } from "./store.ts";
@@ -148,6 +149,43 @@ export async function reconcileAttempt(
 ): Promise<void> {
   const record = store.attempt(id);
   if (record.phase === ExecutionPhase.Complete) return;
+  if (pendingDecision(record) !== undefined) {
+    if (
+      record.phase === ExecutionPhase.AwaitingDecision &&
+      record.launchSettled
+    )
+      return;
+    if (
+      record.pid !== undefined &&
+      record.started !== undefined &&
+      (await alive(record.pid, record.started))
+    )
+      return;
+    if (await writerFence(record)) {
+      store.change(id, (row) => {
+        row.phase = ExecutionPhase.Uncertain;
+        row.message =
+          "Operator decision retained; prior writer settlement is uncertain";
+      });
+      return;
+    }
+    if (record.bead === undefined || record.revision === undefined)
+      throw new Error("Pending decision admission is unavailable");
+    await new ExecutionBeads(project.source).requireCurrent(
+      record.bead,
+      record.revision,
+      id,
+    );
+    store.change(id, (row) => {
+      if (!isDeepStrictEqual(row, record))
+        throw new Error("Decision wait changed during recovery");
+      row.phase = ExecutionPhase.AwaitingDecision;
+      row.launchSettled = true;
+      row.message =
+        "Operator decision retained after host loss; no worker was relaunched";
+    });
+    return;
+  }
   if (
     record.bead !== undefined &&
     interactiveTask(record.bead) &&

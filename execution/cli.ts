@@ -5,12 +5,18 @@ import { isDeepStrictEqual } from "node:util";
 // only inside actions so inspection cannot initialize the runtime graph.
 export async function retryAttempt(id: string): Promise<void> {
   const { retryWriterFence } = await import("./recovery.ts");
-  const { ExecutionStore, ExecutionPhase } = await import("./store.ts");
+  const { ExecutionStore, ExecutionPhase, pendingDecision } = await import(
+    "./store.ts"
+  );
   const { ExecutionBeads } = await import("./beads.ts");
   const { ensureRuntime } = await import("./supervisor.ts");
   const store = new ExecutionStore();
   try {
     const record = store.attempt(id);
+    if (pendingDecision(record) !== undefined)
+      throw new Error(
+        "An operator decision is pending; answer its exact request instead of retrying",
+      );
     if (record.interactive !== undefined)
       throw new Error(
         "Interactive attempts retain their original pane binding. Inspect the transcript and checkout; automatic replacement is unavailable.",
@@ -166,6 +172,21 @@ export function registerRuntimeCommands(program: Command): void {
       }
       console.log(
         "Scheduling stop recorded. Existing task hosts continue; inspect status before stopping any task.",
+      );
+    });
+  runtime
+    .command("answer <attempt> <request>")
+    .description(
+      "Answer a retained operator decision and resume scheduling, including other ready work",
+    )
+    .requiredOption("--text <text>")
+    .action(async (id: string, request: string, options: { text: string }) => {
+      console.log(
+        JSON.stringify(
+          await (
+            await import("./decisions.ts")
+          ).answerDecision(id, request, options.text),
+        ),
       );
     });
   runtime
