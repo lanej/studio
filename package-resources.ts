@@ -21,6 +21,10 @@ export async function inspectPackageResources() {
       join(packageRoot, "resources/socrates/references/dialogue.txt"),
       join(
         packageRoot,
+        "resources/socrates/references/data-change-planning.md",
+      ),
+      join(
+        packageRoot,
         "node_modules/@earendil-works/pi-coding-agent/dist/cli.js",
       ),
     ];
