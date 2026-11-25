@@ -11,7 +11,7 @@ import { selectorText } from "@lanej/pi-components";
 import { z } from "zod";
 import { registerSocratesControls } from "../socrates/controls.ts";
 import { draftDeliveryPolicy, SpecStatus, specText } from "../socrates/spec.ts";
-import { coverageToken } from "../socrates/assessment.ts";
+import { specificationToken } from "../socrates/assessment.ts";
 import { loadConfig } from "../config.ts";
 import { socratesGuidance } from "../socrates/guidance.ts";
 import {
@@ -419,7 +419,7 @@ export function registerDiscovery(
               throw new Error(
                 "Link proposed tasks only to requirements in the current specification",
               );
-            row.planSpecificationRevision = coverageToken(spec);
+            row.planSpecificationRevision = specificationToken(spec);
           }
           saveDiscoveryPlan(row, draft);
         }),

@@ -20,7 +20,7 @@ import {
   specificationGaps,
   type DeliveryPolicy,
 } from "../socrates/spec.ts";
-import { coverageToken } from "../socrates/assessment.ts";
+import { specificationToken } from "../socrates/assessment.ts";
 
 export enum HandoffPhase {
   Pending = "pending",
@@ -115,7 +115,7 @@ export function handoffDraft(record: Discovery): LeadDraft {
     );
   const gaps = specificationGaps(spec, record.revision);
   if (gaps.length > 0) throw new Error(gaps.join("\n"));
-  if (record.planSpecificationRevision !== coverageToken(spec))
+  if (record.planSpecificationRevision !== specificationToken(spec))
     throw new Error(
       "Update the work breakdown against the current frozen specification before approval",
     );

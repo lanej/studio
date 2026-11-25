@@ -14,7 +14,7 @@ import {
 import { existsSync } from "node:fs";
 import { registerProjectPolicy } from "../execution/policy.ts";
 import { registerDiscovery } from "../discovery/extension.ts";
-import { Discoveries, HandoffPhase } from "../discovery/store.ts";
+import { Discoveries, handoffDraft, HandoffPhase } from "../discovery/store.ts";
 import { runtimeProjectSchema, StudioProfile } from "../config.ts";
 import { randomUUID } from "node:crypto";
 import { SpecStatus } from "../socrates/spec.ts";
@@ -24,6 +24,7 @@ import {
   coverageFresh,
   coverageProperties,
   coverageToken,
+  specificationToken,
 } from "../socrates/assessment.ts";
 
 async function discoveryFixture(t: TestContext) {
@@ -465,6 +466,77 @@ await test("only the current assessed specification and linked plan can reach ha
   assert.match(await prompt(), /requested code changes directly/u);
   assert.equal(discovery.runtimeHandoff(ctx), undefined);
   assert.equal(store.get(first.id).approved, planDigest(linked));
+});
+
+await test("a legacy assessment cannot authorize a plan revised after freeze before the upgrade", async (t) => {
+  const {
+    project,
+    store,
+    save,
+    assess,
+    draft,
+    firstTask,
+    reviewUI,
+    ctx,
+    approve,
+    review,
+    authority,
+    target,
+  } = await discoveryFixture(t);
+  await save();
+  const record = store.list(project)[0];
+  assert.ok(record !== undefined);
+  const frozen = readySpecification(record.revision);
+  const legacyStamp = specificationToken(frozen);
+  const changedPlan = draftSchema.parse({
+    ...draft,
+    tasks: [
+      {
+        ...firstTask,
+        requirements: ["R1"],
+        delivery: "local",
+        acceptance: "Verify the revised result",
+      },
+    ],
+  });
+  const saved = store.change(record.id, (row) => {
+    row.specification = {
+      ...frozen,
+      status: SpecStatus.Frozen,
+      approvalAt: "2026-11-24T00:00:00Z",
+      coverageRevision: legacyStamp,
+    };
+    row.planSpecificationRevision = legacyStamp;
+    row.leadPlan.draft = changedPlan;
+  });
+
+  await save(changedPlan);
+  await assert.rejects(approve.handler("", ctx), /Reassess properties/u);
+  assert.equal(review.openings, 0);
+  // Previously submitted operations reconcile the exact original graph, even with older evidence.
+  assert.deepEqual(
+    handoffDraft({
+      ...saved,
+      handoff: {
+        operation: randomUUID(),
+        phase: HandoffPhase.Uncertain,
+        revision: saved.revision,
+        digest: planDigest(changedPlan),
+        target: { ...target, id: authority },
+      },
+    }),
+    changedPlan,
+  );
+
+  await assess(frozen.draft);
+  const refreshed = store.get(record.id);
+  assert.equal(refreshed.planSpecificationRevision, legacyStamp);
+  assert.equal(
+    refreshed.specification?.coverageRevision,
+    coverageToken(frozen),
+  );
+  await approve.handler("", { ...ctx, ui: reviewUI });
+  assert.equal(review.openings, 1);
 });
 
 await test("the frozen publication decision assigns PRs to the intended beads and survives final review", async (t) => {

@@ -448,7 +448,7 @@ def seed(project, env, source_url):
     source = f"""
 import {{ Discoveries }} from {json.dumps(str(root / 'discovery/store.ts'))};
 import {{ SpecStatus }} from {json.dumps(str(root / 'socrates/spec.ts'))};
-import {{ coverageToken }} from {json.dumps(str(root / 'socrates/assessment.ts'))};
+import {{ coverageToken, specificationToken }} from {json.dumps(str(root / 'socrates/assessment.ts'))};
 import {{ draftSchema,planDigest }} from {json.dumps(str(root / 'lead-plan.ts'))};
 import {{ runtimeProjectSchema }} from {json.dumps(str(root / 'config.ts'))};
 import {{ SessionManager }} from '@earendil-works/pi-coding-agent';
@@ -516,7 +516,7 @@ const graphDraft = draftSchema.parse({{...breakdown,tasks:[...breakdown.tasks,
   {{key:'history',title:'Keep assessment history',description:'Retain previous evidence.',acceptance:'Old versions remain readable.',requirements:['R1'],blockedBy:['assess']}},
   {{key:'review',title:'Review changes in the dock',description:'Compare the current and previous assessment.',acceptance:'Both versions can be reviewed in the dock.',requirements:['R1'],blockedBy:['dock','history']}}
 ]}});
-store.change(covered,row=>{{row.leadPlan.draft=graphDraft;row.planSpecificationRevision=coverageToken(row.specification);}});
+store.change(covered,row=>{{row.leadPlan.draft=graphDraft;row.planSpecificationRevision=specificationToken(row.specification);}});
 store.change(planOnly.id,row=>{{row.leadPlan.draft=graphDraft;}});
 const approved=create('Specification and linked work', readyDraft);
 const activeBreakdown=draftSchema.parse({{...breakdown,tasks:[...breakdown.tasks,{{key:'verify',title:'Verify the handoff',description:'Confirm the evidence at the live boundary.',acceptance:'The selected bead matches the reviewed work.',requirements:['R1'],blockedBy:['dock']}}]}});

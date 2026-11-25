@@ -15,6 +15,7 @@ import { randomUUID } from "node:crypto";
 import { registerDiscovery } from "../discovery/extension.ts";
 import { Discoveries, HandoffPhase } from "../discovery/store.ts";
 import { readySpecification } from "./fixtures/socrates.ts";
+import { specificationToken } from "../socrates/assessment.ts";
 import { SpecStatus } from "../socrates/spec.ts";
 import { draftSchema } from "../lead-plan.ts";
 import {
@@ -297,7 +298,7 @@ await test("discovery approval freezes the displayed version before effects and 
         status: SpecStatus.Frozen,
         approvalAt: "2026-11-24T00:00:00Z",
       };
-      record.planSpecificationRevision = specification.coverageRevision;
+      record.planSpecificationRevision = specificationToken(specification);
       record.leadPlan.draft = draft;
     });
     const authorityId = randomUUID();

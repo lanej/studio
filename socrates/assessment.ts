@@ -303,10 +303,13 @@ export function coverageProperties(
     });
 }
 
-/** Bind assessments to the brief and full draft, not just a lifecycle version. */
-export function coverageToken(
-  spec: Pick<LeadSpecification, "acceptedRevision" | "version" | "draft">,
-): string {
+type SpecificationContent = Pick<
+  LeadSpecification,
+  "acceptedRevision" | "version" | "draft"
+>;
+
+/** The stable identity of the brief and specification used to link its implementation plan. */
+export function specificationToken(spec: SpecificationContent): string {
   const draft = spec.draft;
   const policy = draftDeliveryPolicy(draft);
   // Project the semantic fields in a fixed order. Coverage and approval are observations about them.
@@ -346,6 +349,14 @@ export function coverageToken(
         draft: content,
       }),
     )
+    .digest("hex");
+}
+
+/** Earlier assessments used the bare specification hash and could predate a changed plan. */
+export function coverageToken(spec: SpecificationContent): string {
+  return createHash("sha256")
+    .update("studio/socrates/coverage-v2:")
+    .update(specificationToken(spec))
     .digest("hex");
 }
 

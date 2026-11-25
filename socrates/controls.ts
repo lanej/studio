@@ -32,6 +32,7 @@ import {
   coveragePropertyIds,
   coverageStatuses,
   coverageToken,
+  specificationToken,
 } from "./assessment.ts";
 import { registerSocratesPresentation } from "./presentation.ts";
 import type { ImplementationSource } from "./implementation.ts";
@@ -507,7 +508,7 @@ export function registerSocratesControls<T extends SocratesState>(
           const previousDomains =
             draftCoverage(specification.draft)?.domains ?? [];
           if (
-            coverageToken(next) !== coverageToken(specification) ||
+            specificationToken(next) !== specificationToken(specification) ||
             !isDeepStrictEqual(
               new Set(draft.coverage.domains),
               new Set(previousDomains),
