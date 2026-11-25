@@ -14,6 +14,8 @@ import { LoopStore, type LoopRecord } from "./store.ts";
 import { z } from "zod";
 
 const forkPoints = new Map<string, string | null>();
+const childWorkType = "studio:loop-child-work";
+const childWorkSchema = z.object({ session: z.string() });
 const relationshipType = "studio:session-fork";
 const relationshipSchema = z.object({
   session: z.string(),
@@ -80,13 +82,25 @@ export function registerPromptLoops(
   let store: LoopStore | undefined;
   let context: ExtensionContext | undefined;
   let dialogs = 0;
-  let uncertainChildren = false;
+  const uncertainChildren = (ctx: ExtensionContext): boolean =>
+    ctx.sessionManager.getEntries().some((entry) => {
+      if (
+        !isEntry(entry, PiEntryType.Custom) ||
+        entry.customType !== childWorkType
+      )
+        return false;
+      const marker = childWorkSchema.safeParse(entry.data);
+      return (
+        marker.success &&
+        marker.data.session === ctx.sessionManager.getSessionId()
+      );
+    });
   let inspected: number | undefined;
   const eligible = (ctx: ExtensionContext, command = false): boolean =>
     ctx.mode === "tui" &&
     ctx.sessionManager.getSessionFile() !== undefined &&
     !blocked(ctx) &&
-    !uncertainChildren &&
+    !uncertainChildren(ctx) &&
     (command || !activationAdmissionBlocked());
   const display = (record: LoopRecord): void => {
     context?.ui.setStatus(
@@ -250,7 +264,7 @@ export function registerPromptLoops(
       ctx.hasPendingMessages() ||
       dialogs > 0 ||
       blocked(ctx) ||
-      uncertainChildren ||
+      uncertainChildren(ctx) ||
       (saved?.intent !== null && saved?.intent !== undefined) ||
       (saved?.owner !== null &&
         saved?.owner !== undefined &&
@@ -266,9 +280,14 @@ export function registerPromptLoops(
   pi.on("session_tree", (_event, ctx) => {
     context = ctx;
   });
-  pi.on("tool_execution_start", (event) => {
+  pi.on("tool_execution_start", (event, ctx) => {
     if (/subagent|delegate|spawn_agent/u.test(event.toolName)) {
-      uncertainChildren = true;
+      // Bind uncertainty before the tool effect to its origin, even when the
+      // operator later switches sessions or navigates before this marker.
+      if (!uncertainChildren(ctx))
+        pi.appendEntry(childWorkType, {
+          session: ctx.sessionManager.getSessionId(),
+        });
       controller?.pause(
         "Child work may remain active; start a new session before looping",
       );

@@ -71,6 +71,9 @@ await test("actual SDK commands preserve live loop ownership, activation gates, 
     );
     runners.push(runner);
     runtime.getThinkingLevel = () => "off";
+    runtime.appendEntry = (type, data) => {
+      session.appendCustomEntry(type, data);
+    };
     runtime.sendUserMessage = () => {
       requests++;
     };
@@ -201,6 +204,88 @@ await test("actual SDK commands preserve live loop ownership, activation gates, 
     await third.runner.emit({ type: "agent_settled", aborted: false });
     assert.equal(store.get(session.getSessionId())?.state, "stopped");
     assert.equal(store.get(session.getSessionId())?.count, 1);
+
+    // Unknown delegated work fences only its originating conversation. The
+    // origin remains fenced across branch navigation and runtime replacement.
+    const originalSession = session.getSessionId();
+    const originalFile = session.getSessionFile();
+    const originalLeaf = session.getLeafId();
+    assert.ok(originalFile !== undefined && originalLeaf !== null);
+    await third.runner.emit({
+      type: "tool_execution_start",
+      toolCallId: "delegated-child",
+      toolName: "studio_delegate",
+      args: {},
+    });
+    await assert.rejects(
+      third.command("configure 0.01 Original stays fenced"),
+      /ordinary foreground/u,
+    );
+    assert.equal(
+      (
+        await third.runner.emit({
+          type: "session_before_fork",
+          entryId: originalLeaf,
+          position: "at",
+        })
+      )?.cancel,
+      true,
+    );
+    session.branch(originalLeaf);
+    await assert.rejects(
+      third.command("configure 0.01 Earlier branch stays fenced"),
+      /ordinary foreground/u,
+    );
+    await third.runner.emit({ type: "session_shutdown", reason: "new" });
+    session.newSession();
+    session.appendMessage({
+      role: "user",
+      content: "Independent ordinary conversation",
+      timestamp: Date.now(),
+    });
+    const unrelatedSession = session.getSessionId();
+    assert.notEqual(unrelatedSession, originalSession);
+    const fourth = await fixture();
+    // A marker copied into a child is evidence about its parent, not authority
+    // to fence unrelated child work or recover the parent's loop ownership.
+    session.appendCustomEntry("studio:loop-child-work", {
+      session: originalSession,
+    });
+    await fourth.command("configure 0.01 Independent session is eligible");
+    await fourth.command("start");
+    await fourth.command("stop");
+    const unrelatedLeaf = session.getLeafId();
+    assert.ok(unrelatedLeaf !== null);
+    assert.notEqual(
+      (
+        await fourth.runner.emit({
+          type: "session_before_fork",
+          entryId: unrelatedLeaf,
+          position: "at",
+        })
+      )?.cancel,
+      true,
+    );
+    assert.equal(store.get(unrelatedSession)?.state, "paused");
+    await fourth.runner.emit({ type: "session_shutdown", reason: "resume" });
+    session.setSessionFile(originalFile);
+    assert.equal(session.getSessionId(), originalSession);
+    const fifth = await fixture();
+    await assert.rejects(
+      fifth.command("configure 0.01 Reload cannot clear child uncertainty"),
+      /ordinary foreground/u,
+    );
+    assert.equal(
+      (
+        await fifth.runner.emit({
+          type: "session_before_fork",
+          entryId: originalLeaf,
+          position: "at",
+        })
+      )?.cancel,
+      true,
+    );
+    assert.equal(store.get(originalSession)?.state, "paused");
   } finally {
     admission.fenced = originalFence;
     for (const runner of runners)

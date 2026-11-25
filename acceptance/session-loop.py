@@ -60,7 +60,7 @@ def run(output):
         env = {**os.environ, "HOME": str(home), "PI_CODING_AGENT_DIR": str(agent), "STUDIO_CONFIG": str(home / "config.json"), "STUDIO_STATE_DIR": str(home / "state"), "TERM": "xterm-256color", "COLORTERM": "truecolor", "PI_TELEMETRY": "0", "PI_SKIP_VERSION_CHECK": "1"}
         subprocess.run([sys.executable, str(root / "scripts/configure.py"), str(root), str(agent)], env=env, check=True, stdout=subprocess.DEVNULL, timeout=30)
         fixture = home / "fixture.ts"
-        fixture.write_text('export default function(pi) { pi.registerCommand("fixture-dialog", {handler: async (_arg, ctx) => { await ctx.ui.input("Loop admission dialog", "Leave open to verify admission"); }}); }')
+        fixture.write_text('export default function(pi) { let settled = 0; pi.on("agent_settled", (_event, ctx) => { pi.appendEntry("fixture:settled", {session: ctx.sessionManager.getSessionId(), sequence: ++settled}); }); pi.registerCommand("fixture-dialog", {handler: async (_arg, ctx) => { await ctx.ui.input("Loop admission dialog", "Leave open to verify admission"); }}); }')
         settings = json.loads((agent / "settings.json").read_text())
         settings.setdefault("extensions", []).append(str(fixture))
         (agent / "settings.json").write_text(json.dumps(settings))
@@ -94,6 +94,16 @@ console.log(JSON.stringify({session:session.getSessionFile(),point,discovery:dis
             else:
                 command("/loop start")
 
+        def entries(path):
+            return [json.loads(line) for line in path.read_text().splitlines()]
+
+        def wait_for_settled(path, sequence):
+            terminal.wait(lambda: any(entry.get("customType") == "fixture:settled" and entry["data"]["session"] == entries(path)[0]["id"] and entry["data"]["sequence"] >= sequence for entry in entries(path)), f"Run {sequence} did not durably settle in {path.name}")
+
+        def discoveries():
+            with sqlite3.connect(home / "state/discoveries.sqlite") as db:
+                return [json.loads(row[0]) for row in db.execute("SELECT record FROM discoveries")]
+
         def record():
             with sqlite3.connect(home / "state/prompt-loops.sqlite") as db:
                 rows = db.execute("SELECT record FROM loops").fetchall()
@@ -119,10 +129,18 @@ console.log(JSON.stringify({session:session.getSessionFile(),point,discovery:dis
             assert "Child independent continuation" in children[0].read_text()
             assert "Original later answer retained." not in children[0].read_text()
             assert Path(session).read_text() == original
+            # Rendered response text can precede final agent settlement. Starting
+            # a command earlier can send it as queued conversational input.
+            wait_for_settled(children[0], 1)
             command("/plan-draft Child fork discovery")
-            terminal.contains("Fixture response 2 settled.")
-            with sqlite3.connect(home / "state/discoveries.sqlite") as db:
-                records = [json.loads(row[0]) for row in db.execute("SELECT record FROM discoveries")]
+            try:
+                terminal.wait(lambda: len(discoveries()) == 2 and any(row["id"] != seed["discovery"] and row["conversation"] == child_entries[0]["id"] and "approved" not in row for row in discoveries()), "Child /plan-draft did not create exactly one isolated durable discovery")
+                terminal.contains("Fixture response 2 settled.")
+                wait_for_settled(children[0], 2)
+            except AssertionError as error:
+                diagnostic = {"records": discoveries(), "childEntries": entries(children[0])[-12:], "providerMessages": requests[-1].get("messages", [])[-3:] if requests else []}
+                raise AssertionError(f"{error}\nChild discovery diagnostic: {json.dumps(diagnostic)}") from error
+            records = discoveries()
             assert len(records) == 2, records
             child_record = next(row for row in records if row["id"] != seed["discovery"])
             assert child_record["conversation"] == child_entries[0]["id"]
