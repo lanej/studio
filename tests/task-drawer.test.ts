@@ -4,6 +4,10 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { TaskBrowser } from "../tasks/browser.ts";
 import { currentReviewFinding, type TaskSnapshot } from "../tasks/model.ts";
+import {
+  hasInteractivePane,
+  focusInteractivePane,
+} from "../execution/interactive-target.ts";
 import { executionSchema, ExecutionPhase } from "../execution/store.ts";
 
 const theme: Pick<Theme, "fg" | "bg" | "bold" | "getBgAnsi"> = {
@@ -140,4 +144,81 @@ await test("empty projects retain their source-specific planning guidance and ne
   const tiny = browser(empty, undefined, undefined, 1).component.render(30);
   assert.equal(tiny.length, 1);
   assert.match(tiny.join(""), /No tasks yet/u);
+});
+
+await test("production pane eligibility keeps headless and reviewer tasks out of browser focus", async () => {
+  const previous = process.env["ZELLIJ_SESSION_NAME"];
+  process.env["ZELLIJ_SESSION_NAME"] = "task-owned-gating-fixture";
+  try {
+    const background = { ...attempt, reviewFinding: undefined };
+    const interactive = {
+      ...background,
+      interactive: {
+        session: "task-owned-gating-fixture",
+        socket: "fixture",
+        tab: 0,
+      },
+      pane: 7,
+      workerSessionFile: "fixture-transcript",
+      launchSettled: false,
+    };
+    const cases = [
+      { record: background, eligible: false },
+      { record: interactive, eligible: true },
+      {
+        record: { ...interactive, phase: ExecutionPhase.Reviewing },
+        eligible: false,
+      },
+      {
+        record: { ...interactive, phase: ExecutionPhase.Complete },
+        eligible: false,
+      },
+      { record: { ...interactive, launchSettled: true }, eligible: false },
+      {
+        record: { ...interactive, workerSessionFile: undefined },
+        eligible: false,
+      },
+      {
+        record: {
+          ...interactive,
+          interactive: {
+            ...interactive.interactive,
+            session: "another-session",
+          },
+        },
+        eligible: false,
+      },
+    ];
+    for (const { record, eligible } of cases) {
+      // Exercise the predicate used by the extension's runtime-attempt route, not a supplied empty set.
+      const available = hasInteractivePane(record);
+      assert.equal(available, eligible);
+      const { component, calls } = browser(
+        {
+          ...snapshot,
+          tasks: [selected],
+          attempts: [record],
+          focusable: new Set(available ? [selected.id] : []),
+        },
+        selected.id,
+        undefined,
+        40,
+      );
+      const text = component.render(100).join("\n").replace(/\s+/gu, " ");
+      if (record === background)
+        assert.match(
+          text,
+          /Interactive guidance is unavailable for a background worker/u,
+        );
+      component.handleInput("\x1b[C");
+      assert.deepEqual(calls, eligible ? [selected.id] : []);
+    }
+    await assert.rejects(
+      focusInteractivePane(background, "/fixture-not-opened"),
+      /has no live worker in this session/u,
+    );
+  } finally {
+    if (previous === undefined) delete process.env["ZELLIJ_SESSION_NAME"];
+    else process.env["ZELLIJ_SESSION_NAME"] = previous;
+  }
 });
