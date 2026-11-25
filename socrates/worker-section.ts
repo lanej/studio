@@ -3,7 +3,11 @@ import {
   visibleWidth,
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
-import { selectorText, type StatusTheme } from "@lanej/pi-components";
+import {
+  selectorText,
+  statusPaint,
+  type StatusTheme,
+} from "@lanej/pi-components";
 import type { WorkerAssignment } from "../tasks/workers.ts";
 
 export interface WorkerSidebarView {
@@ -57,7 +61,7 @@ function assignmentLines(
     ? theme.warning
     : row.activity === "waiting" || row.activity === "unknown"
       ? theme.muted
-      : theme.accent;
+      : statusPaint(theme, row.role === "Reviewer" ? "review" : "accent");
   const mark = attention
     ? "◆"
     : row.activity === "unknown"
