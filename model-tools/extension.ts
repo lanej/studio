@@ -4,6 +4,16 @@ import type {
   ToolDefinition,
   ToolInfo,
 } from "@earendil-works/pi-coding-agent";
+import {
+  claudeDiagramTool,
+  diagramDefinition,
+  diagramTool,
+} from "../diagram/extension.ts";
+import {
+  claudeMermaidTool,
+  mermaidDefinition,
+  mermaidTool,
+} from "../diagram/mermaid-tool.ts";
 import { claudeDialect } from "./dialects/claude.ts";
 import { codexDialect } from "./dialects/codex.ts";
 import {
@@ -36,10 +46,67 @@ export function toolDialect(modelId: string | undefined): Dialect | undefined {
     : dialects.find((dialect) => dialect.matches.test(modelId))?.name;
 }
 
-type ModelTool = Binding & { dialect: Dialect };
-const modelTools: ModelTool[] = dialects.flatMap((dialect) =>
+interface DiagramAlias {
+  dialect: "claude";
+  operation: "diagram";
+  canonical: string;
+  tool: ToolDefinition;
+}
+
+const diagramAliases: readonly DiagramAlias[] = [
+  {
+    dialect: "claude",
+    operation: "diagram",
+    canonical: diagramTool,
+    tool: diagramDefinition(claudeDiagramTool),
+  },
+  {
+    dialect: "claude",
+    operation: "diagram",
+    canonical: mermaidTool,
+    tool: mermaidDefinition(claudeMermaidTool),
+  },
+];
+type ModelTool = (Binding & { dialect: Dialect }) | DiagramAlias;
+const codingTools: ModelTool[] = dialects.flatMap((dialect) =>
   dialect.tools.map((binding) => ({ ...binding, dialect: dialect.name })),
 );
+
+function diagramSource(entry: DiagramAlias, tools: readonly ToolInfo[]) {
+  return tools.find(
+    (info) =>
+      info.name === entry.canonical &&
+      info.exposure === "model-only" &&
+      info.parameters === entry.tool.parameters,
+  );
+}
+
+function ownsDiagramAlias(
+  entry: DiagramAlias,
+  tools: readonly ToolInfo[],
+): boolean {
+  const base = diagramSource(entry, tools);
+  const alias = tools.find((info) => info.name === entry.tool.name);
+  return (
+    base !== undefined &&
+    alias?.parameters === base.parameters &&
+    alias.sourceInfo === base.sourceInfo
+  );
+}
+
+// A managed lead admits a dialect spelling only for the same Studio-owned capability.
+export function admittedDiagramAlias(
+  pi: ExtensionAPI,
+  name: string,
+  modelId: string | undefined,
+): string | undefined {
+  const entry = diagramAliases.find((alias) => alias.tool.name === name);
+  return entry !== undefined &&
+    entry.dialect === toolDialect(modelId) &&
+    ownsDiagramAlias(entry, pi.getAllTools())
+    ? entry.canonical
+    : undefined;
+}
 
 function available(
   entry: ModelTool,
@@ -49,11 +116,19 @@ function available(
 ): boolean {
   return (
     entry.dialect === dialect &&
-    operationAvailable(entry.operation, active, tools)
+    (entry.operation === "diagram"
+      ? active.has(entry.canonical) && ownsDiagramAlias(entry, tools)
+      : operationAvailable(entry.operation, active, tools))
   );
 }
 
-export function registerModelTools(pi: ExtensionAPI): void {
+export function registerModelTools(
+  pi: ExtensionAPI,
+  { coding = true } = {},
+): void {
+  const modelTools = coding
+    ? [...codingTools, ...diagramAliases]
+    : diagramAliases;
   let dialect: Dialect | undefined;
   const owned = new Map<string, ToolInfo["sourceInfo"]>();
   const select = (model: ExtensionContext["model"]) => {
@@ -84,10 +159,15 @@ export function registerModelTools(pi: ExtensionAPI): void {
     const existing = new Set(pi.getAllTools().map((tool) => tool.name));
     for (const entry of modelTools) {
       const { tool } = entry;
-      if (existing.has(tool.name)) continue;
+      if (
+        existing.has(tool.name) ||
+        (entry.operation === "diagram" &&
+          diagramSource(entry, pi.getAllTools()) === undefined)
+      )
+        continue;
       pi.registerTool({
         ...tool,
-        ...modelToolRenderers(pi, entry),
+        ...(entry.operation === "diagram" ? {} : modelToolRenderers(pi, entry)),
         exposure: "model-only",
         defaultActive: false,
         prepareLoadout(loadout) {
@@ -99,7 +179,9 @@ export function registerModelTools(pi: ExtensionAPI): void {
               active,
               pi.getAllTools(),
             )
-              ? [...replacedTools[entry.operation]]
+              ? entry.operation === "diagram"
+                ? [entry.canonical]
+                : [...replacedTools[entry.operation]]
               : [tool.name],
           };
         },
@@ -121,10 +203,27 @@ export function registerModelTools(pi: ExtensionAPI): void {
       const registered = pi
         .getAllTools()
         .find((info) => info.name === tool.name);
-      if (registered?.parameters === tool.parameters)
+      if (registered !== undefined && registered.parameters === tool.parameters)
         owned.set(tool.name, registered.sourceInfo);
     }
     select(ctx.model);
+  });
+  // A hidden declaration stays active in Pi. Reject a stale canonical call while its alias is selected.
+  pi.on("tool_call", (event, ctx) => {
+    const entry = diagramAliases.find(
+      (alias) => alias.canonical === event.toolName,
+    );
+    if (entry === undefined || !pi.getActiveTools().includes(entry.tool.name))
+      return;
+    if (
+      admittedDiagramAlias(pi, entry.tool.name, ctx.model?.id) ===
+      entry.canonical
+    )
+      return {
+        block: true,
+        reason: `Use ${entry.tool.name} for the current model.`,
+      };
+    return;
   });
   pi.on("model_select", (event) => {
     select(event.model);

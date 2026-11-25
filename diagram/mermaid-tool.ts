@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getCapabilities, hyperlink, Text } from "@earendil-works/pi-tui";
 import { selectorText } from "@lanej/pi-components";
 import { readFile } from "node:fs/promises";
@@ -13,6 +13,7 @@ import {
 } from "./mermaid-artifact.ts";
 
 export const mermaidTool = "render_mermaid";
+export const claudeMermaidTool = "RenderMermaid";
 
 const parameters = Type.Object(
   {
@@ -79,15 +80,15 @@ async function inlinePreview(path: string) {
   }
 }
 
-export function registerMermaidTool(pi: ExtensionAPI): void {
-  pi.registerTool<typeof parameters, MermaidArtifact | undefined>({
-    name: mermaidTool,
+export function mermaidDefinition(name = mermaidTool) {
+  return defineTool<typeof parameters, MermaidArtifact | undefined>({
+    name,
     label: "Render Mermaid",
     description:
-      "Render Mermaid source as a reusable diagram. Saves the editable .mmd, a scalable SVG and a PNG preview in Studio's artifact directory. Use when the user asks to render, export, or share a diagram, including sequences and system interfaces. If rendering fails, returns the source file and diagnostic.",
+      "Render Mermaid source as a reusable diagram. Saves the editable .mmd, a scalable SVG and a PNG preview in Studio's artifact directory. Use when event order, acknowledgments, or failure paths would clarify a design decision, or when the user wants an artifact to edit or share. If rendering fails, returns the source file and diagnostic.",
     promptSnippet: "Render a reusable Mermaid artifact and display its image.",
     promptGuidelines: [
-      "Use show_diagram for interactive C4 exploration. Call render_mermaid when a rendered or shareable diagram is wanted. Keep ordinary draft iterations lightweight.",
+      "Use the interactive C4 diagram for ownership and boundaries. Render a sequence when timing matters to the decision. Keep ordinary drafting lightweight.",
       "Use self-contained Mermaid source unless the user supplies an external asset for the diagram.",
     ],
     exposure: "model-only",
@@ -168,4 +169,8 @@ export function registerMermaidTool(pi: ExtensionAPI): void {
       );
     },
   });
+}
+
+export function registerMermaidTool(pi: ExtensionAPI): void {
+  pi.registerTool(mermaidDefinition());
 }

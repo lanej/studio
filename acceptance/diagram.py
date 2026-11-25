@@ -66,13 +66,15 @@ class DiagramProvider(Provider):
                 "title": "Webhook redelivery", "source": mermaid_source.read_text(),
             })
         if last["role"] == "user":
-            assert "show_diagram" in {tool["function"]["name"] for tool in request["tools"]}
+            diagram_tool = "ShowDiagram" if request["model"] == "claude-sonnet-4-6" else "show_diagram"
+            names = {tool["function"]["name"] for tool in request["tools"]}
+            assert names.intersection({"show_diagram", "ShowDiagram"}) == {diagram_tool}, names
             prompt = message_text(last)
             if prompt == overview:
-                return tool_delta("overview", "show_diagram", architecture)
+                return tool_delta("overview", diagram_tool, architecture)
             call = {"Let me choose an element.": "choose", "Ask me again.": "dismiss"}[prompt]
             view = "container" if call == "dismiss" else "context"
-            return tool_delta(call, "show_diagram", {**architecture, "view": view, "question": question})
+            return tool_delta(call, diagram_tool, {**architecture, "view": view, "question": question})
 
         assert last["role"] == "tool", last
         call = last["tool_call_id"]
@@ -173,7 +175,7 @@ def run(output, *, mermaid=False):
         config.write_text("{}")
         (agent / "models.json").write_text(json.dumps({"providers": {"fixture": {
             "baseUrl": f"http://127.0.0.1:{provider.server_port}/v1",
-            "api": "openai-completions", "apiKey": "fixture", "models": [{"id": "tiny"}],
+            "api": "openai-completions", "apiKey": "fixture", "models": [{"id": "tiny"}, {"id": "claude-sonnet-4-6"}],
         }}}))
         env = {**os.environ, "HOME": str(home), "PI_CODING_AGENT_DIR": str(agent),
                "STUDIO_CONFIG": str(config), "STUDIO_STATE_DIR": str(home / "state"),
@@ -250,6 +252,8 @@ def run(output, *, mermaid=False):
             terminal.contains("↑↓ scroll")
             terminal.send("\r")
             wait_for_turn(terminal, "The event processor normalizes carrier scans.")
+            terminal.send("/model fixture/claude-sonnet-4-6\r")
+            wait_for_turn(terminal, "Model: claude-sonnet-4-6")
             submit_prompt(terminal, "Ask me again.")
             wait_for_turn(terminal, question)
             terminal.contains("Enter choose")
@@ -260,16 +264,20 @@ def run(output, *, mermaid=False):
             terminal.close()
 
         entries = [json.loads(line).get("message", {}) for line in session.read_text().splitlines()]
+        calls = {item["id"]: item["name"] for message in entries if message.get("role") == "assistant"
+                 for item in message["content"] if item["type"] == "toolCall"}
+        assert calls["overview"] == "show_diagram" and calls["dismiss"] == "ShowDiagram", calls
         receipts = {m["toolCallId"]: m["details"] for m in entries if m.get("role") == "toolResult"}
         assert receipts["overview"]["status"] == "displayed", receipts
         assert receipts["choose"]["status"] == "selected" and receipts["choose"]["nodeId"] == "processor", receipts
         assert receipts["dismiss"]["status"] == "dismissed" and "nodeId" not in receipts["dismiss"], receipts
-        # Restoring the branch and reopening a diagram is read-only; neither operation asks the provider again.
+        # The generic model reopens the last diagram recorded under Claude's tool name without another turn.
         restored = ui.Terminal(project, env, output, session, columns=60, rows=30)
         try:
             wait_for_turn(restored, "We can leave that decision open.")
             restored.send("/diagram\r")
             restored.contains("Enter details")
+            restored.contains("▸ Containers")
             restored.contains("Tracking API")
             restored.contains("Scan store")
             restored.send("\t")

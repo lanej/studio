@@ -2,6 +2,7 @@ import {
   createAgentSessionFromServices,
   createAgentSessionServices,
   createEditToolDefinition,
+  type ExtensionFactory,
   ModelRuntime,
   SessionManager,
   SettingsManager,
@@ -13,7 +14,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { z } from "zod";
+import { Attempts, attemptSchema, Phase } from "../attempts.ts";
 import { registerCodeIntelligence } from "../code-intelligence/extension.ts";
+import { registerDiagrams } from "../diagram/extension.ts";
+import {
+  mermaidDefinition,
+  registerMermaidTool,
+} from "../diagram/mermaid-tool.ts";
+import { registerLeadControls } from "../lead-extension.ts";
+import { LeadMode } from "../lead-plan.ts";
 import { registerModelTools } from "../model-tools/extension.ts";
 
 function event(type: string, data: object): string {
@@ -108,6 +117,19 @@ function lastClaudeToolResult(request: unknown, callId: string) {
 
 const declaration = z.looseObject({ name: z.string() });
 const payload = z.looseObject({ tools: z.array(declaration) });
+const canonicalDiagrams = ["render_mermaid", "show_diagram"];
+const claudeDiagrams = ["RenderMermaid", "ShowDiagram"];
+
+function diagramToolNames(request: unknown): string[] {
+  return payload
+    .parse(request)
+    .tools.map(({ name }) => name)
+    .filter(
+      (name) =>
+        canonicalDiagrams.includes(name) || claudeDiagrams.includes(name),
+    )
+    .sort();
+}
 
 const transportAcceptance =
   "Pi sends native tool contracts, executes calls and restores the active tool set on model change";
@@ -230,6 +252,8 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
               event.input = { patch: "[redacted]" };
           });
           registerCodeIntelligence(pi);
+          registerDiagrams(pi);
+          registerMermaidTool(pi);
           registerModelTools(pi);
         },
       ],
@@ -288,6 +312,7 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
   await session.prompt("Create message.txt and check the working directory");
   assert.equal(requests.length, 4);
   const codexTools = payload.parse(requests[0]).tools;
+  assert.deepEqual(diagramToolNames(requests[0]), canonicalDiagrams);
   const patchTool = z
     .object({
       type: z.literal("custom"),
@@ -361,6 +386,7 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
 
   await session.setModel(claude);
   requests.length = 0;
+  const emptyRender = { title: "Empty draft", source: " " };
   replies.push(
     messagesReply({ name: "Read", input: { file_path: file } }),
     messagesReply({
@@ -385,11 +411,36 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
       name: "Bash",
       input: { command: deniedCommand, timeout: 2500 },
     }),
+    messagesReply({
+      name: "ShowDiagram",
+      input: {
+        title: "Parcel tracking",
+        systemId: "tracking",
+        nodes: [
+          {
+            id: "tracking",
+            kind: "system",
+            label: "Tracking",
+            detail: "Receives scans.",
+          },
+        ],
+        edges: [],
+      },
+    }),
+    messagesReply({
+      name: "RenderMermaid",
+      input: emptyRender,
+    }),
+    messagesReply({
+      name: "render_mermaid",
+      input: emptyRender,
+    }),
     messagesReply(),
   );
   await session.prompt("Change the greeting");
-  assert.equal(requests.length, 5);
+  assert.equal(requests.length, 8);
   const claudeTools = payload.parse(requests[0]).tools;
+  assert.deepEqual(diagramToolNames(requests[0]), claudeDiagrams);
   for (const name of ["Read", "Edit", "Write", "Bash"])
     assert.ok(
       claudeTools.some((tool) => tool.name === name),
@@ -411,6 +462,15 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
   const claudeDenial = lastClaudeToolResult(requests[4], "toolu_Bash");
   assert.equal(claudeDenial.is_error, true);
   assert.ok(claudeDenial.content.includes(shellDenial));
+  const rpcDiagram = lastClaudeToolResult(requests[5], "toolu_ShowDiagram");
+  assert.notEqual(rpcDiagram.is_error, true);
+  assert.match(rpcDiagram.content, /diagram viewer is unavailable/u);
+  const emptyDraft = lastClaudeToolResult(requests[6], "toolu_RenderMermaid");
+  assert.equal(emptyDraft.is_error, true);
+  assert.match(emptyDraft.content, /Mermaid diagrams must contain/u);
+  const hiddenTool = lastClaudeToolResult(requests[7], "toolu_render_mermaid");
+  assert.equal(hiddenTool.is_error, true);
+  assert.match(hiddenTool.content, /Use RenderMermaid/u);
   const expectedShellInput = { command: deniedCommand, timeout: 2.5 };
   assert.deepEqual(deniedShellInputs, [expectedShellInput, expectedShellInput]);
   await assert.rejects(readFile(join(cwd, "forbidden.txt")), {
@@ -447,6 +507,7 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
   );
   await session.prompt("Update the gateway workspace");
   const gatewayTools = payload.parse(requests[0]).tools;
+  assert.deepEqual(diagramToolNames(requests[0]), canonicalDiagrams);
   const gatewayPatch = gatewayTools.find(({ name }) => name === "apply_patch");
   z.object({
     type: z.literal("function"),
@@ -512,10 +573,32 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
   replies.push(responsesReply());
   await session.prompt("Inspect the workspace");
   const restored = payload.parse(requests[0]).tools.map(({ name }) => name);
+  assert.deepEqual(diagramToolNames(requests[0]), canonicalDiagrams);
   for (const name of ["read", "edit", "write", "bash"])
     assert.ok(restored.includes(name), name);
   for (const name of ["Edit", "Read", "Write", "Bash", "apply_patch"])
     assert.ok(!restored.includes(name), name);
+
+  await session.setModel(claude);
+  session.setActiveToolsByName(
+    session.getActiveToolNames().filter((name) => name !== "render_mermaid"),
+  );
+  requests.length = 0;
+  replies.push(
+    messagesReply({
+      name: "RenderMermaid",
+      input: emptyRender,
+    }),
+    messagesReply(),
+  );
+  await session.prompt("Inspect the restricted diagram tools");
+  assert.deepEqual(diagramToolNames(requests[0]), ["ShowDiagram"]);
+  const disabledRender = lastClaudeToolResult(
+    requests[1],
+    "toolu_RenderMermaid",
+  );
+  assert.equal(disabledRender.is_error, true);
+  assert.notEqual(disabledRender.content, emptyDraft.content);
 
   const restricted = await createAgentSessionFromServices({
     services,
@@ -578,4 +661,119 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
     .tools.map(({ name }) => name);
   assert.ok(governedClaude.includes("edit"));
   assert.ok(!governedClaude.includes("Edit"));
+
+  // Exercise the actual task-bound planning gate with a real Pi registry.
+  const attempts = new Attempts(join(cwd, "attempts"));
+  t.after(() => {
+    attempts.close();
+  });
+  for (const foreignAlias of [false, true]) {
+    const manager = SessionManager.inMemory(cwd);
+    const id = manager.getSessionId();
+    const record = attemptSchema.parse({
+      id,
+      source: { url, projectId: id },
+      bead: {
+        id: "tracking",
+        title: "Inspect parcel tracking",
+        status: "in_progress",
+        revision: "1",
+      },
+      revision: "1",
+      check: [],
+      profile: "personal",
+      model: { provider: "anthropic", model: claudeId, reasoning: "off" },
+      leadPlan: { mode: LeadMode.Planning, draft: null },
+      reservation: {
+        primary: cwd,
+        root: cwd,
+        holder: id,
+        agent: "pi",
+        branch: "main",
+        baseRef: "HEAD",
+        baseCommit: "a".repeat(40),
+        attempted: false,
+      },
+      session: "managed-fixture",
+      live: false,
+      pane: null,
+      pid: null,
+      transcript: null,
+      checkout: null,
+      processStarted: null,
+      phase: Phase.Running,
+      verification: null,
+      message: "",
+    });
+    assert.ok(attempts.reserve(record));
+    const managedExtension: ExtensionFactory = (pi) => {
+      registerModelTools(pi, { coding: false });
+      registerLeadControls(
+        pi,
+        attempts,
+        id,
+        () => Promise.resolve(record),
+        () => undefined,
+      );
+      registerDiagrams(pi);
+      registerMermaidTool(pi);
+    };
+    // This extension deliberately supplies the identical schema under a different owner.
+    const foreignExtension: ExtensionFactory = (pi) => {
+      pi.registerTool(mermaidDefinition("RenderMermaid"));
+    };
+    const managedServices = await createAgentSessionServices({
+      cwd,
+      agentDir: cwd,
+      modelRuntime,
+      settingsManager: services.settingsManager,
+      resourceLoaderOptions: {
+        noExtensions: true,
+        noSkills: true,
+        noPromptTemplates: true,
+        noThemes: true,
+        extensionFactories: foreignAlias
+          ? [managedExtension, foreignExtension]
+          : [managedExtension],
+      },
+    });
+    const managed = await createAgentSessionFromServices({
+      services: managedServices,
+      model: claude,
+      sessionManager: manager,
+    });
+    t.after(() => {
+      managed.session.dispose();
+    });
+    await managed.session.bindExtensions({ mode: "rpc" });
+    requests.length = 0;
+    replies.push(
+      messagesReply({ name: "RenderMermaid", input: emptyRender }),
+      messagesReply({ name: "render_mermaid", input: emptyRender }),
+      messagesReply(),
+    );
+    await managed.session.prompt("Inspect the managed planning tools");
+    assert.deepEqual(
+      diagramToolNames(requests[0]),
+      foreignAlias ? ["ShowDiagram", "render_mermaid"] : claudeDiagrams,
+    );
+    const managedTools = payload
+      .parse(requests[0])
+      .tools.map(({ name }) => name);
+    assert.ok(managedTools.includes("read"));
+    assert.ok(
+      !managedTools.some((name) =>
+        ["Read", "Bash", "Edit", "Write", "write", "edit", "bash"].includes(
+          name,
+        ),
+      ),
+    );
+    const alias = lastClaudeToolResult(requests[1], "toolu_RenderMermaid");
+    const canonical = lastClaudeToolResult(requests[2], "toolu_render_mermaid");
+    const admitted = foreignAlias ? canonical : alias;
+    const denied = foreignAlias ? alias : canonical;
+    assert.equal(admitted.content, emptyDraft.content);
+    assert.equal(denied.is_error, true);
+    assert.notEqual(denied.content, emptyDraft.content);
+  }
 });

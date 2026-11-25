@@ -1,4 +1,5 @@
 import {
+  defineTool,
   keyText,
   type ExtensionAPI,
   type SessionEntry,
@@ -16,29 +17,27 @@ import { diagramParameters, parseDiagram } from "./model.ts";
 import { renderDiagram } from "./render.ts";
 
 export const diagramTool = "show_diagram";
+export const claudeDiagramTool = "ShowDiagram";
 
 type DiagramReceipt =
   | { status: "displayed" | "unavailable" | "dismissed" }
   | { status: "selected"; nodeId: string };
 
 function latestDiagram(entries: SessionEntry[]) {
-  const finished = new Set<string>();
+  const finished = new Map<string, string>();
   for (const entry of [...entries].reverse()) {
     if (!isEntry(entry, PiEntryType.Message)) continue;
     const message = entry.message;
     if (
       isMessageRole(message, PiMessageRole.ToolResult) &&
-      message.toolName === diagramTool &&
+      (message.toolName === diagramTool ||
+        message.toolName === claudeDiagramTool) &&
       !message.isError
     )
-      finished.add(message.toolCallId);
+      finished.set(message.toolCallId, message.toolName);
     if (!isMessageRole(message, PiMessageRole.Assistant)) continue;
     for (const part of [...message.content].reverse()) {
-      if (
-        part.type !== "toolCall" ||
-        part.name !== diagramTool ||
-        !finished.has(part.id)
-      )
+      if (part.type !== "toolCall" || finished.get(part.id) !== part.name)
         continue;
       try {
         return parseDiagram(part.arguments);
@@ -50,9 +49,9 @@ function latestDiagram(entries: SessionEntry[]) {
   return undefined;
 }
 
-export function registerDiagrams(pi: ExtensionAPI): void {
-  pi.registerTool<typeof diagramParameters, DiagramReceipt | undefined>({
-    name: diagramTool,
+export function diagramDefinition(name = diagramTool) {
+  return defineTool<typeof diagramParameters, DiagramReceipt | undefined>({
+    name,
     label: "Show architecture",
     description:
       "Explain system design or interoperability with an inspectable C4 architecture diagram. Model one focal software system, its users and external systems. Add applications and data stores as containers to enable zoom. Label directed relationships with responsibilities or exchanged information and supply known protocols on concrete connections. Use context for the landscape and container for internal design. Only include a question to ask for a selection.",
@@ -69,7 +68,10 @@ export function registerDiagrams(pi: ExtensionAPI): void {
           content: [
             {
               type: "text",
-              text: "The diagram viewer is unavailable in this session. Explain the diagram in your reply and ask any question in text.",
+              text:
+                diagram.question === undefined
+                  ? "The diagram viewer is unavailable in this session. Describe the relevant system relationship in your reply."
+                  : "The diagram viewer is unavailable in this session. Explain the diagram in your reply and ask the selection question in text.",
             },
           ],
           details: { status: "unavailable" },
@@ -145,7 +147,10 @@ export function registerDiagrams(pi: ExtensionAPI): void {
       );
     },
   });
+}
 
+export function registerDiagrams(pi: ExtensionAPI): void {
+  pi.registerTool(diagramDefinition());
   pi.registerCommand("diagram", {
     description: "Explore the latest C4 architecture in this conversation",
     async handler(_args, ctx) {
