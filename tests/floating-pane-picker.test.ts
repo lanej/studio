@@ -45,7 +45,7 @@ await test("the Studio picker accepts same-read mnemonics, limits allowed choice
       ).then((view) => {
         if (closed) return;
         handle = tui.showOverlay(view);
-        options?.onHandle?.(handle);
+        options.onHandle?.(handle);
       }, reject);
     });
   const ctx = {
@@ -83,7 +83,7 @@ await test("the Studio picker accepts same-read mnemonics, limits allowed choice
   assert.ok(picker !== null && picker !== lead);
   assert.equal(guard, undefined);
   const rows = picker.render(28).map(stripTerminalSequences).join("\n");
-  assert.match(rows, /Studio panes[\s\S]*t  Tasks[\s\S]*s  Toggle status/u);
+  assert.match(rows, /Studio panes[\s\S]*t {2}Tasks[\s\S]*s {2}Toggle status/u);
   assert.doesNotMatch(rows, /Workers/u);
   send("w");
   send("\x1b[B");
