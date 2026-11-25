@@ -120,12 +120,16 @@ export function registerMermaidTool(pi: ExtensionAPI): void {
         details: artifact,
       };
     },
-    renderCall(args, theme) {
-      const title = selectorText(args.title ?? "")
-        .replace(/\s+/gu, " ")
-        .trim();
+    renderCall(args, theme, context) {
+      const title =
+        context.argsComplete || !context.isPartial
+          ? selectorText(args.title).replace(/\s+/gu, " ").trim()
+          : "";
       return new Text(
-        theme.fg("toolTitle", theme.bold(title || "Mermaid diagram")),
+        theme.fg(
+          "toolTitle",
+          theme.bold(title.length > 0 ? title : "Mermaid diagram"),
+        ),
         0,
         0,
       );
