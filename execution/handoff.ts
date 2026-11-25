@@ -2,18 +2,50 @@ import { assertVerificationIsolation } from "./sandbox.ts";
 import { isDeepStrictEqual } from "node:util";
 import { realpathSync } from "node:fs";
 import { z } from "zod";
+import { InteractiveMode } from "@earendil-works/pi-coding-agent";
 import { loadConfig, studioProfileSchema } from "../config.ts";
 import { planDigest, TaskDelivery } from "../lead-plan.ts";
 import { requireIntegration } from "../integrations.ts";
 import { octo } from "../delivery.ts";
 import type { Discovery } from "../discovery/store.ts";
 import { Discoveries, HandoffPhase } from "../discovery/store.ts";
-import { ExecutionStore, projectSchema, type RuntimeProject } from "./store.ts";
+import {
+  ExecutionStore,
+  handoffIntentSchema,
+  projectSchema,
+  type InteractiveTarget,
+  type RuntimeProject,
+} from "./store.ts";
 import { ExecutionBeads, verifyHeartbeatAuthority } from "./beads.ts";
 import { ensureRuntime } from "./supervisor.ts";
 import { alive } from "./supervisor.ts";
 import { processStart } from "../process.ts";
 import { assertRuntimeProfile } from "./profile.ts";
+import {
+  currentInteractiveTarget,
+  verifyInteractiveTarget,
+} from "./interactive-target.ts";
+import { setTimeout as delay } from "node:timers/promises";
+
+export async function prepareInteractiveHandoff(
+  record: Discovery,
+): Promise<InteractiveTarget> {
+  if (typeof InteractiveMode.prototype.runAssignmentTurn !== "function")
+    throw new Error("The installed Pi host lacks restricted assignment input");
+  if (
+    record.leadPlan.draft?.tasks.some(
+      (task) =>
+        task.delivery === TaskDelivery.PullRequest ||
+        task.owns.length === 0 ||
+        (task.check?.length ?? 0) === 0,
+    ) === true
+  )
+    throw new Error(
+      "Interactive approval requires local delivery, owned paths, and an approved verifier for each task",
+    );
+  await requireIntegration(await loadConfig(), "zellij");
+  return await currentInteractiveTarget();
+}
 
 export async function prepareHandoff(
   record: Discovery,
@@ -68,14 +100,11 @@ export async function prepareHandoff(
   );
   return enrolled;
 }
-const intentSchema = z.object({
-  digest: z.string(),
-  ids: z.record(z.string(), z.string()),
-});
 export async function approveHandoff(
   record: Discovery,
   profile: string,
   target: RuntimeProject,
+  interactive?: InteractiveTarget,
 ): Promise<void> {
   const discoveries = new Discoveries();
   let locked: Discovery;
@@ -111,6 +140,16 @@ export async function approveHandoff(
       throw new Error(
         "Runtime project authority changed after the displayed approval",
       );
+    if (interactive !== undefined) {
+      if (
+        !isDeepStrictEqual(await prepareInteractiveHandoff(record), interactive)
+      )
+        throw new Error(
+          "The displayed interactive target changed; review the approval again",
+        );
+      await ensureInteractiveSupervisor();
+      await verifyInteractiveTarget(interactive);
+    }
   } catch (error) {
     discoveries.change(
       record.id,
@@ -128,8 +167,14 @@ export async function approveHandoff(
   const store = new ExecutionStore();
   try {
     const service = new ExecutionBeads(project.source);
-    let intent = intentSchema.optional().parse(store.intent(record.revision));
-    if (intent !== undefined && intent.digest !== digest)
+    let intent = handoffIntentSchema
+      .optional()
+      .parse(store.intent(record.revision));
+    if (
+      intent !== undefined &&
+      (intent.digest !== digest ||
+        !isDeepStrictEqual(intent.interactive, interactive))
+    )
       throw new Error(
         "A different graph creation attempt is already retained; reconcile it before changing the proposal",
       );
@@ -139,7 +184,13 @@ export async function approveHandoff(
       const entries: [string, string][] = [["root", root]];
       for (const task of draft.tasks)
         entries.push([task.key, `${root}.${task.key}`]);
-      intent = { digest, ids: Object.fromEntries(entries) };
+      intent = {
+        digest,
+        ids: Object.fromEntries(entries),
+        ...(interactive === undefined
+          ? {}
+          : { interactive, project: project.id, draft }),
+      };
       store.saveIntent(record.revision, intent);
     }
     submitted = true;
@@ -150,6 +201,7 @@ export async function approveHandoff(
       draft,
       intent.ids,
       project.profile,
+      interactive !== undefined,
     );
     discoveries.change(
       record.id,
@@ -186,4 +238,29 @@ export async function approveHandoff(
     discoveries.close();
   }
   await ensureRuntime();
+}
+
+async function ensureInteractiveSupervisor(): Promise<void> {
+  await ensureRuntime();
+  const store = new ExecutionStore();
+  try {
+    const deadline = Date.now() + 5000;
+    do {
+      const supervisor = store.supervisor();
+      if (
+        supervisor !== undefined &&
+        (await alive(supervisor.pid, supervisor.started))
+      ) {
+        if (supervisor.interactiveDispatch !== true || supervisor.stop)
+          throw new Error(
+            "Restart the Studio runtime on this version before approving interactive execution",
+          );
+        return;
+      }
+      await delay(100);
+    } while (Date.now() < deadline);
+    throw new Error("Studio did not confirm an interactive-capable runtime");
+  } finally {
+    store.close();
+  }
 }

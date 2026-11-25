@@ -13,7 +13,9 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from types import FrameType
 
-from local_fixture import Fixture, Report, RunOptions, make_fixture
+from local_assignment import AssignmentProvider, exercise_assignment_input
+from local_dispatch import DispatchProvider, exercise_interactive_dispatch
+from local_fixture import Fixture, Report, RunOptions, Scenario, make_fixture
 from local_provider import ADMITTED_MODEL, Provider
 from local_scenarios import SCENARIOS, launch
 from zellij_terminal import Terminal
@@ -27,6 +29,14 @@ def run_cases(fixture: Fixture, terminal: Terminal, report: Report) -> None:
     panes = terminal.pane_listing()
     tab_id = next(p["tab_id"] for p in panes if p["id"] == launcher)
     selected = fixture.options.scenario
+    if selected is Scenario.ASSIGNMENT_INPUT:
+        exercise_assignment_input(fixture, terminal, launcher, tab_id, report)
+        fixture.check_sentinels()
+        return
+    if selected is Scenario.INTERACTIVE_DISPATCH:
+        exercise_interactive_dispatch(fixture, terminal, launcher, tab_id, report)
+        fixture.check_sentinels()
+        return
     for scenario in SCENARIOS if selected is None else (selected,):
         case = launch(fixture, terminal, launcher, tab_id, scenario)
         snapshot = SCENARIOS[scenario](case, report)
@@ -37,9 +47,12 @@ def run_cases(fixture: Fixture, terminal: Terminal, report: Report) -> None:
 
 
 def run_terminal(fixture: Fixture) -> None:
+    assignment_input = fixture.options.scenario in (Scenario.ASSIGNMENT_INPUT, Scenario.INTERACTIVE_DISPATCH)
     report: Report = {
-        "runtime": "real Pi TUI, native worktree manager, Beads HTTP and Dolt",
-        "submission": "task_submit_result and native /task-submit; deterministic loopback provider, no external inference",
+        "runtime": ("real Pi TUI and native Zellij with isolated Beads HTTP and Dolt"
+                    if assignment_input else "real Pi TUI, native worktree manager, Beads HTTP and Dolt"),
+        "submission": ("native Pi steering; deterministic loopback provider"
+                       if assignment_input else "task_submit_result and native /task-submit; deterministic loopback provider, no external inference"),
         "paseo": "unreachable endpoint and failing executable sentinel",
         "session": fixture.name,
         "cases": [],
@@ -57,7 +70,7 @@ def run_terminal(fixture: Fixture) -> None:
         (fixture.artifacts / "provider-requests.json").write_text(json.dumps(Provider.requests, indent=2) + "\n")
         (fixture.artifacts / "terminal.ansi").write_bytes(terminal.output)
         try:
-            subprocess.run([fixture.binary, "--session=" + fixture.name, "kill-session"],
+            subprocess.run([fixture.binary, "kill-session", fixture.name],
                            env=fixture.env, capture_output=True, timeout=10)
         finally:
             terminal.close()
@@ -76,7 +89,11 @@ def main() -> None:
     options = RunOptions.read(Path(sys.argv[1]))
     with tempfile.TemporaryDirectory(prefix="pi-zj-", dir="/tmp") as runtime:
         fixture = make_fixture(options, Path(runtime))
-        with ThreadingHTTPServer(("127.0.0.1", 0), Provider) as provider:
+        handler = {
+            Scenario.ASSIGNMENT_INPUT: AssignmentProvider,
+            Scenario.INTERACTIVE_DISPATCH: DispatchProvider,
+        }.get(options.scenario, Provider)
+        with ThreadingHTTPServer(("127.0.0.1", 0), handler) as provider:
             provider.daemon_threads = True
             fixture.paths.configure_pi(options, provider.server_port)
             fixture.initialize_repository()

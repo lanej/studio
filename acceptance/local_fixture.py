@@ -24,6 +24,8 @@ class Scenario(str, Enum):
     LEAD_PLAN = "lead-plan"
     SOCRATES = "socrates"
     SOCRATES_READY = "socrates-ready"
+    ASSIGNMENT_INPUT = "assignment-input"
+    INTERACTIVE_DISPATCH = "interactive-dispatch"
 
 
 class BeadsSource(TypedDict):
@@ -125,7 +127,7 @@ class FixturePaths:
         providers = {model.provider: model.settings(port) for model in models}
         (self.agent / "models.json").write_text(json.dumps({"providers": providers}))
         settings: dict[str, object] = {"packages": [str(options.root)]}
-        if options.scenario in (Scenario.SOCRATES, Scenario.SOCRATES_READY):
+        if options.scenario in (Scenario.SOCRATES, Scenario.SOCRATES_READY, Scenario.ASSIGNMENT_INPUT, Scenario.INTERACTIVE_DISPATCH):
             settings.update({"theme": "dotfiles", "quietStartup": True})
             themes = self.agent / "themes"
             themes.mkdir()
@@ -160,6 +162,8 @@ class CaseEvidence(TypedDict):
 class ReportObservations(TypedDict, total=False):
     registered_process: str
     registered_pane: Pane
+    assignment_input: dict[str, int | str]
+    interactive_dispatch: dict[str, Any]
 
 
 class Report(ReportObservations):
@@ -258,4 +262,8 @@ def make_fixture(options: RunOptions, runtime: Path) -> Fixture:
     paths.prepare()
     artifacts = options.output / options.work.name if options.output else options.work / "evidence"
     artifacts.mkdir(parents=True, exist_ok=True)
-    return Fixture(options, paths, paths.environment(), binary, manager, "pi-local-" + options.work.name, artifacts)
+    env = paths.environment()
+    if options.scenario is Scenario.INTERACTIVE_DISPATCH:
+        # Native Beads requires its disposable database inside the designated temp root.
+        env["TMPDIR"] = str(options.work)
+    return Fixture(options, paths, env, binary, manager, "pi-local-" + options.work.name, artifacts)

@@ -1,4 +1,9 @@
+import { verificationSchema } from "../task-service.ts";
+import { Phase, type Attempt } from "../attempts.ts";
 import { selectorText } from "@lanej/pi-components";
+import { z } from "zod";
+import { isDeepStrictEqual } from "node:util";
+import { draftSchema, TaskDelivery } from "../lead-plan.ts";
 import {
   knownRelationship,
   knownTaskStatus,
@@ -12,6 +17,8 @@ import { ExecutionPhase, type Execution } from "../execution/store.ts";
 export interface TaskSnapshot {
   tasks: Task[];
   attempts: Execution[];
+  interactiveAttempts?: Attempt[];
+  interactiveEvidenceError?: string;
   observedAt: string;
   evidenceError?: string;
   focusable: Set<string>;
@@ -34,6 +41,173 @@ export function selectedAttempt(
   return (
     attempts.find((attempt) => task.assignee === `pi:${attempt.id}`) ??
     attempts.at(-1)
+  );
+}
+
+const deliveryMetadata = z.union([
+  z
+    .object({
+      "studio.approval": z.string().min(1),
+      "studio.task": draftSchema.shape.tasks.element,
+      "studio.completed": z.string().optional(),
+    })
+    .transform((value) => ({
+      approval: value["studio.approval"],
+      task: value["studio.task"],
+      completed: value["studio.completed"],
+      parent: undefined,
+    })),
+  z
+    .object({
+      "pi.plan": z.string().min(1),
+      "pi.plan_task": draftSchema.shape.tasks.element,
+      "pi.plan_key": z.string().min(1),
+      "pi.plan_parent": z.string().min(1),
+    })
+    .refine((value) => value["pi.plan_key"] === value["pi.plan_task"].key)
+    .transform((value) => ({
+      approval: value["pi.plan"],
+      task: value["pi.plan_task"],
+      completed: undefined,
+      parent: value["pi.plan_parent"],
+    })),
+]);
+
+export interface TaskDeliveryPresentation {
+  label: string;
+  details: string[];
+  url?: string;
+}
+
+/** Only admitted task metadata and receipts bound to its current owner describe delivery. */
+export function taskDelivery(
+  task: Task,
+  snapshot: TaskSnapshot,
+): TaskDeliveryPresentation {
+  const display = (
+    state:
+      | "Unknown"
+      | "PR not expected"
+      | "PR not yet published"
+      | "PR published"
+      | "Blocked",
+    ...details: string[]
+  ): TaskDeliveryPresentation => ({ label: `Delivery · ${state}`, details });
+  const metadata = z
+    .record(z.string(), z.unknown())
+    .safeParse(task["metadata"]);
+  if (metadata.success && Object.hasOwn(metadata.data, "pi.plan_task"))
+    return interactiveDelivery(task, snapshot, metadata.data);
+  const live = deliveryMetadata.safeParse(task["metadata"]);
+  const attempts = taskAttempts(task, snapshot);
+  const hasOwner = task.assignee !== undefined && task.assignee.length > 0;
+  const completed = live.success ? live.data.completed : undefined;
+  const isClosed = knownTaskStatus(task.status) === TaskStatus.Closed;
+  const attempt = hasOwner
+    ? attempts.find((row) => task.assignee === `pi:${row.id}`)
+    : isClosed && completed !== undefined
+      ? attempts.find(
+          (row) =>
+            row.id === completed && row.phase === ExecutionPhase.Complete,
+        )
+      : undefined;
+  const bound = attempt !== undefined;
+  const accepted = bound
+    ? deliveryMetadata.safeParse(attempt.bead?.metadata)
+    : undefined;
+  if (snapshot.evidenceError !== undefined)
+    return display("Unknown", "Local evidence unavailable");
+  if (
+    bound &&
+    (!live.success ||
+      accepted?.success !== true ||
+      live.data.approval !== accepted.data.approval ||
+      !isDeepStrictEqual(live.data.task, accepted.data.task) ||
+      live.data.parent !== accepted.data.parent)
+  )
+    return display(
+      "Unknown",
+      "Accepted task evidence differs or is unavailable",
+    );
+  const intent =
+    accepted?.success === true
+      ? accepted.data
+      : live.success
+        ? live.data
+        : undefined;
+  if (intent === undefined)
+    return display("Unknown", "Approved delivery is not recorded");
+  if (intent.parent !== undefined && parentId(task) !== intent.parent)
+    return display(
+      "Unknown",
+      "Approved parent relationship is unavailable or differs",
+    );
+  if (hasOwner && !bound)
+    return display("Unknown", "No receipts for the current owner");
+  if (!hasOwner && completed !== undefined && (!isClosed || !bound))
+    return display(
+      "Unknown",
+      "No confirmed completion receipt for this task state",
+    );
+  const delivery = intent.task.delivery ?? TaskDelivery.Local;
+  if (delivery === TaskDelivery.Local) {
+    const result = bound
+      ? /^[a-f0-9]{40,64}$/u.test(attempt.integration ?? "")
+        ? attempt.integration
+        : attempt.resultRef
+      : undefined;
+    return display(
+      "PR not expected",
+      "Local integration only — no PR",
+      result === undefined
+        ? "Local result reference unavailable"
+        : `Local result · ${plain(result)}`,
+    );
+  }
+  let url: string | undefined;
+  if (
+    bound &&
+    attempt.pr !== undefined &&
+    attempt.pr.length > 0 &&
+    attempt.url !== undefined
+  ) {
+    try {
+      const parsed = new URL(attempt.url);
+      if (
+        parsed.protocol === "https:" &&
+        parsed.username.length === 0 &&
+        parsed.password.length === 0
+      )
+        url = parsed.href;
+    } catch {
+      /* An invalid retained link cannot establish publication. */
+    }
+  }
+  const blocked =
+    bound &&
+    [ExecutionPhase.Parked, ExecutionPhase.Uncertain].includes(attempt.phase);
+  if (url !== undefined)
+    return {
+      ...display(
+        "PR published",
+        url,
+        ...(blocked ? [`Delivery blocked · ${plain(attempt.message)}`] : []),
+      ),
+      url,
+    };
+  if (blocked)
+    return display(
+      "Blocked",
+      plain(attempt.message),
+      "No confirmed PR link recorded",
+    );
+  return display(
+    "PR not yet published",
+    ...(bound && attempt.publication !== undefined
+      ? [
+          `Publication request · ${plain(attempt.publication)} (awaiting confirmation)`,
+        ]
+      : []),
   );
 }
 
@@ -110,6 +284,11 @@ const phaseNarrative = {
 } satisfies Record<ExecutionPhase, string>;
 
 export function taskNarrative(task: Task, snapshot: TaskSnapshot): string {
+  const metadata = z
+    .record(z.string(), z.unknown())
+    .safeParse(task["metadata"]);
+  if (metadata.success && Object.hasOwn(metadata.data, "pi.plan_task"))
+    return `Beads reports “${plain(task.status)}”. Interactive delivery evidence is shown in Delivery.`;
   const attempt = selectedAttempt(task, snapshot);
   const parts: string[] = [];
   if (attempt !== undefined) {
@@ -124,6 +303,13 @@ export function taskNarrative(task: Task, snapshot: TaskSnapshot): string {
       );
     }
     parts.push(phaseNarrative[attempt.phase]);
+    if (
+      attempt.interactive === undefined &&
+      attempt.phase === ExecutionPhase.Running
+    )
+      parts.push(
+        "Interactive guidance is unavailable for a background worker.",
+      );
     if (
       task.assignee !== undefined &&
       task.assignee.length > 0 &&
@@ -190,6 +376,9 @@ export function retainedEvidence(task: Task, snapshot: TaskSnapshot): string {
       [
         `Attempt ${attempt.id}`,
         attempt.message,
+        ...(attempt.workerSessionFile === undefined
+          ? []
+          : [`Worker transcript · ${attempt.workerSessionFile}`]),
         ...(attempt.reviewFinding === undefined
           ? []
           : [`Reviewer finding\n${attempt.reviewFinding}`]),
@@ -211,4 +400,102 @@ export function retainedEvidence(task: Task, snapshot: TaskSnapshot): string {
         .join("\n\n"),
     )
     .join("\n\n");
+}
+
+/** Bind interactive delivery to the current child approval without granting runtime authority. */
+function interactiveDelivery(
+  task: Task,
+  snapshot: TaskSnapshot,
+  metadata: Record<string, unknown>,
+): TaskDeliveryPresentation {
+  const display = (
+    state: string,
+    ...details: string[]
+  ): TaskDeliveryPresentation => ({ label: `Delivery · ${state}`, details });
+  const live = deliveryMetadata.safeParse(task["metadata"]);
+  if (!live.success || live.data.parent === undefined)
+    return display(
+      "Unknown",
+      "Approved interactive delivery is malformed or unavailable",
+    );
+  if (parentId(task) !== live.data.parent)
+    return display(
+      "Unknown",
+      "Approved parent relationship is unavailable or differs",
+    );
+  if (snapshot.interactiveEvidenceError !== undefined)
+    return display("Unknown", "Interactive evidence unavailable");
+  const rows = (snapshot.interactiveAttempts ?? []).filter(
+    (row) => row.bead.id === task.id,
+  );
+  const hasOwner = task.assignee !== undefined && task.assignee.length > 0;
+  const completion = z
+    .object({
+      "pi.result_attempt": z.string(),
+      "pi.result": verificationSchema,
+    })
+    .safeParse(task["metadata"]);
+  const attempt = hasOwner
+    ? rows.find((row) => task.assignee === `pi:${row.id}`)
+    : knownTaskStatus(task.status) === TaskStatus.Closed && completion.success
+      ? rows.find(
+          (row) =>
+            row.id === completion.data["pi.result_attempt"] &&
+            row.verification?.exitCode === 0 &&
+            isDeepStrictEqual(row.verification, completion.data["pi.result"]) &&
+            [Phase.Closed, Phase.Archived].includes(row.phase),
+        )
+      : undefined;
+  const accepted =
+    attempt === undefined
+      ? undefined
+      : deliveryMetadata.safeParse(attempt.bead.metadata);
+  if (
+    attempt !== undefined &&
+    (accepted?.success !== true ||
+      accepted.data.approval !== live.data.approval ||
+      accepted.data.parent !== live.data.parent ||
+      !isDeepStrictEqual(accepted.data.task, live.data.task))
+  )
+    return display(
+      "Unknown",
+      "Accepted interactive task evidence differs or is unavailable",
+    );
+  if (hasOwner && attempt === undefined)
+    return display("Unknown", "No interactive receipts for the current owner");
+  if (
+    !hasOwner &&
+    Object.hasOwn(metadata, "pi.result_attempt") &&
+    attempt === undefined
+  )
+    return display(
+      "Unknown",
+      "No confirmed interactive completion receipt for this task state",
+    );
+  if ((live.data.task.delivery ?? TaskDelivery.Local) === TaskDelivery.Local)
+    return display(
+      "PR not expected",
+      "Local integration only — no PR",
+      "Local result reference unavailable",
+    );
+  const delivery = attempt?.delivery;
+  if (delivery?.pr !== undefined && delivery.url !== undefined)
+    return { ...display("PR published", delivery.url), url: delivery.url };
+  if (
+    attempt !== undefined &&
+    [Phase.CheckFailed, Phase.Reconcile, Phase.Rejected].includes(attempt.phase)
+  )
+    return display(
+      "Blocked",
+      plain(attempt.message),
+      "No confirmed PR link recorded",
+    );
+  return display(
+    "PR not yet published",
+    ...(delivery?.octoSubmission === undefined
+      ? []
+      : [
+          `Publication request · ${plain(delivery.octoSubmission)} (awaiting confirmation)`,
+        ]),
+  );
 }

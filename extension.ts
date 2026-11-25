@@ -44,6 +44,7 @@ import {
   piModeSchema,
 } from "./runtime.ts";
 import { focusTaskPane, taskPaneBeads } from "./task-run.ts";
+import { hasInteractivePane } from "./execution/interactive-target.ts";
 
 const attemptType = "studio:idle-attempt";
 const attemptSchema = z.object({ historyId: z.string() });
@@ -341,20 +342,27 @@ export default function studioExtension(
           show: (id) => reader.show(id),
           load: async () => {
             const tasks = await reader.list();
+            const evidence = readTaskEvidence(projectId);
             const live =
               projectId === undefined
                 ? new Set<string>()
                 : await taskPaneBeads(projectId);
             return {
               tasks,
-              ...readTaskEvidence(projectId),
+              ...evidence,
               observedAt: new Date().toLocaleTimeString(),
               focusable: new Set(
                 tasks
                   .filter(
                     (task) =>
-                      live.has(task.id) &&
-                      knownTaskStatus(task.status) === TaskStatus.InProgress,
+                      knownTaskStatus(task.status) === TaskStatus.InProgress &&
+                      (live.has(task.id) ||
+                        evidence.attempts.some(
+                          (attempt) =>
+                            attempt.bead?.id === task.id &&
+                            attempt.bead.assignee === task.assignee &&
+                            hasInteractivePane(attempt),
+                        )),
                   )
                   .map((task) => task.id),
               ),

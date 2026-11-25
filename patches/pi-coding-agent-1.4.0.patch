@@ -1,3 +1,31 @@
+diff --git a/dist/core/agent-session.d.ts b/dist/core/agent-session.d.ts
+index aba2a96..eb5e845 100644
+--- a/dist/core/agent-session.d.ts
++++ b/dist/core/agent-session.d.ts
+@@ -181,6 +181,8 @@ export interface PromptOptions {
+     images?: ImageContent[];
+     /** When streaming, how to queue the message: "steer" (interrupt) or "followUp" (wait). Required if streaming. */
+     streamingBehavior?: "steer" | "followUp";
++    /** Drop guidance if the turn settles during input preflight. */
++    requireStreaming?: boolean;
+     /** Source of input for extension input event handlers. Defaults to "interactive". */
+     source?: InputSource;
+     /** Internal hook used by RPC mode to observe how an accepted prompt was dispatched. Not called if the prompt is rejected. */
+diff --git a/dist/core/agent-session.js b/dist/core/agent-session.js
+index 8728a3e..5abd434 100644
+--- a/dist/core/agent-session.js
++++ b/dist/core/agent-session.js
+@@ -1661,6 +1661,10 @@ export class AgentSession {
+             expandedText = this._expandSkillCommand(expandedText);
+             expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
+         }
++        if (options?.requireStreaming && !this.isStreaming) {
++            preflightResult?.("handled");
++            return;
++        }
+         // If streaming, queue via steer() or followUp() based on option
+         if (this.isStreaming) {
+             if (!options?.streamingBehavior) {
 diff --git a/dist/core/settings-defaults.d.ts b/dist/core/settings-defaults.d.ts
 index c96e7ea..6ccd21f 100644
 --- a/dist/core/settings-defaults.d.ts
@@ -90,6 +118,7 @@ index 28c00ed..aaf6fe6 100644
      })),
      clearOnShrink: Type.Optional(Type.Boolean({
 diff --git a/dist/modes/interactive/components/assistant-message.js b/dist/modes/interactive/components/assistant-message.js
+index 6280084..5bad66b 100644
 --- a/dist/modes/interactive/components/assistant-message.js
 +++ b/dist/modes/interactive/components/assistant-message.js
 @@ -1,9 +1,29 @@
@@ -123,7 +152,7 @@ diff --git a/dist/modes/interactive/components/assistant-message.js b/dist/modes
  /**
   * Component that renders a complete assistant message
   */
-@@ -18,7 +38,7 @@
+@@ -18,7 +38,7 @@ export class AssistantMessageComponent extends Container {
      hasToolCalls = false;
      isStreaming = false;
      thinkingVisibilityOverrides = new Map();
@@ -132,7 +161,7 @@ diff --git a/dist/modes/interactive/components/assistant-message.js b/dist/modes
          super();
          this.hideThinkingBlock = hideThinkingBlock;
          this.markdownTheme = markdownTheme;
-@@ -110,13 +130,9 @@
+@@ -110,13 +130,9 @@ export class AssistantMessageComponent extends Container {
                  const runIndex = thinkingRunIndex++;
                  const hidden = this.thinkingVisibilityOverrides.get(runIndex) ?? this.hideThinkingBlock;
                  const thinkingComponent = hidden
@@ -251,11 +280,209 @@ index d447db5..0aed9bc 100644
                      const index = this.imageComponents.length;
                      const previous = previousSources[index];
                      const imageComponent = previous?.data === source.data &&
+diff --git a/dist/modes/interactive/interactive-mode.d.ts b/dist/modes/interactive/interactive-mode.d.ts
+index 40df44a..38c6b5e 100644
+--- a/dist/modes/interactive/interactive-mode.d.ts
++++ b/dist/modes/interactive/interactive-mode.d.ts
+@@ -16,6 +16,8 @@ export declare function formatResumeCommand(sessionManager: SessionManager): str
+  * Options for InteractiveMode initialization.
+  */
+ export interface InteractiveModeOptions {
++    /** Limit native terminal input to guidance and quitting an assigned session. The host must supply restricted tools and resources. */
++    assignmentInput?: boolean;
+     /** Providers that were migrated to auth.json (shows warning) */
+     migratedProviders?: string[];
+     /** Diagnostics collected before the interactive TUI was initialized. */
+@@ -142,6 +144,10 @@ export declare class InteractiveMode {
+      * Update terminal title with session name and cwd.
+      */
+     private updateTerminalTitle;
++    get assignmentInputEnabled(): boolean;
++    private rejectAssignmentCommand;
++    runAssignmentTurn(prompt: string): Promise<void>;
++    closeAssignment(): Promise<void>;
+     /**
+      * Run the interactive mode. This is the main entry point.
+      * Initializes the UI, shows warnings, processes initial messages, and starts the interactive loop.
+diff --git a/dist/modes/interactive/interactive-mode.js b/dist/modes/interactive/interactive-mode.js
+index 5303aad..31b9ca2 100644
+--- a/dist/modes/interactive/interactive-mode.js
++++ b/dist/modes/interactive/interactive-mode.js
+@@ -48,7 +48,7 @@ import { checkForNewPiVersion } from "../../utils/version-check.js";
+ import { reportBug } from "./bug-report.js";
+ import { createChatViewport } from "./chat-viewport.js";
+ import { ArminComponent } from "./components/armin.js";
+-import { AssistantMessageComponent } from "./components/assistant-message.js";
++import { AssistantMessageComponent, DEFAULT_THINKING_LABEL } from "./components/assistant-message.js";
+ import { BashExecutionComponent } from "./components/bash-execution.js";
+ import { BranchSummaryMessageComponent } from "./components/branch-summary-message.js";
+ import { CompactionSummaryMessageComponent } from "./components/compaction-summary-message.js";
+@@ -269,7 +269,7 @@ export class InteractiveMode {
+     workingVisible = true;
+     workingIndicatorOptions = undefined;
+     defaultWorkingMessage = "Working";
+-    defaultHiddenThinkingLabel = "Thinking...";
++    defaultHiddenThinkingLabel = DEFAULT_THINKING_LABEL;
+     hiddenThinkingLabel = this.defaultHiddenThinkingLabel;
+     lastSigintTime = 0;
+     lastEscapeTime = 0;
+@@ -376,8 +376,8 @@ export class InteractiveMode {
+             showHardwareCursor: this.settingsManager.getShowHardwareCursor(),
+             logDirectory: getAgentDir(),
+             terminal: options.terminal,
+-            onRightClickPaste: this.onRightClickPaste,
+-            fullscreenCopyOnSelect: this.settingsManager.getFullscreenCopyOnSelect(),
++            onRightClickPaste: options.assignmentInput ? undefined : this.onRightClickPaste,
++            fullscreenCopyOnSelect: !options.assignmentInput && this.settingsManager.getFullscreenCopyOnSelect(),
+             fullscreenWheelScrollLines: this.settingsManager.getFullscreenWheelScrollLines(),
+         });
+         this.ui = createInteractiveTuiReference(() => this.renderer);
+@@ -774,11 +774,13 @@ export class InteractiveMode {
+         // Ensure fd and rg are available after mounting the TUI (downloads if missing, adds to PATH via getBinDir)
+         // so slow downloads do not make startup appear frozen.
+         // Both are needed: fd for autocomplete, rg for grep tool and bash commands.
+-        const [fdPath] = await Promise.all([
+-            ensureTool("fd", (status) => this.showManagedToolStatus(status)),
+-            ensureTool("rg", (status) => this.showManagedToolStatus(status)),
+-        ]);
+-        this.fdPath = fdPath;
++        if (!this.assignmentInputEnabled) {
++            const [fdPath] = await Promise.all([
++                ensureTool("fd", (status) => this.showManagedToolStatus(status)),
++                ensureTool("rg", (status) => this.showManagedToolStatus(status)),
++            ]);
++            this.fdPath = fdPath;
++        }
+         // Enable the remaining input handlers only after managed-tool setup completes.
+         this.setupKeyHandlers();
+         this.setupEditorSubmitHandler();
+@@ -821,6 +823,20 @@ export class InteractiveMode {
+             this.ui.terminal.setTitle(`${APP_TITLE} - ${cwdBasename}`);
+         }
+     }
++    get assignmentInputEnabled() {
++        return this.options.assignmentInput === true;
++    }
++    async runAssignmentTurn(prompt) {
++        if (!this.assignmentInputEnabled)
++            throw new Error("Assignment input is required");
++        await this.init();
++        await this.session.prompt(prompt, { source: "extension", expandPromptTemplates: false });
++    }
++    async closeAssignment() {
++        if (!this.assignmentInputEnabled)
++            throw new Error("Assignment input is required");
++        await this.shutdown();
++    }
+     /**
+      * Run the interactive mode. This is the main entry point.
+      * Initializes the UI, shows warnings, processes initial messages, and starts the interactive loop.
+@@ -1678,7 +1694,7 @@ export class InteractiveMode {
+         const cause = change.kind === "updated"
+             ? `${APP_NAME} was updated to ${change.version} while this session was running (${VERSION})`
+             : `The ${APP_NAME} installation this session runs from was removed or replaced`;
+-        const resumeCommand = formatResumeCommand(this.sessionManager);
++        const resumeCommand = this.assignmentInputEnabled ? undefined : formatResumeCommand(this.sessionManager);
+         const restart = resumeCommand
+             ? `Restart with \`${resumeCommand}\` to continue this session.`
+             : `Restart ${APP_NAME}.`;
+@@ -2386,7 +2402,7 @@ export class InteractiveMode {
+                 this.isBashMode = false;
+                 this.updateEditorBorderColor();
+             }
+-            else if (!this.editor.getText().trim()) {
++            else if (!this.assignmentInputEnabled && !this.editor.getText().trim()) {
+                 // Double-escape with empty editor triggers /tree, /fork, or nothing based on setting
+                 const action = this.settingsManager.getDoubleEscapeAction();
+                 if (action !== "none") {
+@@ -2409,6 +2425,12 @@ export class InteractiveMode {
+         // Register app action handlers
+         this.defaultEditor.onAction("app.clear", () => this.handleCtrlC());
+         this.defaultEditor.onCtrlD = () => this.handleCtrlD();
++        if (this.assignmentInputEnabled) {
++            this.defaultEditor.onAction("app.tools.expand", () => this.toggleToolOutputExpansion());
++            this.defaultEditor.onAction("app.message.followUp", () => this.handleFollowUp());
++            this.defaultEditor.onAction("app.message.dequeue", () => this.handleDequeue());
++            return;
++        }
+         this.defaultEditor.onAction("app.suspend", () => this.handleCtrlZ());
+         this.defaultEditor.onAction("app.thinking.cycle", () => this.cycleThinkingLevel());
+         this.defaultEditor.onAction("app.model.cycleForward", () => this.cycleModel("forward"));
+@@ -2498,11 +2520,25 @@ export class InteractiveMode {
+         this.editor.setText(text);
+         this.showStatus("Startup is still in progress");
+     }
++    rejectAssignmentCommand(text) {
++        if (!this.assignmentInputEnabled || !/^[!/]/.test(text))
++            return false;
++        this.editor.setText("");
++        this.showWarning("Assigned worker: enter guidance or /quit.");
++        return true;
++    }
+     setupEditorSubmitHandler() {
+         this.defaultEditor.onSubmit = async (text) => {
+             text = text.trim();
+             if (!text)
+                 return;
++            if (this.assignmentInputEnabled && text === "/quit") {
++                this.editor.setText("");
++                await this.shutdown();
++                return;
++            }
++            if (this.rejectAssignmentCommand(text))
++                return;
+             // Handle commands
+             if (text === "/settings") {
+                 this.showSettingsSelector();
+@@ -2678,11 +2714,15 @@ export class InteractiveMode {
+             if (this.session.isStreaming) {
+                 this.editor.addToHistory?.(text);
+                 this.editor.setText("");
+-                await this.session.prompt(text, { streamingBehavior: "steer" });
++                await this.session.prompt(text, { streamingBehavior: "steer", requireStreaming: this.assignmentInputEnabled });
+                 this.updatePendingMessagesDisplay();
+                 this.ui.requestRender();
+                 return;
+             }
++            if (this.assignmentInputEnabled) {
++                this.showStatus("Guidance is available while the worker is running.");
++                return;
++            }
+             // Normal message submission
+             // First, move any pending bash components to chat
+             this.flushPendingBashComponents();
+@@ -3471,7 +3511,7 @@ export class InteractiveMode {
+         await this.ui.terminal.drainInput(1000);
+         this.stop();
+         await this.runtimeHost.dispose();
+-        const resumeCommand = formatResumeCommand(this.sessionManager);
++        const resumeCommand = this.assignmentInputEnabled ? undefined : formatResumeCommand(this.sessionManager);
+         if (resumeCommand) {
+             process.stdout.write(`${chalk.dim("To resume this session:")} ${resumeCommand}\n`);
+         }
+@@ -3615,6 +3655,8 @@ export class InteractiveMode {
+         const text = (this.editor.getExpandedText?.() ?? this.editor.getText()).trim();
+         if (!text)
+             return;
++        if (this.rejectAssignmentCommand(text))
++            return;
+         // Queue input during compaction (extension commands execute immediately)
+         if (this.session.isCompacting) {
+             if (this.isExtensionCommand(text)) {
+@@ -3632,7 +3674,7 @@ export class InteractiveMode {
+         if (this.session.isStreaming) {
+             this.editor.addToHistory?.(text);
+             this.editor.setText("");
+-            await this.session.prompt(text, { streamingBehavior: "followUp" });
++            await this.session.prompt(text, { streamingBehavior: "followUp", requireStreaming: this.assignmentInputEnabled });
+             this.updatePendingMessagesDisplay();
+             this.ui.requestRender();
+         }
 diff --git a/docs/settings.md b/docs/settings.md
 index 7e28985..366a42f 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
-@@ -104,7 +104,7 @@ See [Compaction Reference](compaction.md) for trigger, summarization, and valida
+@@ -104,7 +104,7 @@ ## Terminal and display
  | `autocompleteMaxVisible` | number | `5` | Visible autocomplete entries, from 3 to 20. |
  | `showHardwareCursor` | boolean | `false` | Use the terminal cursor instead of Pi's drawn cursor. Pi still positions it for input methods. |
  | `terminal.showImages` | boolean | `true` | Display inline images when supported. |
@@ -284,24 +511,3 @@ index 4d6c23a..4c1a6e5 100644
          },
          "clearOnShrink": {
            "type": "boolean",
-diff --git a/dist/modes/interactive/interactive-mode.js b/dist/modes/interactive/interactive-mode.js
---- a/dist/modes/interactive/interactive-mode.js
-+++ b/dist/modes/interactive/interactive-mode.js
-@@ -48,7 +48,7 @@
- import { reportBug } from "./bug-report.js";
- import { createChatViewport } from "./chat-viewport.js";
- import { ArminComponent } from "./components/armin.js";
--import { AssistantMessageComponent } from "./components/assistant-message.js";
-+import { AssistantMessageComponent, DEFAULT_THINKING_LABEL } from "./components/assistant-message.js";
- import { BashExecutionComponent } from "./components/bash-execution.js";
- import { BranchSummaryMessageComponent } from "./components/branch-summary-message.js";
- import { CompactionSummaryMessageComponent } from "./components/compaction-summary-message.js";
-@@ -269,7 +269,7 @@
-     workingVisible = true;
-     workingIndicatorOptions = undefined;
-     defaultWorkingMessage = "Working";
--    defaultHiddenThinkingLabel = "Thinking...";
-+    defaultHiddenThinkingLabel = DEFAULT_THINKING_LABEL;
-     hiddenThinkingLabel = this.defaultHiddenThinkingLabel;
-     lastSigintTime = 0;
-     lastEscapeTime = 0;

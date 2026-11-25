@@ -2,15 +2,21 @@ import { Database } from "bun:sqlite";
 import { statSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
-import { stateDirectory } from "../attempts.ts";
+import { attemptSchema, type Attempt, stateDirectory } from "../attempts.ts";
 import { executionSchema, type Execution } from "../execution/store.ts";
 
 /** Reading the inspector must neither create a runtime store nor enroll a project. */
 export function readTaskEvidence(
   project: string | undefined,
   directory = stateDirectory(),
-): { attempts: Execution[]; evidenceError?: string } {
-  if (project === undefined) return { attempts: [] };
+): {
+  attempts: Execution[];
+  evidenceError?: string;
+  interactiveAttempts?: Attempt[];
+  interactiveEvidenceError?: string;
+} {
+  const interactive = readInteractiveEvidence(project, directory);
+  if (project === undefined) return { attempts: [], ...interactive };
   const path = join(directory, "runtime.sqlite");
   let db: Database | undefined;
   try {
@@ -23,6 +29,7 @@ export function readTaskEvidence(
       )
       .all(project);
     return {
+      ...interactive,
       attempts: rows.map((row) =>
         executionSchema.parse(
           JSON.parse(z.object({ record: z.string() }).parse(row).record),
@@ -31,10 +38,54 @@ export function readTaskEvidence(
     };
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT")
-      return { attempts: [] };
+      return { attempts: [], ...interactive };
     return {
       attempts: [],
+      ...interactive,
       evidenceError: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    db?.close();
+  }
+}
+
+/** Interactive attempts remain a separate authority; a missing store is not created. */
+function readInteractiveEvidence(
+  project: string | undefined,
+  directory: string,
+): { interactiveAttempts?: Attempt[]; interactiveEvidenceError?: string } {
+  if (project === undefined) return {};
+  let db: Database | undefined;
+  try {
+    const path = join(directory, "attempts.sqlite");
+    statSync(path);
+    db = new Database(path, { readonly: true });
+    db.run("PRAGMA busy_timeout=1000");
+    const attempts = db
+      .query("SELECT bead,record FROM attempts WHERE project=? ORDER BY rowid")
+      .all(project)
+      .map((row) => {
+        const stored = z
+          .object({ bead: z.string(), record: z.string() })
+          .parse(row);
+        const attempt = attemptSchema.parse(JSON.parse(stored.record));
+        if (attempt.bead.id !== stored.bead)
+          throw new Error(
+            "Interactive receipt task differs from its stored task",
+          );
+        return attempt;
+      });
+    if (attempts.some((attempt) => attempt.source.projectId !== project))
+      throw new Error(
+        "Interactive receipt project differs from its stored project",
+      );
+    return { interactiveAttempts: attempts };
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT")
+      return {};
+    return {
+      interactiveEvidenceError:
+        error instanceof Error ? error.message : String(error),
     };
   } finally {
     db?.close();

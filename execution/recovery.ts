@@ -1,4 +1,5 @@
 import { processFailure, run } from "../process.ts";
+import { isDeepStrictEqual } from "node:util";
 import { sameBrief } from "../task-service.ts";
 import {
   loadConfig,
@@ -7,7 +8,7 @@ import {
   type StudioConfig,
 } from "../config.ts";
 import { draftSchema } from "../lead-plan.ts";
-import { ExecutionBeads } from "./beads.ts";
+import { ExecutionBeads, interactiveTask } from "./beads.ts";
 import {
   type ExecutionStore,
   ExecutionPhase,
@@ -58,13 +59,24 @@ export async function retainClaim(
   claimed: NonNullable<Execution["bead"]>,
   configuration?: StudioConfig,
 ): Promise<void> {
+  if (interactiveTask(claimed)) {
+    store.change(id, (row) => {
+      row.bead = claimed;
+      row.revision = claimed.revision;
+      row.phase = ExecutionPhase.Parked;
+      row.message =
+        "Interactive child retained without unattended execution; inspect and reconcile its retained claim/ownership before using studio start with the approved delivery mode";
+    });
+    return;
+  }
   const bound =
     claimed.metadata["pi.attempt"] === id
       ? claimed
       : await service.bind(claimed, id);
   const config = configuration ?? (await loadConfig());
+  const admission = store.attempt(id);
   const profile = studioProfileSchema.parse(
-    bound.metadata["studio.profile"] ?? store.attempt(id).profile,
+    bound.metadata["studio.profile"] ?? admission.profile,
   );
   const roles = config.profiles[profile];
   if (roles === undefined)
@@ -76,6 +88,30 @@ export async function retainClaim(
     metadata === undefined
       ? undefined
       : draftSchema.shape.tasks.element.parse(metadata);
+  const intent = store.interactiveIntent(bound.id);
+  const interactive = intent?.interactive;
+  if (
+    (interactive !== undefined ||
+      bound.metadata["studio.interactive"] === true) &&
+    (interactive === undefined ||
+      intent?.project !== admission.project ||
+      profile !== admission.profile ||
+      intent.id !== bound.metadata["studio.graph"] ||
+      intent.digest !== bound.metadata["studio.approval"] ||
+      task === undefined ||
+      intent.ids[task.key] !== bound.id ||
+      !isDeepStrictEqual(
+        intent.draft?.tasks.find((item) => item.key === task.key),
+        task,
+      ) ||
+      task.title !== bound.title ||
+      task.description !== bound.description ||
+      task.acceptance !== bound.acceptance_criteria ||
+      bound.metadata["studio.interactive"] !== true)
+  )
+    throw new Error(
+      "Interactive approval cannot be confirmed for this task; retain its claim",
+    );
   store.change(id, (row) => {
     row.bead = bound;
     row.revision = bound.revision;
@@ -86,6 +122,7 @@ export async function retainClaim(
     row.phase = ExecutionPhase.Queued;
     row.owns = task?.owns ?? [];
     row.check = task?.check ?? [];
+    row.interactive = interactive;
 
     row.message =
       "Claim receipt reconciled; waiting for non-conflicting worker capacity";
@@ -98,6 +135,19 @@ export async function reconcileAttempt(
 ): Promise<void> {
   const record = store.attempt(id);
   if (record.phase === ExecutionPhase.Complete) return;
+  if (
+    record.bead !== undefined &&
+    interactiveTask(record.bead) &&
+    record.launchToken === undefined
+  ) {
+    await retainClaim(
+      store,
+      new ExecutionBeads(project.source),
+      id,
+      record.bead,
+    );
+    return;
+  }
   const service = new ExecutionBeads(project.source);
   if (
     record.launchToken === undefined &&
@@ -126,6 +176,12 @@ export async function reconcileAttempt(
     record.phase === ExecutionPhase.Queued ||
     record.launchSettled ||
     record.phase === ExecutionPhase.Parked
+  )
+    return;
+  if (
+    record.interactive !== undefined &&
+    record.launchToken !== undefined &&
+    record.pid === undefined
   )
     return;
   if (
@@ -166,6 +222,21 @@ export async function reconcileAttempt(
     return;
   }
   await service.requireCurrent(record.bead, record.revision, id);
+  if (record.interactive !== undefined) {
+    store.change(id, (row) => {
+      if (
+        row.launchToken !== record.launchToken ||
+        row.pid !== record.pid ||
+        row.started !== record.started
+      )
+        return;
+      row.phase = ExecutionPhase.Parked;
+      row.launchSettled = true;
+      row.message =
+        "Interactive worker exited. Inspect the retained transcript and checkout before reconciling the task.";
+    });
+    return;
+  }
   if (record.recoveries >= 3) {
     store.change(id, (row) => {
       row.phase = ExecutionPhase.Parked;

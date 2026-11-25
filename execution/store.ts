@@ -16,6 +16,7 @@ import {
   selection,
 } from "../config.ts";
 import { verificationSchema, beadSchema, owner } from "../task-service.ts";
+import { draftSchema } from "../lead-plan.ts";
 import {
   worktreeReservation,
   worktreeAllocation,
@@ -47,6 +48,19 @@ export enum VerificationPhase {
   Running = "running",
   Complete = "complete",
 }
+export const interactiveTargetSchema = z.object({
+  session: z.string().min(1),
+  socket: z.string().min(1),
+  tab: z.number().int().nonnegative(),
+});
+export type InteractiveTarget = z.infer<typeof interactiveTargetSchema>;
+export const handoffIntentSchema = z.object({
+  digest: z.string(),
+  ids: z.record(z.string(), z.string()),
+  interactive: interactiveTargetSchema.optional(),
+  project: z.uuid().optional(),
+  draft: draftSchema.optional(),
+});
 export const executionSchema = z.object({
   id: z.uuid(),
   project: z.uuid(),
@@ -70,6 +84,9 @@ export const executionSchema = z.object({
   started: z.string().optional(),
   launchToken: z.uuid().optional(),
   launchSettled: z.boolean().default(false),
+  interactive: interactiveTargetSchema.optional(),
+  pane: z.number().int().nonnegative().optional(),
+  workerSessionFile: z.string().optional(),
   recoveries: z.number().int().nonnegative().default(0),
   controllerSession: z.string().optional(),
   controllerSessionFile: z.string().optional(),
@@ -116,6 +133,7 @@ const supervisorSchema = z.object({
   pid: z.number().int().positive(),
   started: z.string(),
   stop: z.boolean().default(false),
+  interactiveDispatch: z.literal(true).optional(),
 });
 export type Supervisor = z.infer<typeof supervisorSchema>;
 const allocationOwnerSchema = z.object({
@@ -373,6 +391,18 @@ export class ExecutionStore {
   }
   intent(id: string): unknown {
     return this.read("handoff", id);
+  }
+  interactiveIntent(bead: string) {
+    const row = this.db
+      .query(
+        "SELECT id, record FROM records WHERE kind='handoff' AND json_type(record,'$.interactive')='object' AND EXISTS (SELECT 1 FROM json_each(record,'$.ids') WHERE key!='root' AND value=?)",
+      )
+      .get(bead);
+    if (row === null) return undefined;
+    const { id, record } = z
+      .object({ id: z.uuid(), record: z.string() })
+      .parse(row);
+    return { id, ...handoffIntentSchema.parse(JSON.parse(record)) };
   }
   saveIntent(id: string, value: unknown): void {
     this.save("handoff", id, value);

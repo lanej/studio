@@ -4,14 +4,16 @@ import { isDeepStrictEqual } from "node:util";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { closeSync, mkdirSync, openSync, realpathSync } from "node:fs";
-import { join } from "node:path";
-import { loadConfig } from "../config.ts";
+import { join, resolve } from "node:path";
+import { configPath, loadConfig } from "../config.ts";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { requireIntegration } from "../integrations.ts";
 import { packageRoot } from "../package-resources.ts";
 import { processFailure, processStart } from "../process.ts";
 import { owner } from "../task-service.ts";
 import {
   ExecutionBeads,
+  interactiveTask,
   heartbeat,
   verifyHeartbeatAuthority,
 } from "./beads.ts";
@@ -24,6 +26,13 @@ import {
   type RuntimeProject,
 } from "./store.ts";
 import { assertRuntimeProfile } from "./profile.ts";
+import { verifyInteractiveTarget } from "./interactive-target.ts";
+import type { Zellij } from "../zellij.ts";
+
+export type LaunchWorkerPane = (
+  zellij: Zellij,
+  ...args: Parameters<Zellij["launch"]>
+) => Promise<number>;
 
 export async function alive(pid: number, started: string): Promise<boolean> {
   try {
@@ -91,7 +100,9 @@ export async function maintainAttempt(
     if (
       observed.bead === undefined ||
       observed.phase === ExecutionPhase.Complete ||
-      (observed.launchToken !== undefined && !observed.launchSettled) ||
+      (observed.launchToken !== undefined &&
+        !observed.launchSettled &&
+        (observed.interactive === undefined || observed.pid !== undefined)) ||
       Date.now() - observed.heartbeatAt <= 15000
     )
       return;
@@ -121,7 +132,10 @@ export async function maintainAttempt(
     });
   }
 }
-export async function serveRuntime(signal?: AbortSignal): Promise<void> {
+export async function serveRuntime(
+  signal?: AbortSignal,
+  launchWorkerPane?: LaunchWorkerPane,
+): Promise<void> {
   const store = new ExecutionStore();
   const id = randomUUID();
   const started = await processStart(process.pid);
@@ -134,7 +148,13 @@ export async function serveRuntime(signal?: AbortSignal): Promise<void> {
     const current = store.supervisor();
     if (current?.id !== previous?.id)
       throw new Error("Another runtime won scheduling ownership");
-    store.setSupervisor({ id, pid: process.pid, started, stop: false });
+    store.setSupervisor({
+      id,
+      pid: process.pid,
+      started,
+      stop: false,
+      interactiveDispatch: true,
+    });
   });
   try {
     while (signal?.aborted !== true) {
@@ -163,7 +183,11 @@ export async function serveRuntime(signal?: AbortSignal): Promise<void> {
           for (const attempt of store
             .attempts()
             .filter(
-              (record) => record.project === project.id && unsettled(record),
+              (record) =>
+                record.project === project.id &&
+                (unsettled(record) ||
+                  (record.interactive !== undefined &&
+                    record.phase === ExecutionPhase.Parked)),
             )) {
             await maintainAttempt(store, project, attempt.id);
           }
@@ -197,7 +221,16 @@ export async function serveRuntime(signal?: AbortSignal): Promise<void> {
               live.some((other) => overlaps(attempt, other))
             )
               continue;
-            await launchHost(store, attempt, project);
+            if (attempt.interactive === undefined)
+              await launchHost(store, attempt, project);
+            else
+              await launchInteractive(
+                store,
+                attempt,
+                project,
+                config.runtime.concurrency,
+                launchWorkerPane,
+              );
             live.push(store.attempt(attempt.id));
           }
           if (
@@ -275,11 +308,91 @@ export async function serveRuntime(signal?: AbortSignal): Promise<void> {
     store.close();
   }
 }
+
+async function launchInteractive(
+  store: ExecutionStore,
+  attempt: Execution,
+  project: RuntimeProject,
+  capacity: number,
+  launch: LaunchWorkerPane = (zellij, ...args) => zellij.launch(...args),
+): Promise<void> {
+  const target = attempt.interactive;
+  if (target === undefined || attempt.bead === undefined)
+    throw new Error("Missing interactive assignment");
+  const bead = attempt.bead.id;
+  let zellij: Zellij;
+  try {
+    await requireIntegration(await loadConfig(), "zellij");
+    zellij = await verifyInteractiveTarget(target);
+  } catch (error) {
+    store.change(attempt.id, (row) => {
+      if (row.phase !== ExecutionPhase.Queued) return;
+      row.phase = ExecutionPhase.Parked;
+      row.message = `Approved Zellij target unavailable. Inspect the retained claim: ${processFailure(error).message}`;
+    });
+    return;
+  }
+  const token = randomUUID();
+  if (
+    !store.reserveInference(attempt.id, capacity, (row) => {
+      if (row.phase !== ExecutionPhase.Queued || row.launchToken !== undefined)
+        throw new Error("Interactive launch has already been reserved");
+      row.launchToken = token;
+      row.launchSettled = false;
+      row.phase = ExecutionPhase.Launching;
+      row.message = "Native Pi pane launch intent persisted";
+    })
+  )
+    return;
+  try {
+    const path = process.env["PATH"];
+    const pane = await launch(zellij, target.tab, bead, project.root, [
+      `STUDIO_STATE_DIR=${store.directory}`,
+      `STUDIO_CONFIG=${resolve(configPath())}`,
+      `PI_CODING_AGENT_DIR=${resolve(getAgentDir())}`,
+      ...(path === undefined ? [] : [`PATH=${path}`]),
+      "PI_OFFLINE=1",
+      process.execPath,
+      "--no-env-file",
+      `--config=${join(packageRoot, "resources/bunfig.toml")}`,
+      join(packageRoot, "execution/interactive-host.ts"),
+      attempt.id,
+      token,
+    ]);
+    store.change(attempt.id, (row) => {
+      if (row.launchToken !== token)
+        throw new Error("Interactive launch token changed");
+      if (row.pane !== undefined && row.pane !== pane) {
+        row.phase = ExecutionPhase.Uncertain;
+        row.message =
+          "Zellij acknowledged a different pane. Inspect the registered attempt before reconciling.";
+        return;
+      }
+      row.pane = pane;
+    });
+  } catch (error) {
+    store.change(attempt.id, (row) => {
+      if (row.launchToken !== token || row.pid !== undefined) return;
+      row.phase = ExecutionPhase.Uncertain;
+      row.message = `Zellij launch is unconfirmed. Wait for the same pane to register or inspect this attempt. ${processFailure(error).message}`;
+    });
+  }
+}
+
 async function launchHost(
   store: ExecutionStore,
   attempt: Execution,
   project: RuntimeProject,
 ): Promise<void> {
+  if (attempt.bead !== undefined && interactiveTask(attempt.bead)) {
+    await retainClaim(
+      store,
+      new ExecutionBeads(project.source),
+      attempt.id,
+      attempt.bead,
+    );
+    return;
+  }
   const selection = attempt.controller;
   if (selection === undefined)
     throw new Error("Runtime lead/control model is not configured");

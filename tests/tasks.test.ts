@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -8,12 +14,23 @@ import { Database } from "bun:sqlite";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { stripVTControlCharacters as stripAnsi } from "node:util";
 import { visibleWidth } from "@earendil-works/pi-tui";
+import { attemptSchema, Phase } from "../attempts.ts";
+import type { Task } from "../beads.ts";
 import { StudioProfile } from "../config.ts";
-import { ExecutionPhase, executionSchema } from "../execution/store.ts";
+import {
+  ExecutionPhase,
+  executionSchema,
+  type Execution,
+} from "../execution/store.ts";
 import { TaskBrowser } from "../tasks/browser.ts";
 import { TaskPanel } from "../tasks/panel.ts";
 import { readTaskEvidence } from "../tasks/evidence.ts";
-import { taskLinks, taskNarrative, type TaskSnapshot } from "../tasks/model.ts";
+import {
+  taskLinks,
+  taskNarrative,
+  taskDelivery,
+  type TaskSnapshot,
+} from "../tasks/model.ts";
 
 const project = randomUUID();
 const rejected = {
@@ -507,4 +524,423 @@ await test("a list projection does not erase expanded task details during refres
   await browser.refresh();
   assert.match(view(), /Retain the complete accepted brief/u);
   assert.doesNotMatch(view(), /No description recorded/u);
+});
+
+function deliveryText(task: Task, data: TaskSnapshot): string {
+  const display = taskDelivery(task, data);
+  return [display.label, ...display.details].join(" ");
+}
+
+await test("delivery distinguishes approved intent from bound publication and historical receipts", () => {
+  const metadata = (delivery?: "local" | "pull-request") => ({
+    "studio.approval": "reviewed-digest",
+    "studio.task": {
+      key: "first",
+      title: "First",
+      description: "Do work",
+      acceptance: "Verified",
+      delivery,
+    },
+  });
+  const localTask = { ...rejected, metadata: metadata() };
+  assert.ok(attempt.bead !== undefined);
+  const local = {
+    ...attempt,
+    bead: { ...attempt.bead, metadata: metadata() },
+    integration: "a".repeat(40),
+  };
+  const view = (task: Task, row: Execution = local) =>
+    deliveryText(task, { ...snapshot, tasks: [task], attempts: [row] });
+  const interactive = {
+    ...localTask,
+    parent: "parent",
+    metadata: {
+      "pi.plan": "digest",
+      "pi.plan_key": "first",
+      "pi.plan_parent": "parent",
+      "pi.plan_task": metadata()["studio.task"],
+    },
+  };
+  assert.match(view(interactive), /PR not expected/u);
+  assert.match(view({ ...interactive, parent: "another" }), /Unknown.*parent/u);
+  assert.match(
+    view({
+      ...interactive,
+      metadata: { ...interactive.metadata, "pi.plan_key": "different" },
+    }),
+    /Unknown/u,
+  );
+  assert.match(
+    view(localTask),
+    /PR not expected.*Local result reference unavailable/su,
+  );
+  assert.match(
+    view({ ...localTask, assignee: `pi:${local.id}` }),
+    /Local result · a{40}/u,
+  );
+  const published = {
+    ...local,
+    bead: { ...local.bead, metadata: metadata("pull-request") },
+    pr: "tracked-pr",
+    url: "https://github.com/example/repo/pull/7",
+    phase: ExecutionPhase.Delivery,
+  };
+  const prTask = {
+    ...localTask,
+    metadata: metadata("pull-request"),
+    assignee: `pi:${published.id}`,
+  };
+  assert.equal(
+    taskDelivery(prTask, { ...snapshot, attempts: [published] }).url,
+    published.url,
+  );
+  assert.equal(
+    taskDelivery(prTask, {
+      ...snapshot,
+      attempts: [{ ...published, pr: undefined }],
+    }).url,
+    undefined,
+  );
+  assert.match(
+    view(prTask, published),
+    /PR published.*https:\/\/github.com\/example\/repo\/pull\/7/u,
+  );
+  assert.match(
+    view(prTask, {
+      ...published,
+      pr: undefined,
+      publication: "pending-request",
+    }),
+    /not yet published.*pending-request.*awaiting confirmation/su,
+  );
+  assert.match(
+    view(prTask, { ...published, pr: undefined, phase: ExecutionPhase.Parked }),
+    /Blocked.*No confirmed PR link/su,
+  );
+  const completed = { ...published, phase: ExecutionPhase.Complete };
+  const closed = {
+    ...prTask,
+    status: "closed",
+    assignee: undefined,
+    metadata: { ...prTask.metadata, "studio.completed": completed.id },
+  };
+  assert.match(view(closed, completed), /PR published/u);
+  assert.match(
+    view(
+      { ...closed, status: "open", assignee: `pi:${randomUUID()}` },
+      completed,
+    ),
+    /Unknown/u,
+  );
+  assert.match(view({ ...closed, status: "open" }, completed), /Unknown/u);
+  assert.match(
+    view(closed, { ...completed, phase: ExecutionPhase.Parked }),
+    /Unknown/u,
+  );
+  assert.match(
+    view({ ...prTask, assignee: `pi:${randomUUID()}` }, published),
+    /Unknown.*current owner/u,
+  );
+  assert.match(view({ ...prTask, metadata: undefined }, published), /Unknown/u);
+  assert.match(
+    view(
+      {
+        ...prTask,
+        metadata: {
+          "studio.approval": "reviewed-digest",
+          "studio.task": { key: "first" },
+        },
+      },
+      published,
+    ),
+    /Unknown/u,
+  );
+  assert.match(
+    view({ ...prTask, metadata: metadata("local") }, published),
+    /Unknown/u,
+  );
+  assert.match(
+    view(
+      {
+        ...prTask,
+        metadata: { ...prTask.metadata, "studio.approval": "changed" },
+      },
+      published,
+    ),
+    /Unknown.*differs/u,
+  );
+  assert.match(
+    view({ ...prTask, metadata: metadata(), assignee: undefined }, published),
+    /PR not expected/u,
+  );
+  assert.doesNotMatch(
+    view({ ...prTask, metadata: metadata(), assignee: undefined }, published),
+    /PR published/u,
+  );
+  assert.match(
+    deliveryText(prTask, { ...snapshot, evidenceError: "unreadable" }),
+    /Unknown.*unavailable/u,
+  );
+  assert.match(deliveryText(rejected, snapshot), /Unknown.*not recorded/u);
+});
+
+await test("interactive delivery uses readonly scoped receipts and exact current approval binding", () => {
+  const directory = mkdtempSync(join(tmpdir(), "studio-interactive-evidence-"));
+  const id = randomUUID();
+  const metadata = {
+    "pi.plan": "approved",
+    "pi.plan_key": "child",
+    "pi.plan_parent": "parent",
+    "pi.plan_task": {
+      key: "child",
+      title: "Child",
+      description: "Bounded",
+      acceptance: "Verified",
+      delivery: "pull-request",
+    },
+  };
+  const task: Task = {
+    id: "child",
+    title: "Child",
+    status: "in_progress",
+    parent: "parent",
+    assignee: `pi:${id}`,
+    metadata,
+  };
+  const receipt = attemptSchema.parse({
+    id,
+    source: { url: "http://localhost:1", projectId: project },
+    bead: { ...task, revision: "1" },
+    revision: "1",
+    check: [],
+    profile: "personal",
+    model: { provider: "openai-codex", model: "gpt-6.1-sol", reasoning: "off" },
+    live: false,
+    processStarted: null,
+    reservation: {
+      primary: "/tmp/project",
+      root: "/tmp/checkouts",
+      holder: id,
+      agent: "pi",
+      branch: "task",
+      baseRef: "main",
+      baseCommit: "a".repeat(40),
+      attempted: false,
+    },
+    checkout: null,
+    session: "fixture",
+    pane: null,
+    pid: null,
+    transcript: null,
+    phase: Phase.Running,
+    verification: null,
+    message: "",
+    delivery: {
+      requestId: "request",
+      requestDigest: "digest",
+      head: "a".repeat(40),
+      octoSubmission: "pending",
+    },
+  });
+  const text = (value: Task, view: TaskSnapshot): string => {
+    const result = taskDelivery(value, view);
+    return [result.label, ...result.details].join("\n");
+  };
+  try {
+    assert.deepEqual(readTaskEvidence(project, directory), { attempts: [] });
+    assert.equal(existsSync(join(directory, "attempts.sqlite")), false);
+    const db = new Database(join(directory, "attempts.sqlite"));
+    db.run("CREATE TABLE attempts(project TEXT,bead TEXT,record TEXT)");
+    const insert = db.query("INSERT INTO attempts VALUES (?,?,?)");
+    insert.run(project, task.id, JSON.stringify(receipt));
+    insert.run(randomUUID(), task.id, "malformed unrelated receipt");
+    const before = readFileSync(join(directory, "attempts.sqlite"));
+    const observed = { ...snapshot, ...readTaskEvidence(project, directory) };
+    assert.deepEqual(readFileSync(join(directory, "attempts.sqlite")), before);
+    assert.equal(observed.interactiveAttempts?.length, 1);
+    assert.match(
+      text(task, observed),
+      /PR not yet published.*Publication request/su,
+    );
+    const published = attemptSchema.parse({
+      ...receipt,
+      delivery: {
+        ...receipt.delivery,
+        pr: "tracked-pr",
+        url: "https://github.com/example/studio/pull/7",
+      },
+    });
+    const view = { ...observed, interactiveAttempts: [published] };
+    assert.match(
+      text(task, {
+        ...observed,
+        interactiveAttempts: [
+          attemptSchema.parse({
+            ...receipt,
+            delivery: {
+              ...receipt.delivery,
+              url: "https://github.com/example/studio/pull/7",
+            },
+          }),
+        ],
+      }),
+      /PR not yet published/u,
+    );
+    assert.match(
+      text(task, {
+        ...observed,
+        interactiveAttempts: [
+          { ...receipt, bead: { ...receipt.bead, metadata: {} } },
+        ],
+      }),
+      /Unknown.*unavailable/su,
+    );
+    assert.equal(
+      taskDelivery(task, view).url,
+      "https://github.com/example/studio/pull/7",
+    );
+    assert.match(
+      text(task, { ...view, evidenceError: "runtime unavailable" }),
+      /PR published/u,
+    );
+    assert.match(
+      text(task, { ...view, interactiveEvidenceError: "corrupt" }),
+      /Unknown.*Interactive evidence unavailable/su,
+    );
+    assert.match(
+      text({ ...task, assignee: `pi:${randomUUID()}` }, view),
+      /Unknown.*current owner/su,
+    );
+    assert.match(
+      text({ ...task, parent: "different" }, view),
+      /Unknown.*parent/su,
+    );
+    assert.match(
+      text({ ...task, metadata: { ...metadata, "pi.plan": "changed" } }, view),
+      /Unknown.*differs/su,
+    );
+    assert.match(
+      text(
+        { ...task, metadata: { ...metadata, "pi.plan_key": "wrong" } },
+        view,
+      ),
+      /Unknown/su,
+    );
+    assert.match(text({ ...task, metadata: {} }, view), /Unknown/su);
+    const verification = {
+      summary: "Verified",
+      check: [],
+      exitCode: 0,
+      gitHead: "a".repeat(40),
+      gitState: "clean",
+      output: "passed",
+    };
+    const finished = { ...published, phase: Phase.Closed, verification };
+    const completed = {
+      ...task,
+      assignee: "",
+      status: "closed",
+      metadata: {
+        ...metadata,
+        "pi.result_attempt": id,
+        "pi.result": verification,
+      },
+    };
+    assert.match(
+      text(completed, { ...view, interactiveAttempts: [finished] }),
+      /PR published/u,
+    );
+    assert.match(
+      text(
+        { ...completed, status: "open" },
+        { ...view, interactiveAttempts: [finished] },
+      ),
+      /Unknown/su,
+    );
+    assert.match(
+      text(
+        { ...completed, assignee: `pi:${randomUUID()}` },
+        { ...view, interactiveAttempts: [finished] },
+      ),
+      /Unknown/su,
+    );
+    assert.match(
+      text(
+        {
+          ...completed,
+          metadata: {
+            ...completed.metadata,
+            "pi.result": { ...verification, output: "different" },
+          },
+        },
+        { ...view, interactiveAttempts: [finished] },
+      ),
+      /Unknown/su,
+    );
+    const localMetadata = {
+      ...metadata,
+      "pi.plan_task": { ...metadata["pi.plan_task"], delivery: "local" },
+    };
+    const local = {
+      ...receipt,
+      bead: { ...receipt.bead, metadata: localMetadata },
+    };
+    assert.match(
+      text(
+        { ...task, metadata: localMetadata },
+        { ...view, interactiveAttempts: [local] },
+      ),
+      /PR not expected.*Local result reference unavailable/su,
+    );
+    assert.match(
+      text(task, {
+        ...observed,
+        interactiveAttempts: [
+          { ...receipt, phase: Phase.CheckFailed, message: "Checks failed" },
+        ],
+      }),
+      /Blocked.*Checks failed/su,
+    );
+    db.run("UPDATE attempts SET record='malformed' WHERE project=?", [project]);
+    assert.match(
+      readTaskEvidence(project, directory).interactiveEvidenceError ?? "",
+      /JSON/u,
+    );
+    db.run("DELETE FROM attempts WHERE project=?", [project]);
+    insert.run(
+      project,
+      task.id,
+      JSON.stringify({
+        ...receipt,
+        source: { ...receipt.source, projectId: randomUUID() },
+      }),
+    );
+    assert.match(
+      readTaskEvidence(project, directory).interactiveEvidenceError ?? "",
+      /project differs/u,
+    );
+    db.run("DELETE FROM attempts WHERE project=?", [project]);
+    insert.run(project, "wrong-child", JSON.stringify(receipt));
+    assert.match(
+      readTaskEvidence(project, directory).interactiveEvidenceError ?? "",
+      /task differs/u,
+    );
+    db.run("DELETE FROM attempts WHERE project=?", [project]);
+    insert.run(
+      project,
+      task.id,
+      JSON.stringify({
+        ...receipt,
+        delivery: { ...receipt.delivery, url: "https://example.com/not-a-pr" },
+      }),
+    );
+    assert.match(
+      readTaskEvidence(project, directory).interactiveEvidenceError ?? "",
+      /url/u,
+    );
+    db.close();
+    assert.equal(existsSync(join(directory, "attempts.sqlite-journal")), false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

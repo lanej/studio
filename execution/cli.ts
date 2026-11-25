@@ -109,6 +109,10 @@ export function registerRuntimeCommands(program: Command): void {
       const store = new ExecutionStore();
       try {
         const record = store.attempt(id);
+        if (record.interactive !== undefined)
+          throw new Error(
+            "Interactive attempts retain their original pane binding. Inspect the transcript and checkout; automatic replacement is unavailable.",
+          );
         if (
           ![
             ExecutionPhase.Parked,
