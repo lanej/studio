@@ -17,6 +17,7 @@ import {
   describePlan,
   draftSchema,
   planDigest,
+  reviseDelivery,
 } from "../lead-plan.ts";
 import { isEntry, PiEntryType } from "../runtime.ts";
 import { reviewPlan } from "../ui.ts";
@@ -325,7 +326,7 @@ export function registerDiscovery(
         content: [
           {
             type: "text",
-            text: "Draft saved. /plan to inspect · /plan-approve to review",
+            text: "Draft saved. /plan to inspect · /plan-delivery <task-key> <local|pull-request> to change delivery · /plan-approve to review",
           },
         ],
         details: {},
@@ -339,10 +340,40 @@ export function registerDiscovery(
       await socrates.inspect(ctx, "implementation");
     },
   });
+  pi.registerCommand("plan-delivery", {
+    description:
+      "Change a proposed task delivery: <task-key> <local|pull-request>",
+    async handler(argument, ctx) {
+      const record = await requireBinding(ctx);
+      storage((db) =>
+        db.change(record.id, (row) => {
+          if (
+            row.approved !== undefined ||
+            row.leadPlan.mode !== LeadMode.Planning ||
+            row.leadPlan.draft === null
+          )
+            throw new Error("No unapproved draft to revise");
+          row.leadPlan = {
+            ...row.leadPlan,
+            draft: reviseDelivery(row.leadPlan.draft, argument),
+          };
+        }),
+      );
+      ctx.ui.notify(
+        "Delivery proposal updated. Use /plan to review it.",
+        "info",
+      );
+    },
+  });
   pi.registerCommand("plan-approve", {
     description:
-      "Review and authorize the displayed breakdown for unattended execution",
-    async handler(_arg, ctx) {
+      "Review and authorize the plan in background mode or with /plan-approve interactive",
+    async handler(argument, ctx) {
+      const mode = argument.trim();
+      if (mode !== "" && mode !== "background" && mode !== "interactive")
+        throw new Error(
+          "Use /plan-approve background or /plan-approve interactive",
+        );
       if (!ctx.isIdle()) throw new Error("Wait for the lead turn to settle");
       const record = await requireBinding(ctx);
       const draft = record.leadPlan.draft;
@@ -354,10 +385,13 @@ export function registerDiscovery(
         throw new Error(
           "Select /studio-profile work or personal before approving execution",
         );
-      const { prepareHandoff, approveHandoff } = await import(
-        "../execution/handoff.ts"
-      );
+      const { prepareHandoff, approveHandoff, prepareInteractiveHandoff } =
+        await import("../execution/handoff.ts");
       const target = await prepareHandoff(record, selectedProfile);
+      const interactive =
+        mode === "interactive"
+          ? await prepareInteractiveHandoff(record)
+          : undefined;
       pending = true;
       try {
         if (
@@ -365,7 +399,15 @@ export function registerDiscovery(
             ctx,
             `Approve ${record.title}`,
             [
-              `Project · ${target.root}\nBeads · ${target.id}\nProfile · ${target.profile}\nMerge policy · project default and lead override are evaluated before delivery`,
+              interactive === undefined
+                ? "Execution · background"
+                : `Execution · interactive in Zellij ${interactive.session}, tab ${String(interactive.tab)}`,
+              `Project · ${target.root}\nBeads · ${target.id}\nProfile · ${target.profile}`,
+              ...(interactive === undefined
+                ? [
+                    "Merge policy · project default and lead override are evaluated before delivery",
+                  ]
+                : []),
               specText(
                 record.specification ?? {
                   status: SpecStatus.Frozen,
@@ -389,7 +431,7 @@ export function registerDiscovery(
           planDigest(current.leadPlan.draft) !== digest
         )
           throw new Error("The displayed breakdown changed; review it again");
-        await approveHandoff(current, selectedProfile, target);
+        await approveHandoff(current, selectedProfile, target, interactive);
         ctx.ui.notify(
           "Approved work is queued in Beads. The lead remains free.",
           "info",

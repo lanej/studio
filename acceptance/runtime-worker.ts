@@ -490,6 +490,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
   });
   let claimRequests = 0;
   let interruptedActor: string | undefined;
+  let interruptedReadRequests = 0;
   const claimActors = new Map<string, number>();
   let noteInterruptedClaim: (() => void) | undefined;
   const interruptedClaimReady = new Promise<void>((resolve) => {
@@ -500,21 +501,34 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     releaseInterruptedClaim = resolve;
   });
   const proxy = createServer((incoming, response) => {
-    if (
-      incoming.method === "POST" &&
-      incoming.url?.startsWith("/v0/beads/issues:claimNext") === true
-    )
-      claimRequests++;
     void (async () => {
       let body = "";
       for await (const chunk of incoming) body += String(chunk);
-      const claimActor =
-        incoming.method === "POST" &&
-        incoming.url?.startsWith("/v0/beads/issues:claimNext") === true
-          ? z.object({ actor: z.string() }).parse(JSON.parse(body)).actor
-          : undefined;
-      if (claimActor !== undefined)
-        claimActors.set(claimActor, (claimActors.get(claimActor) ?? 0) + 1);
+      const requestUrl = new URL(incoming.url ?? "/", source.url);
+      const claim = z
+        .object({
+          actor: z.string(),
+          expected_status: z.literal("open"),
+          expected_assignee: z.literal(""),
+          patch: z.object({
+            status: z.literal("in_progress"),
+            assignee: z.string(),
+            metadata: z.object({
+              merge: z.object({ "pi.attempt": z.string() }),
+            }),
+          }),
+        })
+        .safeParse(incoming.method === "PATCH" ? JSON.parse(body) : undefined);
+      if (claim.success) {
+        const actor = claim.data.actor;
+        assert.equal(claim.data.patch.assignee, actor);
+        assert.equal(
+          actor,
+          `pi:${claim.data.patch.metadata.merge["pi.attempt"]}`,
+        );
+        claimRequests++;
+        claimActors.set(actor, (claimActors.get(actor) ?? 0) + 1);
+      }
       const completion =
         incoming.method === "PATCH" &&
         incoming.url?.endsWith(".first") === true &&
@@ -545,7 +559,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
         assert(crashedSession !== undefined);
         const stopped = once(supervisor, "close");
         const schedulerPid = supervisor.pid;
-        // Leave the observed empty claim in flight to exercise uncertain-intent recovery.
+        // Interrupt the durable admission intent while its empty ready read is in flight.
         process.kill(-schedulerPid, "SIGKILL");
         process.kill(-attempt.pid, "SIGKILL");
         await stopped;
@@ -570,13 +584,32 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       });
       const payload = await forwarded.text();
       if (
-        claimActor !== undefined &&
+        incoming.method === "GET" &&
+        requestUrl.pathname === "/v0/beads/ready" &&
+        requestUrl.searchParams.getAll("exclude_type").includes("epic") &&
         interruptedActor === undefined &&
         forwarded.ok &&
-        z.object({ claimed: z.unknown().optional() }).parse(JSON.parse(payload))
-          .claimed === undefined
+        z.object({ items: z.array(z.unknown()) }).parse(JSON.parse(payload))
+          .items.length === 0
       ) {
-        interruptedActor = claimActor;
+        // Ready reads carry no actor. Bind this read to the single persisted,
+        // unbound admission intent before interrupting the scheduler.
+        const pending = store
+          .attempts()
+          .filter(
+            (attempt) =>
+              attempt.phase === ExecutionPhase.Claiming &&
+              attempt.bead === undefined,
+          );
+        assert.equal(
+          pending.length,
+          1,
+          "An empty admission read must identify one durable intent",
+        );
+        const intent = pending[0];
+        assert(intent !== undefined);
+        interruptedActor = `pi:${intent.id}`;
+        interruptedReadRequests++;
         noteInterruptedClaim?.();
         await interruptedClaimResponse;
       }
@@ -1040,18 +1073,27 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     assert(admitted.every((row) => row.phase === ExecutionPhase.Complete));
     assert(interruptedActor !== undefined);
     assert.equal(
-      claimActors.get(interruptedActor),
-      1,
-      "Interrupted actor must never issue a second claim",
+      claimActors.get(interruptedActor) ?? 0,
+      0,
+      "An interrupted empty admission must never issue a claim write",
     );
     const interrupted = store.attempt(interruptedActor.slice(3));
     assert.equal(interrupted.phase, ExecutionPhase.Uncertain);
     assert.equal(interrupted.bead, undefined);
+    assert.equal(interruptedReadRequests, 1);
+    assert.equal(
+      claimRequests,
+      4,
+      "Each completed task must have one guarded claim write",
+    );
+    for (const attempt of admitted)
+      assert.equal(claimActors.get(`pi:${attempt.id}`), 1);
     for (const count of claimActors.values()) assert.equal(count, 1);
     console.log(
       JSON.stringify({
         interruptedClaimRetained: true,
-        interruptedActorRequests: claimActors.get(interruptedActor),
+        interruptedActorRequests: claimActors.get(interruptedActor) ?? 0,
+        interruptedAdmissionReads: interruptedReadRequests,
         completedFixtureTasks: 4,
       }),
     );

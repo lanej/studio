@@ -47,6 +47,7 @@ import {
   piModeSchema,
 } from "./runtime.ts";
 import { focusTaskPane, taskPaneBeads } from "./task-run.ts";
+import { hasInteractivePane } from "./execution/interactive-target.ts";
 
 const attemptType = "studio:idle-attempt";
 const attemptSchema = z.object({ historyId: z.string() });
@@ -377,6 +378,13 @@ export default function studioExtension(
             for (const attempt of evidence.attempts) {
               if (!["needs-review", "uncertain"].includes(attempt.phase))
                 continue;
+              if (attempt.interactive !== undefined) {
+                retryBlocked.set(
+                  attempt.id,
+                  "interactive attempts retain their original pane binding; inspect the transcript and checkout. Automatic replacement is unavailable.",
+                );
+                continue;
+              }
               try {
                 if (await retryWriterFence(attempt))
                   retryBlocked.set(
@@ -403,8 +411,14 @@ export default function studioExtension(
                 tasks
                   .filter(
                     (task) =>
-                      live.has(task.id) &&
-                      knownTaskStatus(task.status) === TaskStatus.InProgress,
+                      knownTaskStatus(task.status) === TaskStatus.InProgress &&
+                      (live.has(task.id) ||
+                        evidence.attempts.some(
+                          (attempt) =>
+                            attempt.bead?.id === task.id &&
+                            attempt.bead.assignee === task.assignee &&
+                            hasInteractivePane(attempt),
+                        )),
                   )
                   .map((task) => task.id),
               ),

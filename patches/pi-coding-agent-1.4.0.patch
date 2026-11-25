@@ -1,0 +1,516 @@
+diff --git a/dist/core/agent-session.d.ts b/dist/core/agent-session.d.ts
+index aba2a96..eb5e845 100644
+--- a/dist/core/agent-session.d.ts
++++ b/dist/core/agent-session.d.ts
+@@ -181,6 +181,8 @@ export interface PromptOptions {
+     images?: ImageContent[];
+     /** When streaming, how to queue the message: "steer" (interrupt) or "followUp" (wait). Required if streaming. */
+     streamingBehavior?: "steer" | "followUp";
++    /** Drop guidance if the turn settles during input preflight. */
++    requireStreaming?: boolean;
+     /** Source of input for extension input event handlers. Defaults to "interactive". */
+     source?: InputSource;
+     /** Internal hook used by RPC mode to observe how an accepted prompt was dispatched. Not called if the prompt is rejected. */
+diff --git a/dist/core/agent-session.js b/dist/core/agent-session.js
+index 8728a3e..5abd434 100644
+--- a/dist/core/agent-session.js
++++ b/dist/core/agent-session.js
+@@ -1661,6 +1661,10 @@ export class AgentSession {
+             expandedText = this._expandSkillCommand(expandedText);
+             expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
+         }
++        if (options?.requireStreaming && !this.isStreaming) {
++            preflightResult?.("handled");
++            return;
++        }
+         // If streaming, queue via steer() or followUp() based on option
+         if (this.isStreaming) {
+             if (!options?.streamingBehavior) {
+diff --git a/dist/core/settings-defaults.d.ts b/dist/core/settings-defaults.d.ts
+index c96e7ea..6ccd21f 100644
+--- a/dist/core/settings-defaults.d.ts
++++ b/dist/core/settings-defaults.d.ts
+@@ -32,7 +32,7 @@ export declare const SETTINGS_DEFAULTS: {
+     readonly enableSkillCommands: true;
+     readonly terminal: {
+         readonly showImages: true;
+-        readonly imageWidthCells: 60;
++        readonly imageWidthCells: "auto";
+         readonly clearOnShrink: false;
+         readonly showTerminalProgress: false;
+     };
+diff --git a/dist/core/settings-defaults.js b/dist/core/settings-defaults.js
+index 96989ae..0250b64 100644
+--- a/dist/core/settings-defaults.js
++++ b/dist/core/settings-defaults.js
+@@ -33,7 +33,7 @@ export const SETTINGS_DEFAULTS = {
+     enableSkillCommands: true,
+     terminal: {
+         showImages: true,
+-        imageWidthCells: 60,
++        imageWidthCells: "auto",
+         clearOnShrink: false,
+         showTerminalProgress: false,
+     },
+diff --git a/dist/core/settings-manager.d.ts b/dist/core/settings-manager.d.ts
+index a40ba7f..f314c53 100644
+--- a/dist/core/settings-manager.d.ts
++++ b/dist/core/settings-manager.d.ts
+@@ -206,8 +206,8 @@ export declare class SettingsManager {
+     getTerminalCapabilityOverrides(): Partial<TerminalCapabilities>;
+     getShowImages(): boolean;
+     setShowImages(show: boolean): void;
+-    getImageWidthCells(): number;
+-    setImageWidthCells(width: number): void;
++    getImageWidthCells(): number | "auto";
++    setImageWidthCells(width: number | "auto"): void;
+     getClearOnShrink(): boolean;
+     setClearOnShrink(enabled: boolean): void;
+     getShowTerminalProgress(): boolean;
+diff --git a/dist/core/settings-manager.js b/dist/core/settings-manager.js
+index d5ce9cd..fbadeb3 100644
+--- a/dist/core/settings-manager.js
++++ b/dist/core/settings-manager.js
+@@ -952,7 +952,7 @@ export class SettingsManager {
+         if (!this.globalSettings.terminal) {
+             this.globalSettings.terminal = {};
+         }
+-        this.globalSettings.terminal.imageWidthCells = Math.max(1, Math.floor(width));
++        this.globalSettings.terminal.imageWidthCells = width === "auto" ? width : Math.max(1, Math.floor(width));
+         this.markModified("terminal", "imageWidthCells");
+         this.save();
+     }
+diff --git a/dist/core/settings-schema.d.ts b/dist/core/settings-schema.d.ts
+index 28676b7..8576097 100644
+--- a/dist/core/settings-schema.d.ts
++++ b/dist/core/settings-schema.d.ts
+@@ -35,7 +35,7 @@ declare const RetrySettingsSchema: Type.TObject<{
+ }>;
+ declare const TerminalSettingsSchema: Type.TObject<{
+     showImages: Type.TOptional<Type.TBoolean>;
+-    imageWidthCells: Type.TOptional<Type.TNumber>;
++    imageWidthCells: Type.TOptional<Type.TUnion<[Type.TNumber, Type.TLiteral<"auto">]>>;
+     clearOnShrink: Type.TOptional<Type.TBoolean>;
+     showTerminalProgress: Type.TOptional<Type.TBoolean>;
+     hyperlinks: Type.TOptional<Type.TUnion<[Type.TBoolean, Type.TLiteral<"auto">]>>;
+@@ -140,7 +140,7 @@ export declare const SettingsSchema: Type.TObject<{
+     enableSkillCommands: Type.TOptional<Type.TBoolean>;
+     terminal: Type.TOptional<Type.TObject<{
+         showImages: Type.TOptional<Type.TBoolean>;
+-        imageWidthCells: Type.TOptional<Type.TNumber>;
++        imageWidthCells: Type.TOptional<Type.TUnion<[Type.TNumber, Type.TLiteral<"auto">]>>;
+         clearOnShrink: Type.TOptional<Type.TBoolean>;
+         showTerminalProgress: Type.TOptional<Type.TBoolean>;
+         hyperlinks: Type.TOptional<Type.TUnion<[Type.TBoolean, Type.TLiteral<"auto">]>>;
+diff --git a/dist/core/settings-schema.js b/dist/core/settings-schema.js
+index 28c00ed..aaf6fe6 100644
+--- a/dist/core/settings-schema.js
++++ b/dist/core/settings-schema.js
+@@ -56,8 +56,8 @@ const TerminalSettingsSchema = Type.Object({
+         description: "Show images when the terminal supports them.",
+         default: SETTINGS_DEFAULTS.terminal.showImages,
+     })),
+-    imageWidthCells: Type.Optional(Type.Number({
+-        description: "Preferred inline image width in terminal cells.",
++    imageWidthCells: Type.Optional(Type.Union([Type.Number(), Type.Literal("auto")], {
++        description: "Auto fits the image to its source size and the pane. A number sets the preferred width in terminal cells.",
+         default: SETTINGS_DEFAULTS.terminal.imageWidthCells,
+     })),
+     clearOnShrink: Type.Optional(Type.Boolean({
+diff --git a/dist/modes/interactive/components/assistant-message.js b/dist/modes/interactive/components/assistant-message.js
+index 6280084..3cf4b54 100644
+--- a/dist/modes/interactive/components/assistant-message.js
++++ b/dist/modes/interactive/components/assistant-message.js
+@@ -1,9 +1,32 @@
+-import { Container, Markdown, MouseRegion, Spacer, Text } from "@earendil-works/pi-tui";
++import { Container, Markdown, MouseRegion, Spacer, Text, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
+ import { getMarkdownTheme, theme } from "../theme/theme.js";
+ import { createMarkdownTransform } from "./markdown-transform.js";
+ const OSC133_ZONE_START = "\x1b]133;A\x07";
+ const OSC133_ZONE_END = "\x1b]133;B\x07";
+ const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
++export const DEFAULT_THINKING_LABEL = "\u{F09D1}"; // Nerd Fonts: nf-md-brain
++// Keep prose readable in wide lead consoles while letting Pi lay out the original Markdown.
++class ExpandedThinkingBlock extends Markdown {
++    constructor(text, outputPad, markdownTheme, transform) {
++        super(text, 0, 0, markdownTheme, { color: (value) => theme.fg("text", value) }, { transform });
++        this.outputPad = outputPad;
++    }
++    render(width) {
++        const padding = Math.min(this.outputPad, Math.max(0, Math.floor((width - 1) / 2)));
++        const available = width - 2 * padding;
++        // Reserve the marker before Markdown reflow so its first row keeps its full text.
++        const marker = available >= 5 ? "▾ " + DEFAULT_THINKING_LABEL + " " : available >= 2 ? "▾" : "";
++        const markerWidth = visibleWidth(marker);
++        const body = super.render(Math.max(1, Math.min(88, available - markerWidth)));
++        if (body.length === 0 || available <= 0)
++            return [];
++        const first = body.findIndex((line) => stripTerminalSequences(line).trim().length > 0);
++        const margin = " ".repeat(padding);
++        const heading = theme.fg("thinkingText", marker); // The trailing cell leaves room for Kitty's Nerd Font icon.
++        const rail = markerWidth >= 2 ? " ".repeat(markerWidth - 2) + theme.fg("borderMuted", "│") + " " : " ".repeat(markerWidth);
++        return body.map((line, index) => margin + (index === first ? heading : rail) + line);
++    }
++}
+ /**
+  * Component that renders a complete assistant message
+  */
+@@ -18,7 +41,7 @@ export class AssistantMessageComponent extends Container {
+     hasToolCalls = false;
+     isStreaming = false;
+     thinkingVisibilityOverrides = new Map();
+-    constructor(message, hideThinkingBlock = false, markdownTheme = getMarkdownTheme(), hiddenThinkingLabel = "Thinking...", outputPad = 1, markdownTransformers = []) {
++    constructor(message, hideThinkingBlock = false, markdownTheme = getMarkdownTheme(), hiddenThinkingLabel = DEFAULT_THINKING_LABEL, outputPad = 1, markdownTransformers = []) {
+         super();
+         this.hideThinkingBlock = hideThinkingBlock;
+         this.markdownTheme = markdownTheme;
+@@ -110,13 +133,9 @@ export class AssistantMessageComponent extends Container {
+                 const runIndex = thinkingRunIndex++;
+                 const hidden = this.thinkingVisibilityOverrides.get(runIndex) ?? this.hideThinkingBlock;
+                 const thinkingComponent = hidden
+-                    ? new Text(theme.italic(theme.fg("thinkingText", this.hiddenThinkingLabel)), this.outputPad, 0)
+-                    : new Markdown(thinkingBlocks.join("\n\n"), this.outputPad, 0, this.markdownTheme, {
+-                        color: (text) => theme.fg("thinkingText", text),
+-                        italic: true,
+-                    }, {
+-                        transform: createMarkdownTransform("assistant-thinking", this.isStreaming, this.markdownTransformers),
+-                    });
++                    ? new Text(this.hiddenThinkingLabel && theme.fg("thinkingText", "▸ " + this.hiddenThinkingLabel), this.outputPad, 0)
++                    : new ExpandedThinkingBlock(thinkingBlocks.join("\n\n"), this.outputPad, this.markdownTheme,
++                        createMarkdownTransform("assistant-thinking", this.isStreaming, this.markdownTransformers));
+                 this.contentContainer.addChild(new MouseRegion(thinkingComponent, (event) => {
+                     if (event.type !== "click" || event.button !== "left")
+                         return undefined;
+diff --git a/dist/modes/interactive/components/settings-selector.d.ts b/dist/modes/interactive/components/settings-selector.d.ts
+index 03d06fb..2c2a5f6 100644
+--- a/dist/modes/interactive/components/settings-selector.d.ts
++++ b/dist/modes/interactive/components/settings-selector.d.ts
+@@ -9,7 +9,7 @@ export interface SettingsConfig {
+     currentModel?: Model<any>;
+     availableDefaultModels: readonly Model<any>[];
+     showImages: boolean;
+-    imageWidthCells: number;
++    imageWidthCells: number | "auto";
+     autoResizeImages: boolean;
+     blockImages: boolean;
+     enableSkillCommands: boolean;
+@@ -50,7 +50,7 @@ export interface SettingsConfig {
+ export interface SettingsCallbacks {
+     onAutoCompactChange: (enabled: boolean) => void;
+     onShowImagesChange: (enabled: boolean) => void;
+-    onImageWidthCellsChange: (width: number) => void;
++    onImageWidthCellsChange: (width: number | "auto") => void;
+     onAutoResizeImagesChange: (enabled: boolean) => void;
+     onBlockImagesChange: (blocked: boolean) => void;
+     onEnableSkillCommandsChange: (enabled: boolean) => void;
+diff --git a/dist/modes/interactive/components/settings-selector.js b/dist/modes/interactive/components/settings-selector.js
+index f7929f1..76f3c71 100644
+--- a/dist/modes/interactive/components/settings-selector.js
++++ b/dist/modes/interactive/components/settings-selector.js
+@@ -545,9 +545,9 @@ export class SettingsSelectorComponent extends Container {
+             items.splice(2, 0, {
+                 id: "image-width-cells",
+                 label: "Image width",
+-                description: "Preferred inline image width in terminal cells",
++                description: "Auto fits the source image to the pane; expand the tool to magnify",
+                 currentValue: String(config.imageWidthCells),
+-                values: ["60", "80", "120"],
++                values: ["auto", "60", "80", "120"],
+             });
+         }
+         // Image auto-resize toggle (always available, affects both attached and read images)
+@@ -641,7 +641,7 @@ export class SettingsSelectorComponent extends Container {
+                     callbacks.onShowImagesChange(newValue === "true");
+                     break;
+                 case "image-width-cells":
+-                    callbacks.onImageWidthCellsChange(parseInt(newValue, 10));
++                    callbacks.onImageWidthCellsChange(newValue === "auto" ? newValue : parseInt(newValue, 10));
+                     break;
+                 case "auto-resize-images":
+                     callbacks.onAutoResizeImagesChange(newValue === "true");
+diff --git a/dist/modes/interactive/components/tool-execution.d.ts b/dist/modes/interactive/components/tool-execution.d.ts
+index 0736b6f..400d561 100644
+--- a/dist/modes/interactive/components/tool-execution.d.ts
++++ b/dist/modes/interactive/components/tool-execution.d.ts
+@@ -4,7 +4,7 @@ import type { ToolDefinition, ToolRenderers } from "../../../core/extensions/typ
+ export type { ToolRenderers };
+ export interface ToolExecutionOptions {
+     showImages?: boolean;
+-    imageWidthCells?: number;
++    imageWidthCells?: number | "auto";
+     outputPad?: number;
+ }
+ export declare class ToolExecutionComponent extends Container {
+@@ -62,7 +62,7 @@ export declare class ToolExecutionComponent extends Container {
+     setExpanded(expanded: boolean): void;
+     setOutputPad(outputPad: number): void;
+     setShowImages(show: boolean): void;
+-    setImageWidthCells(width: number): void;
++    setImageWidthCells(width: number | "auto"): void;
+     invalidate(): void;
+     render(width: number): string[];
+     handleMouse(event: TuiMouseEvent): ReturnType<Container["handleMouse"]>;
+diff --git a/dist/modes/interactive/components/tool-execution.js b/dist/modes/interactive/components/tool-execution.js
+index d447db5..0aed9bc 100644
+--- a/dist/modes/interactive/components/tool-execution.js
++++ b/dist/modes/interactive/components/tool-execution.js
+@@ -39,7 +39,7 @@ export class ToolExecutionComponent extends Container {
+         this.args = args;
+         this.toolDefinition = toolDefinition;
+         this.showImages = options.showImages ?? true;
+-        this.imageWidthCells = options.imageWidthCells ?? 60;
++        this.imageWidthCells = options.imageWidthCells ?? "auto";
+         this.outputPad = options.outputPad ?? 1;
+         this.ui = ui;
+         this.cwd = cwd;
+@@ -149,7 +149,7 @@ export class ToolExecutionComponent extends Container {
+         this.updateDisplay();
+     }
+     setImageWidthCells(width) {
+-        this.imageWidthCells = Math.max(1, Math.floor(width));
++        this.imageWidthCells = width === "auto" ? width : Math.max(1, Math.floor(width));
+         this.updateDisplay();
+     }
+     invalidate() {
+@@ -281,7 +281,9 @@ export class ToolExecutionComponent extends Container {
+                     const spacer = new Spacer(1);
+                     this.addChild(spacer);
+                     this.imageSpacers.push(spacer);
+-                    const source = { data: img.data, mimeType: img.mimeType, widthCells: this.imageWidthCells };
++                    // The expanded auto preview may grow beyond the source's native size.
++                    const widthCells = this.expanded && this.imageWidthCells === "auto" ? Infinity : this.imageWidthCells;
++                    const source = { data: img.data, mimeType: img.mimeType, widthCells };
+                     const index = this.imageComponents.length;
+                     const previous = previousSources[index];
+                     const imageComponent = previous?.data === source.data &&
+diff --git a/dist/modes/interactive/interactive-mode.d.ts b/dist/modes/interactive/interactive-mode.d.ts
+index 40df44a..38c6b5e 100644
+--- a/dist/modes/interactive/interactive-mode.d.ts
++++ b/dist/modes/interactive/interactive-mode.d.ts
+@@ -16,6 +16,8 @@ export declare function formatResumeCommand(sessionManager: SessionManager): str
+  * Options for InteractiveMode initialization.
+  */
+ export interface InteractiveModeOptions {
++    /** Limit native terminal input to guidance and quitting an assigned session. The host must supply restricted tools and resources. */
++    assignmentInput?: boolean;
+     /** Providers that were migrated to auth.json (shows warning) */
+     migratedProviders?: string[];
+     /** Diagnostics collected before the interactive TUI was initialized. */
+@@ -142,6 +144,10 @@ export declare class InteractiveMode {
+      * Update terminal title with session name and cwd.
+      */
+     private updateTerminalTitle;
++    get assignmentInputEnabled(): boolean;
++    private rejectAssignmentCommand;
++    runAssignmentTurn(prompt: string): Promise<void>;
++    closeAssignment(): Promise<void>;
+     /**
+      * Run the interactive mode. This is the main entry point.
+      * Initializes the UI, shows warnings, processes initial messages, and starts the interactive loop.
+diff --git a/dist/modes/interactive/interactive-mode.js b/dist/modes/interactive/interactive-mode.js
+index 5303aad..31b9ca2 100644
+--- a/dist/modes/interactive/interactive-mode.js
++++ b/dist/modes/interactive/interactive-mode.js
+@@ -48,7 +48,7 @@ import { checkForNewPiVersion } from "../../utils/version-check.js";
+ import { reportBug } from "./bug-report.js";
+ import { createChatViewport } from "./chat-viewport.js";
+ import { ArminComponent } from "./components/armin.js";
+-import { AssistantMessageComponent } from "./components/assistant-message.js";
++import { AssistantMessageComponent, DEFAULT_THINKING_LABEL } from "./components/assistant-message.js";
+ import { BashExecutionComponent } from "./components/bash-execution.js";
+ import { BranchSummaryMessageComponent } from "./components/branch-summary-message.js";
+ import { CompactionSummaryMessageComponent } from "./components/compaction-summary-message.js";
+@@ -269,7 +269,7 @@ export class InteractiveMode {
+     workingVisible = true;
+     workingIndicatorOptions = undefined;
+     defaultWorkingMessage = "Working";
+-    defaultHiddenThinkingLabel = "Thinking...";
++    defaultHiddenThinkingLabel = DEFAULT_THINKING_LABEL;
+     hiddenThinkingLabel = this.defaultHiddenThinkingLabel;
+     lastSigintTime = 0;
+     lastEscapeTime = 0;
+@@ -376,8 +376,8 @@ export class InteractiveMode {
+             showHardwareCursor: this.settingsManager.getShowHardwareCursor(),
+             logDirectory: getAgentDir(),
+             terminal: options.terminal,
+-            onRightClickPaste: this.onRightClickPaste,
+-            fullscreenCopyOnSelect: this.settingsManager.getFullscreenCopyOnSelect(),
++            onRightClickPaste: options.assignmentInput ? undefined : this.onRightClickPaste,
++            fullscreenCopyOnSelect: !options.assignmentInput && this.settingsManager.getFullscreenCopyOnSelect(),
+             fullscreenWheelScrollLines: this.settingsManager.getFullscreenWheelScrollLines(),
+         });
+         this.ui = createInteractiveTuiReference(() => this.renderer);
+@@ -774,11 +774,13 @@ export class InteractiveMode {
+         // Ensure fd and rg are available after mounting the TUI (downloads if missing, adds to PATH via getBinDir)
+         // so slow downloads do not make startup appear frozen.
+         // Both are needed: fd for autocomplete, rg for grep tool and bash commands.
+-        const [fdPath] = await Promise.all([
+-            ensureTool("fd", (status) => this.showManagedToolStatus(status)),
+-            ensureTool("rg", (status) => this.showManagedToolStatus(status)),
+-        ]);
+-        this.fdPath = fdPath;
++        if (!this.assignmentInputEnabled) {
++            const [fdPath] = await Promise.all([
++                ensureTool("fd", (status) => this.showManagedToolStatus(status)),
++                ensureTool("rg", (status) => this.showManagedToolStatus(status)),
++            ]);
++            this.fdPath = fdPath;
++        }
+         // Enable the remaining input handlers only after managed-tool setup completes.
+         this.setupKeyHandlers();
+         this.setupEditorSubmitHandler();
+@@ -821,6 +823,20 @@ export class InteractiveMode {
+             this.ui.terminal.setTitle(`${APP_TITLE} - ${cwdBasename}`);
+         }
+     }
++    get assignmentInputEnabled() {
++        return this.options.assignmentInput === true;
++    }
++    async runAssignmentTurn(prompt) {
++        if (!this.assignmentInputEnabled)
++            throw new Error("Assignment input is required");
++        await this.init();
++        await this.session.prompt(prompt, { source: "extension", expandPromptTemplates: false });
++    }
++    async closeAssignment() {
++        if (!this.assignmentInputEnabled)
++            throw new Error("Assignment input is required");
++        await this.shutdown();
++    }
+     /**
+      * Run the interactive mode. This is the main entry point.
+      * Initializes the UI, shows warnings, processes initial messages, and starts the interactive loop.
+@@ -1678,7 +1694,7 @@ export class InteractiveMode {
+         const cause = change.kind === "updated"
+             ? `${APP_NAME} was updated to ${change.version} while this session was running (${VERSION})`
+             : `The ${APP_NAME} installation this session runs from was removed or replaced`;
+-        const resumeCommand = formatResumeCommand(this.sessionManager);
++        const resumeCommand = this.assignmentInputEnabled ? undefined : formatResumeCommand(this.sessionManager);
+         const restart = resumeCommand
+             ? `Restart with \`${resumeCommand}\` to continue this session.`
+             : `Restart ${APP_NAME}.`;
+@@ -2386,7 +2402,7 @@ export class InteractiveMode {
+                 this.isBashMode = false;
+                 this.updateEditorBorderColor();
+             }
+-            else if (!this.editor.getText().trim()) {
++            else if (!this.assignmentInputEnabled && !this.editor.getText().trim()) {
+                 // Double-escape with empty editor triggers /tree, /fork, or nothing based on setting
+                 const action = this.settingsManager.getDoubleEscapeAction();
+                 if (action !== "none") {
+@@ -2409,6 +2425,12 @@ export class InteractiveMode {
+         // Register app action handlers
+         this.defaultEditor.onAction("app.clear", () => this.handleCtrlC());
+         this.defaultEditor.onCtrlD = () => this.handleCtrlD();
++        if (this.assignmentInputEnabled) {
++            this.defaultEditor.onAction("app.tools.expand", () => this.toggleToolOutputExpansion());
++            this.defaultEditor.onAction("app.message.followUp", () => this.handleFollowUp());
++            this.defaultEditor.onAction("app.message.dequeue", () => this.handleDequeue());
++            return;
++        }
+         this.defaultEditor.onAction("app.suspend", () => this.handleCtrlZ());
+         this.defaultEditor.onAction("app.thinking.cycle", () => this.cycleThinkingLevel());
+         this.defaultEditor.onAction("app.model.cycleForward", () => this.cycleModel("forward"));
+@@ -2498,11 +2520,25 @@ export class InteractiveMode {
+         this.editor.setText(text);
+         this.showStatus("Startup is still in progress");
+     }
++    rejectAssignmentCommand(text) {
++        if (!this.assignmentInputEnabled || !/^[!/]/.test(text))
++            return false;
++        this.editor.setText("");
++        this.showWarning("Assigned worker: enter guidance or /quit.");
++        return true;
++    }
+     setupEditorSubmitHandler() {
+         this.defaultEditor.onSubmit = async (text) => {
+             text = text.trim();
+             if (!text)
+                 return;
++            if (this.assignmentInputEnabled && text === "/quit") {
++                this.editor.setText("");
++                await this.shutdown();
++                return;
++            }
++            if (this.rejectAssignmentCommand(text))
++                return;
+             // Handle commands
+             if (text === "/settings") {
+                 this.showSettingsSelector();
+@@ -2678,11 +2714,15 @@ export class InteractiveMode {
+             if (this.session.isStreaming) {
+                 this.editor.addToHistory?.(text);
+                 this.editor.setText("");
+-                await this.session.prompt(text, { streamingBehavior: "steer" });
++                await this.session.prompt(text, { streamingBehavior: "steer", requireStreaming: this.assignmentInputEnabled });
+                 this.updatePendingMessagesDisplay();
+                 this.ui.requestRender();
+                 return;
+             }
++            if (this.assignmentInputEnabled) {
++                this.showStatus("Guidance is available while the worker is running.");
++                return;
++            }
+             // Normal message submission
+             // First, move any pending bash components to chat
+             this.flushPendingBashComponents();
+@@ -3471,7 +3511,7 @@ export class InteractiveMode {
+         await this.ui.terminal.drainInput(1000);
+         this.stop();
+         await this.runtimeHost.dispose();
+-        const resumeCommand = formatResumeCommand(this.sessionManager);
++        const resumeCommand = this.assignmentInputEnabled ? undefined : formatResumeCommand(this.sessionManager);
+         if (resumeCommand) {
+             process.stdout.write(`${chalk.dim("To resume this session:")} ${resumeCommand}\n`);
+         }
+@@ -3615,6 +3655,8 @@ export class InteractiveMode {
+         const text = (this.editor.getExpandedText?.() ?? this.editor.getText()).trim();
+         if (!text)
+             return;
++        if (this.rejectAssignmentCommand(text))
++            return;
+         // Queue input during compaction (extension commands execute immediately)
+         if (this.session.isCompacting) {
+             if (this.isExtensionCommand(text)) {
+@@ -3632,7 +3674,7 @@ export class InteractiveMode {
+         if (this.session.isStreaming) {
+             this.editor.addToHistory?.(text);
+             this.editor.setText("");
+-            await this.session.prompt(text, { streamingBehavior: "followUp" });
++            await this.session.prompt(text, { streamingBehavior: "followUp", requireStreaming: this.assignmentInputEnabled });
+             this.updatePendingMessagesDisplay();
+             this.ui.requestRender();
+         }
+diff --git a/docs/settings.md b/docs/settings.md
+index 7e28985..366a42f 100644
+--- a/docs/settings.md
++++ b/docs/settings.md
+@@ -104,7 +104,7 @@ ## Terminal and display
+ | `autocompleteMaxVisible` | number | `5` | Visible autocomplete entries, from 3 to 20. |
+ | `showHardwareCursor` | boolean | `false` | Use the terminal cursor instead of Pi's drawn cursor. Pi still positions it for input methods. |
+ | `terminal.showImages` | boolean | `true` | Display inline images when supported. |
+-| `terminal.imageWidthCells` | number | `60` | Preferred inline image width in terminal cells. |
++| `terminal.imageWidthCells` | number or `"auto"` | `"auto"` | Auto fits inline images to their source size and the pane. Expanding a tool can magnify a small preview. A number sets a fixed preferred width in cells. |
+ | `terminal.clearOnShrink` | boolean | `false` | Clear empty rows when rendered content shrinks. |
+ | `terminal.showTerminalProgress` | boolean | `false` | Show OSC 9;4 progress in the terminal tab. |
+ | `terminal.hyperlinks` | `boolean \| "auto"` | `"auto"` | Override OSC 8 hyperlink detection. |
+diff --git a/schemas/settings.schema.json b/schemas/settings.schema.json
+index 4d6c23a..4c1a6e5 100644
+--- a/schemas/settings.schema.json
++++ b/schemas/settings.schema.json
+@@ -394,9 +394,12 @@
+           "default": true
+         },
+         "imageWidthCells": {
+-          "type": "number",
+-          "description": "Preferred inline image width in terminal cells.",
+-          "default": 60
++          "anyOf": [
++            { "type": "number" },
++            { "type": "string", "const": "auto" }
++          ],
++          "description": "Auto fits the image to its source size and the pane. A number sets the preferred width in terminal cells.",
++          "default": "auto"
+         },
+         "clearOnShrink": {
+           "type": "boolean",

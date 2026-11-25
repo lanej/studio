@@ -3,7 +3,7 @@ import { TaskStatus, knownTaskStatus } from "../beads.ts";
 import { HandoffPhase, type Discovery } from "../discovery/store.ts";
 import {
   LeadMode,
-  TaskDelivery,
+  deliveryOutcome,
   orderedTasks,
   planDigest,
   type LeadDraft,
@@ -371,14 +371,14 @@ export function implementationPresentation(
         : [`Depends on · ${task.blockedBy.join(", ")}`]),
       `Owns · ${task.owns.length === 0 ? "Entire isolated checkout" : task.owns.join(", ")}`,
       ...(task.hold === true ? ["Admission · On hold"] : []),
-      `Delivery · ${task.delivery === TaskDelivery.PullRequest ? "Pull request" : "Local"}`,
+      `Delivery · ${deliveryOutcome(task.delivery)}${task.delivery === undefined ? " (default)" : ""}`,
       `Verification · ${task.check === undefined || task.check.length === 0 ? "Independent criterion review; no executable agreed" : JSON.stringify(task.check)}`,
       ...(beadId === undefined ? [] : [`Bead · ${beadId}`]),
       ...(issue === undefined ? [] : [issue]),
     ].join("\n\n");
     return {
       id: task.key,
-      label: task.title,
+      label: `${task.title} · ${deliveryOutcome(task.delivery)}${task.delivery === undefined ? " (default)" : ""}`,
       state,
       status: statusLabels[state],
       wave: waves.get(task.key) ?? 1,

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Callable, TypedDict
 
 from local_fixture import Allocation, Fixture, Report, Scenario, TaskSnapshot
-from local_provider import Provider
+from local_provider import ADMITTED_MODEL, Provider
 from socrates_fixture import ARCHIVE, RECEIPT
 from zellij_terminal import Terminal
 
@@ -309,8 +309,35 @@ def approve_lead_plan(case: Case) -> ApprovedPlan:
     terminal.write_to_pane(pane, 27)
     terminal.until("review viewer closes", lambda: "Git diff" not in
                    terminal.capture_pane(pane))
+    terminal.send_to_pane(pane, "/plan-delivery inspect pull-request\r")
+    terminal.until("delivery revision persisted", lambda:
+                   fresh(bead)["attempt"]["leadPlan"]["draft"]["tasks"][0].get("delivery") == "pull-request")
     terminal.send_to_pane(pane, "/plan-approve\r")
     terminal.until("operator approval prompt", lambda: "Approve the plan for " + bead in pane_text(pane))
+    for _ in range(8):
+        if "Enter start implementation" in terminal.capture_pane(pane):
+            break
+        terminal.send_to_pane(pane, "\r")
+    else:
+        raise AssertionError(pane_text(pane))
+    attempt_id = fresh(bead)["attempt"]["id"]
+    # A second reader revises the same disposable draft while the native confirmation is open.
+    execute(["bun", "--no-env-file", "-e", (
+        f"import {{Attempts,stateDirectory}} from {json.dumps(str(case.harness.options.root / 'attempts.ts'))};"
+        f"import {{reviseDelivery}} from {json.dumps(str(case.harness.options.root / 'lead-plan.ts'))};"
+        f"const db=new Attempts(stateDirectory());db.change({json.dumps(attempt_id)},row=>{{"
+        "row.leadPlan.draft=reviseDelivery(row.leadPlan.draft,'inspect local');});db.close();"
+    )])
+    terminal.send_to_pane(pane, "\r")
+    terminal.until("changed delivery rejects the old native confirmation", lambda:
+                   "The displayed plan or task revision changed" in " ".join(pane_text(pane).split()))
+    assert fresh(bead)["attempt"]["leadPlan"]["mode"] == "planning"
+    assert "pi.plan" not in fresh(bead)["task"]["metadata"]
+    terminal.send_to_pane(pane, "/plan-delivery inspect pull-request\r")
+    terminal.until("revised proposal persists for fresh review", lambda:
+                   fresh(bead)["attempt"]["leadPlan"]["draft"]["tasks"][0].get("delivery") == "pull-request")
+    terminal.send_to_pane(pane, "/plan-approve\r")
+    terminal.until("fresh delivery confirmation opens", lambda: "Approve the plan for " + bead in pane_text(pane))
     for _ in range(8):
         if "Enter start implementation" in terminal.capture_pane(pane):
             break
@@ -328,6 +355,8 @@ def approve_lead_plan(case: Case) -> ApprovedPlan:
         task = fresh(child)["task"]
         assert task["metadata"]["pi.plan_key"] == key, task
         assert task["metadata"]["pi.plan"] == plan["digest"], task
+        if key == "inspect":
+            assert task["metadata"]["pi.plan_task"]["delivery"] == "pull-request", task
     tree = json.loads(execute([driver, "tasks", "--json"]).stdout)["tasks"]
     views = {task["id"]: task for task in tree}
     for child in plan["children"].values():
@@ -337,6 +366,9 @@ def approve_lead_plan(case: Case) -> ApprovedPlan:
                for edge in views[plan["children"]["verify"]]["dependencies"])
     terminal.send_to_pane(pane, "/plan-approve\r")
     terminal.until("second approval refused", lambda: "No draft to approve" in pane_text(pane))
+    assert fresh(bead)["attempt"]["leadPlan"] == plan
+    terminal.send_to_pane(pane, "/plan-delivery inspect local\r")
+    terminal.until("approved delivery revision refused", lambda: "No unapproved draft to revise" in " ".join(pane_text(pane).split()))
     assert fresh(bead)["attempt"]["leadPlan"] == plan
     return plan
 
@@ -678,12 +710,76 @@ def changed_brief(case: Case, _report: Report) -> TaskSnapshot:
     return check_worker_submission(case)
 
 
+def discovery_delivery_review(case: Case) -> None:
+    """Reject a changed discovery proposal in the actual native approval dialog."""
+    harness, terminal, pane = case.harness, case.terminal, case.launcher
+    config_file = Path(harness.env["STUDIO_CONFIG"])
+    config = json.loads(config_file.read_text())
+    bead_cli = harness.paths.guard / "discovery-bd"
+    # Beads permits a temporary repository beneath TMPDIR, not a sibling of the private Pi scratch directory.
+    bead_cli.write_text("#!/bin/sh\nTMPDIR=" + shlex.quote(str(harness.options.work.parent)) + " exec " + shlex.quote(harness.options.bd) + " --sandbox \"$@\"\n")
+    bead_cli.chmod(0o755)
+    context = json.loads(harness.execute([str(bead_cli), "-C", str(harness.options.repository), "context", "--json"]).stdout)
+    config["runtime"] = {"enabled": True, "projects": [{
+        "root": str(harness.options.repository), "source": harness.options.beads,
+        "profile": "personal", "base": "main", "beadsWorkspace": str(harness.options.repository),
+        "beadsExecutable": str(bead_cli), "beadsDatabase": context["database"]}]}
+    octo = harness.paths.guard / "octo-manager"
+    octo.write_text("#!/bin/sh\n[ \"$1 $2\" = \"pr instructions\" ] || exit 91\nprintf 'Native fixture publication instructions\\n'\n")
+    octo.chmod(0o755)
+    config["integrations"]["octo"]["executable"] = str(octo)
+    config_file.write_text(json.dumps(config))
+    store_import = json.dumps(str(harness.options.root / "discovery/store.ts"))
+    plan_import = json.dumps(str(harness.options.root / "lead-plan.ts"))
+    seeded = harness.execute(["bun", "--no-env-file", "-e", (
+        f"import {{Discoveries}} from {store_import};import {{draftSchema}} from {plan_import};"
+        f"const db=new Discoveries();const record=db.create({json.dumps(str(harness.options.repository))},'native-delivery','Native delivery approval');"
+        "db.change(record.id,row=>{row.specification={status:'frozen',version:1,draft:null,acceptedRevision:row.revision};row.leadPlan.draft=draftSchema.parse({summary:'Mixed delivery proposal',tasks:["
+        "{key:'local',title:'Local task',description:'Local result',acceptance:'Verified'},"
+        "{key:'pr',title:'PR task',description:'Published result',acceptance:'Reviewed',delivery:'pull-request'}]});});"
+        "console.log(record.id);db.close();"
+    )]).stdout.strip()
+    exited = harness.options.work / "discovery-delivery.exit"
+    terminal.send_to_pane(pane, shlex.join([harness.driver, "lead", "--", "--offline", "--no-mcp", "--provider", ADMITTED_MODEL.provider, "--model", ADMITTED_MODEL.id]) + f"; touch {shlex.quote(str(exited))}\r")
+    terminal.until("independent discovery lead opens", lambda: "Press ctrl+o to show full startup help" in terminal.capture_pane(pane))
+    terminal.send_to_pane(pane, "/studio-profile personal")
+    terminal.write_to_pane(pane, 13)
+    terminal.pty.drain(.2)
+    terminal.send_to_pane(pane, "/discoveries")
+    terminal.write_to_pane(pane, 13)
+    terminal.until("native discovery picker opens", lambda: "Select a saved discovery" in terminal.capture_pane(pane))
+    terminal.write_to_pane(pane, 13)
+    terminal.until("native delivery discovery selected", lambda:
+                   "Mixed delivery proposal" in terminal.capture_pane(pane) and "Select a saved discovery" not in terminal.capture_pane(pane))
+    terminal.send_to_pane(pane, "/plan-approve")
+    terminal.write_to_pane(pane, 13)
+    terminal.until("discovery approval opens", lambda: "Approve Native delivery approval" in case.capture(pane))
+    for _ in range(20):
+        if "Enter create tasks and implement" in case.capture(pane): break
+        terminal.send_to_pane(pane, "\r")
+    else: raise AssertionError(case.capture(pane))
+    (harness.artifacts / "discovery-delivery-review.txt").write_text(case.capture(pane))
+    harness.execute(["bun", "--no-env-file", "-e", (
+        f"import {{Discoveries}} from {store_import};import {{reviseDelivery}} from {plan_import};"
+        f"const db=new Discoveries();db.change({json.dumps(seeded)},row=>{{row.leadPlan.draft=reviseDelivery(row.leadPlan.draft,'local pull-request');}});db.close();"
+    )])
+    terminal.send_to_pane(pane, "\r")
+    terminal.until("changed discovery delivery rejects old confirmation", lambda:
+                   "The displayed breakdown changed;" in case.capture(pane) and "review it again" in case.capture(pane))
+    final = json.loads(harness.execute(["bun", "--no-env-file", "-e", f"import {{Discoveries}} from {store_import};const db=new Discoveries();console.log(JSON.stringify(db.get({json.dumps(seeded)})));db.close();"]).stdout)
+    assert "approved" not in final and "handoff" not in final and "graph" not in final, final
+    (harness.artifacts / "discovery-delivery-rejected.json").write_text(json.dumps(final, indent=2))
+    terminal.write_to_pane(pane, 4)
+    terminal.until("independent discovery lead exits", exited.exists)
+
+
 def lead_plan(case: Case, _report: Report) -> TaskSnapshot:
     wait_for_lead(case)
     plan = approve_lead_plan(case)
     verified = verify_lead(case)
     check_refreshed_plan(case, plan, verified)
     case.exit_pi("lead Pi exit")
+    discovery_delivery_review(case)
     return case.snapshot()
 
 
