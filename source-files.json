@@ -281,6 +281,7 @@
   "socrates/links.ts",
   "socrates/plan-inspector.ts",
   "socrates/presentation.ts",
+  "socrates/review-context.ts",
   "socrates/selector.ts",
   "socrates/sidebar.ts",
   "socrates/spec.ts",

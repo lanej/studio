@@ -125,10 +125,6 @@ export function applyDraftUpdate(
   input: unknown,
 ): z.infer<typeof assessedSpecDraft> {
   const review = coverageOnly.safeParse(input);
-  if (review.success && spec.exchange?.answer !== undefined)
-    throw new Error(
-      "Incorporate the recorded answer in the specification before saving its assessments",
-    );
   const saved = draftCoverage(spec.draft);
   if (review.success && review.data.coverage.domains !== undefined) {
     const domains = review.data.coverage.domains;
@@ -148,8 +144,23 @@ export function applyDraftUpdate(
         }
       : input,
   );
-  const previous = coverageBasisCurrent(spec, revision) ? saved : undefined;
-  const coverage = mergeCoverage(previous, draft.coverage);
+  if (spec.exchange?.answer !== undefined) {
+    const id = spec.exchange.prompt.decisionId;
+    const prior = trackedDecision(spec.draft, id);
+    const updated = draft.decisions.find((entry) => entry.id === id);
+    if (
+      updated === undefined ||
+      (updated.disposition === prior?.disposition &&
+        updated.evidence === prior.evidence &&
+        updated.uncertainty === prior.uncertainty)
+    )
+      throw new Error(
+        `Incorporate the recorded answer in decision ${id}'s evidence, uncertainty, or disposition before saving`,
+      );
+  }
+  const baseline = coverageBasisCurrent(spec, revision) ? spec.draft : null;
+  const previous = draftCoverage(baseline);
+  const coverage = mergeCoverage(baseline, draft);
   if (
     review.success &&
     coverage.focus === undefined &&
@@ -188,6 +199,25 @@ export const specQuestion = z
   });
 export type SpecQuestion = z.infer<typeof specQuestion>;
 
+/** Keep delivered guidance available across sessions and transcript compaction until incorporated. */
+export const reviewInput = z.object({
+  timestamp: z.number(),
+  content: z.union([
+    z.string(),
+    z.array(
+      z.discriminatedUnion("type", [
+        z.object({ type: z.literal("text"), text: z.string() }),
+        z.object({
+          type: z.literal("image"),
+          mimeType: z.string(),
+          data: z.string(),
+        }),
+      ]),
+    ),
+  ]),
+});
+export type ReviewInput = z.infer<typeof reviewInput>;
+
 export const specRecord = z.strictObject({
   status: z.enum(SpecStatus),
   version: z.number().int().positive(),
@@ -209,6 +239,8 @@ export const specRecord = z.strictObject({
     .strictObject({
       id: z.uuid(),
       cause: z.enum(["input", "plan", "input-and-plan"]),
+      inputs: z.array(reviewInput).optional(),
+      missingInput: z.literal(true).optional(),
     })
     .optional(),
   coverageRevision: z
@@ -218,15 +250,18 @@ export const specRecord = z.strictObject({
 });
 export type LeadSpecification = z.infer<typeof specRecord>;
 
-function deliveryDecision(
+function trackedDecision(
   draft: LeadSpecification["draft"],
+  id: string | undefined,
 ): z.infer<typeof decision> | undefined {
-  const policy = draftDeliveryPolicy(draft);
   for (const entry of draft?.decisions ?? []) {
-    if (isTrackedDecision(entry) && entry.id === policy?.decisionId)
-      return entry;
+    if (isTrackedDecision(entry) && entry.id === id) return entry;
   }
   return undefined;
+}
+
+function deliveryDecision(draft: LeadSpecification["draft"]) {
+  return trackedDecision(draft, draftDeliveryPolicy(draft)?.decisionId);
 }
 
 function resolvedDeliveryDecision(

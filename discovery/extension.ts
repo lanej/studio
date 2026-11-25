@@ -184,11 +184,7 @@ export function registerDiscovery(
         event.systemPrompt,
         `Selected discovery · ${record.title}`,
         await socratesGuidance(),
-        specText(record.specification),
         "Develop the specification and its proposed beads together. Keep the decomposition current as answers change task scope, dependencies, acceptance, or verification. Use draft_implementation_plan to persist it locally. Actual beads and worker dispatch require the operator's final handoff approval.",
-        ...(record.leadPlan.draft === null
-          ? []
-          : [describePlan(record.leadPlan.draft, "proposal")]),
       ].join("\n\n"),
     };
   });
@@ -416,6 +412,7 @@ export function registerDiscovery(
             );
           const spec = row.specification;
           if (spec !== undefined) {
+            socrates.checkReview?.(row, ctx);
             const requirements =
               spec.draft?.requirements.map(({ id }) => id) ?? [];
             if (

@@ -15,6 +15,7 @@ import {
   isTrackedDecision,
   preserveDecisions,
   propertyGaps,
+  reviewInput,
   specDraft,
   specQuestion,
   specText,
@@ -36,6 +37,7 @@ import {
   pendingCoverageReview,
   specificationToken,
 } from "./assessment.ts";
+import { registerDiscoveryReview } from "./review-context.ts";
 import { registerSocratesPresentation } from "./presentation.ts";
 import type { ImplementationSource } from "./implementation.ts";
 import { BeadChanged, TaskBeads } from "../task-service.ts";
@@ -104,6 +106,14 @@ export function registerSocratesControls<T extends SocratesState>(
       approvalPending(false);
     }
   }
+  const checkReview =
+    scope.discovery === true
+      ? registerDiscoveryReview<T>(
+          pi,
+          (record) => scope.identity(record),
+          (ctx) => scope.snapshot?.(ctx),
+        )
+      : undefined;
   const presentation = registerSocratesPresentation(
     pi,
     (ctx) => {
@@ -139,7 +149,7 @@ export function registerSocratesControls<T extends SocratesState>(
     if (internal !== undefined && internal === text) return;
     const record = scope.snapshot?.(ctx);
     if (
-      record?.specification?.coverageRevision === undefined ||
+      record?.specification === undefined ||
       record.leadPlan?.mode !== LeadMode.Planning ||
       (scope.discovery !== true &&
         record.specification.status === SpecStatus.Frozen) ||
@@ -156,7 +166,7 @@ export function registerSocratesControls<T extends SocratesState>(
       )
         row.specification.pendingReview = pendingCoverageReview(
           row.specification,
-          "input",
+          reviewInput.parse(event.message),
         );
     });
     presentation.refresh(ctx);
@@ -304,6 +314,7 @@ export function registerSocratesControls<T extends SocratesState>(
           !isDeepStrictEqual(row.specification, spec)
         )
           throw new Error("The Socrates draft changed before asking");
+        checkReview?.(row, ctx);
         row.specification = pending;
       });
       presentation.refresh(ctx);
@@ -511,6 +522,7 @@ export function registerSocratesControls<T extends SocratesState>(
           throw new Error(
             "The specification or work breakdown changed. Reassess the current draft before saving.",
           );
+        checkReview?.(row, ctx);
         const draft = applyDraftUpdate(
           specification,
           specification.acceptedRevision,
@@ -644,7 +656,7 @@ export function registerSocratesControls<T extends SocratesState>(
       );
     },
   });
-  return presentation;
+  return { ...presentation, checkReview };
 }
 
 async function ask(

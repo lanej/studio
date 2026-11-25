@@ -47,7 +47,6 @@ async function discoveryFixture(t: TestContext) {
   await mkdir(project);
   await mkdir(other);
   process.env["STUDIO_STATE_DIR"] = state;
-  const session = SessionManager.inMemory(project);
   const agentDir = join(directory, "agent");
   const authority = randomUUID();
   const target = runtimeProjectSchema.parse({
@@ -72,6 +71,21 @@ async function discoveryFixture(t: TestContext) {
     }),
   );
   process.env["STUDIO_CONFIG"] = config;
+  const openLead = () => discoveryLead(project, agentDir);
+  return {
+    state,
+    project,
+    other,
+    authority,
+    target,
+    store,
+    openLead,
+    ...(await openLead()),
+  };
+}
+
+async function discoveryLead(project: string, agentDir: string) {
+  const session = SessionManager.inMemory(project);
   let discovery: ReturnType<typeof registerDiscovery> | undefined;
   const loader = new DefaultResourceLoader({
     cwd: project,
@@ -112,15 +126,15 @@ async function discoveryFixture(t: TestContext) {
     session.appendCustomEntry(type, data);
   };
   runtime.getThinkingLevel = () => "off";
-  const send = (text: string) =>
-    runner.emit({
-      type: "message_start",
-      message: {
-        role: "user",
-        content: [{ type: "text", text }],
-        timestamp: Date.now(),
-      },
-    });
+  const send = async (text: string) => {
+    const message = {
+      role: "user" as const,
+      content: [{ type: "text" as const, text }],
+      timestamp: Date.now(),
+    };
+    await runner.emit({ type: "message_start", message });
+    return message;
+  };
   const ctx = runner.createCommandContext();
   assert.ok(discovery !== undefined);
   const prompt = async () => {
@@ -144,18 +158,22 @@ async function discoveryFixture(t: TestContext) {
       },
     ],
   });
-  const save = (proposal = draft, context = toolContext) =>
-    tool.execute("draft", proposal, undefined, undefined, context);
+  const save = async (proposal = draft, context = toolContext) => {
+    await runner.emitContext([]);
+    return tool.execute("draft", proposal, undefined, undefined, context);
+  };
   const specTool = runner.getToolDefinition("draft_socrates_specification");
   assert.ok(specTool !== undefined);
-  const assess = (specificationDraft: unknown) =>
-    specTool.execute(
+  const assess = async (specificationDraft: unknown) => {
+    await runner.emitContext([]);
+    return specTool.execute(
       "spec",
       specificationDraft,
       undefined,
       undefined,
       toolContext,
     );
+  };
   const firstTask = draft.tasks[0];
   assert.ok(firstTask !== undefined);
 
@@ -171,13 +189,7 @@ async function discoveryFixture(t: TestContext) {
   };
 
   return {
-    state,
-    project,
-    other,
-    authority,
-    target,
     discovery,
-    store,
     ctx,
     runner,
     session,
@@ -382,6 +394,111 @@ await test("delivered operator input keeps property evidence and requires a disp
     await assess({ coverage: { assessments: [] } });
     assert.deepEqual(snapshot(), spec);
   }
+});
+
+await test("a lead can acknowledge only the input and plan visible to its model request", async (t) => {
+  const lead = await discoveryFixture(t);
+  await lead.save();
+  const [record] = lead.store.list(lead.project);
+  assert.ok(record !== undefined);
+  const initial = readySpecification(record.revision);
+  lead.store.change(record.id, (row) => {
+    row.specification = initial;
+  });
+  const other = await lead.openLead();
+  const select = other.runner.getCommand("discoveries");
+  assert.ok(select !== undefined);
+  await select.handler("", {
+    ...other.ctx,
+    hasUI: true,
+    ui: {
+      ...other.ctx.ui,
+      select: (_title, options) => Promise.resolve(options[0]),
+    },
+  });
+  const draftTool = lead.runner.getToolDefinition(
+    "draft_socrates_specification",
+  );
+  const planTool = lead.runner.getToolDefinition("draft_implementation_plan");
+  assert.ok(draftTool !== undefined && planTool !== undefined);
+  const acknowledge = () =>
+    draftTool.execute(
+      "assess",
+      { coverage: { assessments: [] } },
+      undefined,
+      undefined,
+      lead.toolContext,
+    );
+
+  const question = "Which properties are open?";
+  const correction = "Limit transcript recovery to the local checkout.";
+  const visible = await lead.send(question);
+  const transcript = await lead.runner.emitContext([visible]);
+  assert.deepEqual(
+    transcript.filter(({ role }) => role === "user"),
+    [visible],
+  );
+  await other.send(correction);
+  const pending = lead.store.get(record.id);
+  const staleRequest = /discovery changed since the model's last request/iu;
+  await assert.rejects(acknowledge(), staleRequest);
+  assert.deepEqual(lead.store.get(record.id), pending);
+
+  // Either lead can recover both messages even when its transcript has been compacted.
+  const context = JSON.stringify(await lead.runner.emitContext([]));
+  assert.ok(context.includes(question) && context.includes(correction));
+  assert.ok(context.indexOf(question) < context.indexOf(correction));
+  await draftTool.execute(
+    "incorporate",
+    {
+      ...initial.draft,
+      scope: [correction],
+      coverage: {
+        domains: ["engineering"],
+        assessments: [
+          {
+            propertyId: "scope",
+            status: "satisfied",
+            reason: correction,
+          },
+        ],
+      },
+    },
+    undefined,
+    undefined,
+    lead.toolContext,
+  );
+  const revised = lead.store.get(record.id).specification;
+  assert.deepEqual(revised?.draft?.scope, [correction]);
+  assert.equal(revised.pendingReview, undefined);
+
+  await lead.runner.emitContext([]);
+  const next = {
+    ...other.draft,
+    summary: "Verify restore from the local transcript only",
+  };
+  await other.save(next);
+  const changedPlan = lead.store.get(record.id);
+  await assert.rejects(acknowledge(), staleRequest);
+  await assert.rejects(
+    planTool.execute(
+      "old-plan",
+      lead.draft,
+      undefined,
+      undefined,
+      lead.toolContext,
+    ),
+    staleRequest,
+  );
+  assert.deepEqual(lead.store.get(record.id), changedPlan);
+  assert.ok(
+    JSON.stringify(await lead.runner.emitContext([])).includes(next.summary),
+  );
+  await acknowledge();
+  assert.equal(
+    lead.store.get(record.id).specification?.pendingReview,
+    undefined,
+  );
 });
 
 await test("only the current assessed specification and linked plan can reach handoff review", async (t) => {
@@ -841,4 +958,71 @@ await test("a lead can change merge policy only after a handoff to the configure
   });
   const result = await update();
   assert.match(JSON.stringify(result.content), /lead override/u);
+});
+
+await test("a recorded answer survives draft replays until its decision changes", async (t) => {
+  const { project, store, runner, toolContext, save, assess } =
+    await discoveryFixture(t);
+  await save();
+  const record = store.list(project)[0];
+  assert.ok(record !== undefined);
+  const spec = readySpecification(record.revision);
+  store.change(record.id, (row) => {
+    row.specification = spec;
+  });
+  const question = "How long should we retain each transcript?";
+  const decision = {
+    id: "D21",
+    decision: "Set transcript retention",
+    disposition: "open",
+    basis: "observed",
+    evidence: "The brief requests retention.",
+    uncertainty: question,
+  };
+  const draft = {
+    ...spec.draft,
+    decisions: [...spec.draft.decisions, decision],
+    blockingQuestions: [question],
+  };
+  await assess(draft);
+  const ask = runner.getToolDefinition("ask_user_question");
+  assert.ok(ask !== undefined);
+  const answer =
+    "Keep production transcripts for seven days. Decide sandbox retention separately.";
+  await runner.emitContext([]);
+  await ask.execute(
+    "retention",
+    { decisionId: decision.id, question, options: [] },
+    undefined,
+    undefined,
+    {
+      ...toolContext,
+      hasUI: true,
+      ui: { ...toolContext.ui, input: () => Promise.resolve(answer) },
+    },
+  );
+  const answered = store.get(record.id).specification;
+  assert.equal(answered?.exchange?.answer?.text, answer);
+  const replay = {
+    ...draft,
+    coverage: { domains: ["engineering"], assessments: [] },
+  };
+  await assert.rejects(assess(replay), /recorded answer.*D21/u);
+  await assert.rejects(
+    assess({ ...replay, objective: "Retain transcripts for debugging" }),
+    /recorded answer.*D21/u,
+  );
+  assert.deepEqual(store.get(record.id).specification, answered);
+
+  const remaining = "How long should sandbox transcripts be retained?";
+  const partial = { ...decision, evidence: answer, uncertainty: remaining };
+  await assess({
+    ...draft,
+    decisions: [...spec.draft.decisions, partial],
+    blockingQuestions: [remaining],
+  });
+  const saved = store.get(record.id).specification;
+  assert.equal(saved?.exchange, undefined);
+  assert.deepEqual(saved?.draft?.decisions.at(-1), partial);
+  assert.deepEqual(saved.draft.blockingQuestions, [remaining]);
 });

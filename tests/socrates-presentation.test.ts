@@ -178,7 +178,14 @@ await test("delivered input shows a single pending review while the recorded sta
     ["input", "Reviewing new input", "New input pending review"],
     ["input-and-plan", "Reviewing recent changes", "Changes pending review"],
   ] as const) {
-    const changed = { ...spec, pendingReview: { id: randomUUID(), cause } };
+    const changed = {
+      ...spec,
+      pendingReview: {
+        id: randomUUID(),
+        cause,
+        inputs: [{ timestamp: 1, content: "Which properties remain open?" }],
+      },
+    };
     for (const [live, label, state] of [
       [working, active, ActivityState.Working],
       [idle, pending, ActivityState.Waiting],

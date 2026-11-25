@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import {
   deliveryPolicySchema,
   draftDeliveryPolicy,
 } from "./delivery-policy.ts";
-import type { LeadSpecification } from "./spec.ts";
+import type { LeadSpecification, ReviewInput } from "./spec.ts";
 
 export const coverageDomains = ["engineering", "research", "writing"] as const;
 export const coverageStatuses = [
@@ -270,12 +271,53 @@ export function draftCoverage(
   return draft !== null && "coverage" in draft ? draft.coverage : undefined;
 }
 
+type Draft = NonNullable<LeadSpecification["draft"]>;
+
+function evidenceSources(draft: Draft): Map<string, object> {
+  const sources = new Map<string, object>();
+  for (const requirement of draft.requirements)
+    sources.set(requirement.id, requirement);
+  for (const decision of draft.decisions)
+    if ("id" in decision) sources.set(decision.id, decision);
+  for (const decision of draft.decisions)
+    if ("supersedes" in decision && decision.supersedes !== undefined)
+      sources.delete(decision.supersedes);
+  return sources;
+}
+
+/** Match explicit local IDs and ranges against known sources without expanding arbitrary ranges. */
+function citedSources(
+  reason: string | undefined,
+  ids: readonly string[],
+): string[] {
+  const cited = new Set<string>();
+  for (const [reference, kind, start, end] of (reason ?? "").matchAll(
+    /\b([RD])([1-9]\d*)\b(?:\s*[-–]\s*\1([1-9]\d*)\b)?/gu,
+  )) {
+    if (start === undefined || end === undefined) {
+      if (ids.includes(reference)) cited.add(reference);
+      continue;
+    }
+    const low = BigInt(start);
+    const high = BigInt(end);
+    for (const id of ids) {
+      if (id[0] !== kind) continue;
+      const number = BigInt(id.slice(1));
+      if (low <= number && number <= high) cited.add(id);
+    }
+  }
+  return [...cited];
+}
+
 /** Carry forward evidence only within the selected domains and a known review baseline. */
 export function mergeCoverage(
-  previous: Coverage | undefined,
-  update: Coverage,
+  baseline: LeadSpecification["draft"],
+  draft: Draft & { coverage: Coverage },
 ): Coverage {
-  if (previous === undefined) return coverageSchema.parse(update);
+  const update = draft.coverage;
+  const previous = draftCoverage(baseline);
+  if (baseline === null || previous === undefined)
+    return coverageSchema.parse(update);
   const selected = new Set(
     selectedProperties(update.domains).map(({ id }) => id),
   );
@@ -284,6 +326,41 @@ export function mergeCoverage(
       .filter(({ propertyId }) => selected.has(propertyId))
       .map((assessment) => [assessment.propertyId, assessment]),
   );
+  const current = evidenceSources(draft);
+  const changed = [...evidenceSources(baseline)]
+    .filter(([id, source]) => !isDeepStrictEqual(source, current.get(id)))
+    .map(([id]) => id);
+  if (changed.length > 0) {
+    const updated = new Set(
+      update.assessments.map(({ propertyId }) => propertyId),
+    );
+    const missing = [];
+    for (const { propertyId, reason } of assessments.values()) {
+      if (updated.has(propertyId)) continue;
+      const citations = citedSources(reason, changed);
+      if (citations.length > 0)
+        missing.push(`${propertyId} (${citations.join(", ")})`);
+    }
+    if (missing.length > 0)
+      throw new Error(
+        `Reassess properties whose cited evidence changed: ${missing.join(", ")}`,
+      );
+    const retired = changed.filter((id) => !current.has(id));
+    for (const item of update.assessments) {
+      if (item.status !== "satisfied" && item.status !== "not-applicable")
+        continue;
+      const citations = citedSources(item.reason, retired);
+      if (
+        citations.length > 0 &&
+        (item.reason === assessments.get(item.propertyId)?.reason ||
+          (item.status === "satisfied" &&
+            citedSources(item.reason, [...current.keys()]).length === 0))
+      )
+        throw new Error(
+          `Cite current evidence for ${item.propertyId}. Retired references: ${citations.join(", ")}.`,
+        );
+    }
+  }
   for (const assessment of update.assessments)
     assessments.set(assessment.propertyId, assessment);
   return coverageSchema.parse({
@@ -379,11 +456,22 @@ export function coverageToken(spec: SpecificationContent): string {
     .digest("hex");
 }
 
+/** Older pending markers did not save the input that triggered them. */
+export function missingReviewInput(spec: LeadSpecification): boolean {
+  const pending = spec.pendingReview;
+  return (
+    pending !== undefined &&
+    (pending.missingInput === true ||
+      (pending.inputs === undefined && pending.cause !== "plan"))
+  );
+}
+
 export function coverageBasisCurrent(
   spec: LeadSpecification,
   currentRevision: string | null,
 ): boolean {
   return (
+    !missingReviewInput(spec) &&
     draftCoverage(spec.draft) !== undefined &&
     spec.acceptedRevision === currentRevision &&
     spec.coverageRevision === coverageToken(spec)
@@ -393,11 +481,15 @@ export function coverageBasisCurrent(
 /** Each delivered change has its own identity so a racing save cannot acknowledge later input. */
 export function pendingCoverageReview(
   spec: LeadSpecification,
-  cause: "input" | "plan",
+  change: "plan" | ReviewInput,
 ): NonNullable<LeadSpecification["pendingReview"]> {
+  const cause = change === "plan" ? "plan" : "input";
+  const inputs = spec.pendingReview?.inputs ?? [];
   const previous = spec.pendingReview?.cause;
   return {
     id: randomUUID(),
+    ...(missingReviewInput(spec) ? { missingInput: true } : {}),
+    inputs: change === "plan" ? inputs : [...inputs, change],
     cause:
       previous === undefined || previous === cause ? cause : "input-and-plan",
   };

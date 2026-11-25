@@ -78,9 +78,13 @@ def ownership_turn(request, draft):
                     "uncertainty": "None" if resolved else ownership_question}
         scope = {"propertyId": "scope", "status": "satisfied" if resolved else "open",
                  "reason": ownership_answer if resolved else ownership_question}
-        coverage = {**draft["coverage"], "focus": "verification" if resolved else "scope", "assessments": [scope] if resolved else [
+        assessments = [
             scope if item["propertyId"] == "scope" else item for item in draft["coverage"]["assessments"]
-        ]}
+        ]
+        if resolved:
+            assessments = [scope, {"propertyId": "verification", "status": "partial",
+                                   "reason": "R1 specifies the discovery store as the source. Exercise reopening the sidebar."}]
+        coverage = {**draft["coverage"], "focus": "verification" if resolved else "scope", "assessments": assessments}
         return tool_delta("record-owner" if resolved else "draft-ownership", "draft_socrates_specification", {
             **draft, "decisions": [decision], "blockingQuestions": [] if resolved else [ownership_question],
             "requirements": [{"id": "R1", "outcome": "Keep assessment freshness consistent",
@@ -971,8 +975,12 @@ def run(output):
             assert "exchange" not in saved and saved["draft"]["blockingQuestions"] == [], saved
             assert saved["draft"]["decisions"][0]["evidence"] == ownership_answer, saved
             assert saved["draft"]["requirements"][0]["acceptance"] == ownership_criterion, saved
-            assert any(item["propertyId"] == "scope" and item["status"] == "satisfied"
-                       for item in saved["draft"]["coverage"]["assessments"]), saved
+            original = {item["propertyId"]: item for item in pending["draft"]["coverage"]["assessments"]}
+            revised = {item["propertyId"]: item for item in saved["draft"]["coverage"]["assessments"]}
+            assert revised.keys() == original.keys(), revised
+            assert {key for key in revised if revised[key] != original[key]} == {"scope", "verification"}, revised
+            assert revised["scope"]["status"] == "satisfied" and revised["scope"]["reason"] == ownership_answer, revised
+            assert revised["verification"]["status"] == "partial" and "R1" in revised["verification"]["reason"], revised
         finally:
             terminal.close()
             provider.shutdown()
