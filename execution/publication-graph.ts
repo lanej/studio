@@ -96,9 +96,7 @@ function requireApprovedBead(
     bead.description !== task.description ||
     bead.acceptance_criteria !== task.acceptance
   )
-    throw new Error(
-      `Task ${bead.id} differs from its approved task graph`,
-    );
+    throw new Error(`Task ${bead.id} differs from its approved task graph`);
 }
 
 export function approvedHandoffTask(

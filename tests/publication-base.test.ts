@@ -184,7 +184,7 @@ async function createPublishingFixture(
     files: Record<string, string>,
   ) => {
     const attempt = store.attempts().find((row) => row.bead?.id === ids[key]);
-    assert.ok(attempt);
+    assert.ok(attempt !== undefined);
     const base = await preparePublicationBase(store, project, attempt);
     const checkout = join(directory, branch);
     await git(root, "worktree", "add", "-b", branch, checkout, base);
@@ -371,7 +371,7 @@ test(
           await git(root, "diff", "--name-only", prerequisite, oldHead),
           "publisher.txt",
         );
-        assert.ok(reviewed.checkout);
+        assert.ok(reviewed.checkout !== undefined);
         const oldId = randomUUID();
         const retained = executionSchema.parse({
           ...reviewed,

@@ -150,7 +150,7 @@ async function projectBase(
             entry.id === task.id &&
             entry.before === before &&
             entry.after === after,
-        )
+        ) === true
       )
         included = await isAncestor(git, sha(record.merged), remote);
     }

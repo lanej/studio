@@ -815,7 +815,7 @@ await test("an already published branch with unproven ancestry cannot merge or r
         f.configure({ onWait: blockAncestry });
       }
       await assert.rejects(f.run(), /PR publication ancestry/u);
-      assert.ok(f.store.attempt(f.initial.id).publication);
+      assert.ok(f.store.attempt(f.initial.id).publication !== undefined);
       assert.equal(
         f.calls.filter((call) => call[0] === "merge").length,
         replay ? 1 : 0,
