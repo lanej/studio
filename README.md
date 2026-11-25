@@ -49,7 +49,7 @@ The theme comes from a bundled snapshot of the shared semantic adapter, with Nor
 
 ![Live task panel with a lead draft retained during background updates, reconstructed from native terminal output](docs/assets/task-status-panel.png)
 
-The footer shows the current directory using [shortpath](https://github.com/lanej/dotfiles/blob/master/tools/shortpath/README.md) when it is on PATH. Colored glyphs mark the lead mode and reasoning level alongside the bead ID and model. The same row fits Git changes, the Octo-tracked PR, context usage, and estimated session cost as space allows. GPT model IDs show a provider glyph, version, and variant glyph for Sol, Luna, Terra, and Astra. Secondary fields collapse as the pane narrows, and other extensions retain their status lines. Startup hints, resource listings, zero-usage counters, and the permanent compaction-policy line are hidden. Bash tool cards highlight shell syntax in command lines. Code from Pi’s grep tool and supported `rg` and `sed` shell tool calls uses the active syntax theme. Pi’s output folding and truncation remain available. Actionable errors remain visible.
+The footer shows the current directory using [shortpath](https://github.com/lanej/dotfiles/blob/master/tools/shortpath/README.md) when it is on PATH. Colored glyphs mark the lead mode and reasoning level alongside the bead ID and model. The same row fits Git changes, the Octo-tracked PR, context usage, and estimated session cost as space allows. GPT model IDs show a provider glyph, version, and variant glyph for Sol, Luna, Terra, and Astra. Secondary fields collapse as the pane narrows, and other extensions retain their status lines. Startup hints, resource listings, zero-usage counters, and the permanent compaction-policy line are hidden. Bash tool cards highlight command names and flags in simple and compound command lines, including pipelines, redirections, and command substitutions. Quoted text and redirection targets keep their Bash syntax colors. Unsupported shell forms retain generic Bash coloring. Code from Pi’s grep tool and supported `rg` and `sed` shell tool calls uses the active syntax theme. Pi’s output folding and truncation remain available. Actionable errors remain visible.
 
 In Studio’s terminal, inline tool images use their native pixel size when they fit. Press `Ctrl+O` to expand tool output and magnify smaller images to fit the pane. To use a fixed width, open `/settings` and change **Image width** from **auto** to a column count. A monochrome Nerd Font brain icon shares the first rendered line of each thinking block. Expanded prose wraps at 88 columns in wide panes. Click a block to fold it individually, or press `Ctrl+T` to toggle thinking across the conversation.
 
@@ -70,6 +70,8 @@ studio lead -- --help
 ```
 
 `studio resume BEAD_ID` resumes a managed Beads lead; `studio lead -- --resume` opens Pi's session picker for ordinary conversations. Daily-driver sessions use the current checkout. Starting a bead with `studio start BEAD_ID --profile work` retains the managed checkout workflow below.
+
+Run `uv run --script acceptance/shell-header.py --output /path/to/captures` to verify retained Bash tool headers in native Pi without executing the displayed commands. Native PTY terminal-cell captures show the [wide compound headers](docs/assets/shell-header-128.png) and [narrow wrapping](docs/assets/shell-header-60.png), including timeout and elapsed-time displays.
 
 ## Discovery and approved work
 

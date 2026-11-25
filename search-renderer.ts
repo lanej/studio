@@ -4,7 +4,13 @@ import {
   getLanguageFromPath,
   highlightCode,
 } from "@earendil-works/pi-coding-agent";
-import { type Component, Text, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import {
+  type Component,
+  Text,
+  sliceByColumn,
+  visibleWidth,
+  wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
 import { z } from "zod";
 
 const MAX_HIGHLIGHT_BYTES = 50_000;
@@ -31,25 +37,187 @@ function simpleCommand(input: string): ShellWord[] {
   return end === command.length ? words : [];
 }
 
-function highlightShellCommand(command: string, theme: Theme): string {
-  const bash = (text: string) => highlightCode(text, "bash").join("\n");
-  const [executable, ...args] = simpleCommand(command);
-  if (executable === undefined || !/^[\w./-]+$/u.test(executable.raw))
-    return bash(command);
+type ShellStyle = ShellWord & { role: "syntaxFunction" | "syntaxKeyword" };
 
-  let rendered =
-    command.slice(0, executable.start) +
-    theme.fg("syntaxFunction", theme.bold(executable.raw));
-  let end = executable.start + executable.raw.length;
-  for (const { raw, start } of args) {
-    if (raw === "--") break;
-    const flag = /^--?[A-Za-z][\w-]*(?==|$)/u.exec(raw)?.[0];
-    if (flag === undefined) continue;
-    rendered +=
-      bash(command.slice(end, start)) + theme.fg("syntaxKeyword", flag);
-    end = start + flag.length;
+// Header decoration does not establish the identity of the command producing output.
+// Keep the stricter simpleCommand parser for that separate decision.
+function shellHeaderStyles(command: string): ShellStyle[] | undefined {
+  const styles: ShellStyle[] = [];
+  let position = 0;
+  const reserved = new Set([
+    "if",
+    "then",
+    "else",
+    "elif",
+    "fi",
+    "for",
+    "while",
+    "until",
+    "do",
+    "done",
+    "case",
+    "esac",
+    "in",
+    "function",
+    "select",
+    "time",
+    "coproc",
+    "!",
+    "{",
+    "}",
+    "[[",
+    "]]",
+  ]);
+  function substitution(depth: number): boolean {
+    if (command.startsWith("$((", position) || depth >= 32) return false;
+    position += 2;
+    return sequence(depth + 1);
   }
-  return rendered + bash(command.slice(end));
+  function quote(delimiter: string, depth: number): boolean {
+    position++;
+    while (position < command.length) {
+      if (command[position] === delimiter) {
+        position++;
+        return true;
+      }
+      if (delimiter === '"' && command.startsWith("$(", position)) {
+        if (!substitution(depth)) return false;
+      } else if (delimiter === '"' && command[position] === "\\") {
+        position += 2;
+      } else {
+        if (delimiter === '"' && command[position] === "`") return false;
+        position++;
+      }
+    }
+    return false;
+  }
+  function sequence(depth: number): boolean {
+    let executable = true;
+    let flags = true;
+    let redirect = false;
+    while (position < command.length) {
+      const rest = command.slice(position);
+      if (rest.startsWith(")")) {
+        if (depth === 0 || redirect) return false;
+        position++;
+        return true;
+      }
+      const whitespace = /^[ \t\r]+/u.exec(rest)?.[0];
+      if (whitespace !== undefined) {
+        position += whitespace.length;
+        continue;
+      }
+      if (rest.startsWith("#")) {
+        const newline = command.indexOf("\n", position);
+        position = newline < 0 ? command.length : newline;
+        continue;
+      }
+      const redirection = /^(?:\d+)?(?:&>>?|<>|>&|<&|>\||>>?|<)/u.exec(
+        rest,
+      )?.[0];
+      if (redirection !== undefined) {
+        // Heredoc bodies and process substitutions need a full shell grammar.
+        if (
+          /^(?:\d+)?<</u.test(rest) ||
+          rest.startsWith("<(") ||
+          rest.startsWith(">(")
+        )
+          return false;
+        if (redirect) return false;
+        position += redirection.length;
+        redirect = true;
+        continue;
+      }
+      const separator = /^(?:&&|\|\||\|&|[;|&\n])/u.exec(rest)?.[0];
+      if (separator !== undefined) {
+        if (redirect) return false;
+        position += separator.length;
+        executable = true;
+        flags = true;
+        continue;
+      }
+      const start = position;
+      while (
+        position < command.length &&
+        !/[\s;&|<>()]/u.test(command[position] ?? "")
+      ) {
+        const character = command[position];
+        if (character === "'" || character === '"') {
+          if (!quote(character, depth)) return false;
+        } else if (command.startsWith("$(", position)) {
+          if (!substitution(depth)) return false;
+        } else if (character === "\\") {
+          position += 2;
+        } else {
+          if (character === "`" || command.startsWith("${", position))
+            return false;
+          position++;
+        }
+      }
+      if (position === start || position > command.length) return false;
+      const raw = command.slice(start, position);
+      if (redirect) {
+        redirect = false;
+        continue;
+      }
+      if (executable) {
+        if (/^[A-Za-z_]\w*=/u.test(raw)) continue;
+        if (reserved.has(raw)) return false;
+        executable = false;
+        if (/^[\w./-]+$/u.test(raw))
+          styles.push({ raw, start, role: "syntaxFunction" });
+      } else if (flags) {
+        if (raw === "--") flags = false;
+        const flag = /^--?(?:[A-Za-z][\w-]*|\d+)(?==|$)/u.exec(raw)?.[0];
+        if (flag !== undefined)
+          styles.push({ raw: flag, start, role: "syntaxKeyword" });
+      }
+    }
+    return depth === 0 && !redirect;
+  }
+  return sequence(0) ? styles.sort((a, b) => a.start - b.start) : undefined;
+}
+
+function highlightShellCommand(command: string, theme: Theme): string {
+  const highlighted = highlightCode(command, "bash");
+  const styles = shellHeaderStyles(command);
+  if (styles === undefined || styles.length > 256)
+    return highlighted.join("\n");
+  let offset = 0;
+  let index = 0;
+  // Slice the full Bash rendering so substitutions retain their surrounding quote colors.
+  return command
+    .split("\n")
+    .map((line, row) => {
+      const syntax = highlighted[row] ?? line;
+      let rendered = "";
+      let end = 0;
+      while (index < styles.length) {
+        const style = styles[index];
+        if (style === undefined || style.start >= offset + line.length) break;
+        const start = style.start - offset;
+        const column = visibleWidth(line.slice(0, end));
+        rendered += sliceByColumn(
+          syntax,
+          column,
+          visibleWidth(line.slice(0, start)) - column,
+        );
+        rendered += theme.fg(
+          style.role,
+          style.role === "syntaxFunction" ? theme.bold(style.raw) : style.raw,
+        );
+        end = start + style.raw.length;
+        index++;
+      }
+      rendered += sliceByColumn(
+        syntax,
+        visibleWidth(line.slice(0, end)),
+        Infinity,
+      );
+      offset += line.length + 1;
+      return rendered;
+    })
+    .join("\n");
 }
 
 type Highlighter = (text: string, language: string) => string[];
