@@ -91,8 +91,8 @@ await test("context draws people and systems with directional relationships in a
   const { lines, nodeOrder } = canvas(architecture, "context", 60);
   const text = lines.join("\n");
   assert.match(text, /╭─/u);
-  assert.match(text, /▼Looks up shipments/u);
-  assert.match(text, /▼Fetches scans/u);
+  assert.match(text, /▼ Looks up shipments/u);
+  assert.match(text, /▼ Fetches scans/u);
   assert.match(text, /Software system/u);
   assert.match(text, /External system/u);
   assert.doesNotMatch(text, /HTTP|Tracking API|Rust/u);
@@ -131,7 +131,7 @@ await test("containers sit inside the named boundary; verbs and protocols belong
   assert.match(lines.join("\n"), /\[1\] HTTPS.*\[2\] HTTPS/u);
   assert.ok(
     lines.every(
-      (line) => !/▼(Reads|Appends)/u.test(line) && visibleWidth(line) <= 60,
+      (line) => !/▼\s*(Reads|Appends)/u.test(line) && visibleWidth(line) <= 60,
     ),
   );
   assert.deepEqual(nodeOrder, [

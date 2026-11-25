@@ -128,7 +128,7 @@ def run(output):
         thread.start()
         cleanup.callback(thread.join, 5)
         cleanup.callback(provider.shutdown)
-        terminal = ui.Terminal(project, env, output, session, columns=96, rows=20)
+        terminal = ui.Terminal(project, env, output, session, columns=100, rows=20)
         try:
             terminal.wait(
                 lambda: any("~/project" in line and "tiny" in line for line in terminal.screen.display),

@@ -109,8 +109,9 @@ function relationshipMap(diagram: Diagram, view: DiagramView) {
       ).length === 1;
     if (atSource) departures.set(edge.from, [`→ ${verb(edge)}`]);
     const caption = local ? verb(edge) : `${port} ${edge.label}`;
-    const compact = visibleWidth(caption) > 28;
-    const label = compact ? `[${String(i + 1)}]` : caption;
+    const compact = visibleWidth(caption) + 1 > 28;
+    // Reserve one column between the arrowhead and its caption.
+    const label = " " + (compact ? `[${String(i + 1)}]` : caption);
     // Only fixed-width placeholders enter the diagram grammar. The renderer
     // replaces entire parsed spans, so punctuation in model text stays literal.
     const symbol =
