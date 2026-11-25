@@ -21,6 +21,7 @@ import {
   describePlan,
   draftSchema,
   planDigest,
+  publicationPrerequisites,
   reviseDelivery,
 } from "../lead-plan.ts";
 import { isEntry, PiEntryType } from "../runtime.ts";
@@ -536,6 +537,16 @@ export function registerDiscovery(
               record.specification === undefined
                 ? "Recovery of the previously approved handoff"
                 : specText(record.specification),
+              ...draft.tasks
+                .filter((task) => task.delivery === TaskDelivery.PullRequest)
+                .map((publisher) => {
+                  const local = publicationPrerequisites(draft, publisher)
+                    .filter(
+                      (task) => task.delivery !== TaskDelivery.PullRequest,
+                    )
+                    .map((task) => task.key);
+                  return `PR from ${publisher.key} · Includes ${[...local, publisher.key].join(", ")}`;
+                }),
               describePlan(draft),
             ].join("\n\n"),
             "create tasks and implement",

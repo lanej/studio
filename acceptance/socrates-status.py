@@ -364,7 +364,16 @@ class Terminal:
     def check_dependency_graph(self):
         path = ("Record property evidence", "├─╮", "Keep the lead available",
                 "Keep assessment history", "├─╯", "Review changes in the dock")
-        self.wait(lambda: all(part in self.rail_text() for part in path),
+        def rendered_graph():
+            # A summary can contain a task title before that node row is painted.
+            remaining = self.rail_text().partition("Implementation")[2]
+            for part in path:
+                _, found, remaining = remaining.partition(part)
+                if not found:
+                    return False
+            return True
+
+        self.wait(rendered_graph,
                   "The Implementation sidebar did not draw the complete fork and join")
         rail = self.rail_text().partition("Implementation")[2]
         cursor = 0

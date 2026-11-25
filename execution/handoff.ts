@@ -199,10 +199,11 @@ export async function approveHandoff(
         entries.push([task.key, `${root}.${task.key}`]);
       intent = {
         digest,
+        project: project.id,
+        target: project,
+        draft,
         ids: Object.fromEntries(entries),
-        ...(interactive === undefined
-          ? {}
-          : { interactive, project: project.id, draft }),
+        ...(interactive === undefined ? {} : { interactive }),
       };
       store.saveIntent(record.revision, intent);
     }
