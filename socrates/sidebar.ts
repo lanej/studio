@@ -13,6 +13,15 @@ import {
 import { planGraph, renderGraphPrefix } from "../plan-graph.ts";
 import { taskMarks } from "./columns.ts";
 import {
+  renderWorkerCompact,
+  type WorkerSidebarView,
+} from "./worker-section.ts";
+
+export {
+  renderWorkerCompact,
+  type WorkerSidebarView,
+} from "./worker-section.ts";
+import {
   ImplementationState,
   type ImplementationPresentation,
 } from "./implementation.ts";
@@ -24,6 +33,7 @@ type GraphTheme = StatusTheme & {
 interface SidebarGraph {
   lines: string[];
   nodeLines: number[];
+  selectedLine?: number | undefined;
 }
 
 /** The graph and the inspector use the same rails; live status belongs to its node. */
@@ -31,9 +41,11 @@ export function renderSidebarGraph(
   implementation: ImplementationPresentation,
   theme: GraphTheme,
   width: number,
+  selectedBeadId?: string,
 ): SidebarGraph {
   const lines: string[] = [];
   const nodeLines: number[] = [];
+  let selectedLine: number | undefined;
   const tasks = implementation.rows.map((task) => ({ ...task, key: task.id }));
   for (const row of planGraph(tasks)) {
     const mark = taskMarks[row.task.state];
@@ -43,7 +55,9 @@ export function renderSidebarGraph(
       theme[mark.tone](mark.glyph),
     );
     const title = inline(row.task.label);
-    const subject = `${prefix}  ${title}`;
+    const selected =
+      selectedBeadId !== undefined && selectedBeadId === row.task.beadId;
+    const subject = selected ? `${prefix} › ${title}` : `${prefix}  ${title}`;
     const state = theme[mark.tone](mark.label);
     // In a dense graph keep enough of the title to recognize the task.
     const titleSpace = width - visibleWidth(prefix) - visibleWidth(state) - 3;
@@ -51,15 +65,15 @@ export function renderSidebarGraph(
       row.task.state !== ImplementationState.Proposed &&
       titleSpace >= Math.min(8, visibleWidth(title));
     nodeLines.push(lines.length);
-    lines.push(
-      showState
-        ? align(subject, state, width)
-        : truncateToWidth(subject, width, "…"),
-    );
+    const line = showState
+      ? align(subject, state, width)
+      : truncateToWidth(subject, width, "…");
+    if (selected) selectedLine = lines.length;
+    lines.push(selected ? theme.selected(line) : line);
     for (const connector of row.connectors)
       lines.push(renderGraphPrefix(connector, theme.lane));
   }
-  return { lines, nodeLines };
+  return { lines, nodeLines, selectedLine };
 }
 
 /** End a clipped preview on a task; a dangling join could imply a different dependency. */
@@ -70,6 +84,18 @@ export function fitSidebarGraph(
 ): string[] {
   if (height < 1) return [];
   if (graph.lines.length <= height) return graph.lines;
+  // While browsing a worker, keep its bead in the visible graph window.
+  const selected = graph.selectedLine;
+  if (selected !== undefined && selected >= height - 1) {
+    const start =
+      graph.nodeLines.find((line) => line >= selected - height + 2) ?? selected;
+    return [
+      ...(height > 1 && start > 0
+        ? [theme.muted("↑ earlier tasks · /plan")]
+        : []),
+      ...graph.lines.slice(Math.min(start, selected), selected + 1),
+    ];
+  }
   if (height === 1) return graph.lines.slice(0, 1);
   const shown = graph.nodeLines.filter((line) => line < height - 1);
   const end = shown.at(-1);
@@ -291,6 +317,55 @@ export function renderSocratesSections(
   width: number,
   height: number,
   compact = false,
+  workers?: WorkerSidebarView,
+): string[] {
+  const showWorkers =
+    workers !== undefined &&
+    (workers.rows.length > 0 || workers.evidenceError !== undefined);
+  if (!showWorkers)
+    return renderPlanSections(snapshot, theme, width, height, compact);
+  if (width < 3 || height < 1) return [];
+  const gap = !compact && height >= 6 ? 1 : 0;
+  const selected = workers.rows.find(
+    (row) => row.attemptId === workers.selectedAttemptId,
+  );
+  // Workers use their actual height. Short or folded rosters leave the rest to the plan.
+  const workerBudget = Math.max(
+    1,
+    Math.floor(workers.focused === true ? (2 * height) / 3 : height / 2),
+  );
+  const roster = renderWorkerCompact(workers, theme, width, workerBudget, true);
+  const plan = renderPlanSections(
+    snapshot,
+    theme,
+    width,
+    height - roster.length - gap,
+    compact,
+    selected?.beadId,
+  );
+  return [
+    ...plan,
+    ...(plan.length > 0 && gap > 0 ? [theme.muted("─".repeat(width))] : []),
+    ...(roster.length === workerBudget &&
+    plan.length + gap + workerBudget < height
+      ? renderWorkerCompact(
+          workers,
+          theme,
+          width,
+          height - plan.length - gap,
+          true,
+        )
+      : roster),
+  ];
+}
+
+function renderPlanSections(
+  snapshot: SidebarSnapshot,
+  theme: GraphTheme,
+  width: number,
+  height: number,
+  compact: boolean,
+  selectedBeadId?: string,
 ): string[] {
   const spec = snapshot.dockColumns.find(
     (column) => column.id === "specification",
@@ -303,7 +378,12 @@ export function renderSocratesSections(
     return spec === undefined
       ? []
       : specificationRows(spec, theme, width, height, true);
-  const graph = renderSidebarGraph(snapshot.implementation, theme, width);
+  const graph = renderSidebarGraph(
+    snapshot.implementation,
+    theme,
+    width,
+    selectedBeadId,
+  );
   if (spec === undefined)
     return implementationRows(plan, graph, theme, width, height, false);
   const priority = snapshot.prioritizeSpecification;
@@ -332,10 +412,18 @@ export function renderStatusSidebar(
   theme: GraphTheme,
   width: number,
   height: number,
+  workers?: WorkerSidebarView,
 ): string[] {
   if (width < 6 || height < 1 || snapshot.dockColumns.length === 0) return [];
   const inner = width - 3;
-  const rows = renderSocratesSections(snapshot, theme, inner, height);
+  const rows = renderSocratesSections(
+    snapshot,
+    theme,
+    inner,
+    height,
+    false,
+    workers,
+  );
   const divider = theme.muted("│");
   return Array.from(
     { length: height },

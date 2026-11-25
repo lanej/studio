@@ -1,3 +1,4 @@
+import type { InspectWorkerTask } from "../tasks/panel.ts";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -33,13 +34,22 @@ import {
 import {
   assessmentRevision,
   implementationPresentation,
+  implementationRead,
   type ImplementationObservation,
   type ImplementationPresentation,
   type ImplementationSource,
 } from "./implementation.ts";
 import { createPlanInspector } from "./plan-inspector.ts";
 import { planGraphColor } from "../plan-graph.ts";
-import { renderSocratesSections, renderStatusSidebar } from "./sidebar.ts";
+import { focusTaskPane } from "../task-run.ts";
+import { WorkerNavigation } from "./worker-navigation.ts";
+import type { WorkerAssignment } from "../tasks/workers.ts";
+import {
+  renderSocratesSections,
+  renderStatusSidebar,
+  renderWorkerCompact,
+  type WorkerSidebarView,
+} from "./sidebar.ts";
 import { createImplementationWatch } from "./implementation-watch.ts";
 
 export interface SocratesObservation extends ImplementationSource {
@@ -277,6 +287,7 @@ export function registerSocratesPresentation(
   pi: ExtensionAPI,
   read: (ctx: ExtensionContext) => SocratesObservation | undefined,
   viewSpecification: (ctx: ExtensionContext) => Promise<void>,
+  inspectWorkerTask?: InspectWorkerTask,
 ) {
   const live: SocratesActivity = { working: false, paused: false };
   const tools = new Map<string, string>();
@@ -293,23 +304,45 @@ export function registerSocratesPresentation(
     typeof layoutTui.setRightColumn === "function" &&
     sidebarWidth(layoutTui.terminal.columns) > 0;
   let inspecting = false;
+  const navigation = new WorkerNavigation();
+  let workerRows: readonly WorkerAssignment[] = [];
+  let workerKey: string | undefined;
+  let workerEvidenceError: string | undefined;
+  const workerView = (): WorkerSidebarView => ({
+    rows: workerRows,
+    collapsed: navigation.collapsed,
+    selectedAttemptId: navigation.selectedAttemptId,
+    focused: navigation.focused,
+    evidenceError: workerEvidenceError,
+  });
   const render = () => {
     for (const request of renders) request();
   };
   function resizeStatus(open?: boolean) {
     if (usesSidebar()) sidebarOpen = open ?? !sidebarOpen;
     else dockExpanded = open ?? !dockExpanded;
+    if (usesSidebar() && !sidebarOpen) navigation.leave();
     render();
   }
   function project() {
+    const observed = watch.observation();
+    if (observed?.key !== workerKey) {
+      navigation.reset();
+      workerKey = observed?.key;
+    }
+    workerRows = observed?.state === "current" ? (observed.workers ?? []) : [];
+    workerEvidenceError =
+      observed?.state === "current" ? observed.workerEvidenceError : undefined;
+    navigation.setRows(workerRows);
     snapshot =
       binding === undefined
         ? undefined
-        : socratesPresentation(binding, live, watch.observation());
+        : socratesPresentation(binding, live, observed);
     render();
   }
   const watch = createImplementationWatch({ changed: project });
   const clear = (ctx: ExtensionContext) => {
+    navigation.reset();
     binding = undefined;
     snapshot = undefined;
     watch.setSource(undefined);
@@ -354,6 +387,7 @@ export function registerSocratesPresentation(
                 { ...statusTheme(theme), lane: planGraphColor(theme) },
                 width,
                 tui.terminal.rows,
+                workerView(),
               ).map((line) => surface(theme, line, width));
             },
           },
@@ -365,6 +399,7 @@ export function registerSocratesPresentation(
         return {
           invalidate() {},
           dispose() {
+            navigation.leave();
             tui.setRightColumn?.(undefined);
             layoutTui = undefined;
             renders.delete(repaint);
@@ -388,23 +423,35 @@ export function registerSocratesPresentation(
             );
             const inner = Math.max(0, width - 3);
             const colors = statusTheme(theme);
+            const workers = workerView();
+            const expanded = dockExpanded || navigation.focused;
+            const roster = renderWorkerCompact(
+              workers,
+              colors,
+              inner,
+              Math.max(1, maxRows - (navigation.focused ? 0 : 1)),
+              expanded,
+            );
+            const statusRows = maxRows - roster.length;
             const rows =
-              dockExpanded && snapshot.prioritizeSpecification
-                ? renderSocratesSections(
-                    snapshot,
-                    { ...colors, lane: planGraphColor(theme) },
-                    inner,
-                    maxRows,
-                    true,
-                  )
-                : renderStatusDock({
-                    columns: snapshot.dockColumns,
-                    theme: colors,
-                    width: inner,
-                    expanded: dockExpanded,
-                    maxRows,
-                  });
-            return rows.map((line, index) => {
+              statusRows === 0
+                ? []
+                : dockExpanded && snapshot.prioritizeSpecification
+                  ? renderSocratesSections(
+                      snapshot,
+                      { ...colors, lane: planGraphColor(theme) },
+                      inner,
+                      statusRows,
+                      true,
+                    )
+                  : renderStatusDock({
+                      columns: snapshot.dockColumns,
+                      theme: colors,
+                      width: inner,
+                      expanded: dockExpanded,
+                      maxRows: statusRows,
+                    });
+            return [...rows, ...roster].map((line, index) => {
               const edge =
                 index === 0
                   ? theme.fg("accent", dockExpanded ? "▾ " : "▸ ")
@@ -546,6 +593,40 @@ export function registerSocratesPresentation(
     if (snapshot === undefined) return;
     resizeStatus();
   };
+  pi.registerShortcut("alt+w", {
+    description: "Focus worker assignments or return to the lead",
+    handler: (ctx) => {
+      const tui = layoutTui;
+      if (
+        tui === undefined ||
+        inspecting ||
+        workerRows.length === 0 ||
+        binding === undefined
+      )
+        return;
+      const request = implementationRead(binding);
+      if (request === undefined || request.key !== workerKey) return;
+      if (!navigation.focused) resizeStatus(true);
+      const report = (error: unknown) => {
+        if (workerKey === request.key)
+          ctx.ui.notify(
+            error instanceof Error ? error.message : String(error),
+            "warning",
+          );
+      };
+      navigation.toggleFocus(tui, {
+        changed: render,
+        inspect: (row) => {
+          inspectWorkerTask?.(ctx, request.authority, row.beadId).catch(report);
+        },
+        focusPane: (row) => {
+          focusTaskPane(request.authority, row.beadId, row.attemptId).catch(
+            report,
+          );
+        },
+      });
+    },
+  });
   pi.registerShortcut("alt+s", {
     description: "Show or collapse lead status",
     handler: toggle,

@@ -85,7 +85,10 @@ export class TaskBrowser {
     private readonly theme: Pick<Theme, "fg" | "bg" | "bold" | "getBgAnsi">,
     private readonly height: () => number,
     private readonly changed: () => void,
-    private readonly done: (paneTask: string | undefined) => void,
+    private readonly done: (
+      paneTask: string | undefined,
+      attemptId?: string,
+    ) => void,
     initialId?: string,
     private readonly panel?: PanelControls,
   ) {
@@ -566,6 +569,16 @@ export class TaskBrowser {
     });
   }
 
+  private focusPane(id: string): void {
+    const assignee = this.snapshot.tasks.find(
+      (task) => task.id === id,
+    )?.assignee;
+    this.done(
+      id,
+      assignee?.startsWith("pi:") === true ? assignee.slice(3) : undefined,
+    );
+  }
+
   handleInput(input: string): void {
     if (this.closed) return;
     if (this.panel !== undefined) {
@@ -638,7 +651,7 @@ export class TaskBrowser {
         else this.expanded.add(key);
       } else if (action?.kind === "pane") {
         if (this.panel === undefined) this.closed = true;
-        this.done(action.id);
+        this.focusPane(action.id);
       } else if (action?.kind === "link") {
         this.inspect(action.id);
       } else if (
@@ -708,7 +721,7 @@ export class TaskBrowser {
       this.snapshot.focusable.has(this.selected)
     ) {
       if (this.panel === undefined) this.closed = true;
-      this.done(this.selected);
+      this.focusPane(this.selected);
     } else {
       const direction =
         matchesKey(input, NavigationKey.VimDown) ||

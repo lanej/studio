@@ -1,3 +1,4 @@
+import type { InspectWorkerTask } from "./tasks/panel.ts";
 import { renderPlanCall } from "./plan-renderer.ts";
 import { lspTool, renameTool } from "./code-intelligence/extension.ts";
 import { githubLink, renderReferences } from "./github-links.ts";
@@ -81,6 +82,7 @@ export function registerLeadControls(
   id: string,
   requireBinding: (ctx: ExtensionContext) => Promise<Attempt>,
   approvalPending: (active: boolean) => void,
+  inspectWorkerTask?: InspectWorkerTask,
 ) {
   const mode = () => db.get(id).leadPlan?.mode;
   const socrates = registerSocrates(
@@ -89,6 +91,7 @@ export function registerLeadControls(
     id,
     requireBinding,
     approvalPending,
+    inspectWorkerTask,
   );
   const permits = (tool: string) => {
     const spec = db.get(id).specification;

@@ -1,3 +1,4 @@
+import type { InspectWorkerTask } from "../tasks/panel.ts";
 import { renderPlanCall } from "../plan-renderer.ts";
 import type {
   ExtensionAPI,
@@ -64,6 +65,7 @@ export function registerDiscovery(
   pi: ExtensionAPI,
   profile: () => string | undefined,
   onSelectionChange?: () => void,
+  inspectWorkerTask?: InspectWorkerTask,
 ) {
   let pending = false;
   let runningDiscoveryCommand = false;
@@ -224,6 +226,7 @@ export function registerDiscovery(
     },
     {
       discovery: true,
+      inspectWorkerTask,
       subject: "this discovery; Beads is not required",
       identity: (record) => record.id,
       label: (record) => record.title,

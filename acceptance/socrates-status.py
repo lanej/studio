@@ -25,6 +25,7 @@ import uuid
 
 import pyte
 from local_provider import tool_delta
+from worker_sidebar import check_worker_sidebar, worker_prompt, worker_reply
 from PIL import Image, ImageDraw, ImageFont
 
 
@@ -65,6 +66,10 @@ class Provider(BaseHTTPRequestHandler):
         if self.path == '/v0/beads/context':
             value = {'project_id': beads_project, 'backend': 'dolt', 'dolt_mode': 'server',
                      'capabilities': ['project.enforce', 'issues.get', 'issues.create', 'issues.update']}
+        elif self.path.partition('?')[0] == '/v0/beads/issues':
+            value = {'items': list(linked_beads.values()), 'has_more': False}
+        elif self.path.partition('?')[0] == '/v0/beads/dependencies':
+            value = {'items': [], 'missing': []}
         elif self.path.startswith('/v0/beads/issues/') and self.path.rsplit('/', 1)[1] in linked_beads:
             value = linked_beads[self.path.rsplit('/', 1)[1]]
         else:
@@ -117,6 +122,8 @@ Harmony depends on the same check. After the revision, the sidebar and inspector
 
 Should the native test change R1 and check both views?""")
         delta = {"role": "assistant", "content": reply}
+        if user_messages and worker_prompt in user_messages[-1]:
+            delta = {"role": "assistant", "content": worker_reply}
         last = request["messages"][-1]
         if user_messages and "Explain which properties remain open" in user_messages[-1]:
             if last["role"] == "user":
@@ -802,6 +809,9 @@ def run(output):
         finally:
             release_response.set()
             terminal.close()
+        check_worker_sidebar(Terminal, project, env, output,
+                             {'url': f'http://127.0.0.1:{provider.server_port}', 'projectId': beads_project, 'reviewOnly': True},
+                             linked_beads, records['readyDraft'])
         terminal = Terminal(project, env, output, records['planOnlySession'], mode='regular')
         try:
             terminal.wait_for_rail()

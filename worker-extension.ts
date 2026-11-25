@@ -12,7 +12,7 @@ import { realpath } from "node:fs/promises";
 import { Type } from "typebox";
 import { z } from "zod";
 import { Attempts, Phase, stateDirectory, type Attempt } from "./attempts.ts";
-import studioExtension from "./extension.ts";
+import { registerStudio } from "./extension.ts";
 import { registerLeadControls } from "./lead-extension.ts";
 import { socratesGuidance } from "./socrates/guidance.ts";
 import { SpecStatus, specText } from "./socrates/spec.ts";
@@ -82,7 +82,7 @@ export default function managedWorker(pi: ExtensionAPI): void {
   let approvalPending = false;
   let applyLeadTools: ((ctx: ExtensionContext) => void) | undefined;
   if (lead.leadPlan !== undefined) {
-    studioExtension(pi, {
+    const inspectWorkerTask = registerStudio(pi, {
       profile: lead.profile,
       approvalPending: () => approvalPending,
       activationBlocked: () =>
@@ -111,6 +111,7 @@ export default function managedWorker(pi: ExtensionAPI): void {
       (active) => {
         approvalPending = active;
       },
+      inspectWorkerTask,
     );
   }
   registerActivation(

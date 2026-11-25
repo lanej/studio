@@ -20,7 +20,7 @@ import {
 } from "./config.ts";
 import { LeadMode } from "./lead-plan.ts";
 import { processFailure, processStart, run } from "./process.ts";
-import { ClaimRefused, TaskBeads } from "./task-service.ts";
+import { ClaimRefused, owner, TaskBeads } from "./task-service.ts";
 import { Zellij } from "./zellij.ts";
 import { focusInteractivePane } from "./execution/interactive-target.ts";
 import { readTaskEvidence } from "./tasks/evidence.ts";
@@ -76,6 +76,7 @@ export async function taskPaneBeads(project: string): Promise<Set<string>> {
 export async function focusTaskPane(
   source: Attempt["source"],
   bead: string,
+  expectedAttemptId?: string,
 ): Promise<void> {
   await requireIntegration(await loadConfig(), "zellij");
   const session = z
@@ -88,8 +89,17 @@ export async function focusTaskPane(
   if (candidates.length > 0) {
     const service = new TaskBeads(source);
     const current = await service.get(bead);
+    if (
+      expectedAttemptId !== undefined &&
+      current.assignee !== owner(expectedAttemptId)
+    )
+      throw new Error(
+        "The assignment changed. Select the current worker before focusing its pane.",
+      );
     const attempt = candidates.find(
-      (candidate) => candidate.bead?.assignee === current.assignee,
+      (candidate) =>
+        candidate.bead?.assignee === current.assignee &&
+        (expectedAttemptId === undefined || candidate.id === expectedAttemptId),
     );
     if (attempt?.bead !== undefined && attempt.revision !== undefined) {
       await service.requireCurrent(attempt.bead, attempt.revision, attempt.id);
@@ -108,10 +118,16 @@ export async function focusTaskPane(
   const db = new Attempts(stateDirectory(), true);
   try {
     const record = db.latest(source.projectId, bead);
+    if (expectedAttemptId !== undefined && record?.id !== expectedAttemptId)
+      throw new Error(
+        "The assignment changed. Select the current worker before focusing its pane.",
+      );
     if (record === null || record.session !== session)
       throw new Error(
         "This task has no registered Pi pane in the current Zellij session",
       );
+    if (!isDeepStrictEqual(record.source, source))
+      throw new Error("This inspector uses a different Beads authority");
     await focusRegisteredPane(
       record,
       new Zellij(session),

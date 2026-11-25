@@ -9,13 +9,24 @@ import { executionSchema, type Execution } from "../execution/store.ts";
 export function readTaskEvidence(
   project: string | undefined,
   directory = stateDirectory(),
+  attemptIds?: readonly string[],
 ): {
   attempts: Execution[];
   evidenceError?: string;
   interactiveAttempts?: Attempt[];
   interactiveEvidenceError?: string;
 } {
-  const interactive = readInteractiveEvidence(project, directory);
+  // The sidebar polls only the current owners. The task inspector also reads history.
+  const owners = attemptIds === undefined ? [] : [JSON.stringify(attemptIds)];
+  const filter = owners.length
+    ? " AND id IN (SELECT value FROM json_each(?))"
+    : "";
+  const interactive = readInteractiveEvidence(
+    project,
+    directory,
+    filter,
+    owners,
+  );
   if (project === undefined) return { attempts: [], ...interactive };
   const path = join(directory, "runtime.sqlite");
   let db: Database | undefined;
@@ -25,9 +36,9 @@ export function readTaskEvidence(
     db.run("PRAGMA busy_timeout=1000");
     const rows = db
       .query(
-        "SELECT record FROM records WHERE kind='attempt' AND json_extract(record,'$.project')=? ORDER BY rowid",
+        `SELECT record FROM records WHERE kind='attempt' AND json_extract(record,'$.project')=?${filter} ORDER BY rowid`,
       )
-      .all(project);
+      .all(project, ...owners);
     return {
       ...interactive,
       attempts: rows.map((row) =>
@@ -53,6 +64,8 @@ export function readTaskEvidence(
 function readInteractiveEvidence(
   project: string | undefined,
   directory: string,
+  filter: string,
+  owners: string[],
 ): { interactiveAttempts?: Attempt[]; interactiveEvidenceError?: string } {
   if (project === undefined) return {};
   let db: Database | undefined;
@@ -62,8 +75,10 @@ function readInteractiveEvidence(
     db = new Database(path, { readonly: true });
     db.run("PRAGMA busy_timeout=1000");
     const attempts = db
-      .query("SELECT bead,record FROM attempts WHERE project=? ORDER BY rowid")
-      .all(project)
+      .query(
+        `SELECT bead,record FROM attempts WHERE project=?${filter} ORDER BY rowid`,
+      )
+      .all(project, ...owners)
       .map((row) => {
         const stored = z
           .object({ bead: z.string(), record: z.string() })

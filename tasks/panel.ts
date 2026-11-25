@@ -1,4 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { StudioConfig } from "../config.ts";
 import type { OverlayHandle } from "@earendil-works/pi-tui";
 import {
   loadTaskSnapshot,
@@ -6,9 +7,15 @@ import {
   type BrowserSource,
 } from "./browser.ts";
 
+export type InspectWorkerTask = (
+  ctx: ExtensionContext,
+  authority: NonNullable<StudioConfig["beadsService"]>,
+  beadId: string,
+) => Promise<void>;
+
 interface PanelSource extends BrowserSource {
   key: string;
-  focusPane: (id: string) => Promise<void>;
+  focusPane: (id: string, attemptId?: string) => Promise<void>;
 }
 type PanelContext = Pick<ExtensionContext, "hasUI"> & {
   ui: Pick<ExtensionContext["ui"], "custom" | "notify">;
@@ -42,6 +49,7 @@ export class TaskPanel {
     ctx: PanelContext,
     source: PanelSource,
     initialId?: string,
+    focusInspector = false,
   ): Promise<void> {
     if (!ctx.hasUI) return;
     if (
@@ -93,11 +101,11 @@ export class TaskPanel {
           () => {
             tui.requestRender();
           },
-          (id) => {
+          (id, attemptId) => {
             if (id === undefined) this.close();
             else {
               leave();
-              source.focusPane(id).catch((error: unknown) => {
+              source.focusPane(id, attemptId).catch((error: unknown) => {
                 if (current())
                   ctx.ui.notify(
                     error instanceof Error ? error.message : String(error),
@@ -129,8 +137,10 @@ export class TaskPanel {
           nonCapturing: true,
         },
         onHandle: (handle) => {
-          if (current()) this.handle = handle;
-          else handle.hide();
+          if (current()) {
+            this.handle = handle;
+            if (focusInspector) handle.focus();
+          } else handle.hide();
         },
       },
     );
