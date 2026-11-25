@@ -1,4 +1,10 @@
+import {
+  ShellHeading,
+  shellElapsed,
+  shellOutputPreview,
+} from "./shell-preview.ts";
 import { parseArgs } from "node:util";
+import { estimateShellUsage } from "./shell-usage.ts";
 import { analyzeShell, prepareShellSyntax } from "./shell-syntax.ts";
 import { registerCodingRenderer } from "./model-tools/rendering.ts";
 import {
@@ -9,8 +15,6 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import {
   type Component,
-  Container,
-  Text,
   sliceByColumn,
   truncateToWidth,
   visibleWidth,
@@ -321,8 +325,15 @@ const outputDetails = z
   })
   .loose();
 
+const originalArgs = z.object({ invocationArgs: z.unknown() });
+
 export function registerSearchRendering(pi: ExtensionAPI): void {
-  pi.on("session_start", prepareShellSyntax);
+  let expandHintCall: string | undefined;
+  pi.on("session_start", () => {
+    expandHintCall = undefined;
+    return prepareShellSyntax();
+  });
+  const headings = new WeakMap<object, ShellHeading>();
   const painted = new WeakSet<Component>();
   registerCodingRenderer(pi, (name, next) => {
     const base = next();
@@ -335,11 +346,22 @@ export function registerSearchRendering(pi: ExtensionAPI): void {
       ...(name === "bash" && renderCall !== undefined
         ? {
             renderCall(args, theme, context) {
-              // Let Pi start its tool timer and reuse its width-aware text component.
-              const component = renderCall(args, theme, context);
+              const heading =
+                context.lastComponent instanceof ShellHeading
+                  ? context.lastComponent
+                  : new ShellHeading();
+              heading.inlay = undefined;
+              const state: unknown = context.state;
+              if (state !== null && typeof state === "object")
+                headings.set(state, heading);
+              // Pi starts the timer here and supplies its fallback for partial arguments.
+              const component = renderCall(args, theme, {
+                ...context,
+                displayToolName: "$",
+                lastComponent: heading,
+              });
               const parsed = shellCallArgs.safeParse(args);
-              if (!parsed.success || !(component instanceof Text))
-                return component;
+              if (!parsed.success || component !== heading) return component;
               const { command, timeout } = parsed.data;
               if (
                 command.trim() === "" ||
@@ -347,21 +369,84 @@ export function registerSearchRendering(pi: ExtensionAPI): void {
                 Buffer.byteLength(command) > MAX_HIGHLIGHT_BYTES
               )
                 return component;
-              const prompt = theme.fg(
-                "toolTitle",
-                theme.bold(context.displayToolName ?? "$"),
-              );
-              const syntax = highlightShellCommand(command, theme);
               const suffix =
                 timeout !== undefined && timeout !== 0
                   ? theme.fg("muted", ` (timeout ${timeout.toString()}s)`)
                   : "";
-              component.setText(`${prompt} ${syntax}${suffix}`);
-              return component;
+              heading.setText(
+                theme.fg("toolTitle", theme.bold("$")) +
+                  " " +
+                  highlightShellCommand(command, theme) +
+                  suffix,
+              );
+              return heading;
             },
           }
         : {}),
       renderResult(result, options, theme, context) {
+        const details = outputDetails.safeParse(result.details);
+        const block = result.content[0];
+        const eligible =
+          !options.isPartial &&
+          !context.isError &&
+          result.isError !== true &&
+          result.content.length === 1 &&
+          block?.type === "text" &&
+          !block.text.includes("\x1b") &&
+          !(
+            details.success &&
+            (details.data.truncation?.truncated === true ||
+              details.data.fullOutputPath !== undefined ||
+              details.data.matchLimitReached !== undefined ||
+              details.data.linesTruncated === true)
+          );
+        const args: unknown = context.args;
+        if (name === "bash") {
+          const state: unknown = context.state;
+          const heading =
+            state !== null && typeof state === "object"
+              ? headings.get(state)
+              : undefined;
+          const invocation = originalArgs.safeParse(args);
+          const usage = options.isPartial
+            ? undefined
+            : estimateShellUsage(
+                context.displayToolName ?? name,
+                invocation.success
+                  ? (invocation.data.invocationArgs ?? args)
+                  : args,
+                result,
+              );
+          return render(result, options, theme, {
+            ...context,
+            renderShellOutput(output, timerText) {
+              const styled = eligible
+                ? highlightSearchOutput(name, args, output)
+                : output;
+              const source =
+                styled === output
+                  ? output
+                      .split("\n")
+                      .map((line) =>
+                        line === "" ? "" : theme.fg("toolOutput", line),
+                      )
+                      .join("\n")
+                  : styled;
+              return shellOutputPreview(source, theme, heading, {
+                expanded: options.expanded,
+                expandKey() {
+                  expandHintCall ??= context.toolCallId;
+                  return expandHintCall === context.toolCallId
+                    ? context.keyText("app.tools.expand")
+                    : "";
+                },
+                tokens:
+                  usage === undefined ? undefined : usage.call + usage.result,
+                elapsed: shellElapsed(timerText, context.durationMs, state),
+              });
+            },
+          });
+        }
         const fallback = () =>
           render(
             result,
@@ -372,61 +457,28 @@ export function registerSearchRendering(pi: ExtensionAPI): void {
               ? { ...context, lastComponent: undefined }
               : context,
           );
-        const block = result.content[0];
-        if (
-          options.isPartial ||
-          context.isError ||
-          result.isError === true ||
-          result.content.length !== 1 ||
-          block?.type !== "text"
-        )
-          return fallback();
-        const details = outputDetails.safeParse(result.details);
-        if (
-          details.success &&
-          (details.data.truncation?.truncated === true ||
-            details.data.fullOutputPath !== undefined ||
-            details.data.matchLimitReached !== undefined ||
-            details.data.linesTruncated === true)
-        )
-          return fallback();
-        const args: unknown = context.args;
+        if (!eligible || block?.type !== "text") return fallback();
         const highlighted = highlightSearchOutput(name, args, block.text);
         if (highlighted === block.text) return fallback();
-
-        const component = new Container();
-        component.addChild({
+        const component: Component = {
           invalidate() {},
           render(width) {
             const rows = wrapTextWithAnsi(
               highlighted.trimEnd(),
               Math.max(1, width),
             );
-            const limit = name === "bash" ? 5 : 15;
-            if (options.expanded || rows.length <= limit) return ["", ...rows];
-            const hidden = rows.length - limit;
-            const direction = name === "bash" ? "earlier" : "more";
+            if (options.expanded || rows.length <= 15) return ["", ...rows];
             const hint = truncateToWidth(
               theme.fg(
                 "muted",
-                `... (${hidden.toString()} ${direction} lines,`,
+                `... (${(rows.length - 15).toString()} more lines,`,
               ) +
                 ` ${context.keyHint("app.tools.expand", "to expand")}${theme.fg("muted", ")")}`,
               width,
             );
-            return name === "bash"
-              ? ["", hint, ...rows.slice(-limit)]
-              : ["", ...rows.slice(0, limit), hint];
+            return ["", ...rows.slice(0, 15), hint];
           },
-        });
-        // The native shell renderer owns the live timer and its recorded duration.
-        if (name === "bash")
-          component.addChild(
-            render({ ...result, content: [] }, options, theme, {
-              ...context,
-              lastComponent: undefined,
-            }),
-          );
+        };
         painted.add(component);
         return component;
       },

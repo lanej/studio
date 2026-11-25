@@ -14,7 +14,6 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import {
   type Component,
-  Text,
   stripTerminalSequences,
   visibleWidth,
 } from "@earendil-works/pi-tui";
@@ -176,12 +175,6 @@ await test("registered Bash renderer styles compound command positions without c
         lastComponent: original,
       });
       assert.equal(state.startedAt, startedAt);
-      assert.equal(
-        component,
-        original,
-        "Preserve Pi's Text component and timer setup",
-      );
-      assert.ok(component instanceof Text);
       const rendered = component.render(4000).join("\n");
       assert.deepEqual(
         component.render(4000).map(stripTerminalSequences),

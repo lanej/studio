@@ -87,7 +87,7 @@ studio lead -- --help
 
 `studio resume BEAD_ID` resumes a managed Beads lead; `studio lead -- --resume` opens Pi's session picker for ordinary conversations. Daily-driver sessions use the current checkout. Starting a bead with `studio start BEAD_ID --profile work` retains the managed checkout workflow below.
 
-Run `uv run --script acceptance/shell-header.py --output /path/to/captures` to verify retained Bash tool headers in native Pi without executing the displayed commands. Native PTY terminal-cell captures show the [wide compound headers](docs/assets/shell-header-128.png) and [narrow wrapping](docs/assets/shell-header-60.png), including timeout and elapsed-time displays.
+Run `uv run --script acceptance/shell-header.py --output /path/to/captures` to verify retained Bash tool headers in native Pi without executing the displayed commands. See the [compact discovery preview](docs/assets/search-discovery.png) and the [expanded narrow view](docs/assets/search-chains.png).
 
 ### Nord in Studio
 
@@ -233,7 +233,9 @@ In an ordinary coding session, Studio selects the core tool names and arguments 
 
 The dialects in `model-tools/dialects/` translate model-facing arguments and results. Both `Bash` and `shell_command` call `runShell` in `model-tools/operations.ts`, so their timeouts, output, and permissions go through the same Pi shell executor after translation. Claude `Edit` uses exact text replacement. Codex `apply_patch` uses a batch operation that preflights its hunks and runs through the same shell permission hook. The patch tool is available when local read, edit, write, and shell access are all active. Custom executors, restricted workers, and snapshot reviewers retain their configured tools. Studio-specific operations such as Socrates planning and LSP navigation keep their own names across models.
 
-The conversation shows the name the model called, including Claude `Edit` and Codex `apply_patch`. Both use the same renderer for numbered diffs, surrounding lines, and syntax highlighting. When available, the view adds the enclosing declaration, highlights individual token replacements, and displays diagnostics on the affected lines. A multi-file patch shows one `apply_patch` heading. Each file has a path, a brief reason for the change, and its own diff. A newly created file gets one `+` before its name and ordinary line numbers throughout. The transcript retains the diff and syntax context from execution, so later edits to the checkout do not change an earlier result.
+Shell commands appear with a `$` prompt. The first folded shell result shows the configured expand shortcut alongside its hidden-line count. Completed calls show `≈N tokens`, Pi’s estimate for the tool name, original arguments, and full result returned to the model. The provider reports billed usage per model response. Elapsed time appears when a command takes at least one second.
+
+File edits show the name the model called, including Claude `Edit` and Codex `apply_patch`. Both use the same renderer for numbered diffs, surrounding lines, and syntax highlighting. When available, the view adds the enclosing declaration, highlights individual token replacements, and displays diagnostics on the affected lines. A multi-file patch shows one `apply_patch` heading. Each file has a path, a brief reason for the change, and its own diff. A newly created file gets one `+` before its name and ordinary line numbers throughout. The transcript retains the diff and syntax context from execution, so later edits to the checkout do not change an earlier result.
 
 ## Run a bead locally
 

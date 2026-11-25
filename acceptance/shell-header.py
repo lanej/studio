@@ -23,11 +23,12 @@ commands = [
 
 def assert_style(terminal, word, token, bold=False):
     matches = []
+    expected = colors.get(token, token).lstrip("#").lower()
     for row, line in enumerate(terminal.screen.display):
         start = 0
         while (column := line.find(word, start)) >= 0:
             cells = [terminal.screen.buffer[row][x] for x in range(column, column + len(word))]
-            if all(cell.fg.lower() == colors[token].lstrip("#").lower() and (not bold or cell.bold) for cell in cells):
+            if all(cell.fg.lower() == expected and (not bold or cell.bold) for cell in cells):
                 matches.append((row, column))
             start = column + len(word)
     assert matches, f"Missing {token} styling for {word!r}\n{terminal.text()}"
@@ -54,7 +55,7 @@ const usage={{input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,cost:{{inp
 for (const [index,command] of {json.dumps(commands)}.entries()) {{
  const call={{type:'toolCall',id:`shell-${{index}}`,name:'bash',arguments:{{command,timeout:30}}}};
  session.appendMessage({{role:'assistant',content:[call],api:'openai-completions',provider:'fixture',model:'tiny',usage,stopReason:'toolUse',timestamp:Date.now()}});
- session.appendMessage({{role:'toolResult',toolCallId:call.id,toolName:call.name,content:[{{type:'text',text:'Retained fixture output; command was not executed.'}}],isError:false,durationMs:1250,timestamp:Date.now()}});
+ session.appendMessage({{role:'toolResult',toolCallId:call.id,toolName:call.name,content:[{{type:'text',text:'Retained fixture output; command was not executed.'}}],isError:false,durationMs:index === 0 ? 249 : 1250,timestamp:Date.now()}});
 }}
 console.log(session.getSessionFile());
 """
@@ -64,8 +65,11 @@ console.log(session.getSessionFile());
             try:
                 terminal.contains("Retained fixture output; command was not executed.")
                 terminal.contains("timeout 30s")
-                terminal.contains("Took 1.3s")
-                # Both widths must retain commands, their flags and native timeout/timing.
+                terminal.contains("1.3s")
+                terminal.contains("tokens")
+                assert "Took " not in terminal.text() and "0.2s" not in terminal.text(), terminal.text()
+                assert_style(terminal, "≈", "#b1b1b1")
+                # Both widths retain command syntax and the completed run's metadata.
                 for word in ("gh", "tail"):
                     assert_style(terminal, word, "syntaxFunction", bold=True)
                 for word in ("--repo", "--watch", "--fail-fast", "--interval", "--json", "--jq", "--limit", "-15", "--log"):

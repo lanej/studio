@@ -9,7 +9,9 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import {
+  getKeybindings,
   ProcessTerminal,
+  setKeybindings,
   stripTerminalSequences,
   TuiMainScreen,
   visibleWidth,
@@ -20,6 +22,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
+import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
+import { inlayText } from "../code-intelligence/diff.ts";
 import { registerCodeIntelligence } from "../code-intelligence/extension.ts";
 import { registerModelTools } from "../model-tools/extension.ts";
 import { applyPatch, replaceText } from "../model-tools/operations.ts";
@@ -153,8 +157,11 @@ async function conversationFixture(t: TestContext) {
   );
   const ui = new TuiMainScreen(new ProcessTerminal());
   const component = (name: string, args: object) => {
-    const renderers = session.extensionRunner.resolveToolRenderers(name, () =>
-      session.extensionRunner.getToolDefinition(name),
+    const renderers = session.extensionRunner.resolveToolRenderers(
+      name,
+      () =>
+        session.getToolDefinition(name) ??
+        session.extensionRunner.getToolDefinition(name),
     );
     assert.ok(renderers !== undefined, name);
     return new ToolExecutionComponent(
@@ -167,14 +174,19 @@ async function conversationFixture(t: TestContext) {
       cwd,
     );
   };
-  return { cwd, ctx, component };
+  return {
+    cwd,
+    ctx,
+    component,
+    theme: session.extensionRunner.getUIContext().theme,
+  };
 }
 
 function plain(component: ToolExecutionComponent, width: number) {
   return stripTerminalSequences(component.render(width).join("\n"));
 }
 
-await test("dialect tools keep their invoked names in conversation headings", async (t) => {
+await test("shell aliases share the shell prompt and file tools keep their invoked names", async (t) => {
   const { component } = await conversationFixture(t);
   const path = "README.md";
   const command = "pwd";
@@ -185,6 +197,7 @@ await test("dialect tools keep their invoked names in conversation headings", as
       args: { file_path: path, content: "sample" },
       subject: path,
     },
+    { name: "bash", args: { command }, subject: command },
     { name: "Bash", args: { command }, subject: command },
     { name: "shell_command", args: { command }, subject: command },
   ];
@@ -192,7 +205,9 @@ await test("dialect tools keep their invoked names in conversation headings", as
     const call = component(name, args);
     call.setArgsComplete();
     const heading = plain(call, 80).trimStart();
-    assert.ok(heading.startsWith(name), heading);
+    if ("command" in args)
+      assert.ok(heading.startsWith(`$ ${command}`), heading);
+    else assert.ok(heading.startsWith(name), heading);
     assert.ok(heading.includes(subject), heading);
   }
 });
@@ -224,10 +239,11 @@ await test("Codex discovery displays TypeScript tokens in both compact and expan
   assert.ok(highlighted !== undefined && highlighted !== source);
   for (const expanded of [false, true]) {
     shell.setExpanded(expanded);
-    const rows = shell.render(100);
+    const rows = shell.render(180);
     const display = stripTerminalSequences(rows.join("\n"));
-    assert.match(display, /Took 0\.2s/u);
-    assert.equal(display.includes("to expand"), !expanded);
+    assert.doesNotMatch(display, /Took|0\.2s/u);
+    assert.match(display, /≈\d+ tokens/u);
+    assert.equal(display.includes("+1 line"), !expanded);
     const context = rows.find((row) =>
       stripTerminalSequences(row).includes(`17-${source}`),
     );
@@ -243,6 +259,94 @@ await test("Codex discovery displays TypeScript tokens in both compact and expan
   assert.deepEqual(result.content, [{ type: "text", text }]);
   shell.updateResult({ ...result, isError: true });
   assert.ok(!shell.render(100).some((line) => line.includes(highlighted)));
+});
+
+await test("finished shell results put size, hidden rows and slow duration on the command", async (t) => {
+  const { component, theme } = await conversationFixture(t);
+  const bindings = getKeybindings();
+  setKeybindings(new KeybindingsManager({ "app.tools.expand": "ctrl+y" }));
+  t.after(() => setKeybindings(bindings));
+  const args = { command: "printf lines" };
+  const shell = component("shell_command", args);
+  const text = "first\ntwo\nthree\nfour\nfive\nlast";
+  const result = { content: [{ type: "text", text }], isError: false };
+  const callTokens = Math.ceil(
+    ("shell_command".length + JSON.stringify(args).length) / 4,
+  );
+  const size = `≈${String(callTokens + Math.ceil(text.length / 4))} tokens`;
+  shell.setArgsComplete();
+  shell.updateResult(result, true);
+  assert.doesNotMatch(plain(shell, 100), /≈\d+ tokens/u);
+
+  for (const durationMs of [999, 1000]) {
+    shell.updateResult({ ...result, durationMs });
+    for (const expanded of [false, true]) {
+      shell.setExpanded(expanded);
+      const rows = shell.render(100);
+      const display = stripTerminalSequences(rows.join("\n"));
+      const header = rows.find((row) =>
+        stripTerminalSequences(row).includes("$ printf lines"),
+      );
+      assert.ok(header !== undefined);
+      const heading = stripTerminalSequences(header);
+      assert.ok(heading.includes(size), heading);
+      assert.equal(heading.includes("1.0s"), durationMs === 1000);
+      assert.equal(heading.includes("(ctrl+y)"), !expanded);
+      assert.equal(heading.includes("+1 line"), !expanded);
+      const label = [
+        ...(expanded ? [] : ["+1 line (ctrl+y)"]),
+        size,
+        ...(durationMs === 1000 ? ["1.0s"] : []),
+      ].join(" · ");
+      assert.ok(
+        header.includes(inlayText(theme, label)),
+        "Shell metadata uses Studio's inlay foreground",
+      );
+      assert.equal(
+        rows.filter((row) => stripTerminalSequences(row).includes("ctrl+y"))
+          .length,
+        expanded ? 0 : 1,
+      );
+      assert.doesNotMatch(display, /earlier lines|to expand|Took/u);
+      assert.equal(display.includes("first"), expanded);
+      assert.match(display, /last/u);
+    }
+  }
+  shell.updateResult({ ...result, isError: true, durationMs: 30 });
+  assert.match(plain(shell, 100), /first[\s\S]+last/u);
+  assert.deepEqual(result.content, [{ type: "text", text }]);
+  const second = component("Bash", { command: "cat output.txt" });
+  second.setArgsComplete();
+  second.updateResult({ ...result, durationMs: 300 });
+  const secondHeader = stripTerminalSequences(second.render(100).join("\n"));
+  assert.match(secondHeader, /\$ cat output\.txt[^\n]*\+1 line/u);
+  assert.doesNotMatch(secondHeader, /ctrl\+y|Took/u);
+  const path = "/tmp/studio-shell-result.txt";
+  const truncated = `${text}\n\n[Showing lines 15-20. Full output: ${path}]`;
+  second.updateResult({
+    content: [{ type: "text", text: truncated }],
+    details: {
+      fullOutputPath: path,
+      truncation: {
+        truncated: true,
+        truncatedBy: "lines",
+        outputLines: 6,
+        totalLines: 20,
+      },
+    },
+    isError: false,
+  });
+  const warning = plain(second, 100);
+  assert.match(warning, /Truncated: showing 6 of 20 lines/u);
+  assert.equal(
+    warning.split(path).length,
+    2,
+    "Pi shows the full-output path exactly once",
+  );
+  second.updateResult({ content: [], isError: false, durationMs: 10 });
+  const empty = plain(second, 100);
+  assert.match(empty, /≈\d+ tokens/u);
+  assert.doesNotMatch(empty, /\+1 line|last|Truncated|Took/u);
 });
 
 // Compare the colored rows so this also covers syntax/token colors and gutter alignment.
