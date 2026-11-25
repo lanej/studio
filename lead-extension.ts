@@ -25,7 +25,6 @@ import { readDeliveryInbox } from "./delivery.ts";
 import { appendOctoEvents } from "./transcript-events.ts";
 import { delegateTool } from "./delegation.ts";
 import {
-  describePlan,
   draftSchema,
   LeadMode,
   planDigest,
@@ -458,7 +457,7 @@ export function registerLeadControls(
           !(await reviewPlan(
             ctx,
             `Approve the plan for ${record.bead.id}`,
-            describePlan(draft),
+            { draft },
             "start implementation",
           ))
         )

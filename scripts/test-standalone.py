@@ -14,9 +14,10 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--with-integrations", action="store_true", help="Also exercise native worktree-backed delegation")
 parser.add_argument("--installation-only", action="store_true", help="Exercise export and installation without repeating source quality and unit checks")
 args = parser.parse_args()
-command_timeout = 240 if os.environ.get("GITHUB_ACTIONS") == "true" else 90
-# Hosted macOS lint can exceed four minutes on the isolated source export.
-lint_timeout = 600 if os.environ.get("GITHUB_ACTIONS") == "true" and os.environ.get("RUNNER_OS") == "macOS" else command_timeout
+ci = os.environ.get("GITHUB_ACTIONS") == "true"
+command_timeout = 240 if ci else 90
+# Exported-source quality checks rebuild the compiler programs on cold CI runners.
+quality_timeout = 600 if ci else command_timeout
 bun = shutil.which("bun")
 assert bun, "Install Bun satisfying package.json engines.bun before standalone acceptance"
 current_version = subprocess.check_output([bun, "--version"], text=True).strip().split("+", 1)[0]
@@ -80,8 +81,8 @@ with tempfile.TemporaryDirectory(prefix="studio-standalone-") as temporary:
     run([bun, "install", "--frozen-lockfile", "--ignore-scripts"])
     if not args.installation_only:
         run([bun, "install", "--cwd", ".typescript-quality", "--frozen-lockfile", "--ignore-scripts"])
-        run([bun, "run", "typecheck"])
-        run([bun, "run", "lint"], timeout=lint_timeout)
+        run([bun, "run", "typecheck"], timeout=quality_timeout)
+        run([bun, "run", "lint"], timeout=quality_timeout)
         run([bun, "run", "test"])
         run([bun, "run", "test:pi-native"])
     report = json.loads(run([str(source / "scripts/studio"), "doctor"]))
