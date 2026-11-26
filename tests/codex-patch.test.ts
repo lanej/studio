@@ -375,11 +375,37 @@ await test("finished shell results put size, hidden rows and slow duration on th
   assert.doesNotMatch(empty, /\+1 line|last|Truncated|Took/u);
 });
 
-await test("shell metadata always shares a physical row with the command after a resize", async (t) => {
+await test("shell metadata uses the spare cells on the naturally wrapped final command row", async (t) => {
   const { component } = await conversationFixture(t);
   const argument = "Q".repeat(44) + "界";
   const shell = component("shell_command", { command: `ls ${argument}\n` });
   shell.setArgsComplete();
+  const exactFit = visibleWidth(`$ ls ${argument}`) + 2; // the card pads one cell on each side
+  const durationOnly = exactFit + 2 + visibleWidth("1.3s");
+  const widths = [
+    160,
+    80,
+    durationOnly,
+    durationOnly - 1,
+    exactFit,
+    exactFit - 1,
+    48,
+    32,
+    16,
+    12,
+    8,
+    6,
+    160,
+  ];
+  const natural = new Map(
+    widths.map((width) => [
+      width,
+      shell
+        .render(width)
+        .map((row) => stripTerminalSequences(row).trim())
+        .filter(Boolean),
+    ]),
+  );
   shell.updateResult({
     content: [{ type: "text", text: "OUT1\nOUT2\nOUT3\nOUT4\nOUT5\nOUT6" }],
     isError: false,
@@ -387,7 +413,7 @@ await test("shell metadata always shares a physical row with the command after a
   });
   for (const expanded of [false, true]) {
     shell.setExpanded(expanded);
-    for (const width of [160, 80, 55, 48, 32, 16, 12, 8, 6, 160]) {
+    for (const width of widths) {
       const rendered = shell.render(width);
       assert.ok(rendered.every((row) => visibleWidth(row) <= width));
       const rows = rendered
@@ -399,21 +425,28 @@ await test("shell metadata always shares a physical row with the command after a
         `Missing shell command or output at ${String(width)} columns`,
       );
       const heading = rows.slice(0, output);
-      for (const row of heading)
-        assert.match(
-          row,
-          /\$|\bls\b|Q|界/u,
-          `Metadata took a row of its own at ${String(width)} columns: ${row}`,
-        );
-      const joined = heading.join("");
-      const commandEnd = joined.lastIndexOf("界") + 1;
-      assert.equal(
-        joined.slice(0, commandEnd).replaceAll(" ", ""),
-        `$ls${argument}`,
+      const expected = natural.get(width);
+      const last = heading.at(-1);
+      const expectedLast = expected?.at(-1);
+      assert.ok(
+        expected !== undefined &&
+          expectedLast !== undefined &&
+          last !== undefined,
       );
-      const metadata = joined.slice(commandEnd);
+      assert.deepEqual(
+        heading.slice(0, -1),
+        expected.slice(0, -1),
+        `The inlay changed the command's line breaks at ${String(width)} columns`,
+      );
+      assert.ok(
+        last.startsWith(expectedLast),
+        "Preserve all final-row command text",
+      );
+      const metadata = last.slice(expectedLast.length);
       if (metadata !== "") assert.match(metadata, /^ {2}\S/u);
-      if (width === 6) assert.equal(metadata, "");
+      if (width === exactFit || width === durationOnly - 1 || width === 6)
+        assert.equal(metadata, "", "Omit metadata when no whole field fits");
+      if (width === durationOnly) assert.equal(metadata, "  1.3s");
       assert.deepEqual(
         rows.slice(output),
         expanded

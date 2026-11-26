@@ -15,9 +15,12 @@ import tempfile
 ui = import_module("socrates-status")
 root = Path(__file__).resolve().parents[1]
 colors = json.loads((root / "resources/theme.json").read_text())["colors"]
+# This command and its timeout occupy 57 of the 58 content cells in the narrow pane.
+full_row_command = "printf " + "x" * 34
 commands = [
     'expected=729c3fa; gh pr checks 15 --repo lanej/studio --watch --fail-fast --interval 10 > /tmp/checks.log 2>&1 && test "$expected" = "$(gh pr view 15 --json headRefOid --jq .headRefOid)"; tail -15 /tmp/checks.log',
     "gh run list --limit 15 --json databaseId --jq '.[].databaseId' | tail -15 || gh run view --log",
+    full_row_command,
 ]
 
 
@@ -69,7 +72,16 @@ console.log(session.getSessionFile());
                 terminal.contains("tokens")
                 assert "Took " not in terminal.text() and "0.2s" not in terminal.text(), terminal.text()
                 assert_style(terminal, "≈", "#b1b1b1")
-                # Both widths retain command syntax and the completed run's metadata.
+                heading = f"$ {full_row_command} (timeout 30s)"
+                terminal.contains(heading)
+                lines = [row.strip() for row in terminal.screen.display if row.strip()]
+                row = next(i for i, line in enumerate(lines) if line.startswith(heading))
+                if width == 60:
+                    assert lines[row] == heading, lines[row]
+                else:
+                    assert lines[row].startswith(heading + "  ≈") and lines[row].endswith("1.3s"), lines[row]
+                assert lines[row + 1] == "Retained fixture output; command was not executed.", lines[row:row + 3]
+                # Compound command/flag colors must survive both native layouts.
                 for word in ("gh", "tail"):
                     assert_style(terminal, word, "syntaxFunction", bold=True)
                 for word in ("--repo", "--watch", "--fail-fast", "--interval", "--json", "--jq", "--limit", "-15", "--log"):

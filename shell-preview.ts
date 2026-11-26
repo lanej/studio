@@ -4,7 +4,6 @@ import {
   Text,
   stripTerminalSequences,
   visibleWidth,
-  wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import { z } from "zod";
 import { inlayText } from "./code-intelligence/diff.ts";
@@ -46,25 +45,12 @@ export class ShellHeading extends Text {
     );
     const tail = rows[end]?.trimEnd();
     if (tail === undefined) return rows;
-    const tailWidth = visibleWidth(tail);
     const gap = "  ";
-    // Leave at least half a row for a long command. Short tails need less.
-    const available =
-      width - Math.min(tailWidth, Math.ceil(width / 2)) - gap.length;
+    const available = width - visibleWidth(tail) - gap.length;
+    if (available <= 0) return rows;
     const note = this.inlay(width, available);
     if (note === "") return rows;
-
-    const commandWidth = width - gap.length - visibleWidth(note);
-    const wrapped = wrapTextWithAnsi(tail, commandWidth);
-    const last = wrapped.pop();
-    if (last === undefined || stripTerminalSequences(last).trim() === "")
-      return rows;
-    return [
-      ...rows.slice(0, end),
-      ...wrapped,
-      last + gap + note,
-      ...rows.slice(end + 1),
-    ];
+    return [...rows.slice(0, end), tail + gap + note, ...rows.slice(end + 1)];
   }
 }
 
