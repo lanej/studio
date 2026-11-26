@@ -180,8 +180,9 @@ export async function answerDecision(
           throw new Error("This request already has a different answer");
         return { queued: false, receipt: receipt(id, current) };
       }
+      // The supervisor can renew the paused attempt's lease during the Beads read.
       if (
-        !isDeepStrictEqual(row, before) ||
+        !isDeepStrictEqual(row, { ...before, heartbeatAt: row.heartbeatAt }) ||
         !isDeepStrictEqual(store.project(before.project), project)
       )
         throw new Error(
