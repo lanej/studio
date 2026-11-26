@@ -1,10 +1,5 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import {
-  type Component,
-  Text,
-  stripTerminalSequences,
-  visibleWidth,
-} from "@earendil-works/pi-tui";
+import { type Component, Text, visibleWidth } from "@earendil-works/pi-tui";
 import { z } from "zod";
 import { inlayText } from "./code-intelligence/diff.ts";
 
@@ -29,35 +24,9 @@ export function shellElapsed(
     : undefined;
 }
 
-export class ShellHeading extends Text {
-  inlay?: ((width: number, available: number) => string) | undefined;
-
-  constructor() {
-    super("", 0, 0);
-  }
-
-  override render(width: number): readonly string[] {
-    const rows = super.render(width);
-    if (this.inlay === undefined) return rows;
-    // A multiline command can end with blank rows. Attach to its last visible text.
-    const end = rows.findLastIndex(
-      (row) => stripTerminalSequences(row).trim() !== "",
-    );
-    const tail = rows[end]?.trimEnd();
-    if (tail === undefined) return rows;
-    const gap = "  ";
-    const available = width - visibleWidth(tail) - gap.length;
-    if (available <= 0) return rows;
-    const note = this.inlay(width, available);
-    if (note === "") return rows;
-    return [...rows.slice(0, end), tail + gap + note, ...rows.slice(end + 1)];
-  }
-}
-
 export function shellOutputPreview(
   output: string,
   theme: Theme,
-  heading: ShellHeading | undefined,
   {
     expanded,
     expandKey,
@@ -73,35 +42,32 @@ export function shellOutputPreview(
   },
 ): Component {
   const text = new Text(output, 0, 0);
-  if (heading !== undefined) {
-    heading.inlay = (width, available) => {
-      const hidden = expanded ? 0 : text.render(width).length - previewLines;
-      const count =
-        hidden > 0
-          ? `+${hidden.toString()} ${hidden === 1 ? "line" : "lines"}`
-          : "";
-      const size = tokens === undefined ? "" : `≈${tokens.toString()} tokens`;
-      const fields: string[] = [];
-      for (const field of [count, size, elapsed]) {
-        if (
-          field !== undefined &&
-          field !== "" &&
-          visibleWidth([...fields, field].join(" · ")) <= available
-        )
-          fields.push(field);
+  const metadata = (hidden: number, width: number) => {
+    const count =
+      hidden > 0
+        ? `+${hidden.toString()} ${hidden === 1 ? "line" : "lines"}`
+        : "";
+    const size = tokens === undefined ? "" : `≈${tokens.toString()} tokens`;
+    const fields: string[] = [];
+    for (const field of [count, size, elapsed]) {
+      if (
+        field !== undefined &&
+        field !== "" &&
+        visibleWidth([...fields, field].join(" · ")) <= width
+      )
+        fields.push(field);
+    }
+    if (fields.length === 0) return "";
+    if (fields[0] === count) {
+      const key = expandKey();
+      const hinted = [`${count} (${key})`, ...fields.slice(1)].join(" · ");
+      if (key !== "" && visibleWidth(hinted) <= width) {
+        showExpandKey();
+        return inlayText(theme, hinted);
       }
-      if (fields.length === 0) return "";
-      if (fields[0] === count) {
-        const key = expandKey();
-        const hinted = [`${count} (${key})`, ...fields.slice(1)].join(" · ");
-        if (key !== "" && visibleWidth(hinted) <= available) {
-          showExpandKey();
-          return inlayText(theme, hinted);
-        }
-      }
-      return inlayText(theme, fields.join(" · "));
-    };
-  }
+    }
+    return inlayText(theme, fields.join(" · "));
+  };
 
   return {
     invalidate() {
@@ -110,7 +76,9 @@ export function shellOutputPreview(
     render(width) {
       const rows = text.render(width);
       const visible = expanded ? rows : rows.slice(-previewLines);
-      return visible.length === 0 ? [] : ["", ...visible];
+      const header = metadata(rows.length - visible.length, width);
+      if (visible.length === 0 && header === "") return [];
+      return [header, ...visible];
     },
   };
 }

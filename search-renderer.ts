@@ -1,8 +1,4 @@
-import {
-  ShellHeading,
-  shellElapsed,
-  shellOutputPreview,
-} from "./shell-preview.ts";
+import { shellElapsed, shellOutputPreview } from "./shell-preview.ts";
 import { parseArgs } from "node:util";
 import { estimateShellUsage } from "./shell-usage.ts";
 import { analyzeShell, prepareShellSyntax } from "./shell-syntax.ts";
@@ -15,6 +11,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import {
   type Component,
+  Text,
   sliceByColumn,
   truncateToWidth,
   visibleWidth,
@@ -333,7 +330,6 @@ export function registerSearchRendering(pi: ExtensionAPI): void {
     expandHintCall = undefined;
     return prepareShellSyntax();
   });
-  const headings = new WeakMap<object, ShellHeading>();
   const painted = new WeakSet<Component>();
   registerCodingRenderer(pi, (name, next) => {
     const base = next();
@@ -346,22 +342,18 @@ export function registerSearchRendering(pi: ExtensionAPI): void {
       ...(name === "bash" && renderCall !== undefined
         ? {
             renderCall(args, theme, context) {
-              const heading =
-                context.lastComponent instanceof ShellHeading
-                  ? context.lastComponent
-                  : new ShellHeading();
-              heading.inlay = undefined;
-              const state: unknown = context.state;
-              if (state !== null && typeof state === "object")
-                headings.set(state, heading);
               // Pi starts the timer here and supplies its fallback for partial arguments.
               const component = renderCall(args, theme, {
                 ...context,
                 displayToolName: "$",
-                lastComponent: heading,
+                lastComponent:
+                  context.lastComponent instanceof Text
+                    ? context.lastComponent
+                    : undefined,
               });
               const parsed = shellCallArgs.safeParse(args);
-              if (!parsed.success || component !== heading) return component;
+              if (!parsed.success || !(component instanceof Text))
+                return component;
               const { command, timeout } = parsed.data;
               if (
                 command.trim() === "" ||
@@ -373,13 +365,13 @@ export function registerSearchRendering(pi: ExtensionAPI): void {
                 timeout !== undefined && timeout !== 0
                   ? theme.fg("muted", ` (timeout ${timeout.toString()}s)`)
                   : "";
-              heading.setText(
+              component.setText(
                 theme.fg("toolTitle", theme.bold("$")) +
                   " " +
                   highlightShellCommand(command, theme) +
                   suffix,
               );
-              return heading;
+              return component;
             },
           }
         : {}),
@@ -403,10 +395,6 @@ export function registerSearchRendering(pi: ExtensionAPI): void {
         const args: unknown = context.args;
         if (name === "bash") {
           const state: unknown = context.state;
-          const heading =
-            state !== null && typeof state === "object"
-              ? headings.get(state)
-              : undefined;
           const invocation = originalArgs.safeParse(args);
           const usage = options.isPartial
             ? undefined
@@ -432,7 +420,7 @@ export function registerSearchRendering(pi: ExtensionAPI): void {
                       )
                       .join("\n")
                   : styled;
-              return shellOutputPreview(source, theme, heading, {
+              return shellOutputPreview(source, theme, {
                 expanded: options.expanded,
                 expandKey() {
                   return expandHintCall === undefined ||

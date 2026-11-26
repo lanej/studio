@@ -285,7 +285,7 @@ await test("Codex shell excerpts preserve the first source line's indentation", 
   }
 });
 
-await test("finished shell results put size, hidden rows and slow duration on the command", async (t) => {
+await test("finished shells use the result separator for size, hidden rows and slow duration", async (t) => {
   const { component, theme } = await conversationFixture(t);
   const bindings = getKeybindings();
   setKeybindings(new KeybindingsManager({ "app.tools.expand": "ctrl+y" }));
@@ -310,22 +310,28 @@ await test("finished shell results put size, hidden rows and slow duration on th
       shell.setExpanded(expanded);
       const rows = shell.render(100);
       const display = stripTerminalSequences(rows.join("\n"));
-      const header = rows.find((row) =>
-        stripTerminalSequences(row).includes("$ printf lines"),
+      const heading = rows.findIndex(
+        (row) => stripTerminalSequences(row).trim() === "$ printf lines",
       );
-      assert.ok(header !== undefined);
-      const heading = stripTerminalSequences(header);
-      assert.ok(heading.includes(size), heading);
-      assert.equal(heading.includes("1.0s"), durationMs === 1000);
-      assert.equal(heading.includes("(ctrl+y)"), !expanded);
-      assert.equal(heading.includes("+1 line"), !expanded);
+      assert.ok(heading >= 0);
+      const status = rows[heading + 1];
+      assert.ok(status !== undefined);
+      const firstOutput = stripTerminalSequences(
+        rows[heading + 2] ?? "",
+      ).trim();
+      assert.equal(
+        firstOutput,
+        expanded ? "first" : "two",
+        "Use the existing separator without adding a second row",
+      );
       const label = [
         ...(expanded ? [] : ["+1 line (ctrl+y)"]),
         size,
         ...(durationMs === 1000 ? ["1.0s"] : []),
       ].join(" · ");
+      assert.equal(stripTerminalSequences(status).trim(), label);
       assert.ok(
-        header.includes(inlayText(theme, label)),
+        status.includes(inlayText(theme, label)),
         "Shell metadata uses Studio's inlay foreground",
       );
       assert.equal(
@@ -345,7 +351,7 @@ await test("finished shell results put size, hidden rows and slow duration on th
   second.setArgsComplete();
   second.updateResult({ ...result, durationMs: 300 });
   const secondHeader = stripTerminalSequences(second.render(100).join("\n"));
-  assert.match(secondHeader, /\$ cat output\.txt[^\n]*\+1 line/u);
+  assert.match(secondHeader, /\$ cat output\.txt *\n *\+1 line/u);
   assert.doesNotMatch(secondHeader, /ctrl\+y|Took/u);
   const path = "/tmp/studio-shell-result.txt";
   const truncated = `${text}\n\n[Showing lines 15-20. Full output: ${path}]`;
@@ -370,44 +376,43 @@ await test("finished shell results put size, hidden rows and slow duration on th
     "Pi shows the full-output path exactly once",
   );
   second.updateResult({ content: [], isError: false, durationMs: 10 });
-  const empty = plain(second, 100);
-  assert.match(empty, /≈\d+ tokens/u);
-  assert.doesNotMatch(empty, /\+1 line|last|Truncated|Took/u);
+  const empty = second
+    .render(100)
+    .map((row) => stripTerminalSequences(row).trim())
+    .filter(Boolean);
+  assert.equal(empty.length, 2, "An empty result still shows one usage row");
+  assert.equal(empty[0], "$ cat output.txt");
+  assert.match(empty[1] ?? "", /^≈\d+ tokens$/u);
 });
 
-await test("shell metadata uses the spare cells on the naturally wrapped final command row", async (t) => {
+await test("resizing shell results keeps the natural command rows and exactly one separator", async (t) => {
   const { component } = await conversationFixture(t);
   const argument = "Q".repeat(44) + "界";
   const shell = component("shell_command", { command: `ls ${argument}\n` });
   shell.setArgsComplete();
-  const exactFit = visibleWidth(`$ ls ${argument}`) + 2; // the card pads one cell on each side
-  const durationOnly = exactFit + 2 + visibleWidth("1.3s");
-  const widths = [
-    160,
-    80,
-    durationOnly,
-    durationOnly - 1,
-    exactFit,
-    exactFit - 1,
-    48,
-    32,
-    16,
-    12,
-    8,
-    6,
-    160,
-  ];
+  const exactFit = visibleWidth(`$ ls ${argument}`) + 2;
+  const widths = [160, 80, exactFit, exactFit - 1, 32, 16, 12, 9, 8, 6, 5, 160];
+  shell.updateResult(
+    { content: [{ type: "text", text: "O1" }], isError: false },
+    true,
+  );
   const natural = new Map(
-    widths.map((width) => [
-      width,
-      shell
+    widths.map((width) => {
+      const rows = shell
         .render(width)
-        .map((row) => stripTerminalSequences(row).trim())
-        .filter(Boolean),
-    ]),
+        .map((row) => stripTerminalSequences(row).trimEnd());
+      const firstOutput = rows.findIndex((row) => row.trim() === "O1");
+      assert.ok(firstOutput > 0);
+      assert.equal(
+        rows[firstOutput - 1],
+        "",
+        "A partial one-line result has a blank separator",
+      );
+      return [width, rows.slice(0, firstOutput - 1)];
+    }),
   );
   shell.updateResult({
-    content: [{ type: "text", text: "OUT1\nOUT2\nOUT3\nOUT4\nOUT5\nOUT6" }],
+    content: [{ type: "text", text: "O1\nO2\nO3\nO4\nO5\nO6" }],
     isError: false,
     durationMs: 1250,
   });
@@ -416,47 +421,41 @@ await test("shell metadata uses the spare cells on the naturally wrapped final c
     for (const width of widths) {
       const rendered = shell.render(width);
       assert.ok(rendered.every((row) => visibleWidth(row) <= width));
-      const rows = rendered
-        .map((row) => stripTerminalSequences(row).trim())
-        .filter(Boolean);
-      const output = rows.findIndex((row) => row.startsWith("OUT"));
-      assert.ok(
-        output > 0,
-        `Missing shell command or output at ${String(width)} columns`,
-      );
-      const heading = rows.slice(0, output);
-      const expected = natural.get(width);
-      const last = heading.at(-1);
-      const expectedLast = expected?.at(-1);
-      assert.ok(
-        expected !== undefined &&
-          expectedLast !== undefined &&
-          last !== undefined,
-      );
+      const rows = rendered.map((row) => stripTerminalSequences(row).trimEnd());
+      const firstOutput = rows.findIndex((row) => /^O\d$/u.test(row.trim()));
+      assert.ok(firstOutput > 0);
       assert.deepEqual(
-        heading.slice(0, -1),
-        expected.slice(0, -1),
-        `The inlay changed the command's line breaks at ${String(width)} columns`,
+        rows.slice(0, firstOutput - 1),
+        natural.get(width),
+        `Preserve the full command at ${String(width)} columns`,
       );
-      assert.ok(
-        last.startsWith(expectedLast),
-        "Preserve all final-row command text",
-      );
-      const metadata = last.slice(expectedLast.length);
-      if (metadata !== "") assert.match(metadata, /^ {2}\S/u);
-      if (width === exactFit || width === durationOnly - 1 || width === 6)
-        assert.equal(metadata, "", "Omit metadata when no whole field fits");
-      if (width === durationOnly) assert.equal(metadata, "  1.3s");
-      assert.deepEqual(
-        rows.slice(output),
-        expanded
-          ? ["OUT1", "OUT2", "OUT3", "OUT4", "OUT5", "OUT6"]
-          : ["OUT2", "OUT3", "OUT4", "OUT5", "OUT6"],
-      );
-      if (width === 160) {
-        assert.match(heading.join(""), /≈\d+ tokens/u);
-        assert.match(heading.join(""), /1\.3s/u);
+      const status = rows[firstOutput - 1]?.trim() ?? "";
+      if (width >= exactFit - 1) {
+        assert.match(status, /≈\d+ tokens/u);
+        assert.match(status, /1\.3s/u);
+        assert.equal(status.includes("+1 line"), !expanded);
       }
+      if (width === 6)
+        assert.equal(
+          status,
+          "1.3s",
+          "Four content cells fit the full duration",
+        );
+      if (width === 5)
+        assert.equal(
+          status,
+          "",
+          "Three content cells cannot fit a whole field",
+        );
+      assert.deepEqual(
+        rows
+          .slice(firstOutput)
+          .map((row) => row.trim())
+          .filter(Boolean),
+        expanded
+          ? ["O1", "O2", "O3", "O4", "O5", "O6"]
+          : ["O2", "O3", "O4", "O5", "O6"],
+      );
     }
   }
 });

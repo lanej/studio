@@ -7,6 +7,7 @@ import argparse
 from importlib import import_module
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -58,13 +59,14 @@ const usage={{input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,cost:{{inp
 for (const [index,command] of {json.dumps(commands)}.entries()) {{
  const call={{type:'toolCall',id:`shell-${{index}}`,name:'bash',arguments:{{command,timeout:30}}}};
  session.appendMessage({{role:'assistant',content:[call],api:'openai-completions',provider:'fixture',model:'tiny',usage,stopReason:'toolUse',timestamp:Date.now()}});
- session.appendMessage({{role:'toolResult',toolCallId:call.id,toolName:call.name,content:[{{type:'text',text:'Retained fixture output; command was not executed.'}}],isError:false,durationMs:index === 0 ? 249 : 1250,timestamp:Date.now()}});
+ const text=index === 2 ? Array.from({{length:7}}, (_, i) => 'Retained line ' + (i + 1)).join('\\n') : 'Retained fixture output; command was not executed.';
+ session.appendMessage({{role:'toolResult',toolCallId:call.id,toolName:call.name,content:[{{type:'text',text}}],isError:false,durationMs:index === 0 ? 249 : 1250,timestamp:Date.now()}});
 }}
 console.log(session.getSessionFile());
 """
         session = subprocess.run(["bun", "--no-env-file", "-e", source], env=env, cwd=root, text=True, capture_output=True, check=True, timeout=30).stdout.strip()
         for width in (128, 60):
-            terminal = ui.Terminal(project, env, output, session, mode="regular", columns=width, rows=38)
+            terminal = ui.Terminal(project, env, output, session, mode="regular", columns=width, rows=44)
             try:
                 terminal.contains("Retained fixture output; command was not executed.")
                 terminal.contains("timeout 30s")
@@ -74,13 +76,21 @@ console.log(session.getSessionFile());
                 assert_style(terminal, "≈", "#b1b1b1")
                 heading = f"$ {full_row_command} (timeout 30s)"
                 terminal.contains(heading)
-                lines = [row.strip() for row in terminal.screen.display if row.strip()]
-                row = next(i for i, line in enumerate(lines) if line.startswith(heading))
-                if width == 60:
-                    assert lines[row] == heading, lines[row]
-                else:
-                    assert lines[row].startswith(heading + "  ≈") and lines[row].endswith("1.3s"), lines[row]
-                assert lines[row + 1] == "Retained fixture output; command was not executed.", lines[row:row + 3]
+                terminal.contains("Retained line 7")
+                # Keep physical rows, including blanks, to catch an extra separator or wrapped metadata.
+                lines = [row.strip() for row in terminal.screen.display]
+                headings = [i for i, line in enumerate(lines) if line.endswith("30s)")]
+                assert len(headings) == len(commands), terminal.text()
+                assert lines[headings[-1]] == heading, terminal.text()
+                for index, row in enumerate(headings):
+                    metrics, first_result = lines[row + 1:row + 3]
+                    assert re.search(r"≈\d+ tokens", metrics), lines[row:row + 4]
+                    assert ("1.3s" in metrics) == (index > 0), lines[row:row + 4]
+                    if index == 2:
+                        assert "+2 lines" in metrics and "ctrl+o" in metrics, metrics
+                        assert first_result == "Retained line 3", lines[row:row + 4]
+                    else:
+                        assert first_result == "Retained fixture output; command was not executed.", lines[row:row + 4]
                 # Compound command/flag colors must survive both native layouts.
                 for word in ("gh", "tail"):
                     assert_style(terminal, word, "syntaxFunction", bold=True)
@@ -95,4 +105,4 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path)
     run(parser.parse_args().output)
-    print("Native Pi retained Bash headers preserve command/flag styles, wrapping, timeout and timing at 128 and 60 columns; no rendered commands executed.")
+    print("Native Pi retained Bash headers preserve full-width command wrapping and put results directly after one metadata row at 128 and 60 columns; no rendered commands executed.")
