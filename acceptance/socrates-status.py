@@ -5,6 +5,7 @@
 """Verify Socrates status and evidence through the native Pi terminal."""
 import argparse
 import codecs
+from contextlib import ExitStack
 import faulthandler
 import fcntl
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -239,13 +240,13 @@ Should the native test change R1 and check both views?""")
 
 
 class Terminal:
-    def __init__(self, project, env, output, session, mode="fullscreen", columns=wide_columns, rows=wide_rows):
+    def __init__(self, project, env, output, session, mode="fullscreen", columns=wide_columns, rows=wide_rows, model="fixture/tiny"):
         print(f"Starting the {mode} lead in a {columns}×{rows} terminal", flush=True)
         self.output = output
         self.master, slave = os.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0))
         self.process = subprocess.Popen(
-            [str(root / "scripts/studio"), "lead", "--", "--offline", "--no-mcp", "--model", "fixture/tiny", "--tui-mode", mode, "--session", session],
+            [str(root / "scripts/studio"), "lead", "--", "--offline", "--no-mcp", "--model", model, "--tui-mode", mode, "--session", session],
             env=env, cwd=project, stdin=slave, stdout=slave, stderr=slave, start_new_session=True,
         )
         os.close(slave)
@@ -697,11 +698,166 @@ console.log(JSON.stringify({{covered,question,legacy,approved,beads,inProgress,r
     return json.loads(result.stdout)
 
 
+def check_publication_review(project, env, output, source_url):
+    # Reuse the registered fixture model under the provider required by Studio's personal profile.
+    agent = Path(env["PI_CODING_AGENT_DIR"])
+    env = {**env, "STUDIO_CONFIG": str(Path(env["HOME"]) / "handoff-config.json")}
+    models_path = agent / "models.json"
+    models = json.loads(models_path.read_text())
+    models["providers"]["openai-codex"] = {**models["providers"]["fixture"], "models": [{"id": "local-review"}]}
+    models_path.write_text(json.dumps(models))
+    model = {"provider": "openai-codex", "model": "local-review", "reasoning": "off"}
+    Path(env["STUDIO_CONFIG"]).write_text(json.dumps({
+        "profiles": {"personal": {role: model for role in ("lead", "worker", "reviewer", "explorer")}},
+        "runtime": {"enabled": True, "projects": [{
+            "root": str(project), "source": {"url": source_url, "projectId": beads_project},
+            "profile": "personal", "base": "origin/main", "beadsWorkspace": str(project), "beadsDatabase": "fixture",
+        }]},
+        "integrations": {name: {"enabled": True, "executable": "/usr/bin/false"} for name in ("worktrees", "octo")},
+    }))
+    source = """
+import { Discoveries, applyDeliveryPolicy, handoffDraft } from './discovery/store.ts';
+import { directoryProfileType } from './directory.ts';
+import { coverageToken, specificationToken } from './socrates/assessment.ts';
+import { SpecStatus } from './socrates/spec.ts';
+import { draftSchema } from './lead-plan.ts';
+import { SessionManager } from '@earendil-works/pi-coding-agent';
+const project = process.argv[1], store = new Discoveries(), session = SessionManager.create(project);
+const discovery = store.create(project, session.getSessionId(), 'Event export and guide');
+const policy = {decisionId:'D1',pullRequests:'selected',publish:['json-export','export-guide'],merge:'manual'};
+const objective = 'Publish the event exporter and its guide in separate pull requests.';
+const draft = {
+  objective, scope: ['Event schema, JSON export and documentation.'],
+  requirements: [{id:'R1',outcome:'Export events using a documented JSON schema',acceptance:'The CLI and guide share the reviewed event format.'}],
+  decisions: [{id:'D1',decision:'Publish the exporter and guide separately; merge after operator review.',basis:'decided',
+    evidence:'The operator selected the exporter and guide as publishers.',disposition:'resolved',uncertainty:'None'}],
+  blockingQuestions: [], deliveryPolicy: policy,
+  coverage: {domains:[],assessments:Object.entries({
+    'problem-first':'Operators need a documented export format.',interpretation:'The event schema defines each record.',
+    clarity:'The guide includes a validated sample.',scope:'The CLI and guide ship independently.',
+    context:'The current command emits plain text.',parsimony:'One schema serves both publications.',
+    success:'The sample and CLI output validate.',verification:'Compare a sample export against the schema.',
+    constraints:'Exploratory notes stay local.',stakeholders:'The operator reviews each publication.',
+    risk:'The shared example detects schema drift.','execution-readiness':'Each bead has an owned path and acceptance criterion.',
+    harmony:'Both PRs use the same event schema.',
+  }).map(([propertyId,reason])=>({propertyId,status:'satisfied',reason}))},
+};
+const tasks = [
+  ['event-schema','Define the event schema','Define the shared event fields.','The schema defines event ID, type and timestamp.','schema/events.json',[]],
+  ['operator-notes','Record exploratory notes','Collect observations from the first export.','The operator can inspect the local notes.','notes/export.md',[]],
+  ['json-export','Implement the JSON exporter','Write the CLI exporter.','A sample export validates against the schema.','src/export.ts',['event-schema']],
+  ['guide-example','Prepare a guide example','Create a sample event.','The sample validates against the shared schema.','examples/event.json',['event-schema']],
+  ['export-guide','Document the export','Document how to export and validate events.','The guide reproduces the example output.','docs/export.md',['guide-example']],
+].map(([key,title,description,acceptance,path,blockedBy])=>({key,title,description,acceptance,owns:[path],blockedBy,requirements:['R1']}));
+const record = store.change(discovery.id,row=>{
+  const spec = {status:SpecStatus.Frozen,version:1,acceptedRevision:row.revision,approvalAt:'2026-11-24T00:00:00Z',draft};
+  row.specification = {...spec,coverageRevision:coverageToken(spec)};
+  row.leadPlan.draft = applyDeliveryPolicy(draftSchema.parse({summary:'Ship the CLI and guide independently. Keep exploratory notes local.',tasks}),policy);
+  row.planSpecificationRevision = specificationToken(spec);
+});
+handoffDraft(record);
+const usage = {input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}};
+const turn = (role,content) => session.appendMessage(role === 'user' ? {role,content,timestamp:Date.now()} :
+  {role,content:[{type:'text',text:content}],api:'openai-completions',provider:'fixture',model:'tiny',usage,stopReason:'stop',timestamp:Date.now()});
+turn('user','Please prepare an event exporter and a guide. Both need to agree on the event format.');
+turn('assistant','The CLI and guide can share one schema. Should they ship together, or do you want separate pull requests?');
+turn('user',objective+' Keep the exploratory notes local. I want to review each PR before merge.');
+session.appendMessage({role:'assistant',content:[{type:'toolCall',id:'plan-export',name:'draft_implementation_plan',arguments:record.leadPlan.draft}],
+  api:'openai-completions',provider:'fixture',model:'tiny',usage,stopReason:'toolUse',timestamp:Date.now()});
+session.appendMessage({role:'toolResult',toolCallId:'plan-export',toolName:'draft_implementation_plan',content:[{type:'text',text:'Draft saved.'}],isError:false,timestamp:Date.now()});
+turn('assistant','The exporter and the guide each have their own PR. The guide includes a validated sample. The exploratory notes stay in this checkout.');
+turn('user','Freeze this specification. I want to review the graph and both PRs together before creating tasks.');
+turn('assistant','The frozen specification and the five beads are ready for handoff review.');
+session.appendCustomEntry('studio:discovery',{id:record.id,project:record.project});
+// Restore the selected profile through the same session entries that Studio writes when changing directory.
+session.appendModelChange('openai-codex','local-review');
+session.appendCustomEntry(directoryProfileType,'personal');
+console.log(JSON.stringify({id:record.id,session:session.getSessionFile()}));store.close();
+"""
+    seeded = subprocess.run(["bun", "--no-env-file", "-e", source, str(project)], env=env, cwd=root,
+                            text=True, capture_output=True, check=True, timeout=30)
+    record = json.loads(seeded.stdout)
+    terminal = Terminal(project, env, output, record["session"], columns=132, rows=36, model="openai-codex/local-review")
+    before = list(bead_reads)
+    try:
+        def frame():
+            # Inspect only the floating review. The transcript behind it also contains a graph.
+            for y, line in enumerate(terminal.screen.display):
+                x = line.find("╭─ Approve Event export and guide")
+                if x >= 0:
+                    edge = line.find("╮", x)
+                    for end in range(y + 1, terminal.screen.lines):
+                        if edge > x and terminal.screen.display[end][x] == "╰":
+                            return [row[x + 2:edge - 1] for row in terminal.screen.display[y + 1:end]]
+            return []
+
+        def open_review():
+            terminal.send("/plan-approve\r")
+            terminal.wait(lambda: any("▸ Overview" in line for line in frame()), "Approval did not open its overview")
+
+        def cancel():
+            terminal.send("\x1b")
+            terminal.wait(lambda: not frame(), "Escape did not dismiss the approval")
+
+        # The transcript is restored after extension and shortcut binding. The rail alone can paint before then.
+        terminal.contains("The frozen specification and the five beads are ready for handoff review.")
+        terminal.wait_for_rail()
+        terminal.contains("local-review")
+        open_review()
+        first_page = frame()
+        assert any("Implementation" in line and "Delivery" in line for line in first_page), first_page
+        wide = " ".join(" ".join(first_page).split())
+        for item in ("◆ Frozen · v1", "● 13 satisfied", "├─╮", "Enter Specification"):
+            assert item in wide, (item, wide)
+        column = next(line.index("Delivery") for line in first_page if "Delivery" in line)
+        delivery = [line[column:].strip() for line in first_page if line[column - 2] == "│"]
+        assert [text for text in delivery if text] == [
+            "Delivery  2 PRs", "json-export", "Also includes event-schema", "export-guide",
+            "Also includes event-schema, guide-example", "Stays local", "operator-notes", "Merge · Manual approval",
+        ], delivery
+        terminal.assert_foreground("● 13 satisfied", "status.success")
+        first_x = next(line.index("╭─ Approve") for line in terminal.screen.display if "╭─ Approve" in line)
+        terminal.assert_foreground("├─", "border", start=first_x + 1)
+        terminal.capture("socrates-handoff")
+        cancel()
+        terminal.wait_for_rail()
+
+        terminal.resize(60, 24)
+        open_review()
+        assert "Implementation" in " ".join(frame()) and "Enter more" in " ".join(frame()), frame()
+        assert not any("Implementation" in line and "Delivery" in line for line in frame()), frame()
+        terminal.capture("socrates-handoff")
+        pages = []
+        for _ in range(60):
+            current = frame()
+            pages.append(" ".join(" ".join(current).split()))
+            if "Enter create tasks and implement" in pages[-1]:
+                break  # Leave the final authorization to an operator.
+            terminal.send("\r")
+            terminal.wait(lambda: bool(frame()) and frame() != current, "Enter did not advance the displayed review")
+        else:
+            raise AssertionError("Final approval was unreachable: " + str(pages))
+        evidence = " ".join(pages)
+        for item in ("Delivery 2 PRs", "Also includes event-schema, guide-example", "Merge · Manual approval",
+                     "▸ Specification", "R1", "▸ Bead details", "schema/events.json", "notes/export.md", "src/export.ts",
+                     "examples/event.json", "docs/export.md", "The guide reproduces the example output."):
+            assert item in evidence, (item, pages)
+        assert "▸ Bead details" in pages[-1], pages[-1]
+        cancel()
+        terminal.contains("Specification")
+        assert before == bead_reads, bead_reads
+        with sqlite3.connect(Path(env["STUDIO_STATE_DIR"]) / "discoveries.sqlite") as db:
+            saved = json.loads(db.execute("SELECT record FROM discoveries WHERE id=?", (record["id"],)).fetchone()[0])
+        assert "handoff" not in saved and "approved" not in saved, saved
+    finally:
+        terminal.close()
+
+
 def run(output):
     print("Preparing the local Socrates and Beads fixtures", flush=True)
     # A Darwin sockaddr_un path must fit in 104 bytes, including Studio's activation socket suffix.
     temp_parent = "/private/tmp" if sys.platform == "darwin" else None
-    with tempfile.TemporaryDirectory(prefix="st-ui-", dir=temp_parent) as directory, ThreadingHTTPServer(("127.0.0.1", 0), Provider) as provider:
+    with tempfile.TemporaryDirectory(prefix="st-ui-", dir=temp_parent) as directory, ThreadingHTTPServer(("127.0.0.1", 0), Provider) as provider, ExitStack() as cleanup:
         home = Path(directory).resolve()
         agent = home / ".pi/agent"
         agent.mkdir(parents=True)
@@ -723,6 +879,7 @@ def run(output):
         provider.graph_draft = records['graphDraft']
         linked_beads.update(records['beads'])
         Thread(target=provider.serve_forever, daemon=True).start()
+        cleanup.callback(provider.shutdown)
         terminal = Terminal(project, env, output, records['session'])
 
         def resume_discovery(title, offset):
@@ -1059,7 +1216,7 @@ def run(output):
             assert revised["verification"]["status"] == "partial" and "R1" in revised["verification"]["reason"], revised
         finally:
             terminal.close()
-            provider.shutdown()
+        check_publication_review(project, env, output, f"http://127.0.0.1:{provider.server_port}")
 
 
 if __name__ == "__main__":

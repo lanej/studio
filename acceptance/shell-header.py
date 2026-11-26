@@ -7,6 +7,7 @@ import argparse
 from importlib import import_module
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -15,19 +16,23 @@ import tempfile
 ui = import_module("socrates-status")
 root = Path(__file__).resolve().parents[1]
 colors = json.loads((root / "resources/theme.json").read_text())["colors"]
+# This command and its timeout occupy 57 of the 58 content cells in the narrow pane.
+full_row_command = "printf " + "x" * 34
 commands = [
     'expected=729c3fa; gh pr checks 15 --repo lanej/studio --watch --fail-fast --interval 10 > /tmp/checks.log 2>&1 && test "$expected" = "$(gh pr view 15 --json headRefOid --jq .headRefOid)"; tail -15 /tmp/checks.log',
     "gh run list --limit 15 --json databaseId --jq '.[].databaseId' | tail -15 || gh run view --log",
+    full_row_command,
 ]
 
 
 def assert_style(terminal, word, token, bold=False):
     matches = []
+    expected = colors.get(token, token).lstrip("#").lower()
     for row, line in enumerate(terminal.screen.display):
         start = 0
         while (column := line.find(word, start)) >= 0:
             cells = [terminal.screen.buffer[row][x] for x in range(column, column + len(word))]
-            if all(cell.fg.lower() == colors[token].lstrip("#").lower() and (not bold or cell.bold) for cell in cells):
+            if all(cell.fg.lower() == expected and (not bold or cell.bold) for cell in cells):
                 matches.append((row, column))
             start = column + len(word)
     assert matches, f"Missing {token} styling for {word!r}\n{terminal.text()}"
@@ -54,23 +59,56 @@ const usage={{input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,cost:{{inp
 for (const [index,command] of {json.dumps(commands)}.entries()) {{
  const call={{type:'toolCall',id:`shell-${{index}}`,name:'bash',arguments:{{command,timeout:30}}}};
  session.appendMessage({{role:'assistant',content:[call],api:'openai-completions',provider:'fixture',model:'tiny',usage,stopReason:'toolUse',timestamp:Date.now()}});
- session.appendMessage({{role:'toolResult',toolCallId:call.id,toolName:call.name,content:[{{type:'text',text:'Retained fixture output; command was not executed.'}}],isError:false,durationMs:1250,timestamp:Date.now()}});
+ const text=index === 2 ? Array.from({{length:7}}, (_, i) => 'Retained line ' + (i + 1)).join('\\n') : 'Retained fixture output; command was not executed.';
+ session.appendMessage({{role:'toolResult',toolCallId:call.id,toolName:call.name,content:[{{type:'text',text}}],isError:false,durationMs:index === 0 ? 249 : 1250,timestamp:Date.now()}});
 }}
 console.log(session.getSessionFile());
 """
         session = subprocess.run(["bun", "--no-env-file", "-e", source], env=env, cwd=root, text=True, capture_output=True, check=True, timeout=30).stdout.strip()
         for width in (128, 60):
-            terminal = ui.Terminal(project, env, output, session, mode="regular", columns=width, rows=38)
+            terminal = ui.Terminal(project, env, output, session, mode="regular", columns=width, rows=44)
             try:
                 terminal.contains("Retained fixture output; command was not executed.")
                 terminal.contains("timeout 30s")
-                terminal.contains("Took 1.3s")
-                # Both widths must retain commands, their flags and native timeout/timing.
+                terminal.contains("1.3s")
+                terminal.contains("tokens")
+                assert "Took " not in terminal.text() and "0.2s" not in terminal.text(), terminal.text()
+                assert_style(terminal, "≈", "#b1b1b1")
+                heading = f"$ {full_row_command} (timeout 30s)"
+                terminal.contains(heading)
+                terminal.contains("Retained line 7")
+                def check_metadata(folded):
+                    physical = terminal.screen.display
+                    lines = [line.strip() for line in physical]
+                    headings = [i for i, line in enumerate(lines) if line.endswith("30s)")]
+                    assert len(headings) == len(commands), terminal.text()
+                    assert lines[headings[-1]] == heading, terminal.text()
+                    for index, row in enumerate(headings):
+                        metrics, first_result = lines[row + 1:row + 3]
+                        # Studio's native tool card has one padding cell at either end.
+                        assert len(physical[row + 1].rstrip()) == width - 1, physical[row + 1]
+                        fields = metrics.split(" · ")
+                        tokens = [field for field in fields if re.fullmatch(r"≈\d+ tokens", field)]
+                        assert len(tokens) == 1, metrics
+                        expected = tokens + (["1.3s"] if index > 0 else [])
+                        if index == 2 and folded:
+                            expected.append("2 more lines")
+                        assert sorted(fields) == sorted(expected), metrics
+                        if index == 2:
+                            assert first_result == ("Retained line 3" if folded else "Retained line 1"), lines[row:row + 4]
+                        else:
+                            assert first_result == "Retained fixture output; command was not executed.", lines[row:row + 4]
+
+                check_metadata(folded=True)
+                # Compound command/flag colors must survive both native layouts.
                 for word in ("gh", "tail"):
                     assert_style(terminal, word, "syntaxFunction", bold=True)
                 for word in ("--repo", "--watch", "--fail-fast", "--interval", "--json", "--jq", "--limit", "-15", "--log"):
                     assert_style(terminal, word, "syntaxKeyword")
                 terminal.capture("shell-header")
+                terminal.send("\x0f")
+                terminal.contains("Retained line 1")
+                check_metadata(folded=False)
             finally:
                 terminal.close()
 
@@ -79,4 +117,4 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path)
     run(parser.parse_args().output)
-    print("Native Pi retained Bash headers preserve command/flag styles, wrapping, timeout and timing at 128 and 60 columns; no rendered commands executed.")
+    print("Native Pi retained Bash headers preserve full-width command wrapping and put results directly after one right-aligned metadata row at 128 and 60 columns; no rendered commands executed.")

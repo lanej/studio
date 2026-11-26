@@ -90,6 +90,10 @@ export const codexTools = [
         return {
           ...args,
           command: input.command === undefined ? undefined : args.command,
+          // Result styling needs the source command before Pi's workdir preamble.
+          ...(input.workdir === undefined
+            ? {}
+            : { sourceCommand: input.command }),
         };
       },
     },
