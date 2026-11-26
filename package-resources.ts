@@ -17,6 +17,7 @@ export async function inspectPackageResources() {
       join(packageRoot, "scripts/pi"),
       join(packageRoot, "resources/theme.json"),
       join(packageRoot, "resources/bunfig.toml"),
+      fileURLToPath(import.meta.resolve("@lanej/editor-interop/neovim")),
       join(packageRoot, "resources/socrates/references/dialogue.txt"),
       join(
         packageRoot,

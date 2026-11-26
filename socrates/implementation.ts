@@ -50,6 +50,21 @@ export enum ImplementationPhase {
   Tracking = "tracking",
 }
 
+export type ImplementationField = {
+  label:
+    | "Acceptance"
+    | "Worker"
+    | "Model"
+    | "Requirements"
+    | "Depends on"
+    | "Owns"
+    | "Admission"
+    | "Delivery"
+    | "Verification"
+    | "Bead";
+  value: string;
+};
+
 export interface ImplementationRow {
   id: string;
   label: string;
@@ -60,6 +75,9 @@ export interface ImplementationRow {
   requirements: readonly string[];
   blockedBy: readonly string[];
   assignment?: TaskAssignment | undefined;
+  description: string;
+  fields: readonly ImplementationField[];
+  issue?: string | undefined;
   details: string;
 }
 
@@ -444,28 +462,38 @@ export function implementationPresentation(
       link?.discovery === true
         ? source.handoff?.workers?.[task.key]
         : undefined;
-    const evidence = [
-      task.description,
-      `Acceptance · ${task.acceptance}`,
-      ...(task.assignment === undefined
-        ? []
-        : [`Worker · ${describeWorkerAssignment(task.assignment)}`]),
-      ...(worker === undefined
-        ? []
-        : [`Model · ${worker.provider}/${worker.model}`]),
-      ...(task.requirements.length === 0
-        ? []
-        : [`Requirements · ${task.requirements.join(", ")}`]),
-      ...(task.blockedBy.length === 0
-        ? []
-        : [`Depends on · ${task.blockedBy.join(", ")}`]),
-      `Owns · ${task.owns.length === 0 ? "Entire isolated checkout" : task.owns.join(", ")}`,
-      ...(task.hold === true ? ["Admission · On hold"] : []),
-      `Delivery · ${delivery}`,
-      `Verification · ${task.check === undefined || task.check.length === 0 ? "Independent criterion review; no executable agreed" : JSON.stringify(task.check)}`,
-      ...(beadId === undefined ? [] : [`Bead · ${beadId}`]),
-      ...(issue === undefined ? [] : [issue]),
-    ].join("\n\n");
+    const field = (label: ImplementationField["label"], value?: string) =>
+      value === undefined || value === "" ? [] : [{ label, value }];
+    const fields = [
+      ...field("Acceptance", task.acceptance),
+      ...field(
+        "Worker",
+        task.assignment === undefined
+          ? undefined
+          : describeWorkerAssignment(task.assignment),
+      ),
+      ...field(
+        "Model",
+        worker === undefined ? undefined : `${worker.provider}/${worker.model}`,
+      ),
+      ...field("Requirements", task.requirements.join(", ")),
+      ...field("Depends on", task.blockedBy.join(", ")),
+      ...field(
+        "Owns",
+        task.owns.length === 0
+          ? "Entire isolated checkout"
+          : task.owns.join(", "),
+      ),
+      ...field("Admission", task.hold === true ? "On hold" : undefined),
+      ...field("Delivery", delivery),
+      ...field(
+        "Verification",
+        task.check === undefined || task.check.length === 0
+          ? "Independent criterion review; no executable agreed"
+          : JSON.stringify(task.check),
+      ),
+      ...field("Bead", beadId),
+    ];
     return {
       id: task.key,
       label: task.title,
@@ -476,7 +504,16 @@ export function implementationPresentation(
       requirements: task.requirements,
       blockedBy: task.blockedBy,
       assignment: task.assignment,
-      details: evidence,
+      description: task.description,
+      fields,
+      issue,
+      details: [
+        task.description,
+        fields.map(({ label, value }) => `${label} · ${value}`).join("\n"),
+        issue,
+      ]
+        .filter((part) => part !== undefined)
+        .join("\n\n"),
     };
   });
   const counts = {

@@ -136,8 +136,11 @@ def run(output):
             terminal.contains("Worker · standard · off reasoning")
             terminal.capture("conversation-plan-task")
             terminal.resize(60, 24)
-            terminal.contains("Worker · standard · off reasoning")
+            terminal.contains("◇ Worker · standard · off reasoning")
             terminal.centered_inspector("Prepare the requested change", "Esc back")
+            terminal.assert_styled_text("◎", fg="accent", lines=[
+                row for row, line in enumerate(terminal.screen.display) if "◎ Acceptance" in line
+            ])
             terminal.capture("conversation-plan-task")
             terminal.send("\x1b")
             terminal.contains("Enter details")

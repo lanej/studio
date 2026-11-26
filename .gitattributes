@@ -1,3 +1,6 @@
 bun.lock linguist-generated=true
 .typescript-quality/bun.lock linguist-generated=true
 generated/zellij/** linguist-generated=true
+docs/assets/documents-*.ansi binary linguist-generated=true
+docs/assets/documents-*.txt whitespace=-blank-at-eol,-blank-at-eof linguist-generated=true
+docs/assets/documents-*-geometry.json linguist-generated=true

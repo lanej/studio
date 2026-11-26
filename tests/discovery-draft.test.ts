@@ -10,6 +10,7 @@ import {
   ModelRuntime,
   SessionManager,
   SettingsManager,
+  type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import { existsSync } from "node:fs";
 import { registerProjectPolicy } from "../execution/policy.ts";
@@ -23,6 +24,11 @@ import {
   StudioProfile,
 } from "../config.ts";
 import { randomUUID } from "node:crypto";
+import {
+  registerPlanningDocuments,
+  getPlanningDocuments,
+} from "../planning/documents.ts";
+import { DocumentKind } from "../planning/model.ts";
 import { SpecStatus } from "../socrates/spec.ts";
 import { draftSchema, planDigest } from "../lead-plan.ts";
 import { readySpecification } from "./fixtures/socrates.ts";
@@ -41,7 +47,9 @@ async function discoveryFixture(t: TestContext) {
   const previousState = process.env["STUDIO_STATE_DIR"];
   const previousConfig = process.env["STUDIO_CONFIG"];
   const store = new Discoveries(state);
+  const authorities: ReturnType<typeof registerPlanningDocuments>[] = [];
   t.after(async () => {
+    for (const authority of authorities) authority.dispose();
     if (previousState === undefined) delete process.env["STUDIO_STATE_DIR"];
     else process.env["STUDIO_STATE_DIR"] = previousState;
     if (previousConfig === undefined) delete process.env["STUDIO_CONFIG"];
@@ -78,7 +86,10 @@ async function discoveryFixture(t: TestContext) {
     }),
   );
   process.env["STUDIO_CONFIG"] = config;
-  const openLead = () => discoveryLead(project, agentDir);
+  const openLead = () =>
+    discoveryLead(project, agentDir, (authority) =>
+      authorities.push(authority),
+    );
   return {
     state,
     project,
@@ -91,7 +102,14 @@ async function discoveryFixture(t: TestContext) {
   };
 }
 
-async function discoveryLead(project: string, agentDir: string) {
+async function discoveryLead(
+  project: string,
+  agentDir: string,
+  ownAuthority: (
+    authority: ReturnType<typeof registerPlanningDocuments>,
+  ) => void,
+) {
+  let api: ExtensionAPI | undefined;
   const session = SessionManager.inMemory(project);
   let discovery: ReturnType<typeof registerDiscovery> | undefined;
   const loader = new DefaultResourceLoader({
@@ -105,6 +123,8 @@ async function discoveryLead(project: string, agentDir: string) {
     noContextFiles: true,
     extensionFactories: [
       (pi) => {
+        ownAuthority(registerPlanningDocuments(pi));
+        api = pi;
         const selected = registerDiscovery(pi, () => StudioProfile.Personal);
         discovery = selected;
         registerProjectPolicy(
@@ -169,9 +189,24 @@ async function discoveryLead(project: string, agentDir: string) {
       },
     ],
   });
+  const expectedRevision = (kind: DocumentKind, context = toolContext) => {
+    assert.ok(api !== undefined);
+    const document = getPlanningDocuments(api)
+      ?.capture(context)
+      .find((item) => item.ref.kind === kind);
+    return document === undefined
+      ? {}
+      : { expectedRevision: document.revision };
+  };
   const save = async (proposal = draft, context = toolContext) => {
     await runner.emitContext([]);
-    return tool.execute("draft", proposal, undefined, undefined, context);
+    return tool.execute(
+      "draft",
+      { ...proposal, ...expectedRevision(DocumentKind.Plan, context) },
+      undefined,
+      undefined,
+      context,
+    );
   };
   const specTool = runner.getToolDefinition("draft_socrates_specification");
   assert.ok(specTool !== undefined);
@@ -179,7 +214,12 @@ async function discoveryLead(project: string, agentDir: string) {
     await runner.emitContext([]);
     return specTool.execute(
       "spec",
-      specificationDraft,
+      typeof specificationDraft === "object" && specificationDraft !== null
+        ? {
+            ...specificationDraft,
+            ...expectedRevision(DocumentKind.Specification),
+          }
+        : specificationDraft,
       undefined,
       undefined,
       toolContext,
@@ -213,6 +253,7 @@ async function discoveryLead(project: string, agentDir: string) {
     approve,
     review,
     assess,
+    expectedRevision,
     reviewUI,
   };
 }
@@ -436,10 +477,10 @@ await test("a lead can acknowledge only the input and plan visible to its model 
   );
   const planTool = lead.runner.getToolDefinition("draft_implementation_plan");
   assert.ok(draftTool !== undefined && planTool !== undefined);
-  const acknowledge = () =>
+  const acknowledge = (revision: ReturnType<typeof lead.expectedRevision>) =>
     draftTool.execute(
       "assess",
-      { coverage: { assessments: [] } },
+      { coverage: { assessments: [] }, ...revision },
       undefined,
       undefined,
       lead.toolContext,
@@ -453,10 +494,11 @@ await test("a lead can acknowledge only the input and plan visible to its model 
     transcript.filter(({ role }) => role === "user"),
     [visible],
   );
+  const beforeCorrection = lead.expectedRevision(DocumentKind.Specification);
   await other.send(correction);
   const pending = lead.store.get(record.id);
   const staleRequest = /discovery changed since the model's last request/iu;
-  await assert.rejects(acknowledge(), staleRequest);
+  await assert.rejects(acknowledge(beforeCorrection), staleRequest);
   assert.deepEqual(lead.store.get(record.id), pending);
 
   // Either lead can recover both messages even when its transcript has been compacted.
@@ -468,6 +510,7 @@ await test("a lead can acknowledge only the input and plan visible to its model 
     {
       ...initial.draft,
       scope: [correction],
+      ...lead.expectedRevision(DocumentKind.Specification),
       coverage: {
         domains: ["engineering"],
         assessments: [
@@ -488,17 +531,19 @@ await test("a lead can acknowledge only the input and plan visible to its model 
   assert.equal(revised.pendingReview, undefined);
 
   await lead.runner.emitContext([]);
+  const beforePlan = lead.expectedRevision(DocumentKind.Plan);
+  const beforePlanSpec = lead.expectedRevision(DocumentKind.Specification);
   const next = {
     ...other.draft,
     summary: "Verify restore from the local transcript only",
   };
   await other.save(next);
   const changedPlan = lead.store.get(record.id);
-  await assert.rejects(acknowledge(), staleRequest);
+  await assert.rejects(acknowledge(beforePlanSpec), staleRequest);
   await assert.rejects(
     planTool.execute(
       "old-plan",
-      lead.draft,
+      { ...lead.draft, ...beforePlan },
       undefined,
       undefined,
       lead.toolContext,
@@ -509,7 +554,7 @@ await test("a lead can acknowledge only the input and plan visible to its model 
   assert.ok(
     JSON.stringify(await lead.runner.emitContext([])).includes(next.summary),
   );
-  await acknowledge();
+  await acknowledge(lead.expectedRevision(DocumentKind.Specification));
   assert.equal(
     lead.store.get(record.id).specification?.pendingReview,
     undefined,

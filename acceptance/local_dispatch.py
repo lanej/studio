@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 
 from local_fixture import Fixture, Report
 from local_provider import ADMITTED_MODEL, Provider, TextDelta, ToolDelta, tool_delta
-from socrates_fixture import CompletionRequest, message_text
+from socrates_fixture import CompletionRequest, READ_TOOL, document_read_result, document_revision, message_text
 from zellij_terminal import Terminal
 
 GUIDANCE = "Use the agreed marker. Keep all changes inside your owned path."
@@ -110,13 +110,23 @@ def dispatch_plan(ordered: bool) -> dict:
 
 
 def discovery_response(request: CompletionRequest) -> ToolDelta | TextDelta:
-    last = request["messages"][-1]
+    messages = request["messages"]
+    reading = document_read_result(messages)
+    last = messages[-1] if reading is None else messages[-3]
+
+    def revise(call, name, draft):
+        if reading is None:
+            return tool_delta(f"read-{call}", READ_TOOL, {})
+        kind = "plan" if name == "draft_implementation_plan" else "specification"
+        revision = document_revision(reading, kind)
+        assert revision is not None, (kind, reading)
+        return tool_delta(call, name, {**draft, "expectedRevision": revision})
+
     if last["role"] == "user":
         if message_text(last).startswith("Begin Socrates discovery"):
             return tool_delta("open-spec", "draft_socrates_specification", dispatch_spec(False))
-        # A host that requests another plan after freeze receives the reviewed graph.
         assert "froze" in message_text(last), last
-        return tool_delta("frozen-plan", "draft_implementation_plan", dispatch_plan(True))
+        return {"role": "assistant", "content": "The frozen plan is ready for approval."}
     assert last["role"] == "tool", last
     result = message_text(last)
     call = last.get("tool_call_id")
@@ -125,7 +135,7 @@ def discovery_response(request: CompletionRequest) -> ToolDelta | TextDelta:
         return tool_delta("provisional-plan", "draft_implementation_plan", dispatch_plan(False))
     if call == "provisional-plan":
         assert "Draft saved" in result, result
-        return tool_delta("assess-provisional-plan", "draft_socrates_specification", dispatch_spec(False))
+        return revise("assess-provisional-plan", "draft_socrates_specification", dispatch_spec(False))
     if call == "assess-provisional-plan":
         assert "Draft saved" in result, result
         return tool_delta("ask-dependency", "ask_user_question", {
@@ -136,19 +146,15 @@ def discovery_response(request: CompletionRequest) -> ToolDelta | TextDelta:
         })
     if call == "ask-dependency":
         assert WAIT in result, result
-        return tool_delta("resolved-spec", "draft_socrates_specification", dispatch_spec(True))
+        return revise("resolved-spec", "draft_socrates_specification", dispatch_spec(True))
     if call == "resolved-spec":
         assert "Draft saved" in result, result
-        return tool_delta("updated-plan", "draft_implementation_plan", dispatch_plan(True))
+        return revise("updated-plan", "draft_implementation_plan", dispatch_plan(True))
     if call == "updated-plan":
         assert "Draft saved" in result, result
-        return tool_delta("assess-updated-plan", "draft_socrates_specification", dispatch_spec(True, ordered=True))
-    if call == "assess-updated-plan":
-        assert "Properties satisfied" in result, result
-    else:
-        assert call == "frozen-plan" and "Draft saved" in result, last
-    reply = "The frozen plan is ready for approval." if call == "frozen-plan" else "The dependency is recorded in the plan."
-    return {"role": "assistant", "content": reply}
+        return revise("assess-updated-plan", "draft_socrates_specification", dispatch_spec(True, ordered=True))
+    assert call == "assess-updated-plan" and "Properties satisfied" in result, last
+    return {"role": "assistant", "content": "The dependency is recorded in the plan."}
 
 
 class DispatchProvider(Provider):
@@ -168,10 +174,13 @@ class DispatchProvider(Provider):
 
     def respond(self, request: CompletionRequest) -> ToolDelta | TextDelta:
         messages = request["messages"]
-        names = {tool["function"]["name"] for tool in request["tools"]}
+        names = {tool["function"]["name"] for tool in request.get("tools", [])}
         user = [message_text(item) for item in messages if item["role"] == "user"]
         tools = [message_text(item) for item in messages if item["role"] == "tool"]
-        if "draft_implementation_plan" in names:
+        if "draft_implementation_plan" in names or (
+            not names and messages[-1]["role"] == "user"
+            and message_text(messages[-1]).startswith("The operator froze")
+        ):
             return discovery_response(request)
         assert not names.intersection({"bash", "powershell", "subagent", "task_submit_result"}), names
         if "review_context" in names:

@@ -66,6 +66,11 @@ import {
 } from "./runtime.ts";
 import { focusTaskPane, taskPaneBeads } from "./task-run.ts";
 import { hasInteractivePane } from "./execution/interactive-target.ts";
+import { registerDocumentWorkspace } from "./documents/workspace.ts";
+import {
+  registerPlanningDocuments,
+  getPlanningDocuments,
+} from "./planning/documents.ts";
 
 const attemptType = "studio:idle-attempt";
 const attemptSchema = z.object({ historyId: z.string() });
@@ -99,6 +104,7 @@ export function registerStudio(
   managed: ManagedLead | undefined,
   keybindings: PaneKeybindings,
 ): OpenTasks {
+  registerPlanningDocuments(pi);
   registerHistoryBindings(pi);
   registerActivationAdmission(pi);
   registerSessionForks(pi);
@@ -124,6 +130,17 @@ export function registerStudio(
       : undefined;
   if (discovery !== undefined)
     registerProjectPolicy(pi, (ctx) => discovery.runtimeHandoff(ctx)?.target);
+  registerDocumentWorkspace(pi);
+  const documentPending = () => getPlanningDocuments(pi)?.pending() === true;
+  pi.on("session_before_switch", () =>
+    documentPending() ? { cancel: true } : undefined,
+  );
+  pi.on("session_before_fork", () =>
+    documentPending() ? { cancel: true } : undefined,
+  );
+  pi.on("session_before_tree", () =>
+    documentPending() ? { cancel: true } : undefined,
+  );
   const delegation = registerDelegation(
     pi,
     () => selectedProfile,
@@ -134,6 +151,7 @@ export function registerStudio(
   registerActivation(
     pi,
     (ctx) =>
+      documentPending() ||
       discovery?.pending() === true ||
       managed?.approvalPending() === true ||
       managed?.activationBlocked?.() === true ||
@@ -143,6 +161,7 @@ export function registerStudio(
     pi,
     (ctx) =>
       managed !== undefined ||
+      documentPending() ||
       discovery?.pending() === true ||
       delegation.blocks(ctx.sessionManager.getSessionId()),
   );
@@ -150,7 +169,9 @@ export function registerStudio(
   registerDirectory(
     pi,
     (sessionId) =>
-      delegation.blocks(sessionId) || discovery?.pending() === true,
+      documentPending() ||
+      delegation.blocks(sessionId) ||
+      discovery?.pending() === true,
     () => selectedProfile,
   );
   registerDiagrams(pi);
@@ -199,6 +220,7 @@ export function registerStudio(
           settled: ctx.isIdle(),
           pendingInput:
             ctx.hasPendingMessages() ||
+            documentPending() ||
             managed?.approvalPending() === true ||
             discovery?.pending() === true ||
             delegation.blocks(ctx.sessionManager.getSessionId()),
@@ -549,7 +571,7 @@ export function registerStudio(
       ctx.ui.notify("Set the profile on studio start.", "warning");
       return;
     }
-    if (!ctx.isIdle() || ctx.hasPendingMessages()) {
+    if (!ctx.isIdle() || ctx.hasPendingMessages() || documentPending()) {
       ctx.ui.notify(
         "Wait for the conversation and queued messages to settle before changing profiles",
         "warning",

@@ -48,6 +48,15 @@ pageDown = "pageDown"
 # [delegation]
 # enabled = false
 
+# Open specification and plan documents beside Studio when both integrations are enabled.
+[integrations.neovim]
+enabled = false
+executable = "nvim"
+
+[integrations.zellij]
+enabled = false
+executable = "zellij"
+
 # Unattended execution is disabled until explicitly configured and enrolled.
 [runtime]
 enabled = false

@@ -4,6 +4,8 @@ Start Studio in any checkout and ask it to read code, make a change, run command
 
 Studio also provides the dotfiles theme, task browser and idle compaction. The [runtime guide](RUNTIME.md) covers independent discovery, approved background work, Pi-owned Octo delivery, and recovery.
 
+The optional [Neovim document workspace](docs/neovim-documents.md) opens full specifications and plans in a companion Zellij pane. Save edits back to Studio or send selected text with a short comment; responses stay in Studio chat with compact outcomes and change navigation in Neovim.
+
 ## Package layout
 
 `cli.ts`, `extension.ts`, `lead-extension.ts`, and `worker-extension.ts` are stable entry points. Internal code is grouped by capability when its owner and callers are clear:
@@ -52,6 +54,8 @@ Use `/panes` to open the pane picker. Its default keys are **w** for Workers, **
 ![Centered task browser over a lead with an unsent draft](docs/assets/task-status-panel.png)
 
 The footer shows the current directory using [shortpath](https://github.com/lanej/dotfiles/blob/master/tools/shortpath/README.md) when it is on PATH. Colored glyphs mark the lead mode and reasoning level alongside the bead ID and model. The same row fits Git changes, the Octo-tracked PR, context usage, and estimated session cost as space allows. GPT model IDs show a provider glyph, version, and variant glyph for Sol, Luna, Terra, and Astra. Secondary fields collapse as the pane narrows, and other extensions retain their status lines. Startup hints, resource listings, zero-usage counters, and the permanent compaction-policy line are hidden. Bash tool cards highlight command names and flags in simple and compound command lines, including pipelines, redirections, and command substitutions. Quoted text and redirection targets keep their Bash syntax colors. Unsupported shell forms retain generic Bash coloring. Code from Pi’s grep tool and supported `rg` and `sed` shell tool calls uses the active syntax theme. Pi’s output folding and truncation remain available. Actionable errors remain visible.
+
+In a shell tool call, a heredoc delimiter can name its language. For example, `cat <<'MD'` renders Markdown, `psql <<'SQL'` highlights SQL, and `cat <<'SHELL'` highlights shell source. Tags are case-insensitive. Studio also recognizes a GitHub issue or PR body supplied with `--body-file - <<'EOF'`. Expand the call with `Ctrl+O` to see the original source and delimiters.
 
 Pi labels reads of `SKILL.md` as skills. Expand one with `Ctrl+O` to read its headings, lists, links, and code as Markdown. The compact skill header and error, ranged, or truncated read output retain Pi’s normal presentation.
 

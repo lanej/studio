@@ -1,4 +1,4 @@
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import {
   matchesKey,
   truncateToWidth,
@@ -14,7 +14,23 @@ import {
 import { planGraph, planGraphColor, renderGraphPrefix } from "../plan-graph.ts";
 import { withTaskAssignment } from "../ui.ts";
 import { implementationColumn, taskMarks } from "./columns.ts";
-import type { ImplementationPresentation } from "./implementation.ts";
+import type {
+  ImplementationField,
+  ImplementationPresentation,
+} from "./implementation.ts";
+
+const fieldMarks = {
+  Acceptance: ["◎", "accent"],
+  Worker: ["◇", "thinkingHigh"],
+  Model: ["◇", "thinkingHigh"],
+  Requirements: ["§", "accent"],
+  "Depends on": ["↳", "muted"],
+  Owns: ["▪", "muted"],
+  Admission: ["–", "warning"],
+  Delivery: ["↗", "syntaxFunction"],
+  Verification: ["▸", "accent"],
+  Bead: ["#", "muted"],
+} satisfies Record<ImplementationField["label"], [string, ThemeColor]>;
 
 function graphRows(plan: ImplementationPresentation) {
   return planGraph(plan.rows.map((row) => ({ ...row, key: row.id })));
@@ -77,7 +93,29 @@ export function createPlanInspector(
           ),
           "",
         ];
-        body = wrapTextWithAnsi(selectorText(task.details), width);
+        body = [
+          ...wrapTextWithAnsi(selectorText(task.description), width),
+          "",
+          ...task.fields.flatMap(({ label, value }) => {
+            const [glyph, tone] = fieldMarks[label];
+            return wrapTextWithAnsi(
+              `${theme.fg("muted", label)} · ${selectorText(value)}`,
+              Math.max(1, width - 2),
+            ).map(
+              (line, index) =>
+                (index === 0 ? `${theme.fg(tone, glyph)} ` : "  ") + line,
+            );
+          }),
+          ...(task.issue === undefined
+            ? []
+            : [
+                "",
+                ...wrapTextWithAnsi(
+                  theme.fg("warning", selectorText(task.issue)),
+                  width,
+                ),
+              ]),
+        ];
         footer = "↑↓ scroll  ·  Esc back";
       } else {
         const status =

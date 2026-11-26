@@ -29,7 +29,7 @@ import pyte
 from local_provider import tool_delta
 from worker_sidebar import check_worker_sidebar, worker_prompt, worker_reply
 from PIL import Image, ImageDraw, ImageFont
-from socrates_fixture import message_text
+from socrates_fixture import READ_TOOL, document_read_result, document_revision, message_text
 
 
 root = Path(__file__).resolve().parents[1]
@@ -66,7 +66,8 @@ release_diagram = Event()
 
 def ownership_turn(request, draft):
     """Model a decision-driven C4 turn against the native discovery tools."""
-    last = request["messages"][-1]
+    messages = request["messages"]
+    last = messages[-3] if document_read_result(messages) is not None else messages[-1]
     call = last.get("tool_call_id")
     if last["role"] == "user" or call == "ask-owner":
         resolved = call == "ask-owner"
@@ -89,12 +90,12 @@ def ownership_turn(request, draft):
             assessments = [scope, {"propertyId": "verification", "status": "partial",
                                    "reason": "R1 specifies the discovery store as the source. Exercise reopening the sidebar."}]
         coverage = {**draft["coverage"], "focus": "verification" if resolved else "scope", "assessments": assessments}
-        return tool_delta("record-owner" if resolved else "draft-ownership", "draft_socrates_specification", {
+        return candidate_delta(request, "record-owner" if resolved else "draft-ownership", "draft_socrates_specification", {
             **draft, "decisions": [decision], "blockingQuestions": [] if resolved else [ownership_question],
             "requirements": [{"id": "R1", "outcome": "Keep assessment freshness consistent",
                               "acceptance": ownership_criterion if resolved else "Reopen the sidebar after a requirement changes."}],
             "coverage": coverage,
-        })
+        }, creating=not resolved)
     if call == "draft-ownership":
         assert "Draft saved" in message_text(last), last
         return tool_delta("ownership-diagram", "show_diagram", {
@@ -120,8 +121,22 @@ def ownership_turn(request, draft):
     return {"role": "assistant", "content": "The ownership decision is recorded."}
 
 
-class SocratesFixtureServer(ThreadingHTTPServer):
-    # The lead reads all twelve linked beads concurrently.
+def candidate_delta(request, call_id, name, draft, *, creating=False):
+    """Read the live document before constructing each seeded candidate."""
+    reading = document_read_result(request["messages"])
+    if reading is None:
+        return tool_delta(f"read-{call_id}", READ_TOOL, {})
+    kind = "specification" if name == "draft_socrates_specification" else "plan"
+    revision = document_revision(reading, kind)
+    if creating:
+        assert revision is None, f"The new {kind} document already exists"
+        return tool_delta(call_id, name, draft)
+    assert revision is not None, f"The seeded {kind} document disappeared"
+    return tool_delta(call_id, name, {**draft, "expectedRevision": revision})
+
+
+class FixtureServer(ThreadingHTTPServer):
+    # The worker sidebar requests every linked bead in parallel.
     request_queue_size = 32
 
 
@@ -198,7 +213,9 @@ Should the native test change R1 and check both views?""")
         delta = {"role": "assistant", "content": reply}
         if user_messages and worker_prompt in user_messages[-1]:
             delta = {"role": "assistant", "content": worker_reply}
-        last = request["messages"][-1]
+        # Continue the same scripted action after its native document read.
+        messages = request["messages"]
+        last = messages[-3] if document_read_result(messages) is not None else messages[-1]
         if user_messages and ownership_prompt in user_messages[-1]:
             delta = ownership_turn(request, self.server.in_progress_draft)
         elif user_messages and "Explain which properties remain open" in user_messages[-1]:
@@ -206,7 +223,7 @@ Should the native test change R1 and check both views?""")
                 guidance_received.set()
                 if not release_reassessment.wait(20):
                     provider_errors.append("The property reassessment was not released")
-                delta = tool_delta("review-open-properties", "draft_socrates_specification",
+                delta = candidate_delta(request, "review-open-properties", "draft_socrates_specification",
                                    {"coverage": {"domains": [], "assessments": []}})
             elif last.get("tool_call_id") == "review-open-properties" and "Draft saved" not in str(last["content"]):
                 provider_errors.append(str(last["content"]))
@@ -215,13 +232,13 @@ Should the native test change R1 and check both views?""")
                 draft = self.server.ready_draft
                 revised = [item for item in draft["coverage"]["assessments"]
                            if item["propertyId"] in {"scope", "risk", "verification", "harmony"}]
-                delta = tool_delta("close-properties", "draft_socrates_specification",
+                delta = candidate_delta(request, "close-properties", "draft_socrates_specification",
                                    {**draft, "coverage": {**draft["coverage"], "assessments": revised}})
             elif last.get("tool_call_id") == "close-properties":
                 if "Properties satisfied" not in str(last["content"]):
                     provider_errors.append(str(last["content"]))
                 draft = self.server.graph_draft
-                delta = tool_delta("confirm-graph", "draft_implementation_plan", {
+                delta = candidate_delta(request, "confirm-graph", "draft_implementation_plan", {
                     **draft,
                     "tasks": [{**task, "assignment": {"capability": "standard", "reasoning": "off"}}
                               for task in draft["tasks"]],
@@ -231,7 +248,7 @@ Should the native test change R1 and check both views?""")
                     provider_errors.append(str(last["content"]))
                 readiness = {"propertyId": "execution-readiness", "status": "satisfied",
                              "reason": "All four reviewed beads use local integration and link to R1."}
-                delta = tool_delta("assess-final-graph", "draft_socrates_specification",
+                delta = candidate_delta(request, "assess-final-graph", "draft_socrates_specification",
                                    {"coverage": {"domains": [], "assessments": [readiness]}})
             elif last.get("tool_call_id") == "assess-final-graph":
                 if "Properties satisfied" not in str(last["content"]):
@@ -549,7 +566,16 @@ class Terminal:
     def check_dependency_graph(self):
         path = ("Record property evidence", "├─╮", "Keep the lead available",
                 "Keep assessment history", "├─╯", "Review changes in the dock")
-        self.wait(lambda: all(part in self.rail_text() for part in path),
+        def rendered_graph():
+            # A summary can contain a task title before that node row is painted.
+            remaining = self.rail_text().partition("Implementation")[2]
+            for part in path:
+                _, found, remaining = remaining.partition(part)
+                if not found:
+                    return False
+            return True
+
+        self.wait(rendered_graph,
                   "The Implementation sidebar did not draw the complete fork and join")
         rail = self.rail_text().partition("Implementation")[2]
         cursor = 0
@@ -945,7 +971,7 @@ def run(output, launcher):
     print("Preparing the local Socrates and Beads fixtures", flush=True)
     # A Darwin sockaddr_un path must fit in 104 bytes, including Studio's activation socket suffix.
     temp_parent = "/private/tmp" if sys.platform == "darwin" else None
-    with tempfile.TemporaryDirectory(prefix="st-ui-", dir=temp_parent) as directory, SocratesFixtureServer(("127.0.0.1", 0), Provider) as provider, ExitStack() as cleanup:
+    with tempfile.TemporaryDirectory(prefix="st-ui-", dir=temp_parent) as directory, FixtureServer(("127.0.0.1", 0), Provider) as provider, ExitStack() as cleanup:
         home = Path(directory).resolve()
         agent = home / ".pi/agent"
         agent.mkdir(parents=True)

@@ -1,3 +1,10 @@
+import { realpathSync } from "node:fs";
+import { DocumentKind, DocumentOwnerKind } from "./planning/model.ts";
+import {
+  requirePlanningDocumentHooks,
+  documentReadTool,
+  documentOutcomeTool,
+} from "./planning/document-hooks.ts";
 import type { PaneKeybindings } from "./pane-keybindings.ts";
 import type { OpenTasks } from "./tasks/panel.ts";
 import { admittedDiagramAlias } from "./model-tools/extension.ts";
@@ -37,6 +44,8 @@ const inspectTools = new Set([
   "ls",
   "find",
   "grep",
+  documentReadTool,
+  documentOutcomeTool,
   lspTool,
   planTool,
   diagramTool,
@@ -89,6 +98,35 @@ export function registerLeadControls(
   openTasks?: OpenTasks,
   keybindings?: PaneKeybindings,
 ) {
+  const documents = requirePlanningDocumentHooks(pi);
+  documents.bind({
+    current(ctx) {
+      if (ctx.sessionManager.getSessionId() !== id) return undefined;
+      const project = realpathSync(ctx.cwd);
+      return {
+        kind: DocumentOwnerKind.Attempt,
+        id,
+        project,
+        conversationId: id,
+        read: () => db.get(id),
+        changeWithWitness: (operationId, command, update, result) =>
+          db.changeWithWitness(id, operationId, command, update, result),
+        validate: async (currentContext) => {
+          const record = await requireBinding(currentContext);
+          if (record.id !== id || record.revision === null)
+            throw new Error("The managed document binding changed");
+          await new TaskBeads(record.source).requireCurrent(
+            record.bead,
+            record.revision,
+            id,
+          );
+        },
+      };
+    },
+    changed(ctx) {
+      socrates.refresh(ctx);
+    },
+  });
   const mode = () => db.get(id).leadPlan?.mode;
   const socrates = registerSocrates(
     pi,
@@ -190,6 +228,12 @@ export function registerLeadControls(
     description:
       "Save a proposed plan for operator approval. Optional tasks become Beads children only on approval. List blockers before their dependents.",
     parameters: Type.Object({
+      expectedRevision: Type.Optional(
+        Type.String({
+          description:
+            "Required when replacing an existing plan. Use the exact revision from the document snapshot used to prepare this candidate.",
+        }),
+      ),
       summary: Type.String(),
       tasks: Type.Array(
         Type.Object({
@@ -206,7 +250,8 @@ export function registerLeadControls(
     }),
     async execute(_call, args, _signal, _update, ctx) {
       await requireBinding(ctx);
-      const draft = draftSchema.parse(args);
+      const { expectedRevision, ...candidate } = args;
+      const draft = draftSchema.parse(candidate);
       db.change(id, (row) => {
         if (row.leadPlan?.mode !== LeadMode.Planning)
           throw new Error("This session is not drafting a plan");
@@ -248,8 +293,10 @@ export function registerLeadControls(
               "Every frozen requirement must be covered by the task breakdown",
             );
         }
+        documents.assertAgent(DocumentKind.Plan, row, ctx, expectedRevision);
         row.leadPlan = { ...row.leadPlan, draft };
       });
+      documents.committed(DocumentKind.Plan, ctx);
       return {
         content: [
           {

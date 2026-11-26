@@ -1,3 +1,5 @@
+import { DocumentKind, DocumentOwnerKind } from "../planning/model.ts";
+import { requirePlanningDocumentHooks } from "../planning/document-hooks.ts";
 import type { PaneKeybindings } from "../pane-keybindings.ts";
 import type { OpenTasks } from "../tasks/panel.ts";
 import { renderPlanCall } from "../plan-renderer.ts";
@@ -13,11 +15,7 @@ import { selectorText } from "@lanej/pi-components";
 import { z } from "zod";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/models";
 import { registerSocratesControls } from "../socrates/controls.ts";
-import { draftDeliveryPolicy, SpecStatus } from "../socrates/spec.ts";
-import {
-  pendingCoverageReview,
-  specificationToken,
-} from "../socrates/assessment.ts";
+import { SpecStatus } from "../socrates/spec.ts";
 import {
   loadConfig,
   ModelCapability,
@@ -29,7 +27,6 @@ import { socratesGuidance } from "../socrates/guidance.ts";
 import {
   LeadMode,
   TaskDelivery,
-  type LeadDraft,
   describePlan,
   draftSchema,
   planDigest,
@@ -38,7 +35,7 @@ import {
 import { isEntry, PiEntryType } from "../runtime.ts";
 import { reviewHandoff } from "./handoff-review.ts";
 import {
-  applyDeliveryPolicy,
+  saveDiscoveryPlan,
   Discoveries,
   handoffDraft,
   type Discovery,
@@ -59,22 +56,6 @@ function discoveryStatus(record: Discovery): string {
   return spec.exchange.answer === undefined ? "question open" : "answer saved";
 }
 
-/** A changed discovery graph can alter evidence for scope, verification, dependencies, or authority. */
-function saveDiscoveryPlan(row: Discovery, proposal: LeadDraft): void {
-  const policy = draftDeliveryPolicy(row.specification?.draft ?? null);
-  const draft =
-    policy === undefined ? proposal : applyDeliveryPolicy(proposal, policy);
-  if (
-    row.specification?.coverageRevision !== undefined &&
-    !isDeepStrictEqual(draft, row.leadPlan.draft)
-  )
-    row.specification.pendingReview = pendingCoverageReview(
-      row.specification,
-      "plan",
-    );
-  row.leadPlan = { ...row.leadPlan, mode: LeadMode.Planning, draft };
-}
-
 export function registerDiscovery(
   pi: ExtensionAPI,
   profile: () => string | undefined,
@@ -85,6 +66,7 @@ export function registerDiscovery(
   let pending = false;
   let runningDiscoveryCommand = false;
   const discoveryBusy = () => pending || runningDiscoveryCommand;
+  const documentActionBusy = () => discoveryBusy() || documents.pending();
   let selected: string | undefined;
   const storage = <T>(operation: (store: Discoveries) => T): T => {
     const db = new Discoveries();
@@ -146,6 +128,35 @@ export function registerDiscovery(
       throw new Error("Select a discovery for this project");
     return Promise.resolve(record);
   };
+  const documents = requirePlanningDocumentHooks(pi);
+  documents.bind({
+    current(ctx) {
+      const id = locate(ctx);
+      if (id === undefined) return undefined;
+      const project = realpathSync(ctx.cwd);
+      const record = storage((db) => db.find(id));
+      if (record === undefined || record.project !== project) return undefined;
+      return {
+        kind: DocumentOwnerKind.Discovery,
+        id,
+        project,
+        conversationId: ctx.sessionManager.getSessionId(),
+        read: () => storage((db) => db.get(id)),
+        changeWithWitness: (operationId, command, update, result) =>
+          storage((db) =>
+            db.changeWithWitness(id, operationId, command, update, result),
+          ),
+        validate: async (currentContext) => {
+          const current = await requireBinding(currentContext);
+          if (current.id !== id || current.project !== project)
+            throw new Error("The selected discovery changed");
+        },
+      };
+    },
+    changed(ctx) {
+      socrates.refresh(ctx);
+    },
+  });
   const selectedRecord = (ctx: ExtensionContext): Discovery | undefined => {
     const id = locate(ctx);
     if (id === undefined) return undefined;
@@ -247,7 +258,7 @@ export function registerDiscovery(
                 description:
                   "/socrates [TITLE] — start a new discovery with TITLE; omit it to continue or start one",
                 async handler(argument, ctx) {
-                  if (discoveryBusy())
+                  if (documentActionBusy())
                     throw new Error("Wait for the discovery command");
                   runningDiscoveryCommand = true;
                   try {
@@ -262,7 +273,7 @@ export function registerDiscovery(
       },
     },
     {
-      get: () => get(),
+      get: (id) => (id === "selected" ? get() : storage((db) => db.get(id))),
       change: (id, update) =>
         storage((db) => db.change(id === "selected" ? get().id : id, update)),
     },
@@ -276,6 +287,7 @@ export function registerDiscovery(
       openTasks,
       keybindings,
       subject: "this discovery; Beads is not required",
+      documents,
       identity: (record) => record.id,
       label: (record) => record.title,
       snapshot: selectedRecord,
@@ -307,7 +319,7 @@ export function registerDiscovery(
   pi.registerCommand("discoveries", {
     description: "Select a saved project discovery by title for /socrates",
     async handler(_arg, ctx) {
-      if (discoveryBusy() || !ctx.isIdle())
+      if (documentActionBusy() || !ctx.isIdle())
         throw new Error("Wait for the lead turn to settle");
       const project = realpathSync(ctx.cwd);
       const records = storage((db) => db.list(project));
@@ -335,7 +347,8 @@ export function registerDiscovery(
           project !== realpathSync(ctx.cwd) ||
           session !== ctx.sessionManager.getSessionId() ||
           leaf !== ctx.sessionManager.getLeafId() ||
-          !ctx.isIdle()
+          !ctx.isIdle() ||
+          documents.pending()
         )
           throw new Error("Open /discoveries again for this conversation");
         if (record.id !== current) {
@@ -350,7 +363,7 @@ export function registerDiscovery(
   pi.registerCommand("socrates-end", {
     description: "Save the discovery and return to direct coding",
     handler(_argument, ctx) {
-      if (discoveryBusy() || !ctx.isIdle())
+      if (documentActionBusy() || !ctx.isIdle())
         throw new Error("Wait for the lead turn to settle");
       if (locate(ctx) !== undefined) {
         pi.appendEntry(selectionType, {
@@ -372,7 +385,8 @@ export function registerDiscovery(
     description: "Preserve the frozen specification and reopen this discovery",
     async handler(_arg, ctx) {
       const record = await requireBinding(ctx);
-      if (!ctx.isIdle()) throw new Error("Wait for the lead turn to settle");
+      if (documents.pending() || !ctx.isIdle())
+        throw new Error("Wait for the lead turn to settle");
       storage((db) =>
         db.change(record.id, (row) => {
           if (row.specification?.status !== SpecStatus.Frozen)
@@ -409,7 +423,8 @@ export function registerDiscovery(
     description:
       "Draft or revise a private work breakdown in this conversation",
     async handler(argument, ctx) {
-      if (!ctx.isIdle()) throw new Error("Wait for the lead turn to settle");
+      if (documents.pending() || !ctx.isIdle())
+        throw new Error("Wait for the lead turn to settle");
       if (locate(ctx) === undefined) {
         const title = argument.trim();
         create(ctx, title === "" ? "Work breakdown" : title);
@@ -431,6 +446,12 @@ export function registerDiscovery(
     description:
       "Save proposed beads with scope, requirements, dependencies, acceptance, verification, and a worker capability and reasoning level per task. Standard uses the profile's worker model. During Socrates, revise the breakdown when an answer affects the work. Outside Socrates, use only for an explicitly requested local plan.",
     parameters: Type.Object({
+      expectedRevision: Type.Optional(
+        Type.String({
+          description:
+            "Required when replacing an existing plan. Use the exact revision from the document snapshot used to prepare this candidate.",
+        }),
+      ),
       summary: Type.String(),
       tasks: Type.Array(
         Type.Object({
@@ -453,12 +474,16 @@ export function registerDiscovery(
     }),
     async execute(_call, params, _signal, _update, ctx) {
       if (discoveryBusy()) throw new Error("Wait for the discovery command");
-      const draft = draftSchema.parse(params);
+      const { expectedRevision, ...candidate } = params;
+      const draft = draftSchema.parse(candidate);
       if (draft.tasks.some((task) => task.assignment === undefined))
         throw new Error(
           "Specify worker capability and reasoning for every task",
         );
-      if (locate(ctx) === undefined) create(ctx, draft.summary);
+      if (locate(ctx) === undefined) {
+        create(ctx, draft.summary);
+        documents.capture(ctx);
+      }
       const record = await requireBinding(ctx);
       storage((db) =>
         db.change(record.id, (row) => {
@@ -466,25 +491,12 @@ export function registerDiscovery(
             throw new Error(
               "This breakdown is already approved; create a new discovery",
             );
-          const spec = row.specification;
-          if (spec !== undefined) {
-            socrates.checkReview?.(row, ctx);
-            const requirements =
-              spec.draft?.requirements.map(({ id }) => id) ?? [];
-            if (
-              draft.tasks.some((task) =>
-                task.requirements.some((id) => !requirements.includes(id)),
-              )
-            )
-              throw new Error(
-                "Link proposed tasks only to requirements in the current specification",
-              );
-            row.planSpecificationRevision = specificationToken(spec);
-          }
+          if (row.specification !== undefined) socrates.checkReview?.(row, ctx);
+          documents.assertAgent(DocumentKind.Plan, row, ctx, expectedRevision);
           saveDiscoveryPlan(row, draft);
         }),
       );
-      socrates.refresh(ctx);
+      documents.committed(DocumentKind.Plan, ctx);
       const saved = get().specification;
       return {
         content: [
@@ -524,7 +536,12 @@ export function registerDiscovery(
             row.leadPlan.draft === null
           )
             throw new Error("No unapproved draft to revise");
-          saveDiscoveryPlan(row, reviseDelivery(row.leadPlan.draft, argument));
+          // Changing one delivery does not review the full plan against a newer specification.
+          saveDiscoveryPlan(
+            row,
+            reviseDelivery(row.leadPlan.draft, argument),
+            false,
+          );
         }),
       );
       socrates.refresh(ctx);
@@ -543,7 +560,8 @@ export function registerDiscovery(
         throw new Error(
           "Use /plan-approve background or /plan-approve interactive",
         );
-      if (!ctx.isIdle()) throw new Error("Wait for the lead turn to settle");
+      if (documents.pending() || !ctx.isIdle())
+        throw new Error("Wait for the lead turn to settle");
       const record = await requireBinding(ctx);
       const draft = handoffDraft(record);
       const digest = planDigest(draft);
@@ -612,13 +630,13 @@ export function registerDiscovery(
     },
   });
   pi.on("session_before_switch", () =>
-    discoveryBusy() ? { cancel: true } : undefined,
+    documentActionBusy() ? { cancel: true } : undefined,
   );
   pi.on("session_before_fork", () =>
-    discoveryBusy() ? { cancel: true } : undefined,
+    documentActionBusy() ? { cancel: true } : undefined,
   );
   return {
-    pending: discoveryBusy,
+    pending: documentActionBusy,
     runtimeHandoff(ctx: ExtensionContext): Discovery["handoff"] {
       return selectedRecord(ctx)?.handoff;
     },

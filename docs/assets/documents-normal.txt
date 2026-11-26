@@ -1,0 +1,32 @@
+                                                                                                                                                
+                                                                         Editor · saved · Specification                                         
+ Inspect this proposal with me.                                           1 # Specification                                                     
+                                                                          3                                                                     
+                                                                          5 ## Objective                                                        
+                                                                          6                                                                     
+                                                                          7 Inspect the complete proposal in Neovim.                            
+                                                                          9                                                                     
+                                                                         11 ## Scope 1                                                          
+                                                                         12                                                                     
+                                                                         13 Specification and plan editing                                      
+                                                                         15                                                                     
+                                                                         17 ## Scope 2                                                          
+                                                                         18                                                                     
+                                                                         19 Selection feedback with outcomes                                    
+                                                                         21                                                                     
+                                                                         23 ## Requirement R1                                                   
+                                                                         24                                                                     
+                                                                         26 id = "R1"                                                           
+                                                                         29                                                                     
+                                                                         31 ### Outcome                                                         
+                                                                         32                                                                     
+                                                                         33 Keep the full document beside Studio chat.                          
+                                                                         35                                                                     
+▸ Specification  ◇ Draft · v1  19 recheck                                37 ### Acceptance                                                      
+  Implementation  ◇ Draft                                                38                                                                     
+  Inspect the complete proposal in Neovim.                               39 Saving updates the draft without approving it.                      
+───────────────────────────────────────────────────────────────────────  41                                                                     
+                                                                         43 ## Decision D1                                                      
+─────────────────────────────────────────────────────────────────────── <6ce89201e3eb9fc5b5218a2d3b3436229479e706920a01fa.md  1,1            Top
+ ▸ ~/project ↱ main                                           tiny ◔0%                                                                          
+                                                                                                                                                

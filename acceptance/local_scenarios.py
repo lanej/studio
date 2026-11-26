@@ -228,7 +228,10 @@ def exercise_question_exchange(case: Case) -> None:
     assert spec()["exchange"] == first
     terminal.send_to_pane(pane, "/spec-freeze\r")
     terminal.until("open question blocks freeze", lambda:
-                   "Resolve the blocking questions" in terminal.capture_pane(pane))
+                   "Continue /socrates before freezing" in " ".join(terminal.capture_pane(pane).split()) and
+                   "Execution Readiness · open" in terminal.capture_pane(pane))
+    assert spec()["status"] == "interrogating" and spec()["exchange"] == first
+    assert "approvalAt" not in spec()
     terminal.send_to_pane(pane, "/socrates\r")
     terminal.until("same original choice reopened", lambda: ARCHIVE.answer in terminal.capture_pane(pane))
     terminal.send_to_pane(pane, "j")
@@ -295,6 +298,17 @@ def freeze_specification(case: Case, *, interview: bool) -> None:
     terminal.send_to_pane(pane, "/spec-freeze\r")
     terminal.until("specification review opens", lambda:
                    "Freeze specification for " + bead in case.capture(pane))
+    for _ in range(200):
+        if "Enter freeze spec" in terminal.capture_pane(pane):
+            break
+        terminal.send_to_pane(pane, "j")
+    else:
+        raise AssertionError(case.capture(pane))
+    assert spec()["status"] == "interrogating" and "approvalAt" not in spec()
+    (case.harness.artifacts / "socrates-freeze-review.txt").write_text(terminal.capture_pane(pane))
+    (case.harness.artifacts / "socrates-freeze-review.ansi").write_text(terminal.capture_pane(pane, ansi=True))
+    (case.harness.artifacts / "socrates-freeze-review-geometry.json").write_text(
+        json.dumps(next(item for item in terminal.pane_listing() if item["id"] == pane), indent=2) + "\n")
     terminal.send_to_pane(pane, "\r")
     terminal.until("frozen specification has a plan", lambda:
                    spec().get("status") == "frozen" and

@@ -504,6 +504,7 @@ await test("optional integrations stay inactive until enabled and fail before ef
       JSON.stringify({
         integrations: {
           zellij: { executable },
+          neovim: { executable },
           worktrees: { executable },
           octo: { executable },
         },
@@ -511,12 +512,21 @@ await test("optional integrations stay inactive until enabled and fail before ef
     );
     const report = z
       .object({
+        resources: z.object({
+          available: z.literal(true),
+          paths: z.array(z.string()),
+        }),
         integrations: z.record(
           z.string(),
           z.object({ enabled: z.boolean(), available: z.boolean() }),
         ),
       })
       .parse(JSON.parse((await invoke("doctor")).stdout));
+    assert.ok(
+      report.resources.paths.includes(
+        fileURLToPath(import.meta.resolve("@lanej/editor-interop/neovim")),
+      ),
+    );
     assert.ok(
       Object.values(report.integrations).every(
         (integration) => !integration.enabled && !integration.available,

@@ -1,0 +1,348 @@
+{
+  "provider": "deterministic local OpenAI-compatible SSE fixture; no live model",
+  "initMarker": "configuration preserved",
+  "panes": [
+    {
+      "id": 2,
+      "is_plugin": false,
+      "is_focused": true,
+      "is_fullscreen": false,
+      "is_floating": false,
+      "is_suppressed": false,
+      "is_collapsed": false,
+      "title": "Studio documents c0aa5f84",
+      "exited": false,
+      "exit_status": null,
+      "is_held": false,
+      "pane_x": 0,
+      "pane_content_x": 0,
+      "pane_y": 0,
+      "pane_content_y": 0,
+      "pane_rows": 31,
+      "pane_content_rows": 31,
+      "pane_columns": 88,
+      "pane_content_columns": 88,
+      "cursor_coordinates_in_pane": [
+        4,
+        5
+      ],
+      "terminal_command": "/usr/bin/env EDITOR_INTEROP_RUNTIME=/Users/joshlane/src/studio/.worktrees/codex-22f8c5cc/node_modules/@lanej/editor-interop/resources/nvim EDITOR_INTEROP_CONNECTION=/private/tmp/st-doc-xkr2_ywx/tmp/studio-editor-DENyii/connection.json /opt/homebrew/bin/nvim -c lua dofile(vim.env.EDITOR_INTEROP_RUNTIME .. '/bootstrap.lua')",
+      "plugin_url": null,
+      "is_selectable": true,
+      "index_in_pane_group": {},
+      "default_fg": null,
+      "default_bg": null,
+      "nested_session_name": null,
+      "attention": {
+        "status": "Idle",
+        "source": null,
+        "text": "",
+        "detail": {
+          "kind": null,
+          "progress": null,
+          "app": null,
+          "title": null,
+          "body": null,
+          "exit_code": null,
+          "duration_ms": null,
+          "command": null
+        },
+        "since_ms": 0,
+        "changed_ms": 0,
+        "seen": false,
+        "muted": null,
+        "ignore_output": false,
+        "watched": false,
+        "from_watch": false,
+        "remembered": null
+      },
+      "command_state": {
+        "phase": "Unknown",
+        "running": null,
+        "last": null,
+        "cwd": null,
+        "reports_markers": false
+      },
+      "program_status": [],
+      "tab_id": 0,
+      "tab_position": 0,
+      "tab_name": "Tab #1",
+      "pane_command": "/opt/homebrew/bin/nvim -c lua dofile(vim.env.EDITOR_INTEROP_RUNTIME .. '/bootstrap.lua')",
+      "pane_cwd": "/private/tmp/st-doc-xkr2_ywx/project"
+    }
+  ],
+  "requests": 15,
+  "feedback": [
+    {
+      "requestId": "af9b-2873288cf0d37-2",
+      "ref": {
+        "ownerKind": "discovery",
+        "ownerId": "c59cddb3-caee-4ecc-a150-961769c8459b",
+        "conversationId": "01a2144f-b1c8-708e-bd91-6960d8db2096",
+        "project": "/private/tmp/st-doc-xkr2_ywx/project",
+        "kind": "specification"
+      },
+      "baseRevision": "abc46913662a595f7ac177e84e287f38a0441cff81b41e14621ba18be8402623",
+      "bufferIdentity": "56f202bea015e9b981eb8a23c784f9bc644f30b8f957ad00dbdf833dda9e6a2e",
+      "range": {
+        "startLine": 7,
+        "endLine": 7
+      },
+      "selectedText": "Review the complete proposal in Neovim.",
+      "message": "Is this something we really want? Clarify the acceptance check.",
+      "generation": "7ed7cb67-0b97-461a-87db-6fb005b9f146",
+      "state": "answered",
+      "summary": "Clarified the acceptance check.",
+      "responseId": "86ef24f1",
+      "changes": [
+        {
+          "ref": {
+            "ownerKind": "discovery",
+            "ownerId": "c59cddb3-caee-4ecc-a150-961769c8459b",
+            "conversationId": "01a2144f-b1c8-708e-bd91-6960d8db2096",
+            "project": "/private/tmp/st-doc-xkr2_ywx/project",
+            "kind": "specification"
+          },
+          "beforeRevision": "abc46913662a595f7ac177e84e287f38a0441cff81b41e14621ba18be8402623",
+          "afterRevision": "352344e28965820d09298ecf26311c7bdbc5bea5af1a3b3bba6298795a6c43b5",
+          "range": {
+            "startLine": 39,
+            "endLine": 39
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "af9b-28732e6ae1e04-3",
+      "ref": {
+        "ownerKind": "discovery",
+        "ownerId": "c59cddb3-caee-4ecc-a150-961769c8459b",
+        "conversationId": "01a2144f-b1c8-708e-bd91-6960d8db2096",
+        "project": "/private/tmp/st-doc-xkr2_ywx/project",
+        "kind": "specification"
+      },
+      "baseRevision": "352344e28965820d09298ecf26311c7bdbc5bea5af1a3b3bba6298795a6c43b5",
+      "bufferIdentity": "6230bef1e5f15a09ac075b76289d572a5598c7890acb691c18c85b1d22940e8e",
+      "range": {
+        "startLine": 7,
+        "endLine": 7
+      },
+      "selectedText": "Local unsaved proposal survives.",
+      "message": "Perform the conflict check and clarify acceptance.",
+      "generation": "7ed7cb67-0b97-461a-87db-6fb005b9f146",
+      "state": "answered",
+      "summary": "Clarified the acceptance check.",
+      "responseId": "6d817da7",
+      "changes": [
+        {
+          "ref": {
+            "ownerKind": "discovery",
+            "ownerId": "c59cddb3-caee-4ecc-a150-961769c8459b",
+            "conversationId": "01a2144f-b1c8-708e-bd91-6960d8db2096",
+            "project": "/private/tmp/st-doc-xkr2_ywx/project",
+            "kind": "specification"
+          },
+          "beforeRevision": "dbff1603f5bb5a6f9c2cbdf60e8812177c2f1c9cc030136566a14cbc6ea5f89c",
+          "afterRevision": "c379719034f3c1ebc45f580fe96d6830faa942f80f49fbeb47487c4b37006246",
+          "range": {
+            "startLine": 39,
+            "endLine": 39
+          }
+        }
+      ]
+    },
+    {
+      "requestId": "af9b-287335e544a12-4",
+      "ref": {
+        "ownerKind": "discovery",
+        "ownerId": "c59cddb3-caee-4ecc-a150-961769c8459b",
+        "conversationId": "01a2144f-b1c8-708e-bd91-6960d8db2096",
+        "project": "/private/tmp/st-doc-xkr2_ywx/project",
+        "kind": "specification"
+      },
+      "baseRevision": "c379719034f3c1ebc45f580fe96d6830faa942f80f49fbeb47487c4b37006246",
+      "bufferIdentity": "97c49c1f7c339e65a711c1be9e95c3019587c4a16e724a35d6897a019f28c748",
+      "range": {
+        "startLine": 7,
+        "endLine": 7
+      },
+      "selectedText": "Review the complete proposal in Neovim.",
+      "message": "Give an explanation only: why keep approval in Studio?",
+      "generation": "7ed7cb67-0b97-461a-87db-6fb005b9f146",
+      "state": "answered",
+      "summary": "Kept approval in Studio.",
+      "responseId": "d9aae666",
+      "changes": []
+    }
+  ],
+  "finalSpecificationStatus": "frozen",
+  "finalPlanSummary": "Deliver the reviewed document editing loop.",
+  "coverageAssessmentCount": 19,
+  "deliveryPolicy": {
+    "decisionId": "D2",
+    "pullRequests": "per-bead",
+    "merge": "manual"
+  },
+  "pullRequestMerge": "manual",
+  "planEditInvalidatedCoverage": true,
+  "planApproved": false,
+  "lifecycle": {
+    "closedPane": 1,
+    "reopenedPane": 2,
+    "routineRefreshKeptClosed": true,
+    "explicitReopenCount": 1,
+    "studioClosedEditorSurvived": true,
+    "disconnectPreservedDirtyText": true,
+    "finalEditorStatus": "%#EditorDocumentStatus# Editor \u00b7 disconnected \u00b7 Implementation plan"
+  },
+  "images": "RGB reconstructions from the actual terminal ANSI, not desktop screenshots",
+  "toolResults": [
+    {
+      "role": "toolResult",
+      "toolCallId": "fixture-b6527a7a-f9ca-489c-ae4a-1141ac2ae2cc",
+      "toolName": "read_studio_documents",
+      "content": [
+        {
+          "type": "text",
+          "text": "[{\"ref\":{\"ownerKind\":\"discovery\",\"ownerId\":\"c59cddb3-caee-4ecc-a150-961769c8459b\",\"conversationId\":\"01a2144f-b1c8-708e-bd91-6960d8db2096\",\"project\":\"/private/tmp/st-doc-xkr2_ywx/project\",\"kind\":\"specification\"},\"revision\":\"abc46913662a595f7ac177e84e287f38a0441cff81b41e14621ba18be8402623\",\"markdown\":\"# Specification\\n<!-- studio-document:v1:specification:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:objective -->\\n## Objective\\n\\nReview the complete proposal in Neovim.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:scope/1 -->\\n## Scope 1\\n\\nSpecification and plan editing\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:scope/2 -->\\n## Scope 2\\n\\nSelection feedback with outcomes\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:requirements/1/metadata -->\\n## Requirement R1\\n\\n```toml\\nid = \\\"R1\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:requirements/1/outcome -->\\n### Outcome\\n\\nKeep the full document beside Studio chat.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:requirements/1/acceptance -->\\n### Acceptance\\n\\nSaving updates the draft without approving it.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:decisions/1/metadata -->\\n## Decision D1\\n\\n```toml\\nbasis = \\\"decided\\\"\\nid = \\\"D1\\\"\\ndisposition = \\\"resolved\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:decisions/1/decision -->\\n### Decision\\n\\nKeep approval in Studio.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:decisions/1/evidence -->\\n### Evidence\\n\\nExplicit operator instruction\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:decisions/1/uncertainty -->\\n### Remaining uncertainty\\n\\nNone\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:decisions/2/metadata -->\\n## Decision D2\\n\\n```toml\\nbasis = \\\"decided\\\"\\nid = \\\"D2\\\"\\ndisposition = \\\"resolved\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:decisions/2/decision -->\\n### Decision\\n\\nOpen one PR per bead and reserve merge for the operator.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:decisions/2/evidence -->\\n### Evidence\\n\\nThe operator chose manual merge for each proposed PR.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:decisions/2/uncertainty -->\\n### Remaining uncertainty\\n\\nNone\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:delivery-policy -->\\n## Delivery policy\\n\\n```toml\\ndecisionId = \\\"D2\\\"\\npullRequests = \\\"per-bead\\\"\\nmerge = \\\"manual\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:coverage -->\\n## Property assessment scope\\n\\n```toml\\ndomains = [ \\\"engineering\\\" ]\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/1/metadata -->\\n## Assessment problem-first\\n\\n```toml\\npropertyId = \\\"problem-first\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/1/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Problem First.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/2/metadata -->\\n## Assessment interpretation\\n\\n```toml\\npropertyId = \\\"interpretation\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/2/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Interpretation.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/3/metadata -->\\n## Assessment clarity\\n\\n```toml\\npropertyId = \\\"clarity\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/3/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Clarity.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/4/metadata -->\\n## Assessment scope\\n\\n```toml\\npropertyId = \\\"scope\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/4/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Scope.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/5/metadata -->\\n## Assessment context\\n\\n```toml\\npropertyId = \\\"context\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/5/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Context.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/6/metadata -->\\n## Assessment parsimony\\n\\n```toml\\npropertyId = \\\"parsimony\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/6/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Parsimony.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/7/metadata -->\\n## Assessment success\\n\\n```toml\\npropertyId = \\\"success\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/7/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Success.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/8/metadata -->\\n## Assessment verification\\n\\n```toml\\npropertyId = \\\"verification\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/8/reason -->\\n### Evidence or rationale\\n\\nThe native journey checks saved state and visible editor outcomes.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/9/metadata -->\\n## Assessment constraints\\n\\n```toml\\npropertyId = \\\"constraints\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/9/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Constraints.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/10/metadata -->\\n## Assessment stakeholders\\n\\n```toml\\npropertyId = \\\"stakeholders\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/10/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Stakeholders.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/11/metadata -->\\n## Assessment risk\\n\\n```toml\\npropertyId = \\\"risk\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/11/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Risk.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/12/metadata -->\\n## Assessment execution-readiness\\n\\n```toml\\npropertyId = \\\"execution-readiness\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/12/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Execution Readiness.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/13/metadata -->\\n## Assessment harmony\\n\\n```toml\\npropertyId = \\\"harmony\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/13/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Harmony.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/14/metadata -->\\n## Assessment modularity\\n\\n```toml\\npropertyId = \\\"modularity\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/14/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Modularity.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/15/metadata -->\\n## Assessment policy-mechanism-separation\\n\\n```toml\\npropertyId = \\\"policy-mechanism-separation\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/15/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Separation of policy and mechanism.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/16/metadata -->\\n## Assessment robustness\\n\\n```toml\\npropertyId = \\\"robustness\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/16/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Robustness.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/17/metadata -->\\n## Assessment repair\\n\\n```toml\\npropertyId = \\\"repair\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/17/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Repair.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/18/metadata -->\\n## Assessment least-surprise\\n\\n```toml\\npropertyId = \\\"least-surprise\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/18/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Least Surprise.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/19/metadata -->\\n## Assessment regression-protection\\n\\n```toml\\npropertyId = \\\"regression-protection\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/19/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Regression Protection.\\n<!-- /studio:bf12f451993cd6fb -->\\n\",\"writable\":true},{\"ref\":{\"ownerKind\":\"discovery\",\"ownerId\":\"c59cddb3-caee-4ecc-a150-961769c8459b\",\"conversationId\":\"01a2144f-b1c8-708e-bd91-6960d8db2096\",\"project\":\"/private/tmp/st-doc-xkr2_ywx/project\",\"kind\":\"plan\"},\"revision\":\"0b1dc80734ab30c89f5bdcd94ace3117cbff7951dfad44fef95431c2a54e65a8\",\"markdown\":\"# Implementation plan\\n<!-- studio-document:v1:plan:f60abcb0c5ddfc4f -->\\n\\n<!-- studio:f60abcb0c5ddfc4f:summary -->\\n## Summary\\n\\nDeliver the document editing loop.\\n<!-- /studio:f60abcb0c5ddfc4f -->\\n\\n<!-- studio:f60abcb0c5ddfc4f:merge-policy -->\\n## Pull request merge policy\\n\\n```toml\\npullRequestMerge = \\\"project-policy\\\"\\n```\\n<!-- /studio:f60abcb0c5ddfc4f -->\\n\\n<!-- studio:f60abcb0c5ddfc4f:tasks/1/metadata -->\\n## Task 1\\n\\n```toml\\nkey = \\\"bridge\\\"\\ndelivery = \\\"pull-request\\\"\\nblockedBy = []\\nrequirements = [ \\\"R1\\\" ]\\nowns = [ \\\"documents\\\" ]\\n```\\n<!-- /studio:f60abcb0c5ddfc4f -->\\n\\n<!-- studio:f60abcb0c5ddfc4f:tasks/1/title -->\\n### Title\\n\\nConnect the editor\\n<!-- /studio:f60abcb0c5ddfc4f -->\\n\\n<!-- studio:f60abcb0c5ddfc4f:tasks/1/description -->\\n### Description\\n\\nBind editable documents to their Studio conversation.\\n<!-- /studio:f60abcb0c5ddfc4f -->\\n\\n<!-- studio:f60abcb0c5ddfc4f:tasks/1/acceptance -->\\n### Acceptance\\n\\nThe full plan survives a save.\\n<!-- /studio:f60abcb0c5ddfc4f -->\\n\",\"writable\":true}]"
+        }
+      ],
+      "details": {},
+      "isError": false,
+      "durationMs": 2,
+      "timestamp": 1795637108840
+    },
+    {
+      "role": "toolResult",
+      "toolCallId": "fixture-a8ed0a0b-5cdc-4dee-8509-b78427d30821",
+      "toolName": "draft_socrates_specification",
+      "content": [
+        {
+          "type": "text",
+          "text": "Properties satisfied or accounted for. Update the proposed beads if the specification changed, then offer /spec-freeze for review."
+        }
+      ],
+      "details": {
+        "gaps": []
+      },
+      "isError": false,
+      "durationMs": 5,
+      "timestamp": 1795637108875
+    },
+    {
+      "role": "toolResult",
+      "toolCallId": "fixture-42705783-efe4-4fe9-9af6-494f10809cab",
+      "toolName": "document_feedback_outcome",
+      "content": [
+        {
+          "type": "text",
+          "text": "Clarified the acceptance check."
+        }
+      ],
+      "details": {
+        "requestId": "af9b-2873288cf0d37-2"
+      },
+      "isError": false,
+      "durationMs": 0,
+      "timestamp": 1795637108886
+    },
+    {
+      "role": "toolResult",
+      "toolCallId": "fixture-f2a620bd-4bcd-4b07-bc90-7154973cf405",
+      "toolName": "read_studio_documents",
+      "content": [
+        {
+          "type": "text",
+          "text": "[{\"ref\":{\"ownerKind\":\"discovery\",\"ownerId\":\"c59cddb3-caee-4ecc-a150-961769c8459b\",\"conversationId\":\"01a2144f-b1c8-708e-bd91-6960d8db2096\",\"project\":\"/private/tmp/st-doc-xkr2_ywx/project\",\"kind\":\"specification\"},\"revision\":\"dbff1603f5bb5a6f9c2cbdf60e8812177c2f1c9cc030136566a14cbc6ea5f89c\",\"markdown\":\"# Specification\\n<!-- studio-document:v1:specification:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:objective -->\\n## Objective\\n\\nReview the complete proposal in Neovim.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:scope/1 -->\\n## Scope 1\\n\\nSpecification and plan editing\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:scope/2 -->\\n## Scope 2\\n\\nSelection feedback with outcomes\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:requirements/1/metadata -->\\n## Requirement R1\\n\\n```toml\\nid = \\\"R1\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:requirements/1/outcome -->\\n### Outcome\\n\\nKeep the full document beside Studio chat.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:requirements/1/acceptance -->\\n### Acceptance\\n\\nSaving updates Studio; explicit Studio review alone freezes the specification.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:decisions/1/metadata -->\\n## Decision D1\\n\\n```toml\\nbasis = \\\"decided\\\"\\nid = \\\"D1\\\"\\ndisposition = \\\"resolved\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:decisions/1/decision -->\\n### Decision\\n\\nKeep approval in Studio.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:decisions/1/evidence -->\\n### Evidence\\n\\nExplicit operator instruction\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:decisions/1/uncertainty -->\\n### Remaining uncertainty\\n\\nNone\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:decisions/2/metadata -->\\n## Decision D2\\n\\n```toml\\nbasis = \\\"decided\\\"\\nid = \\\"D2\\\"\\ndisposition = \\\"resolved\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:decisions/2/decision -->\\n### Decision\\n\\nOpen one PR per bead and reserve merge for the operator.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:decisions/2/evidence -->\\n### Evidence\\n\\nThe operator chose manual merge for each proposed PR.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:decisions/2/uncertainty -->\\n### Remaining uncertainty\\n\\nNone\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:delivery-policy -->\\n## Delivery policy\\n\\n```toml\\ndecisionId = \\\"D2\\\"\\npullRequests = \\\"per-bead\\\"\\nmerge = \\\"manual\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:coverage -->\\n## Property assessment scope\\n\\n```toml\\ndomains = [ \\\"engineering\\\" ]\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/1/metadata -->\\n## Assessment problem-first\\n\\n```toml\\npropertyId = \\\"problem-first\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/1/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Problem First.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/2/metadata -->\\n## Assessment interpretation\\n\\n```toml\\npropertyId = \\\"interpretation\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/2/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Interpretation.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/3/metadata -->\\n## Assessment clarity\\n\\n```toml\\npropertyId = \\\"clarity\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/3/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Clarity.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/4/metadata -->\\n## Assessment scope\\n\\n```toml\\npropertyId = \\\"scope\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/4/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Scope.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/5/metadata -->\\n## Assessment context\\n\\n```toml\\npropertyId = \\\"context\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/5/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Context.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/6/metadata -->\\n## Assessment parsimony\\n\\n```toml\\npropertyId = \\\"parsimony\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/6/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Parsimony.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/7/metadata -->\\n## Assessment success\\n\\n```toml\\npropertyId = \\\"success\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/7/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Success.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/8/metadata -->\\n## Assessment verification\\n\\n```toml\\npropertyId = \\\"verification\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/8/reason -->\\n### Evidence or rationale\\n\\nThe native journey checks saved state and visible editor outcomes.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/9/metadata -->\\n## Assessment constraints\\n\\n```toml\\npropertyId = \\\"constraints\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/9/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Constraints.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/10/metadata -->\\n## Assessment stakeholders\\n\\n```toml\\npropertyId = \\\"stakeholders\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/10/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Stakeholders.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/11/metadata -->\\n## Assessment risk\\n\\n```toml\\npropertyId = \\\"risk\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/11/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Risk.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/12/metadata -->\\n## Assessment execution-readiness\\n\\n```toml\\npropertyId = \\\"execution-readiness\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/12/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Execution Readiness.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/13/metadata -->\\n## Assessment harmony\\n\\n```toml\\npropertyId = \\\"harmony\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/13/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Harmony.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/14/metadata -->\\n## Assessment modularity\\n\\n```toml\\npropertyId = \\\"modularity\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/14/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Modularity.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/15/metadata -->\\n## Assessment policy-mechanism-separation\\n\\n```toml\\npropertyId = \\\"policy-mechanism-separation\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/15/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Separation of policy and mechanism.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/16/metadata -->\\n## Assessment robustness\\n\\n```toml\\npropertyId = \\\"robustness\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/16/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Robustness.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/17/metadata -->\\n## Assessment repair\\n\\n```toml\\npropertyId = \\\"repair\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/17/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Repair.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/18/metadata -->\\n## Assessment least-surprise\\n\\n```toml\\npropertyId = \\\"least-surprise\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/18/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Least Surprise.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/19/metadata -->\\n## Assessment regression-protection\\n\\n```toml\\npropertyId = \\\"regression-protection\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/19/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Regression Protection.\\n<!-- /studio:bf12f451993cd6fb -->\\n\",\"writable\":true},{\"ref\":{\"ownerKind\":\"discovery\",\"ownerId\":\"c59cddb3-caee-4ecc-a150-961769c8459b\",\"conversationId\":\"01a2144f-b1c8-708e-bd91-6960d8db2096\",\"project\":\"/private/tmp/st-doc-xkr2_ywx/project\",\"kind\":\"plan\"},\"revision\":\"f6eaee14e4d7eb66ccc8103b1aa251d5a59f7bbdaf9a608e004373bb08eafc50\",\"markdown\":\"# Implementation plan\\n<!-- studio-document:v1:plan:f60abcb0c5ddfc4f -->\\n\\n<!-- studio:f60abcb0c5ddfc4f:summary -->\\n## Summary\\n\\nDeliver the document editing loop.\\n<!-- /studio:f60abcb0c5ddfc4f -->\\n\\n<!-- studio:f60abcb0c5ddfc4f:merge-policy -->\\n## Pull request merge policy\\n\\n```toml\\npullRequestMerge = \\\"project-policy\\\"\\n```\\n<!-- /studio:f60abcb0c5ddfc4f -->\\n\\n<!-- studio:f60abcb0c5ddfc4f:tasks/1/metadata -->\\n## Task 1\\n\\n```toml\\nkey = \\\"bridge\\\"\\ndelivery = \\\"pull-request\\\"\\nblockedBy = []\\nrequirements = [ \\\"R1\\\" ]\\nowns = [ \\\"documents\\\" ]\\n```\\n<!-- /studio:f60abcb0c5ddfc4f -->\\n\\n<!-- studio:f60abcb0c5ddfc4f:tasks/1/title -->\\n### Title\\n\\nConnect the editor\\n<!-- /studio:f60abcb0c5ddfc4f -->\\n\\n<!-- studio:f60abcb0c5ddfc4f:tasks/1/description -->\\n### Description\\n\\nBind editable documents to their Studio conversation.\\n<!-- /studio:f60abcb0c5ddfc4f -->\\n\\n<!-- studio:f60abcb0c5ddfc4f:tasks/1/acceptance -->\\n### Acceptance\\n\\nThe full plan survives a save.\\n<!-- /studio:f60abcb0c5ddfc4f -->\\n\",\"writable\":true}]"
+        }
+      ],
+      "details": {},
+      "isError": false,
+      "durationMs": 1,
+      "timestamp": 1795637110385
+    },
+    {
+      "role": "toolResult",
+      "toolCallId": "fixture-dc1b0413-f08b-4750-b4cd-6e86619a2f9d",
+      "toolName": "draft_socrates_specification",
+      "content": [
+        {
+          "type": "text",
+          "text": "Properties satisfied or accounted for. Update the proposed beads if the specification changed, then offer /spec-freeze for review."
+        }
+      ],
+      "details": {
+        "gaps": []
+      },
+      "isError": false,
+      "durationMs": 3,
+      "timestamp": 1795637110408
+    },
+    {
+      "role": "toolResult",
+      "toolCallId": "fixture-92b7925e-6ba4-4974-ba8d-81f52ad2ba9b",
+      "toolName": "document_feedback_outcome",
+      "content": [
+        {
+          "type": "text",
+          "text": "Clarified the acceptance check."
+        }
+      ],
+      "details": {
+        "requestId": "af9b-28732e6ae1e04-3"
+      },
+      "isError": false,
+      "durationMs": 0,
+      "timestamp": 1795637110418
+    },
+    {
+      "role": "toolResult",
+      "toolCallId": "fixture-2c39130c-f35b-4703-961b-723605b69f14",
+      "toolName": "document_feedback_outcome",
+      "content": [
+        {
+          "type": "text",
+          "text": "Kept approval in Studio."
+        }
+      ],
+      "details": {
+        "requestId": "af9b-287335e544a12-4"
+      },
+      "isError": false,
+      "durationMs": 0,
+      "timestamp": 1795637112380
+    },
+    {
+      "role": "toolResult",
+      "toolCallId": "fixture-2aad6c1c-2cb5-41b9-8fe7-fc7c26a5094e",
+      "toolName": "read_studio_documents",
+      "content": [
+        {
+          "type": "text",
+          "text": "[{\"ref\":{\"ownerKind\":\"discovery\",\"ownerId\":\"c59cddb3-caee-4ecc-a150-961769c8459b\",\"conversationId\":\"01a2144f-b1c8-708e-bd91-6960d8db2096\",\"project\":\"/private/tmp/st-doc-xkr2_ywx/project\",\"kind\":\"specification\"},\"revision\":\"e14a70ebc8972a977fe698ba300629788ed037a2117a88ea02d7a17b4f854b8f\",\"markdown\":\"# Specification\\n<!-- studio-document:v1:specification:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:objective -->\\n## Objective\\n\\nReview the complete proposal in Neovim.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:scope/1 -->\\n## Scope 1\\n\\nSpecification and plan editing\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:scope/2 -->\\n## Scope 2\\n\\nSelection feedback with outcomes\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:requirements/1/metadata -->\\n## Requirement R1\\n\\n```toml\\nid = \\\"R1\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:requirements/1/outcome -->\\n### Outcome\\n\\nKeep the full document beside Studio chat.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:requirements/1/acceptance -->\\n### Acceptance\\n\\nPreserve local unsaved edits while incoming changes await reconciliation.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:decisions/1/metadata -->\\n## Decision D1\\n\\n```toml\\nbasis = \\\"decided\\\"\\nid = \\\"D1\\\"\\ndisposition = \\\"resolved\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:decisions/1/decision -->\\n### Decision\\n\\nKeep approval in Studio.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:decisions/1/evidence -->\\n### Evidence\\n\\nExplicit operator instruction\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:decisions/1/uncertainty -->\\n### Remaining uncertainty\\n\\nNone\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:decisions/2/metadata -->\\n## Decision D2\\n\\n```toml\\nbasis = \\\"decided\\\"\\nid = \\\"D2\\\"\\ndisposition = \\\"resolved\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:decisions/2/decision -->\\n### Decision\\n\\nOpen one PR per bead and reserve merge for the operator.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:decisions/2/evidence -->\\n### Evidence\\n\\nThe operator chose manual merge for each proposed PR.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:decisions/2/uncertainty -->\\n### Remaining uncertainty\\n\\nNone\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:delivery-policy -->\\n## Delivery policy\\n\\n```toml\\ndecisionId = \\\"D2\\\"\\npullRequests = \\\"per-bead\\\"\\nmerge = \\\"manual\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:coverage -->\\n## Property assessment scope\\n\\n```toml\\ndomains = [ \\\"engineering\\\" ]\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/1/metadata -->\\n## Assessment problem-first\\n\\n```toml\\npropertyId = \\\"problem-first\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/1/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Problem First.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/2/metadata -->\\n## Assessment interpretation\\n\\n```toml\\npropertyId = \\\"interpretation\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/2/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Interpretation.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/3/metadata -->\\n## Assessment clarity\\n\\n```toml\\npropertyId = \\\"clarity\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/3/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Clarity.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/4/metadata -->\\n## Assessment scope\\n\\n```toml\\npropertyId = \\\"scope\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/4/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Scope.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/5/metadata -->\\n## Assessment context\\n\\n```toml\\npropertyId = \\\"context\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/5/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Context.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/6/metadata -->\\n## Assessment parsimony\\n\\n```toml\\npropertyId = \\\"parsimony\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/6/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Parsimony.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/7/metadata -->\\n## Assessment success\\n\\n```toml\\npropertyId = \\\"success\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/7/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Success.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/8/metadata -->\\n## Assessment verification\\n\\n```toml\\npropertyId = \\\"verification\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/8/reason -->\\n### Evidence or rationale\\n\\nThe native journey checks saved state and visible editor outcomes.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/9/metadata -->\\n## Assessment constraints\\n\\n```toml\\npropertyId = \\\"constraints\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/9/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Constraints.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/10/metadata -->\\n## Assessment stakeholders\\n\\n```toml\\npropertyId = \\\"stakeholders\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/10/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Stakeholders.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/11/metadata -->\\n## Assessment risk\\n\\n```toml\\npropertyId = \\\"risk\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/11/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Risk.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/12/metadata -->\\n## Assessment execution-readiness\\n\\n```toml\\npropertyId = \\\"execution-readiness\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/12/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Execution Readiness.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/13/metadata -->\\n## Assessment harmony\\n\\n```toml\\npropertyId = \\\"harmony\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/13/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Harmony.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/14/metadata -->\\n## Assessment modularity\\n\\n```toml\\npropertyId = \\\"modularity\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/14/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Modularity.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/15/metadata -->\\n## Assessment policy-mechanism-separation\\n\\n```toml\\npropertyId = \\\"policy-mechanism-separation\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/15/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Separation of policy and mechanism.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/16/metadata -->\\n## Assessment robustness\\n\\n```toml\\npropertyId = \\\"robustness\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/16/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Robustness.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/17/metadata -->\\n## Assessment repair\\n\\n```toml\\npropertyId = \\\"repair\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/17/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Repair.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/18/metadata -->\\n## Assessment least-surprise\\n\\n```toml\\npropertyId = \\\"least-surprise\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/18/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Least Surprise.\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/19/metadata -->\\n## Assessment regression-protection\\n\\n```toml\\npropertyId = \\\"regression-protection\\\"\\nstatus = \\\"satisfied\\\"\\n```\\n<!-- /studio:bf12f451993cd6fb -->\\n\\n<!-- studio:bf12f451993cd6fb:assessments/19/reason -->\\n### Evidence or rationale\\n\\nThe native document fixture exercises Regression Protection.\\n<!-- /studio:bf12f451993cd6fb -->\\n\",\"writable\":true},{\"ref\":{\"ownerKind\":\"discovery\",\"ownerId\":\"c59cddb3-caee-4ecc-a150-961769c8459b\",\"conversationId\":\"01a2144f-b1c8-708e-bd91-6960d8db2096\",\"project\":\"/private/tmp/st-doc-xkr2_ywx/project\",\"kind\":\"plan\"},\"revision\":\"5aaa9470b2a91d3242084976e6104f55416d5df3d889a2938874a780b5399cc8\",\"markdown\":\"# Implementation plan\\n<!-- studio-document:v1:plan:f60abcb0c5ddfc4f -->\\n\\n<!-- studio:f60abcb0c5ddfc4f:summary -->\\n## Summary\\n\\nDeliver the proposed document editing loop.\\n<!-- /studio:f60abcb0c5ddfc4f -->\\n\\n<!-- studio:f60abcb0c5ddfc4f:merge-policy -->\\n## Pull request merge policy\\n\\n```toml\\npullRequestMerge = \\\"manual\\\"\\n```\\n<!-- /studio:f60abcb0c5ddfc4f -->\\n\\n<!-- studio:f60abcb0c5ddfc4f:tasks/1/metadata -->\\n## Task 1\\n\\n```toml\\nkey = \\\"bridge\\\"\\ndelivery = \\\"pull-request\\\"\\nblockedBy = []\\nrequirements = [ \\\"R1\\\" ]\\nowns = [ \\\"documents\\\" ]\\n```\\n<!-- /studio:f60abcb0c5ddfc4f -->\\n\\n<!-- studio:f60abcb0c5ddfc4f:tasks/1/title -->\\n### Title\\n\\nConnect the editor\\n<!-- /studio:f60abcb0c5ddfc4f -->\\n\\n<!-- studio:f60abcb0c5ddfc4f:tasks/1/description -->\\n### Description\\n\\nBind editable documents to their Studio conversation.\\n<!-- /studio:f60abcb0c5ddfc4f -->\\n\\n<!-- studio:f60abcb0c5ddfc4f:tasks/1/acceptance -->\\n### Acceptance\\n\\nThe full plan and its manual merge rule survive a save.\\n<!-- /studio:f60abcb0c5ddfc4f -->\\n\",\"writable\":true}]"
+        }
+      ],
+      "details": {},
+      "isError": false,
+      "durationMs": 1,
+      "timestamp": 1795637113904
+    },
+    {
+      "role": "toolResult",
+      "toolCallId": "fixture-ce346d19-4bff-445c-9241-a4cbd1bd24a6",
+      "toolName": "draft_socrates_specification",
+      "content": [
+        {
+          "type": "text",
+          "text": "Properties satisfied or accounted for. Update the proposed beads if the specification changed, then offer /spec-freeze for review."
+        }
+      ],
+      "details": {
+        "gaps": []
+      },
+      "isError": false,
+      "durationMs": 3,
+      "timestamp": 1795637113928
+    }
+  ]
+}
