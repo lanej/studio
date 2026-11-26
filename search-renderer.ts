@@ -1,9 +1,9 @@
 import { registerCodingRenderer } from "./model-tools/rendering.ts";
 import {
-  type MarkdownHeredoc,
-  markdownHeredoc,
-  prepareMarkdownHeredoc,
-} from "./markdown-heredoc.ts";
+  type ShellHeredocs,
+  shellHeredocs,
+  prepareShellHeredoc,
+} from "./shell-heredoc.ts";
 import {
   type ExtensionAPI,
   type Theme,
@@ -330,28 +330,62 @@ const outputDetails = z
   })
   .loose();
 
-class MarkdownShellCall extends Container {
+// Pi invalidates terminal components after a theme change or when deferred grammars load.
+class HighlightedText extends Text {
+  constructor(private readonly highlight: () => string) {
+    super(highlight(), 0, 0);
+  }
+
+  override invalidate(): void {
+    this.setText(this.highlight());
+    super.invalidate();
+  }
+}
+
+class HeredocShellCall extends Container {
   constructor(
     readonly header: Text,
     readonly command: string,
-    readonly document: MarkdownHeredoc,
+    readonly heredocs: ShellHeredocs,
     theme: Theme,
   ) {
     super();
     this.addChild(header);
-    this.addChild(new Spacer(1));
-    this.addChild(new Markdown(document.body, 0, 0, getMarkdownTheme()));
-    if (document.following !== "") {
+    for (const [index, document] of heredocs.documents.entries()) {
+      if (index > 0) {
+        this.addChild(new Spacer(1));
+        this.addChild(
+          new HighlightedText(() =>
+            highlightShellCommand(document.header, theme),
+          ),
+        );
+      }
+      this.addChild(new Spacer(1));
+      if (document.language === "markdown") {
+        this.addChild(new Markdown(document.body, 0, 0, getMarkdownTheme()));
+      } else {
+        // The last newline separates the body from its closing delimiter.
+        const source = document.body.replace(/\n$/u, "");
+        this.addChild(
+          new HighlightedText(() =>
+            highlightCode(source, document.language).join("\n"),
+          ),
+        );
+      }
+    }
+    if (heredocs.following !== "") {
       this.addChild(new Spacer(1));
       this.addChild(
-        new Text(highlightShellCommand(document.following, theme), 0, 0),
+        new HighlightedText(() =>
+          highlightShellCommand(heredocs.following, theme),
+        ),
       );
     }
   }
 }
 
 export function registerSearchRendering(pi: ExtensionAPI): void {
-  pi.on("session_start", prepareMarkdownHeredoc);
+  pi.on("session_start", prepareShellHeredoc);
   const painted = new WeakSet<Component>();
   registerCodingRenderer(pi, (name, next) => {
     const base = next();
@@ -369,7 +403,7 @@ export function registerSearchRendering(pi: ExtensionAPI): void {
               const component = renderCall(
                 args,
                 theme,
-                previous instanceof MarkdownShellCall
+                previous instanceof HeredocShellCall
                   ? { ...context, lastComponent: previous.header }
                   : context,
               );
@@ -389,20 +423,20 @@ export function registerSearchRendering(pi: ExtensionAPI): void {
               );
               // Replayed calls receive a final result without an args-complete event.
               const currentPreview =
-                previous instanceof MarkdownShellCall &&
+                previous instanceof HeredocShellCall &&
                 previous.command === command &&
                 previous.header === component
                   ? previous
                   : undefined;
-              const heredoc =
+              const heredocs =
                 !context.expanded &&
                 (context.argsComplete ||
                   context.executionStarted ||
                   !context.isPartial)
-                  ? (currentPreview?.document ?? markdownHeredoc(command))
+                  ? (currentPreview?.heredocs ?? shellHeredocs(command))
                   : undefined;
               const syntax = highlightShellCommand(
-                heredoc?.header ?? command,
+                heredocs?.documents[0].header ?? command,
                 theme,
               );
               const suffix =
@@ -410,10 +444,10 @@ export function registerSearchRendering(pi: ExtensionAPI): void {
                   ? theme.fg("muted", ` (timeout ${timeout.toString()}s)`)
                   : "";
               component.setText(`${prompt} ${syntax}${suffix}`);
-              if (heredoc !== undefined) {
+              if (heredocs !== undefined) {
                 return (
                   currentPreview ??
-                  new MarkdownShellCall(component, command, heredoc, theme)
+                  new HeredocShellCall(component, command, heredocs, theme)
                 );
               }
               return component;

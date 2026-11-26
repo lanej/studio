@@ -212,6 +212,65 @@ await test("shell calls preview a GitHub Markdown body and expand to the origina
   }
 });
 
+await test("shell tool aliases render tagged heredocs with the selected syntax and preserve the expanded source", async (t) => {
+  const { component, ctx } = await conversationFixture(t);
+  for (const name of ["shell_command", "Bash"]) {
+    const commands = [
+      "psql <<'SQL'",
+      "  SELECT 'ready';",
+      "SQL",
+      "echo checking",
+      "sh <<'SH'",
+      "  if true; then echo 'done'; fi",
+      "SH",
+      "echo finished",
+    ];
+    const tagged = component(name, { command: commands.join("\n") });
+    const expanded = plain(tagged, 100);
+    tagged.setArgsComplete();
+    const colored = tagged.render(100).join("\n");
+    const transcript = stripTerminalSequences(colored);
+    assert.match(
+      transcript,
+      /psql <<'SQL'[\s\S]+echo checking[\s\S]+sh <<'SH'[\s\S]+echo finished/u,
+    );
+    for (const [role, token] of [
+      ["syntaxKeyword", "SELECT"],
+      ["syntaxString", "'ready'"],
+      ["syntaxKeyword", "if"],
+      ["syntaxString", "'done'"],
+    ] as const)
+      assert.ok(
+        colored.includes(ctx.ui.theme.fg(role, token)),
+        `${name} ${token}`,
+      );
+    assert.ok(tagged.render(24).every((line) => visibleWidth(line) <= 24));
+    tagged.setExpanded(true);
+    assert.equal(plain(tagged, 100), expanded);
+    for (const line of commands) assert.ok(expanded.includes(line));
+
+    for (const delimiter of ["MD", "EOF"]) {
+      const command = `cat <<'${delimiter}'\n## Review\n\nKeep **this**.\n${delimiter}`;
+      const call = component(name, { command });
+      const original = plain(call, 100);
+      call.setArgsComplete();
+      const preview = plain(call, 100);
+      if (delimiter === "MD") {
+        assert.ok(preview.includes(`${name} cat <<'MD'`));
+        assert.match(preview, /Review/u);
+        assert.match(preview, /Keep this\./u);
+        assert.doesNotMatch(preview, /## Review|\*\*this\*\*/u);
+      } else {
+        assert.equal(preview, original);
+        assert.match(preview, /## Review/u);
+        assert.match(preview, /\*\*this\*\*/u);
+      }
+      call.setExpanded(true);
+      assert.equal(plain(call, 100), original);
+    }
+  }
+});
+
 await test("dialect tools keep their invoked names in conversation headings", async (t) => {
   const { component } = await conversationFixture(t);
   const path = "README.md";
