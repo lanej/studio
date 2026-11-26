@@ -320,7 +320,9 @@ class Terminal:
         """Read the overlay's viewport without the lead or sidebar alongside it."""
         width = min(100, self.screen.columns - 4)
         left = (self.screen.columns - width) // 2
-        return [line[left:left + width] for line in self.screen.display]
+        viewport = [line[left:left + width] for line in self.screen.display]
+        return [line[1:-1] if line.startswith("│") and line.endswith("│") else line
+                for line in viewport]
 
     def select_inspector_action(self, label):
         """Wait for each Tab to render before advancing the selected inspector action."""
@@ -407,14 +409,15 @@ class Terminal:
         self.wait(lambda: text in " ".join(" ".join(self.centered_lines()).split()), f"Missing {text!r} in the inspector")
 
     def centered_inspector(self, title, footer=None):
-        lines = self.centered_lines()
-        top = next((y for y, line in enumerate(lines) if line.startswith(" " + title)), None)
+        top, bottom, left, right = self.framed_pane(title)
+        lines = [line[left + 1:right] for line in self.screen.display[top:bottom + 1]]
         footers = (footer,) if footer else ("Esc close", "? keys")
-        bottom = next((y for y, line in enumerate(lines) if any(hint in line for hint in footers)
-                       and top is not None and y > top), None)
-        assert top is not None and bottom is not None and 0 < top < bottom < self.screen.lines - 1, self.text()
-        assert abs(top - (self.screen.lines - bottom - 1)) <= 1, self.text()
-        return lines[top:bottom + 1]
+        assert any(hint in lines[-2] for hint in footers), self.text()
+        assert all(line[left] == "│" and line[right] == "│"
+                   for line in self.screen.display[top + 1:bottom]), self.text()
+        self.assert_styled_text("╭", fg="border", lines=[top])
+        self.assert_styled_text("╰", fg="border", lines=[bottom])
+        return lines
 
     def board_rows(self):
         rows = []

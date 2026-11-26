@@ -14,6 +14,7 @@ import { selectorText } from "@lanej/pi-components";
 import {
   floatingPaneHeight,
   floatingPaneOptions,
+  framePaneRows,
   paintPaneLine,
   paneMouse,
 } from "./floating-pane.ts";
@@ -71,22 +72,22 @@ export async function showTask(
           text.invalidate();
         },
         render(width) {
-          const inner = floating ? Math.max(1, width - 2) : width;
+          const inner = floating ? Math.max(1, width - 4) : width;
           const lines = text.render(inner);
           const height = floating
-            ? floatingPaneHeight(tui.terminal.rows)
+            ? Math.max(0, floatingPaneHeight(tui.terminal.rows) - 2)
             : Math.max(3, tui.terminal.rows - 5);
           maximum = Math.max(0, lines.length - height);
           offset = Math.min(offset, maximum);
           const visible = lines.slice(offset, offset + height);
           return floating
-            ? visible.map((line) =>
-                paintPaneLine(
-                  theme,
-                  "userMessageBg",
-                  truncateToWidth(` ${line}`, width, "", true),
-                ),
-              )
+            ? framePaneRows({
+                body: visible,
+                width,
+                border: (line) => theme.fg("border", line),
+              })
+                .slice(0, floatingPaneHeight(tui.terminal.rows))
+                .map((line) => paintPaneLine(theme, "userMessageBg", line))
             : visible;
         },
         handleMouse(event) {
@@ -228,7 +229,7 @@ export function createPlanApproval(
       if (width < 1) return [];
 
       const rows = tui.terminal.rows;
-      if (fullScreen && rows < 3)
+      if (fullScreen && (rows < 4 || width < 5))
         return [
           truncateToWidth(
             theme.fg("warning", "Resize to review · Esc cancel"),
@@ -237,8 +238,7 @@ export function createPlanApproval(
         ];
 
       const split = fullScreen && width >= planReviewBreakpoint;
-      const margin = fullScreen && width >= 8 ? (split ? "  " : " ") : "";
-      const inner = width - 2 * margin.length;
+      const inner = fullScreen ? width - 4 : width;
       if (width !== lastWidth) {
         // Rewrapped content has new line positions, so show it from the start.
         offset = 0;
@@ -246,8 +246,8 @@ export function createPlanApproval(
         lastWidth = width;
       }
       rendered ??= approvalBody(details, theme, inner, split);
-      const spacer = fullScreen && rows >= 4 ? [""] : [];
-      page = fullScreen ? rows - 2 - spacer.length : Math.max(3, rows - 7);
+      const spacer = fullScreen && rows >= 5 ? [""] : [];
+      page = fullScreen ? rows - 3 - spacer.length : Math.max(3, rows - 7);
       maximum = Math.max(
         0,
         rendered.left.length - page,
@@ -264,18 +264,22 @@ export function createPlanApproval(
       const compact = endDisplayed
         ? "Enter confirm · Esc cancel"
         : "↓ More · Esc cancel";
-      return [
-        truncateToWidth(theme.fg("accent", theme.bold(title)), inner),
-        ...spacer,
-        ...body,
-        truncateToWidth(
-          theme.fg(
-            endDisplayed ? "accent" : "dim",
-            visibleWidth(hint) <= inner ? hint : compact,
-          ),
-          inner,
+      const heading = theme.fg("accent", theme.bold(title));
+      const instructions = truncateToWidth(
+        theme.fg(
+          endDisplayed ? "accent" : "dim",
+          visibleWidth(hint) <= inner ? hint : compact,
         ),
-      ].map((line) => margin + line);
+        inner,
+      );
+      return fullScreen
+        ? framePaneRows({
+            title: heading,
+            body: [...spacer, ...body, instructions],
+            width,
+            border: (line) => theme.fg("border", line),
+          })
+        : [truncateToWidth(heading, inner), ...body, instructions];
     },
     handleInput(input) {
       if (

@@ -1097,7 +1097,10 @@ await test("the worker answer drawer owns focus above the lead draft and restore
     bindings,
   );
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
-  assert.match(view(), /Loading… +x close/u);
+  const loading = view().split("\n").map(stripAnsi);
+  assert.match(loading[0] ?? "", /^╭─ Tasks · Loading….*╮$/u);
+  assert.match(loading[1] ?? "", /^│ x close.*│$/u);
+  assert.match(loading.at(-1) ?? "", /^╰─+╯$/u);
   for (const key of ["q", "\x1b", "\x03"]) send(key);
   assert.match(view(), /Loading/u);
   send("x");

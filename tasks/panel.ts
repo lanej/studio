@@ -3,12 +3,12 @@ import type { StudioConfig } from "../config.ts";
 import {
   floatingPaneOptions,
   floatingPaneHeight,
+  framePaneRows,
   paneMouse,
   paintPaneLine,
 } from "../floating-pane.ts";
 import {
   isKeyRelease,
-  Text,
   type OverlayHandle,
   type TuiMouseEvent,
 } from "@earendil-works/pi-tui";
@@ -161,16 +161,6 @@ export class TaskPanel {
           this.closeView = () => {
             done(undefined);
           };
-          const loading = new Text(
-            [
-              theme.fg("accent", "Tasks") + " · Loading…",
-              taskCloseHint(bindings),
-            ]
-              .filter(Boolean)
-              .join("   "),
-            1,
-            0,
-          );
           let browser: TaskBrowser | undefined;
           const schedule = () => {
             if (!current() || browser === undefined) return;
@@ -226,14 +216,18 @@ export class TaskPanel {
           return {
             capturesViewportInput: true,
             invalidate() {
-              loading.invalidate();
               browser?.invalidate();
             },
             render(width) {
               return (
                 browser?.render(width) ??
-                loading
-                  .render(width)
+                framePaneRows({
+                  title: theme.bold("Tasks · Loading…"),
+                  body: [theme.fg("muted", taskCloseHint(bindings))],
+                  width,
+                  border: (line) => theme.fg("border", line),
+                })
+                  .slice(0, floatingPaneHeight(tui.terminal.rows))
                   .map((line) => paintPaneLine(theme, "userMessageBg", line))
               );
             },

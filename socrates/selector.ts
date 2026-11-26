@@ -3,6 +3,7 @@ import {
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { createSelector } from "@lanej/pi-components";
+import { framePaneRows, paintPaneLine } from "../floating-pane.ts";
 import type { QuestionEvidence } from "./evidence.ts";
 import { renderQuestionEvidence } from "./links.ts";
 import type { SpecQuestion } from "./spec.ts";
@@ -50,7 +51,7 @@ export async function chooseQuestion(
           selected: (text) => theme.style(text, { bg: "selectedBg" }),
           markdown: getMarkdownTheme(),
         },
-        height: () => tui.terminal.rows - 2,
+        height: () => tui.terminal.rows - 4,
         requestRender: () => {
           tui.requestRender();
         },
@@ -68,6 +69,18 @@ export async function chooseQuestion(
       if (signal?.aborted === true) queueMicrotask(cancel);
       return {
         ...selector,
+        render(width) {
+          const height = Math.max(0, tui.terminal.rows - 2);
+          return framePaneRows({
+            body: selector
+              .render(Math.max(1, width - 4))
+              .slice(0, Math.max(0, height - 2)),
+            width,
+            border: (line) => theme.fg("border", line),
+          })
+            .slice(0, height)
+            .map((line) => paintPaneLine(theme, "userMessageBg", line));
+        },
         dispose() {
           signal?.removeEventListener("abort", cancel);
         },

@@ -313,6 +313,9 @@ def exercise_interactive_dispatch(fixture: Fixture, terminal: Terminal, lead: in
                              f"Model · {ADMITTED_MODEL.provider}/{ADMITTED_MODEL.id}")
             terminal.until("task inspector shows the approved worker", lambda:
                            all(label in capture() for label in worker_labels))
+            view = capture()
+            assert any("╭" in line and "Tasks ·" in line and "╮" in line for line in view.splitlines()), view
+            assert any("╰" in line and "╯" in line for line in view.splitlines()), view
             (fixture.artifacts / "interactive-task-assignment.ansi").write_text(terminal.capture_pane(lead, ansi=True))
             terminal.write_to_pane(lead, *b"\x1b[C")  # Right
             terminal.until("task inspector focuses the worker", lambda:

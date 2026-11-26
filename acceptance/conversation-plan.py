@@ -129,6 +129,7 @@ def run(output):
             terminal.wait(lambda: any("› " in line and "Implement the requested change  ·  standard · off" in line
                                       for line in terminal.centered_lines()),
                           "The selected plan row did not show its worker assignment")
+            terminal.centered_inspector("Prepare the requested change", "Enter details")
             terminal.capture("conversation-plan-inspect")
             terminal.send("\r")
             terminal.contains("The native acceptance check passes.")
@@ -136,6 +137,7 @@ def run(output):
             terminal.capture("conversation-plan-task")
             terminal.resize(60, 24)
             terminal.contains("Worker · standard · off reasoning")
+            terminal.centered_inspector("Prepare the requested change", "Esc back")
             terminal.capture("conversation-plan-task")
             terminal.send("\x1b")
             terminal.contains("Enter details")
