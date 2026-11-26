@@ -78,8 +78,8 @@ type SearchFormat =
 // These rg switches select source lines without rewriting them. parseArgs
 // handles option values, short bundles like -nA8, long options, and --.
 const rgOptions = {
-  "line-number": { type: "boolean", short: "n" },
-  "with-filename": { type: "boolean", short: "H" },
+  "line-number": { type: "boolean", short: "n", default: false },
+  "with-filename": { type: "boolean", short: "H", default: false },
   "after-context": { type: "string", short: "A" },
   "before-context": { type: "string", short: "B" },
   context: { type: "string", short: "C" },
@@ -115,8 +115,8 @@ function ripgrepFormat(args: string[]): SearchFormat | undefined {
     const files = values.regexp === undefined ? positionals.slice(1) : positionals;
     const path = files[0];
     const language = files.length === 1 && path !== undefined ? getLanguageFromPath(path) : undefined;
-    const numbered = values["line-number"] === true;
-    if (values["with-filename"] === true || files.length > 1) {
+    const numbered = values["line-number"];
+    if (values["with-filename"] || files.length > 1) {
       const context = [values["before-context"], values["after-context"], values.context].some(
         (value) => Number(value) > 0,
       );
