@@ -369,7 +369,7 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
 
                 objective_line = lines().index("Review the complete proposal in Neovim.") + 1
                 keys(editor, f"{objective_line}GV:EditorComment\r")
-                terminal.until("selection comment prompt", lambda: "Editor comment:" in terminal.capture_pane(editor))
+                terminal.until("selection comment prompt", lambda: "Enter send" in terminal.capture_pane(editor))
                 keys(editor, "Is this something we really want? Clarify the acceptance check.\r")
                 terminal.until("explicit outcome for selection", lambda: len(feedback()) == 1 and feedback()[0]["state"] == "answered")
                 first = feedback()[0]
@@ -393,7 +393,7 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                 ex(r"%s/Review the complete proposal in Neovim\./Local unsaved proposal survives./")
                 dirty_line = lines().index("Local unsaved proposal survives.") + 1
                 keys(editor, f"{dirty_line}GV:EditorComment\r")
-                terminal.until("dirty selection comment prompt", lambda: "Editor comment:" in terminal.capture_pane(editor))
+                terminal.until("dirty selection comment prompt", lambda: "Enter send" in terminal.capture_pane(editor))
                 keys(editor, "Perform the conflict check and clarify acceptance.\r")
                 terminal.until("second request answered", lambda: len(feedback()) == 2 and feedback()[1]["state"] == "answered")
                 terminal.until("visible dirty conflict status", lambda: "conflict" in lua("vim.wo.winbar"))
@@ -411,7 +411,7 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                 before_explanation = saved()
                 objective_line = lines().index("Review the complete proposal in Neovim.") + 1
                 keys(editor, f"{objective_line}GV:EditorComment\r")
-                terminal.until("explanation-only selection prompt", lambda: "Editor comment:" in terminal.capture_pane(editor))
+                terminal.until("explanation-only selection prompt", lambda: "Enter send" in terminal.capture_pane(editor))
                 keys(editor, "Give an explanation only: why keep approval in Studio?\r")
                 terminal.until("explanation-only outcome", lambda: len(feedback()) == 3 and feedback()[2]["state"] == "answered")
                 explanation = feedback()[2]
