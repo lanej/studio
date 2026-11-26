@@ -12,7 +12,7 @@ import { isDeepStrictEqual } from "node:util";
 import { selectorText } from "@lanej/pi-components";
 import { z } from "zod";
 import { registerSocratesControls } from "../socrates/controls.ts";
-import { draftDeliveryPolicy, SpecStatus, specText } from "../socrates/spec.ts";
+import { draftDeliveryPolicy, SpecStatus } from "../socrates/spec.ts";
 import {
   pendingCoverageReview,
   specificationToken,
@@ -26,11 +26,10 @@ import {
   describePlan,
   draftSchema,
   planDigest,
-  publicationPrerequisites,
   reviseDelivery,
 } from "../lead-plan.ts";
 import { isEntry, PiEntryType } from "../runtime.ts";
-import { reviewPlan } from "../ui.ts";
+import { reviewHandoff } from "./handoff-review.ts";
 import {
   applyDeliveryPolicy,
   Discoveries,
@@ -517,42 +516,18 @@ export function registerDiscovery(
             ? await prepareInteractiveHandoff(record)
             : undefined;
         if (
-          !(await reviewPlan(
-            ctx,
-            `Approve ${record.title}`,
-            {
-              draft,
-              context: [
-                {
-                  label: "Execution",
-                  value:
-                    interactive === undefined
-                      ? "background"
-                      : `interactive in Zellij ${interactive.session}, tab ${String(interactive.tab)}`,
-                },
-                { label: "Project", value: target.root },
-                { label: "Beads", value: target.id },
-              ],
-              publications: draft.tasks
-                .filter((task) => task.delivery === TaskDelivery.PullRequest)
-                .map((publisher) => {
-                  const local = publicationPrerequisites(draft, publisher)
-                    .filter(
-                      (task) => task.delivery !== TaskDelivery.PullRequest,
-                    )
-                    .map((task) => task.key);
-                  return {
-                    label: `PR from ${publisher.key}`,
-                    value: `Includes ${[...local, publisher.key].join(", ")}`,
-                  };
-                }),
-              specification:
-                record.specification === undefined
-                  ? "Recovery of the previously approved handoff"
-                  : specText(record.specification),
-            },
-            "create tasks and implement",
-          ))
+          !(await reviewHandoff(ctx, {
+            title: record.title,
+            draft,
+            specification: record.specification,
+            project: target.root,
+            sourceId: target.id,
+            profile: target.profile,
+            execution:
+              interactive === undefined
+                ? "background"
+                : `interactive in Zellij ${interactive.session}, tab ${String(interactive.tab)}`,
+          }))
         )
           return;
         const current = await requireBinding(ctx);

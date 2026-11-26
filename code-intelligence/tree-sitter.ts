@@ -61,7 +61,7 @@ const require = createRequire(import.meta.url);
 const languages = new Map<string, Promise<Language>>();
 let initialized: Promise<void> | undefined;
 
-function loadLanguage(grammar: string): Promise<Language> {
+export function loadLanguage(grammar: string): Promise<Language> {
   const cached = languages.get(grammar);
   if (cached !== undefined) return cached;
   initialized ??= Parser.init({

@@ -137,6 +137,7 @@ export function orderedTasks(draft: LeadDraft): LeadDraft["tasks"] {
 export function taskReviewFields(
   task: LeadDraft["tasks"][number],
   intent: "proposal" | "execution" = "execution",
+  deliveryLabel?: string,
 ): { label: string; value: string }[] {
   const delivery =
     task.delivery === undefined && intent === "proposal"
@@ -162,7 +163,7 @@ export function taskReviewFields(
       label: "Admission",
       value: task.hold === true ? "on hold" : "when ready",
     },
-    { label: "Delivery", value: delivery },
+    { label: "Delivery", value: deliveryLabel ?? delivery },
     { label: "Verification", value: verification },
     ...(task.blockedBy.length > 0
       ? [{ label: "Blocked by", value: task.blockedBy.join(", ") }]
@@ -192,6 +193,17 @@ export function publicationPrerequisites(
   return ordered.filter(
     (task) => required.has(task.key) && !includedByPullRequest.has(task.key),
   );
+}
+
+export function publicationGroups(draft: LeadDraft) {
+  return orderedTasks(draft)
+    .filter((task) => task.delivery === TaskDelivery.PullRequest)
+    .map((publisher) => ({
+      publisher,
+      local: publicationPrerequisites(draft, publisher).filter(
+        (dependency) => dependency.delivery !== TaskDelivery.PullRequest,
+      ),
+    }));
 }
 
 export function taskReviewLines(

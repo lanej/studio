@@ -579,10 +579,10 @@ index cc28afe3a71e57f933fffe7bcf9fc0ec399e5332..fce3f21553be2a671044c6510883e3ae
          "clearOnShrink": {
            "type": "boolean",
 diff --git a/dist/core/extensions/types.d.ts b/dist/core/extensions/types.d.ts
-index f784e083e2644e0fb14fe023c94ec7c8605b819a..44eb9028ca2f269ee73378f833e1e578e31e94fe 100644
+index f784e083e2644e0fb14fe023c94ec7c8605b819a..f8f2bc42806c1301f0d6dee3fd9c46168cd33e52 100644
 --- a/dist/core/extensions/types.d.ts
 +++ b/dist/core/extensions/types.d.ts
-@@ -365,6 +365,10 @@ export interface ToolRenderResultOptions {
+@@ -365,6 +365,12 @@ export interface ToolRenderResultOptions {
  }
  /** Context passed to tool renderers. */
  export interface ToolRenderContext<TState = any, TArgs = any> extends KeybindingHints {
@@ -590,10 +590,12 @@ index f784e083e2644e0fb14fe023c94ec7c8605b819a..44eb9028ca2f269ee73378f833e1e578
 +    displayToolName?: string;
 +    /** Format a Studio edit heading using the native styled path, including in previews and errors. */
 +    renderEditHeading?: (pathLabel: string) => string;
++    /** Render sanitized shell output and its native timer. Truncation warnings stay with the shell renderer. */
++    renderShellOutput?: (output: string, timerText: string | undefined) => Component;
      /** Current tool call arguments. Shared across call/result renders for the same tool call. */
      args: TArgs;
      /** Unique id for this tool execution. Stable across call/result renders for the same tool call. */
-@@ -498,6 +502,8 @@ export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = un
+@@ -498,6 +504,8 @@ export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = un
       * How the model reaches the tool. Default: `"direct"`. See {@link ToolExposure}.
       */
      exposure?: ToolExposure;
@@ -602,7 +604,7 @@ index f784e083e2644e0fb14fe023c94ec7c8605b819a..44eb9028ca2f269ee73378f833e1e578
      /** Group the tool belongs to, for example its MCP server. */
      namespace?: ToolNamespace;
      /**
-@@ -1619,7 +1625,7 @@ export type SetSessionNameHandler = (name: string) => void;
+@@ -1619,7 +1627,7 @@ export type SetSessionNameHandler = (name: string) => void;
  export type GetSessionNameHandler = () => string | undefined;
  export type GetActiveToolsHandler = () => string[];
  /** Tool info with name, description, parameter schema, prompt guidelines, and source metadata. */
@@ -611,7 +613,7 @@ index f784e083e2644e0fb14fe023c94ec7c8605b819a..44eb9028ca2f269ee73378f833e1e578
      exposure: ToolExposure;
      namespace?: ToolNamespace;
      annotations?: ToolAnnotations;
-@@ -1722,7 +1728,7 @@ export interface ExtensionContextActions {
+@@ -1722,7 +1730,7 @@ export interface ExtensionContextActions {
      getSystemPrompt: () => string;
      getSystemPromptOptions?: () => BuildSystemPromptOptions;
      /** Backs `ExtensionToolContext.executeTool()`. Without it, nested calls fail. */
@@ -621,10 +623,44 @@ index f784e083e2644e0fb14fe023c94ec7c8605b819a..44eb9028ca2f269ee73378f833e1e578
      getCallableTools?: () => readonly AgentTool[];
  }
 diff --git a/dist/core/tools/renderers/bash.js b/dist/core/tools/renderers/bash.js
-index 43430f16caa03ec9b2c57a5e105b257f4b11416b..dabb4e6914085175b8ee4331acb3b9e0562b2824 100644
+index 43430f16caa03ec9b2c57a5e105b257f4b11416b..4b9ec6614ff4d1785e86a61a7d7893336799cc39 100644
 --- a/dist/core/tools/renderers/bash.js
 +++ b/dist/core/tools/renderers/bash.js
-@@ -74,7 +74,7 @@ export function createShellRenderers(prompt) {
+@@ -20,9 +20,10 @@ function formatShellCall(args, prompt) {
+     const commandDisplay = command === null ? invalidArgText(theme) : command ? command : theme.fg("toolOutput", "...");
+     return theme.fg("toolTitle", theme.bold(`${prompt} ${commandDisplay}`)) + timeoutSuffix;
+ }
+-function rebuildBashResultRenderComponent(component, result, options, showImages, timerText) {
++function rebuildBashResultRenderComponent(component, result, options, showImages, timerText, renderShellOutput) {
+     component.clear();
+-    let output = getTextOutput(result, showImages).trim();
++    const text = getTextOutput(result, showImages);
++    let output = renderShellOutput ? text.trimEnd() : text.trim();
+     const truncation = result.details?.truncation;
+     const fullOutputPath = result.details?.fullOutputPath;
+     if (!options.isPartial && truncation?.truncated && fullOutputPath && output.endsWith("]")) {
+@@ -31,7 +32,10 @@ function rebuildBashResultRenderComponent(component, result, options, showImages
+             output = output.slice(0, footerStart).trimEnd();
+         }
+     }
+-    if (output) {
++    if (renderShellOutput) {
++        component.addChild(renderShellOutput(output, timerText));
++    }
++    else if (output) {
+         const styledOutput = output
+             .split("\n")
+             .map((line) => theme.fg("toolOutput", line))
+@@ -65,7 +69,7 @@ function rebuildBashResultRenderComponent(component, result, options, showImages
+         }
+         component.addChild(new Text(`\n${theme.fg("warning", `[${warnings.join(". ")}]`)}`, 0, 0));
+     }
+-    if (timerText)
++    if (timerText && !renderShellOutput)
+         component.addChild(new Text(`\n${theme.fg("muted", timerText)}`, 0, 0));
+ }
+ /** Shell renderers are shared by bash and powershell, which differ only in the prompt they display. */
+@@ -74,13 +78,13 @@ export function createShellRenderers(prompt) {
          renderCall(args, _theme, context) {
              startToolTimer(context);
              const text = context.lastComponent ?? new Text("", 0, 0);
@@ -633,6 +669,13 @@ index 43430f16caa03ec9b2c57a5e105b257f4b11416b..dabb4e6914085175b8ee4331acb3b9e0
              return text;
          },
          renderResult(result, options, _theme, context) {
+             const timerText = toolTimerText(context, options.isPartial);
+             const component = context.lastComponent ?? new Container();
+-            rebuildBashResultRenderComponent(component, result, options, context.showImages, timerText);
++            rebuildBashResultRenderComponent(component, result, options, context.showImages, timerText, context.renderShellOutput);
+             component.invalidate();
+             return component;
+         },
 diff --git a/dist/core/tools/renderers/edit.js b/dist/core/tools/renderers/edit.js
 index a64a3d1da0d346cf6df32489c5f1346ad1e173b9..d512d874b6ab2ca6b43ec446bb42bc822fc7ddee 100644
 --- a/dist/core/tools/renderers/edit.js
