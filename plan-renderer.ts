@@ -8,6 +8,7 @@ import { selectorText } from "@lanej/pi-components";
 import { z } from "zod";
 import { draftSchema, taskReviewLines } from "./lead-plan.ts";
 import { planGraph, planGraphColor, renderGraphPrefix } from "./plan-graph.ts";
+import { withTaskAssignment } from "./ui.ts";
 
 const previewTaskLimit = 6;
 const previewLineLimit = 10;
@@ -88,7 +89,12 @@ export function renderPlanCall(
         const { task } = row;
         const hold = task.hold === true ? theme.fg("warning", "  on hold") : "";
         lines.push(
-          `${renderGraphPrefix(row.prefix, color)}  ${theme.fg("text", singleLine(task.title))}${hold}`,
+          withTaskAssignment(
+            `${renderGraphPrefix(row.prefix, color)}  ${theme.fg("text", singleLine(task.title))}${hold}`,
+            task.assignment,
+            width,
+            (text) => theme.fg("muted", text),
+          ),
         );
         graphLines += connectors.length + 1;
         shown++;

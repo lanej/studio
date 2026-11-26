@@ -8,14 +8,21 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { Type } from "typebox";
 import { isDeepStrictEqual } from "node:util";
 import { selectorText } from "@lanej/pi-components";
 import { z } from "zod";
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/models";
 import { registerSocratesControls } from "../socrates/controls.ts";
 import { SpecStatus } from "../socrates/spec.ts";
-import { loadConfig } from "../config.ts";
+import {
+  loadConfig,
+  ModelCapability,
+  ReasoningLevel,
+  studioProfileSchema,
+  workerForTask,
+} from "../config.ts";
 import { socratesGuidance } from "../socrates/guidance.ts";
 import {
   LeadMode,
@@ -180,11 +187,46 @@ export function registerDiscovery(
           "The operator has handed off the selected work. Leave its execution to the runtime and continue other work directly in this conversation.",
         ].join("\n\n"),
       };
+    const config = await loadConfig();
+    const profileName =
+      studioProfileSchema.safeParse(profile()).data ??
+      config.runtime.projects.find(
+        (project) =>
+          existsSync(project.root) &&
+          realpathSync(project.root) === record.project,
+      )?.profile;
+    const roles =
+      profileName === undefined ? undefined : config.profiles[profileName];
+    const capabilities = Object.values(ModelCapability)
+      .filter(
+        (tier) =>
+          tier === ModelCapability.Standard ||
+          roles?.workerModels[tier] !== undefined,
+      )
+      .map((capability) => {
+        if (roles === undefined) return capability;
+        const worker = workerForTask(roles, {
+          capability,
+          reasoning: ReasoningLevel.Off,
+        });
+        const model = ctx.modelRegistry.find(worker.provider, worker.model);
+        const levels =
+          model === undefined
+            ? []
+            : getSupportedThinkingLevels(model).filter(
+                (level) => z.enum(ReasoningLevel).safeParse(level).success,
+              );
+        return levels.length === 0
+          ? capability
+          : `${capability} (${levels.join(", ")})`;
+      });
+    const assignmentGuidance = `Choose a worker capability and reasoning for each proposed bead. Available choices with known reasoning levels: ${capabilities.join("; ")}. Use fast for routine bounded work, standard for typical implementation, and advanced for complex or high-consequence work. Choose reasoning based on the task's uncertainty and verification needs.`;
     if (record.specification === undefined)
       return {
         systemPrompt: [
           event.systemPrompt,
           directCoding,
+          assignmentGuidance,
           ...(record.leadPlan.draft === null
             ? []
             : [
@@ -198,6 +240,7 @@ export function registerDiscovery(
         event.systemPrompt,
         `Selected discovery · ${record.title}`,
         await socratesGuidance(),
+        assignmentGuidance,
         "Develop the specification and its proposed beads together. Keep the decomposition current as answers change task scope, dependencies, acceptance, or verification. Use draft_implementation_plan to persist it locally. Actual beads and worker dispatch require the operator's final handoff approval.",
       ].join("\n\n"),
     };
@@ -401,7 +444,7 @@ export function registerDiscovery(
     renderCall: renderPlanCall,
     label: "Draft work breakdown",
     description:
-      "Save the proposed decomposition into beads: task scopes, requirements, dependencies, acceptance, and verification. During Socrates, develop it alongside the specification and revise it when an answer affects the work. Outside Socrates, use only for an explicitly requested local plan.",
+      "Save proposed beads with scope, requirements, dependencies, acceptance, verification, and a worker capability and reasoning level per task. Standard uses the profile's worker model. During Socrates, revise the breakdown when an answer affects the work. Outside Socrates, use only for an explicitly requested local plan.",
     parameters: Type.Object({
       expectedRevision: Type.Optional(
         Type.String({
@@ -422,6 +465,10 @@ export function registerDiscovery(
           hold: Type.Optional(Type.Boolean()),
           delivery: Type.Optional(Type.Enum(TaskDelivery)),
           check: Type.Optional(Type.Array(Type.String())),
+          assignment: Type.Object({
+            capability: Type.Enum(ModelCapability),
+            reasoning: Type.Enum(ReasoningLevel),
+          }),
         }),
       ),
     }),
@@ -429,6 +476,10 @@ export function registerDiscovery(
       if (discoveryBusy()) throw new Error("Wait for the discovery command");
       const { expectedRevision, ...candidate } = params;
       const draft = draftSchema.parse(candidate);
+      if (draft.tasks.some((task) => task.assignment === undefined))
+        throw new Error(
+          "Specify worker capability and reasoning for every task",
+        );
       if (locate(ctx) === undefined) {
         create(ctx, draft.summary);
         documents.capture(ctx);
@@ -522,13 +573,15 @@ export function registerDiscovery(
       if (discoveryBusy()) throw new Error("Wait for the discovery command");
       pending = true;
       try {
-        const { handoffTarget, approveHandoff, prepareInteractiveHandoff } =
-          await import("../execution/handoff.ts");
-        const target = handoffTarget(
-          await loadConfig(),
-          record,
-          selectedProfile,
-        );
+        const {
+          handoffTarget,
+          handoffWorkers,
+          approveHandoff,
+          prepareInteractiveHandoff,
+        } = await import("../execution/handoff.ts");
+        const config = await loadConfig();
+        const target = handoffTarget(config, record, selectedProfile);
+        const workers = handoffWorkers(config, draft, target.profile);
         const interactive =
           mode === "interactive"
             ? await prepareInteractiveHandoff(record)
@@ -541,6 +594,7 @@ export function registerDiscovery(
             project: target.root,
             sourceId: target.id,
             profile: target.profile,
+            workers,
             execution:
               interactive === undefined
                 ? "background"
@@ -558,7 +612,13 @@ export function registerDiscovery(
           planDigest(current.leadPlan.draft) !== digest
         )
           throw new Error("The displayed breakdown changed; review it again");
-        await approveHandoff(current, selectedProfile, target, interactive);
+        await approveHandoff(
+          current,
+          selectedProfile,
+          target,
+          interactive,
+          workers,
+        );
         ctx.ui.notify(
           "Approved work is queued in Beads. The lead remains free.",
           "info",

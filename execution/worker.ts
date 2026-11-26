@@ -42,6 +42,7 @@ import {
   requireDecisionPublicationReconciled,
 } from "./decisions.ts";
 import { withAllocation } from "./allocation.ts";
+import { runtimeModelAllowed } from "./profile.ts";
 
 const workerResult = z.object({
   summary: z.string().min(1).max(8000),
@@ -114,6 +115,7 @@ export type InteractiveWorker = (assignment: {
   cwd: string;
   directory: string;
   selection: NonNullable<Execution["worker"]>;
+  profile: Execution["profile"];
   tools: ToolDefinition[];
   prompt: string;
   check: () => Promise<void>;
@@ -311,9 +313,9 @@ export async function executeAssignment(
       if (selection === undefined)
         throw new Error("The admitted role is missing");
       const model = ctx.modelRegistry.find(selection.provider, selection.model);
-      if (model === undefined)
+      if (model === undefined || !runtimeModelAllowed(attempt.profile, model))
         throw new Error(
-          `Configured ${role} model/authentication is unavailable`,
+          `Admitted ${role} model ${selection.provider}/${selection.model} is unavailable for the ${attempt.profile} profile`,
         );
       const sessionDir = join(
         store.directory,
@@ -336,6 +338,7 @@ export async function executeAssignment(
           cwd: checkout.path,
           directory: sessionDir,
           selection,
+          profile: attempt.profile,
           tools: workerTools,
           prompt,
           check,

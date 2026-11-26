@@ -49,6 +49,7 @@ import { WorkerPane } from "./worker-pane.ts";
 import {
   floatingPaneHeight,
   floatingPaneOptions,
+  framePaneRows,
   paneMouse,
 } from "../floating-pane.ts";
 import {
@@ -524,7 +525,8 @@ export function registerSocratesPresentation(
           const options = {
             title: initial.title,
             theme: statusTheme(theme),
-            height: () => floatingPaneHeight(tui.terminal.rows),
+            height: () =>
+              Math.max(0, floatingPaneHeight(tui.terminal.rows) - 1),
             requestRender: () => {
               tui.requestRender();
             },
@@ -567,10 +569,15 @@ export function registerSocratesPresentation(
               });
             },
             render(width) {
-              const inner = Math.max(1, width - 2);
-              return panel
-                .render(inner)
-                .map((line) => surface(theme, ` ${line}`, width));
+              const [title, ...body] = panel.render(Math.max(0, width - 4));
+              return framePaneRows({
+                title,
+                body,
+                width,
+                border: (line) => theme.fg("border", line),
+              })
+                .slice(0, floatingPaneHeight(tui.terminal.rows))
+                .map((line) => surface(theme, line, width));
             },
             dispose() {
               renders.delete(repaint);

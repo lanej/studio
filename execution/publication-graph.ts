@@ -92,6 +92,10 @@ function requireApprovedBead(
     bead.metadata["studio.approval"] !== intent.digest ||
     bead.metadata["studio.pullRequestMerge"] !== draft.pullRequestMerge ||
     !isDeepStrictEqual(bead.metadata["studio.task"], task) ||
+    !isDeepStrictEqual(
+      bead.metadata["studio.worker"],
+      intent.workers?.[task.key],
+    ) ||
     bead.title !== task.title ||
     bead.description !== task.description ||
     bead.acceptance_criteria !== task.acceptance

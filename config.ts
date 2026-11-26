@@ -35,24 +35,41 @@ export enum ReasoningLevel {
   High = "high",
   ExtraHigh = "xhigh",
 }
+export enum ModelCapability {
+  Fast = "fast",
+  Standard = "standard",
+  Advanced = "advanced",
+}
 export function knownProvider(value: string): DefaultProvider | undefined {
   const parsed = z.enum(DefaultProvider).safeParse(value);
   return parsed.success ? parsed.data : undefined;
 }
 
-export const selection = z
-  .object({
-    provider: z.string().min(1),
-    model: z.string().min(1),
-    reasoning: z.enum(ReasoningLevel),
-  })
-  .strict();
+const modelIdentity = z.strictObject({
+  provider: z.string().min(1),
+  model: z.string().min(1),
+});
+export const selection = modelIdentity.extend({
+  reasoning: z.enum(ReasoningLevel),
+});
+export type ModelSelection = z.infer<typeof selection>;
+export const taskAssignmentSchema = z.strictObject({
+  capability: z.enum(ModelCapability),
+  reasoning: z.enum(ReasoningLevel),
+});
+export type TaskAssignment = z.infer<typeof taskAssignmentSchema>;
 const profile = z
   .object({
     [AgentRole.Lead]: selection,
     [AgentRole.Worker]: selection,
     [AgentRole.Reviewer]: selection,
     [AgentRole.Explorer]: selection,
+    workerModels: z
+      .strictObject({
+        [ModelCapability.Fast]: modelIdentity.optional(),
+        [ModelCapability.Advanced]: modelIdentity.optional(),
+      })
+      .default({}),
   })
   .strict();
 const optionalIntegration = (executable: string) =>
@@ -194,6 +211,22 @@ export const configSchema = z
   })
   .strict();
 export type StudioConfig = z.infer<typeof configSchema>;
+
+export function workerForTask(
+  roles: z.infer<typeof profile>,
+  assignment?: TaskAssignment,
+): ModelSelection {
+  if (assignment === undefined) return roles.worker;
+  const model =
+    assignment.capability === ModelCapability.Standard
+      ? roles.worker
+      : roles.workerModels[assignment.capability];
+  if (model === undefined)
+    throw new Error(
+      `Configure the ${assignment.capability} worker model first`,
+    );
+  return { ...model, reasoning: assignment.reasoning };
+}
 
 export function configPath(): string {
   const explicit = process.env["STUDIO_CONFIG"];

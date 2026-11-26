@@ -6,10 +6,13 @@ import {
   loadConfig,
   studioProfileSchema,
   AgentRole,
+  selection,
+  workerForTask,
   type StudioConfig,
 } from "../config.ts";
 import { draftSchema } from "../lead-plan.ts";
 import { ExecutionBeads, interactiveTask } from "./beads.ts";
+import { assertRuntimeProfile } from "./profile.ts";
 import {
   type ExecutionStore,
   ExecutionPhase,
@@ -112,6 +115,24 @@ export async function retainClaim(
         ? undefined
         : draftSchema.shape.tasks.element.parse(metadata);
   const interactive = intent?.interactive;
+  const pinned = bound.metadata["studio.worker"];
+  if (task?.assignment !== undefined)
+    store.change(id, (row) => {
+      row.owns = task.owns;
+    });
+  const worker = workerForTask(roles, task?.assignment);
+  if (task?.assignment !== undefined) {
+    if (
+      bound.metadata["studio.profile"] !== admission.profile ||
+      !isDeepStrictEqual(selection.safeParse(pinned).data, worker)
+    )
+      throw new Error(
+        `Task ${task.key}: the approved worker differs from the enrolled profile's configured selection`,
+      );
+    await assertRuntimeProfile(config, profile, { [task.key]: worker });
+  } else if (pinned !== undefined) {
+    throw new Error("The retained worker selection has no task assignment");
+  }
   if (
     (interactive !== undefined ||
       bound.metadata["studio.interactive"] === true) &&
@@ -128,7 +149,7 @@ export async function retainClaim(
     row.revision = bound.revision;
     row.profile = profile;
     row.controller = roles[AgentRole.Lead];
-    row.worker = roles[AgentRole.Worker];
+    row.worker = worker;
     row.reviewer = roles[AgentRole.Reviewer];
     row.phase = ExecutionPhase.Queued;
     row.owns = task?.owns ?? [];

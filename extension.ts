@@ -596,7 +596,8 @@ export function registerStudio(
       );
       return;
     }
-    const models = Object.values(profile).map((role) =>
+    const roles = Object.values(AgentRole).map((role) => profile[role]);
+    const models = roles.map((role) =>
       ctx.modelRegistry.find(role.provider, role.model),
     );
     if (models.some((model) => model === undefined)) {
@@ -608,7 +609,7 @@ export function registerStudio(
     }
     if (
       name === StudioProfile.Personal &&
-      Object.values(profile).some(
+      roles.some(
         (role) =>
           knownProvider(role.provider) !== DefaultProvider.ChatGPTSubscription,
       )

@@ -16,6 +16,7 @@ import {
   type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import { registerDiscovery } from "../discovery/extension.ts";
+import { ModelCapability, ReasoningLevel } from "../config.ts";
 import { Discoveries, handoffDraft } from "../discovery/store.ts";
 import { draftSchema, TaskDelivery } from "../lead-plan.ts";
 import {
@@ -96,6 +97,10 @@ await test(
             title: "Change",
             description: "A bounded change",
             acceptance: "Observe the result",
+            assignment: {
+              capability: ModelCapability.Standard,
+              reasoning: ReasoningLevel.Low,
+            },
           },
         ],
       });
@@ -632,6 +637,22 @@ await test(
         true,
         "a discovery proposal is editable before freeze",
       );
+      const { assignment, ...unassigned } = firstTask;
+      assert.ok(assignment !== undefined);
+      for (const tasks of [
+        [{ ...unassigned, requirements: ["R1"] }],
+        [...proposal.tasks, { ...unassigned, key: "new-task" }],
+      ]) {
+        await assert.rejects(
+          host.save({
+            operationId: randomUUID(),
+            ref: editablePlan.ref,
+            expectedRevision: editablePlan.revision,
+            markdown: renderPlan({ ...proposal, tasks }),
+          }),
+          /Specify worker capability and reasoning for task/u,
+        );
+      }
       const editedPlan = await host.save({
         operationId: randomUUID(),
         ref: editablePlan.ref,

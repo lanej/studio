@@ -221,6 +221,15 @@ export function renderStatusMark(
   )(`${glyph} ${statusText(mark.label)}`.trim());
 }
 
+/** Render a short status label with a visible outline and the theme's selection fill. */
+export function renderStatusPill(
+  status: Pick<StatusMark, "label" | "tone">,
+  theme: StatusTheme,
+): string {
+  const outline = `( ${statusText(status.label)} )`;
+  return theme.selected(statusPaint(theme, status.tone)(outline));
+}
+
 export function renderStatusCounts(
   counts: readonly StatusCount[],
   theme: StatusTheme,

@@ -24,6 +24,7 @@ import {
   type Execution,
 } from "./store.ts";
 import { executeAssignment, type InteractiveWorker } from "./worker.ts";
+import { runtimeModelAllowed } from "./profile.ts";
 
 const [id, token] = z.tuple([z.uuid(), z.uuid()]).parse(process.argv.slice(2));
 const store = new ExecutionStore();
@@ -40,6 +41,7 @@ process.once("SIGHUP", stop);
 async function session(
   cwd: string,
   selection: NonNullable<Execution["worker"]>,
+  profile: Execution["profile"],
   manager: SessionManager,
   extension: ExtensionFactory,
   tools: Parameters<InteractiveWorker>[0]["tools"] = [],
@@ -71,7 +73,8 @@ async function session(
   );
   if (
     model === undefined ||
-    !services.modelRuntime.hasConfiguredAuth(model.provider)
+    !services.modelRuntime.hasConfiguredAuth(model.provider) ||
+    !runtimeModelAllowed(profile, model)
   )
     throw new Error("The admitted model is unavailable");
   const created = await createAgentSessionFromServices({
@@ -98,6 +101,7 @@ const runWorker: InteractiveWorker = async ({
   cwd,
   directory,
   selection,
+  profile,
   tools,
   prompt,
   check,
@@ -115,6 +119,7 @@ const runWorker: InteractiveWorker = async ({
       return await session(
         cwd,
         selection,
+        profile,
         current,
         (pi) => {
           pi.on("input", async (event, ctx) => {
@@ -227,6 +232,7 @@ try {
   const host = await session(
     project.root,
     record.controller,
+    record.profile,
     SessionManager.create(project.root, directory),
     (pi) => {
       pi.on("session_start", (_event, ctx) => {

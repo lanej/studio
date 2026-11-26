@@ -19,7 +19,13 @@ import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { fixtureMetricsEnv } from "./beads-fixture.ts";
 import { withBeadsHttp } from "./beads-http-fixture.ts";
-import { AgentRole, StudioProfile, ReasoningLevel } from "../config.ts";
+import {
+  AgentRole,
+  StudioProfile,
+  ReasoningLevel,
+  ModelCapability,
+  DefaultProvider,
+} from "../config.ts";
 import { ExecutionBeads } from "../execution/beads.ts";
 import { ExecutionStore, ExecutionPhase } from "../execution/store.ts";
 import { draftSchema, planDigest } from "../lead-plan.ts";
@@ -30,6 +36,7 @@ import { safeGit } from "../execution/git.ts";
 import { alive } from "../execution/supervisor.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
+const fastModel = "fast-worker";
 const program = new Command()
   .requiredOption("--bd <path>")
   .requiredOption("--dolt <path>")
@@ -137,7 +144,8 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       for await (const chunk of incoming) body += String(chunk);
       const request = z
         .object({
-          model: z.enum(AgentRole),
+          model: z.union([z.enum(AgentRole), z.literal(fastModel)]),
+          reasoning_effort: z.enum(ReasoningLevel).optional(),
           messages: z.array(
             z.looseObject({
               role: z.string(),
@@ -183,7 +191,20 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       );
       let call: { name: string; arguments: string } | undefined;
       let text = "";
-      if (request.model === AgentRole.Worker) {
+      if (request.model === AgentRole.Worker || request.model === fastModel) {
+        assert.equal(
+          request.model,
+          kind === "first" ? fastModel : AgentRole.Worker,
+        );
+        assert.equal(
+          request.reasoning_effort,
+          kind === "first"
+            ? ReasoningLevel.Medium
+            : kind === "second"
+              ? ReasoningLevel.High
+              : ReasoningLevel.Low,
+          `Worker reasoning for ${kind}`,
+        );
         if (kind === "recovery-overlap") {
           assert(
             store
@@ -271,6 +292,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
             body: null,
           });
       } else if (request.model === AgentRole.Reviewer) {
+        assert.equal(request.reasoning_effort, ReasoningLevel.Low);
         const inspectIntegratedInput =
           kind === "second" && approvedSecondHead !== undefined;
         const readCount = inspectIntegratedInput ? 2 : 1;
@@ -469,9 +491,10 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
           baseUrl: `http://127.0.0.1:${String(address.port)}/v1`,
           api: "openai-completions",
           apiKey: "fixture",
-          models: Object.values(AgentRole).map((id) => ({
+          models: [...Object.values(AgentRole), fastModel].map((id) => ({
             id,
             reasoning: true,
+            compat: { supportsReasoningEffort: true },
           })),
         },
       },
@@ -655,16 +678,24 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     },
     integrations: { worktrees: { enabled: true, executable: "worktree" } },
     profiles: {
-      personal: Object.fromEntries(
-        Object.values(AgentRole).map((role) => [
-          role,
-          {
-            provider: "openai-codex",
-            model: role,
-            reasoning: ReasoningLevel.Low,
+      personal: {
+        ...Object.fromEntries(
+          Object.values(AgentRole).map((role) => [
+            role,
+            {
+              provider: DefaultProvider.ChatGPTSubscription,
+              model: role,
+              reasoning: ReasoningLevel.Low,
+            },
+          ]),
+        ),
+        workerModels: {
+          fast: {
+            provider: DefaultProvider.ChatGPTSubscription,
+            model: fastModel,
           },
-        ]),
-      ),
+        },
+      },
     },
   };
   runtimeConfig.integrations.worktrees.enabled = false;
@@ -690,6 +721,10 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
         title: "Produce prerequisite",
         description: "Produce prerequisite",
         acceptance: "first.txt contains verified prerequisite",
+        assignment: {
+          capability: ModelCapability.Fast,
+          reasoning: ReasoningLevel.Medium,
+        },
         owns: ["first.txt"],
         check: [
           process.execPath,
@@ -704,6 +739,10 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
         acceptance:
           "Read first.txt. Export consume(prerequisite, accepted) from consume.ts. Prefix accepted inputs with 'consumed ' and return other inputs unchanged.",
         owns: ["consume.ts"],
+        assignment: {
+          capability: ModelCapability.Standard,
+          reasoning: ReasoningLevel.High,
+        },
         blockedBy: ["first"],
         check: [
           process.execPath,
@@ -732,6 +771,18 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       },
     ],
   });
+  const approvedWorkers = {
+    first: {
+      provider: DefaultProvider.ChatGPTSubscription,
+      model: fastModel,
+      reasoning: ReasoningLevel.Medium,
+    },
+    second: {
+      provider: DefaultProvider.ChatGPTSubscription,
+      model: AgentRole.Worker,
+      reasoning: ReasoningLevel.High,
+    },
+  };
   await service.createGraph(
     graph,
     planDigest(draft),
@@ -744,6 +795,9 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       third: `${parent}.third`,
       held: `${parent}.held`,
     },
+    StudioProfile.Personal,
+    false,
+    approvedWorkers,
   );
   // Separate approved breakdowns can overlap even though each individual draft rejects same-wave overlap.
   const overlappingGraph = randomUUID();
@@ -1104,6 +1158,8 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       (attempt) => attempt.bead?.id === `${parent}.second`,
     );
     assert(first?.integration !== undefined && second?.checkout !== undefined);
+    assert.deepEqual(first.worker, approvedWorkers.first);
+    assert.deepEqual(second.worker, approvedWorkers.second);
     assert.equal(
       first.id,
       crashedAttempt,

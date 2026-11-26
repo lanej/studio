@@ -32,7 +32,9 @@ Concurrency defaults to two active inference hosts and can be configured from on
 
 ## Worker and verifier boundaries
 
-The controller snapshots the accepted task revision, profile, role models, reasoning, checkout identity, and source base. Missing model/authentication fails visibly without cross-profile fallback. Workers receive only bounded checkout read/write/edit and immutable snapshot inspection tools. Reviewers inspect the exact committed revision through read-only snapshot tools. Neither receives shell, nested delegation, policy changes, or GitHub authority.
+The controller snapshots the accepted task revision, profile, role models, reasoning, checkout identity, and source base. Each assigned Beads task carries its approved worker capability, model, and reasoning. Admission checks the selection against the enrolled profile and retains it for recovery. A changed capability mapping, unavailable model or authentication, or unsupported reasoning blocks the assignment with a diagnostic. Restore the approved mapping and model access to let admission resume or to reconcile an uncertain handoff. Existing tasks without an assignment use the profile's worker defaults. Independent reviewers use the profile's reviewer selection.
+
+Workers receive only bounded checkout read/write/edit and immutable snapshot inspection tools. Reviewers inspect the exact committed revision through read-only snapshot tools. Neither receives shell, nested delegation, policy changes, or GitHub authority.
 
 Every admitted write rechecks the Beads revision/owner and local launch token. Checkout tools reject external paths, `.git`, symbolic links, and files outside accepted ownership. Controller Git operations bind to the registered worktree metadata and disable hooks, filters, external diffs, and merge drivers before processing worker-controlled data. Authorized network Git operations run from the trusted enrolled source.
 

@@ -12,6 +12,7 @@ import {
   taskReviewFields,
   TaskDelivery,
   type LeadDraft,
+  type PlanWorkers,
 } from "../lead-plan.ts";
 import { reviewContextValue } from "../plan-review.ts";
 import { specText, type LeadSpecification } from "../socrates/spec.ts";
@@ -25,6 +26,7 @@ interface HandoffReview {
   sourceId: string;
   profile: string;
   execution: string;
+  workers?: PlanWorkers | undefined;
 }
 
 type ReviewTheme = Pick<Theme, "fg" | "bg" | "bold">;
@@ -34,6 +36,7 @@ function beadDetails(
   draft: LeadDraft,
   theme: ReviewTheme,
   width: number,
+  workers?: PlanWorkers,
 ): string[] {
   const groups = publicationGroups(draft);
   const tasks = orderedTasks(draft).flatMap((task) => {
@@ -47,7 +50,12 @@ function beadDetails(
           ? "Included in PR · " +
             memberships.map(({ publisher }) => publisher.key).join(", ")
           : "Stays local";
-    const fields = taskReviewFields(task, "execution", delivery);
+    const fields = taskReviewFields(
+      task,
+      "execution",
+      delivery,
+      workers?.[task.key],
+    );
     return [
       "",
       ...wrapTextWithAnsi(
@@ -108,7 +116,7 @@ function sectionLines(
         inner,
       );
     case "Bead details":
-      return beadDetails(input.draft, theme, inner);
+      return beadDetails(input.draft, theme, inner, input.workers);
   }
 }
 

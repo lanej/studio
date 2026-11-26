@@ -85,7 +85,9 @@ export default function(pi) {{
             graph_column = next(line.index("Task dependencies") for line in terminal.screen.display if "Task dependencies" in line)
             detail_column = next(line.index("Task details") for line in terminal.screen.display if "Task details" in line)
             assert graph_column < detail_column and detail_column > 30, terminal.text()
-            terminal.wait(lambda: terminal.screen.display[0].lstrip().startswith("Approve Event export") and "Esc cancel" in terminal.screen.display[-1], "Approval did not use the terminal height")
+            terminal.wait(lambda: terminal.screen.display[0].startswith("╭─ Approve Event export") and
+                          terminal.screen.display[-1].startswith("╰") and "Esc cancel" in terminal.screen.display[-2],
+                          "The framed approval did not use the terminal height")
             terminal.capture("plan-review-graph")
             # Graph lanes must carry real terminal colors, not plain glyphs.
             colored = {cell.fg for line in terminal.screen.buffer.values() for cell in line.values() if cell.data in "│├┤┬┴┼╭╮╰╯●"}
@@ -104,14 +106,14 @@ export default function(pi) {{
             terminal.send("/review-plan\r")
             terminal.contains("Approve Event export and guide")
             def review_text():
-                lines = terminal.screen.display
+                lines = [line[1:-1] for line in terminal.screen.display[1:-1]]
                 # Read wrapped columns separately so adjacent task text does not
                 # interrupt a publication scope that spans two terminal rows.
-                counts = {column: sum(line[column] == "│" for line in lines) for column in range(terminal.screen.columns)}
+                counts = {column: sum(line[column] == "│" for line in lines) for column in range(terminal.screen.columns - 2)}
                 divider = max(counts, key=counts.get)
                 if counts[divider] >= terminal.screen.lines - 4:
                     return " ".join(" ".join(line[:divider] for line in lines).split()) + "\n" + " ".join(" ".join(line[divider + 1:] for line in lines).split())
-                return " ".join(terminal.text().split())
+                return " ".join(" ".join(lines).split())
 
             seen = review_text()
             captured_details = False
