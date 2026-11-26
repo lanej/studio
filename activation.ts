@@ -1,14 +1,8 @@
-import {
-  nativeBashAdmission,
-  registerNativeBashAdmission,
-} from "./activation-bash.ts";
+import { nativeBashAdmission, registerNativeBashAdmission } from "./activation-bash.ts";
 import { mappedHost, runtimeIdentity } from "./scripts/host-identity.mjs";
 import { backgroundAuthorities } from "./activation-background.ts";
 import { Zellij } from "./zellij.ts";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createHash, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import {
@@ -94,22 +88,14 @@ const installationSchema = z.object({
 function privateDirectory(directory: string): void {
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const info = lstatSync(directory);
-  if (
-    !info.isDirectory() ||
-    info.uid !== process.getuid?.() ||
-    (info.mode & 0o077) !== 0
-  )
+  if (!info.isDirectory() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0)
     throw new Error(`Studio lifecycle directory is not private: ${directory}`);
 }
 
 function save(path: string, value: unknown): void {
   if (existsSync(path)) {
     const info = lstatSync(path);
-    if (
-      !info.isFile() ||
-      info.uid !== process.getuid?.() ||
-      (info.mode & 0o077) !== 0
-    )
+    if (!info.isFile() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0)
       throw new Error("Preserving unexpected lifecycle file");
   }
   const staged = `${path}.${randomUUID()}`;
@@ -135,9 +121,7 @@ export function loadedIdentity(): string {
   const hash = createHash("sha256");
   const installation = join(packageRoot, "installation.json");
   if (existsSync(installation)) {
-    const record = installationSchema.parse(
-      JSON.parse(readFileSync(installation, "utf8")),
-    );
+    const record = installationSchema.parse(JSON.parse(readFileSync(installation, "utf8")));
     for (const name of record.files) {
       if (isAbsolute(name) || name.split(/[\\/]/u).includes(".."))
         throw new Error("Invalid installed lifecycle manifest");
@@ -149,25 +133,15 @@ export function loadedIdentity(): string {
         .update(String(info.mode & 0o777))
         .update(info.isSymbolicLink() ? "link" : "file")
         .update("\0");
-      hash
-        .update(info.isSymbolicLink() ? readlinkSync(file) : readFileSync(file))
-        .update("\0");
+      hash.update(info.isSymbolicLink() ? readlinkSync(file) : readFileSync(file)).update("\0");
     }
-    if (hash.digest("hex") !== record.sha256)
-      throw new Error("Loaded Studio bundle differs from its installation");
+    if (hash.digest("hex") !== record.sha256) throw new Error("Loaded Studio bundle differs from its installation");
     const host = mappedHost().sha256;
     const cli = process.argv[1];
-    const pinnedCLI = join(
-      packageRoot,
-      "node_modules/@earendil-works/pi-coding-agent/dist/cli.js",
-    );
+    const pinnedCLI = join(packageRoot, "node_modules/@earendil-works/pi-coding-agent/dist/cli.js");
     const actualCLI =
-      cli !== undefined && existsSync(cli)
-        ? createHash("sha256").update(readFileSync(cli)).digest("hex")
-        : null;
-    const expectedCLI = createHash("sha256")
-      .update(readFileSync(pinnedCLI))
-      .digest("hex");
+      cli !== undefined && existsSync(cli) ? createHash("sha256").update(readFileSync(cli)).digest("hex") : null;
+    const expectedCLI = createHash("sha256").update(readFileSync(pinnedCLI)).digest("hex");
     return actualCLI === expectedCLI
       ? runtimeIdentity(record.sha256, host, record.minimum)
       : `unmanaged-host:${record.sha256}:${host}:${actualCLI ?? "unknown"}`;
@@ -185,8 +159,7 @@ function hasNativeChildren(): boolean {
     encoding: "utf8",
     env: { ...process.env, LC_ALL: "C" },
   });
-  if (observed.error !== undefined || observed.status !== 0)
-    throw new Error("Native subprocess ownership inspection unavailable");
+  if (observed.error || observed.status !== 0) throw new Error("Native subprocess ownership inspection unavailable");
   return observed.stdout.split("\n").some((line) => {
     const [pid, parent] = line.trim().split(/\s+/u).map(Number);
     return parent === process.pid && pid !== observed.pid;
@@ -195,21 +168,12 @@ function hasNativeChildren(): boolean {
 
 function readCheckpoint(path: string): Checkpoint {
   const info = lstatSync(path);
-  if (
-    !info.isFile() ||
-    info.uid !== process.getuid?.() ||
-    (info.mode & 0o077) !== 0 ||
-    info.size > 4 * 1024 * 1024
-  )
+  if (!info.isFile() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0 || info.size > 4 * 1024 * 1024)
     throw new Error("Lifecycle checkpoint is not private and owned");
   return checkpointSchema.parse(JSON.parse(readFileSync(path, "utf8")));
 }
 
-export async function recoverManagedBinding(
-  ctx: ExtensionContext,
-  db: Attempts,
-  id: string,
-): Promise<void> {
+export async function recoverManagedBinding(ctx: ExtensionContext, db: Attempts, id: string): Promise<void> {
   const path = process.env["STUDIO_ACTIVATION_CHECKPOINT"];
   if (path === undefined) return;
   const checkpoint = readCheckpoint(path);
@@ -217,19 +181,13 @@ export async function recoverManagedBinding(
     checkpoint.state !== "confirmed" ||
     checkpoint.replacement_identity !== loadedIdentity() ||
     checkpoint.session.session_id !== ctx.sessionManager.getSessionId() ||
-    checkpoint.session.transcript_path !==
-      ctx.sessionManager.getSessionFile() ||
+    checkpoint.session.transcript_path !== ctx.sessionManager.getSessionFile() ||
     checkpoint.session.cwd !== ctx.cwd ||
     checkpoint.session.attempt_id !== id
   )
-    throw new Error(
-      "Restored managed session differs from its confirmed checkpoint",
-    );
+    throw new Error("Restored managed session differs from its confirmed checkpoint");
   try {
-    if (
-      (await processStart(checkpoint.process.pid)) ===
-      checkpoint.process.start_identity
-    )
+    if ((await processStart(checkpoint.process.pid)) === checkpoint.process.start_identity)
       throw new Error("The previous Pi owner has not exited");
   } catch (error) {
     let absent = false;
@@ -249,16 +207,9 @@ export async function recoverManagedBinding(
       ![Phase.Running, Phase.Verified, Phase.CheckFailed].includes(record.phase)
     )
       throw new Error("Managed attempt binding changed after checkpoint");
-    if (
-      record.phase === Phase.Running ||
-      record.phase === Phase.Verified ||
-      record.phase === Phase.CheckFailed
-    )
+    if (record.phase === Phase.Running || record.phase === Phase.Verified || record.phase === Phase.CheckFailed)
       record.resumePhase = record.phase;
-    else
-      throw new Error(
-        "Attempt phase cannot be restored without reconciliation",
-      );
+    else throw new Error("Attempt phase cannot be restored without reconciliation");
     record.phase = Phase.Launching;
     record.pid = null;
     record.pane = null;
@@ -284,6 +235,7 @@ globalThis.studioActivationAdmissionState ??= {
   apis: new WeakSet<ExtensionAPI>(),
 };
 const admission = globalThis.studioActivationAdmissionState;
+
 export function activationAdmissionBlocked(): boolean {
   return admission.fenced() || admission.pending > 0;
 }
@@ -297,10 +249,7 @@ export function registerActivationAdmission(pi: ExtensionAPI): void {
       ...options,
       handler: async (argument, ctx) => {
         if (admission.fenced() && name !== "studio-activation-restore") {
-          ctx.ui.notify(
-            "Studio is checkpointed; command admission is suspended",
-            "warning",
-          );
+          ctx.ui.notify("Studio is checkpointed; command admission is suspended", "warning");
           return;
         }
         admission.pending++;
@@ -313,10 +262,8 @@ export function registerActivationAdmission(pi: ExtensionAPI): void {
     });
   };
 }
-export function registerActivation(
-  pi: ExtensionAPI,
-  blocked: (ctx: ExtensionContext) => boolean,
-): void {
+
+export function registerActivation(pi: ExtensionAPI, blocked: (ctx: ExtensionContext) => boolean): void {
   if (registered) return;
   registered = true;
   const incarnation = randomUUID();
@@ -333,16 +280,11 @@ export function registerActivation(
   let stopSubmitted = false;
   let shutdownScheduled = false;
   let restored = false;
-  let restoredCheckpoint:
-    | { run_id: string; process: Checkpoint["process"] }
-    | undefined;
+  let restoredCheckpoint: { run_id: string; process: Checkpoint["process"] } | undefined;
   const releasedRuns = new Set<string>();
   const tools = new Set<string>();
   const directory = join(stateDirectory(), "activation");
-  const socketPath = join(
-    directory,
-    `${String(process.pid)}-${incarnation.slice(0, 8)}.sock`,
-  );
+  const socketPath = join(directory, `${String(process.pid)}-${incarnation.slice(0, 8)}.sock`);
   const metadataPath = join(directory, `${incarnation}.json`);
 
   const session = (ctx: ExtensionContext) => ({
@@ -351,7 +293,7 @@ export function registerActivation(
     branch_id: ctx.sessionManager.getLeafId(),
     cwd: ctx.cwd,
     editor_text: ctx.mode === "tui" ? ctx.ui.getEditorText() : "",
-    ...(ctx.model === undefined
+    ...(!ctx.model
       ? {}
       : {
           model: {
@@ -361,29 +303,20 @@ export function registerActivation(
           },
         }),
     launch_environment: Object.fromEntries(
-      ["PI_CODING_AGENT_DIR", "STUDIO_CONFIG", "STUDIO_STATE_DIR"].flatMap(
-        (key) => {
-          const value = process.env[key];
-          return value === undefined ? [] : [[key, value]];
-        },
-      ),
+      ["PI_CODING_AGENT_DIR", "STUDIO_CONFIG", "STUDIO_STATE_DIR"].flatMap((key) => {
+        const value = process.env[key];
+        return value === undefined ? [] : [[key, value]];
+      }),
     ),
     ...(process.env["ZELLIJ_SESSION_NAME"] === undefined
       ? {}
       : {
-          zellij_identity: new Zellij(process.env["ZELLIJ_SESSION_NAME"])
-            .identity,
+          zellij_identity: new Zellij(process.env["ZELLIJ_SESSION_NAME"]).identity,
         }),
-    ...(process.env["STUDIO_ATTEMPT"] === undefined
-      ? {}
-      : { attempt_id: process.env["STUDIO_ATTEMPT"] }),
+    ...(process.env["STUDIO_ATTEMPT"] === undefined ? {} : { attempt_id: process.env["STUDIO_ATTEMPT"] }),
   });
   const target = () => {
-    if (
-      context === undefined ||
-      identity === undefined ||
-      started === undefined
-    )
+    if (!context || identity === undefined || started === undefined)
       throw new Error("Studio runtime has not initialized");
     mappedHost();
     const current = session(context);
@@ -392,9 +325,7 @@ export function registerActivation(
       transcript_path: current.transcript_path,
       branch_id: current.branch_id,
       cwd: current.cwd,
-      ...(current.attempt_id === undefined
-        ? {}
-        : { attempt_id: current.attempt_id }),
+      ...(current.attempt_id === undefined ? {} : { attempt_id: current.attempt_id }),
     };
     return {
       target: `pi:${current.session_id}`,
@@ -403,15 +334,10 @@ export function registerActivation(
       admitted_commands: admission.pending,
       admitted_bash_dispatches: nativeBashAdmission().pending,
       uncertain_bash_authority: nativeBashAdmission().uncertain,
-      ...(restoredCheckpoint === undefined
-        ? {}
-        : { restored_checkpoint: restoredCheckpoint }),
+      ...(!restoredCheckpoint ? {} : { restored_checkpoint: restoredCheckpoint }),
       ready: !fenced,
       terminal_environment: Object.fromEntries(
-        ["TERM", "COLORTERM", "NO_COLOR", "GIT_PAGER"].map((key) => [
-          key,
-          process.env[key] ?? null,
-        ]),
+        ["TERM", "COLORTERM", "NO_COLOR", "GIT_PAGER"].map((key) => [key, process.env[key] ?? null]),
       ),
       process: {
         pid: process.pid,
@@ -425,13 +351,12 @@ export function registerActivation(
           ...(checkpoint?.session.pre_checkpoint_branch_id === undefined
             ? {}
             : {
-                pre_checkpoint_branch_id:
-                  checkpoint.session.pre_checkpoint_branch_id,
+                pre_checkpoint_branch_id: checkpoint.session.pre_checkpoint_branch_id,
               }),
           restoration: fenced ? "pending" : restored ? "restored" : "unchanged",
         },
       ],
-      ...(checkpoint === undefined
+      ...(!checkpoint
         ? {}
         : {
             checkpoint: { state: checkpoint.state, run_id: checkpoint.run_id },
@@ -451,36 +376,23 @@ export function registerActivation(
     save(metadataPath, { schema_version: 1, socket: socketPath, ...target() });
   };
   const command = async (request: Request) => {
-    if (context === undefined) throw new Error("Studio runtime is unavailable");
+    if (!context) throw new Error("Studio runtime is unavailable");
     const current = target();
-    if (request.action === "inventory" || request.action === "verify")
-      return current;
-    if (
-      ["checkpoint", "stop"].includes(request.action) &&
-      backgroundAuthorities().length > 0
-    )
+    if (request.action === "inventory" || request.action === "verify") return current;
+    if (["checkpoint", "stop"].includes(request.action) && backgroundAuthorities().length > 0)
       throw new Error("uncheckpointed-native-background-runtime-authority");
-    if (
-      ["checkpoint", "stop"].includes(request.action) &&
-      admission.pending > 0
-    )
+    if (["checkpoint", "stop"].includes(request.action) && admission.pending > 0)
       throw new Error("native-async-command-is-still-admitted");
     if (["checkpoint", "stop"].includes(request.action)) {
       const bash = nativeBashAdmission();
       if (
         !bash.intact ||
-        process.argv[1] !==
-          join(
-            packageRoot,
-            "node_modules/@earendil-works/pi-coding-agent/dist/cli.js",
-          )
+        process.argv[1] !== join(packageRoot, "node_modules/@earendil-works/pi-coding-agent/dist/cli.js")
       )
         throw new Error("native-host-Bash-admission-boundary-unavailable");
       if (bash.pending > 0)
         throw new Error(
-          bash.uncertain
-            ? "native-Bash-authority-has-uncertain-outcomes"
-            : "native-Bash-dispatch-is-still-admitted",
+          bash.uncertain ? "native-Bash-authority-has-uncertain-outcomes" : "native-Bash-dispatch-is-still-admitted",
         );
     }
     if (stopSubmitted) throw new Error("native-Pi-stop-already-submitted");
@@ -489,54 +401,37 @@ export function registerActivation(
     const expected = request.expected_session;
     const observed = session(context);
     if (
-      expected === undefined ||
+      !expected ||
       expected.session_id !== observed.session_id ||
       expected.transcript_path !== observed.transcript_path ||
       expected.cwd !== observed.cwd ||
       expected.branch_id !==
-        (checkpoint === undefined ||
-        (!fenced && releasedRuns.has(checkpoint.run_id))
+        (!checkpoint || (!fenced && releasedRuns.has(checkpoint.run_id))
           ? observed.branch_id
           : checkpoint.session.pre_checkpoint_branch_id)
     )
-      throw new Error(
-        "Native Pi conversation binding changed before activation",
-      );
+      throw new Error("Native Pi conversation binding changed before activation");
     if (request.action === "checkpoint") {
       if (
         request.run_id === undefined ||
         request.checkpoint_directory === undefined ||
         request.replacement_identity === undefined
       )
-        throw new Error(
-          "Checkpoint needs an operation, selected artifact and private directory",
-        );
+        throw new Error("Checkpoint needs an operation, selected artifact and private directory");
       if (releasedRuns.has(request.run_id)) return current;
-      if (
-        checkpoint !== undefined &&
-        checkpoint.run_id !== request.run_id &&
-        !fenced &&
-        releasedRuns.has(checkpoint.run_id)
-      ) {
+      if (checkpoint && checkpoint.run_id !== request.run_id && !fenced && releasedRuns.has(checkpoint.run_id)) {
         checkpoint = undefined;
         checkpointPath = undefined;
       }
-      if (checkpoint !== undefined && checkpoint.run_id !== request.run_id)
-        throw new Error(
-          "An earlier checkpoint still owns this Pi conversation",
-        );
-      if (checkpoint === undefined) {
-        if (tools.size > 0 || hasNativeChildren())
-          throw new Error("active-native-tool-or-child-lacks-safe-checkpoint");
+      if (checkpoint && checkpoint.run_id !== request.run_id)
+        throw new Error("An earlier checkpoint still owns this Pi conversation");
+      if (!checkpoint) {
+        if (tools.size > 0 || hasNativeChildren()) throw new Error("active-native-tool-or-child-lacks-safe-checkpoint");
         if (context.hasPendingMessages() || blocked(context))
-          throw new Error(
-            "queued-input-or-unsettled-child-cannot-be-checkpointed",
-          );
+          throw new Error("queued-input-or-unsettled-child-cannot-be-checkpointed");
         const snapshot = session(context);
-        if (snapshot.transcript_path === undefined)
-          throw new Error("Pi transcript persistence is disabled");
-        if (!existsSync(snapshot.transcript_path))
-          throw new Error("native-Pi-conversation-has-not-been-persisted");
+        if (snapshot.transcript_path === undefined) throw new Error("Pi transcript persistence is disabled");
+        if (!existsSync(snapshot.transcript_path)) throw new Error("native-Pi-conversation-has-not-been-persisted");
         const transcript = openSync(snapshot.transcript_path, "r");
         try {
           fsyncSync(transcript);
@@ -544,10 +439,7 @@ export function registerActivation(
           closeSync(transcript);
         }
         privateDirectory(request.checkpoint_directory);
-        checkpointPath = join(
-          request.checkpoint_directory,
-          `studio-${incarnation}.json`,
-        );
+        checkpointPath = join(request.checkpoint_directory, `studio-${incarnation}.json`);
         checkpoint = checkpointSchema.parse({
           schema_version: 1,
           run_id: request.run_id,
@@ -567,8 +459,7 @@ export function registerActivation(
         context.abort();
       }
       const deadline = Date.now() + 58_000;
-      while ((!context.isIdle() || tools.size > 0) && Date.now() < deadline)
-        await delay(20);
+      while ((!context.isIdle() || tools.size > 0) && Date.now() < deadline) await delay(20);
       if (
         context.hasPendingMessages() ||
         blocked(context) ||
@@ -579,10 +470,7 @@ export function registerActivation(
         checkpoint.state = "refused";
         checkpoint.reason = "cancellation-not-settled";
       } else {
-        const finalTranscript = openSync(
-          checkpoint.session.transcript_path,
-          "r",
-        );
+        const finalTranscript = openSync(checkpoint.session.transcript_path, "r");
         try {
           fsyncSync(finalTranscript);
         } finally {
@@ -594,34 +482,22 @@ export function registerActivation(
           pre_checkpoint_branch_id: checkpoint.session.pre_checkpoint_branch_id,
         });
       }
-      if (checkpointPath === undefined)
-        throw new Error("Checkpoint path is unavailable");
+      if (checkpointPath === undefined) throw new Error("Checkpoint path is unavailable");
       save(checkpointPath, checkpoint);
       publish();
       return target();
     }
-    if (
-      checkpoint?.state !== "confirmed" ||
-      checkpoint.run_id !== request.run_id
-    )
+    if (checkpoint?.state !== "confirmed" || checkpoint.run_id !== request.run_id)
       throw new Error("A confirmed checkpoint for this operation is required");
     if (
       request.action === "stop" &&
       context.mode === "rpc" &&
-      process.argv[1] !==
-        join(
-          packageRoot,
-          "node_modules/@earendil-works/pi-coding-agent/dist/cli.js",
-        )
+      process.argv[1] !== join(packageRoot, "node_modules/@earendil-works/pi-coding-agent/dist/cli.js")
     )
       throw new Error("native-RPC-host-shutdown-control-unavailable");
     if (
       request.action === "stop" &&
-      (!context.isIdle() ||
-        tools.size > 0 ||
-        context.hasPendingMessages() ||
-        blocked(context) ||
-        hasNativeChildren())
+      (!context.isIdle() || tools.size > 0 || context.hasPendingMessages() || blocked(context) || hasNativeChildren())
     )
       throw new Error("native-owner-changed-after-checkpoint");
     if (request.action === "stop") {
@@ -636,8 +512,7 @@ export function registerActivation(
       stopSubmitted = true;
       checkpoint.stop_submitted = true;
       checkpoint.session.editor_text = latest.editor_text;
-      if (checkpointPath === undefined)
-        throw new Error("Checkpoint path unavailable");
+      if (checkpointPath === undefined) throw new Error("Checkpoint path unavailable");
       save(checkpointPath, checkpoint);
     }
     if (request.action === "release") {
@@ -671,36 +546,27 @@ export function registerActivation(
       }
       command(request)
         .then((value) => {
-          connection.end(
-            `${JSON.stringify({ schema_version: 1, targets: [value] })}\n`,
-            () => {
-              if (
-                request.action === "stop" &&
-                stopSubmitted &&
-                !shutdownScheduled &&
-                tools.size === 0 &&
-                context?.isIdle() === true &&
-                !hasNativeChildren()
-              ) {
-                // Pi's pinned CLI registers SIGTERM as graceful runtime disposal.
-                // RPC ctx.shutdown only settles after a subsequent RPC command;
-                // this native endpoint must not depend on that caller transport.
-                shutdownScheduled = true;
-                const nativeHost = join(
-                  packageRoot,
-                  "node_modules/@earendil-works/pi-coding-agent/dist/cli.js",
-                );
-                if (process.argv[1] === nativeHost)
-                  process.kill(process.pid, "SIGTERM");
-                else context.shutdown();
-              }
-            },
-          );
+          connection.end(`${JSON.stringify({ schema_version: 1, targets: [value] })}\n`, () => {
+            if (
+              request.action === "stop" &&
+              stopSubmitted &&
+              !shutdownScheduled &&
+              tools.size === 0 &&
+              context?.isIdle() === true &&
+              !hasNativeChildren()
+            ) {
+              // Pi's pinned CLI registers SIGTERM as graceful runtime disposal.
+              // RPC ctx.shutdown only settles after a subsequent RPC command;
+              // this native endpoint must not depend on that caller transport.
+              shutdownScheduled = true;
+              const nativeHost = join(packageRoot, "node_modules/@earendil-works/pi-coding-agent/dist/cli.js");
+              if (process.argv[1] === nativeHost) process.kill(process.pid, "SIGTERM");
+              else context.shutdown();
+            }
+          });
         })
         .catch((cause: unknown) => {
-          connection.end(
-            `${JSON.stringify({ error: cause instanceof Error ? cause.message : String(cause) })}\n`,
-          );
+          connection.end(`${JSON.stringify({ error: cause instanceof Error ? cause.message : String(cause) })}\n`);
         });
     });
   };
@@ -710,11 +576,11 @@ export function registerActivation(
     identity ??= loadedIdentity();
     started ??= await processStart(process.pid);
     privateDirectory(directory);
-    if (server === undefined) {
+    if (!server) {
       server = createServer(serve);
       await new Promise<void>((resolve, reject) => {
         const active = server;
-        if (active === undefined) {
+        if (!active) {
           reject(new Error("Lifecycle server unavailable"));
           return;
         }
@@ -729,16 +595,12 @@ export function registerActivation(
   });
   const refresh = (ctx: ExtensionContext): void => {
     context = ctx;
-    if (server !== undefined) publish();
+    if (server) publish();
   };
   pi.on("session_before_switch", () => (fenced ? { cancel: true } : undefined));
   pi.on("session_before_fork", () => (fenced ? { cancel: true } : undefined));
-  pi.on("session_before_compact", () =>
-    fenced ? { cancel: true } : undefined,
-  );
-  pi.on("session_before_tree", () =>
-    fenced && !restoring ? { cancel: true } : undefined,
-  );
+  pi.on("session_before_compact", () => (fenced ? { cancel: true } : undefined));
+  pi.on("session_before_tree", () => (fenced && !restoring ? { cancel: true } : undefined));
   pi.on("session_tree", (_event, ctx) => {
     refresh(ctx);
   });
@@ -756,7 +618,7 @@ export function registerActivation(
   });
   pi.on("input", (event) => {
     if (!fenced) return undefined;
-    if (checkpoint !== undefined && checkpointPath !== undefined) {
+    if (checkpoint && checkpointPath !== undefined) {
       checkpoint.session.recoverable_inputs ??= [];
       checkpoint.session.recoverable_inputs.push(event.text);
       save(checkpointPath, checkpoint);
@@ -764,50 +626,33 @@ export function registerActivation(
     return { action: "handled" };
   });
   pi.on("user_bash", () => {
-    if (fenced)
-      throw new Error(
-        "Studio is checkpointed; user Bash admission is suspended",
-      );
+    if (fenced) throw new Error("Studio is checkpointed; user Bash admission is suspended");
   });
   pi.on("before_provider_request", () => {
-    if (fenced)
-      throw new Error(
-        "Studio is checkpointed; interrupted work is not replayed",
-      );
+    if (fenced) throw new Error("Studio is checkpointed; interrupted work is not replayed");
   });
-  pi.on("tool_call", () =>
-    fenced ? { block: true, reason: "Studio is checkpointed" } : undefined,
-  );
+  pi.on("tool_call", () => (fenced ? { block: true, reason: "Studio is checkpointed" } : undefined));
   pi.registerCommand("studio-activation-restore", {
-    description:
-      "Restore the confirmed native checkpoint without replaying operations",
+    description: "Restore the confirmed native checkpoint without replaying operations",
     handler: async (_argument, ctx) => {
       const path = process.env["STUDIO_ACTIVATION_CHECKPOINT"];
-      if (path === undefined)
-        throw new Error("A private activation checkpoint is required");
+      if (path === undefined) throw new Error("A private activation checkpoint is required");
       const retained = readCheckpoint(path);
       if (
         retained.state !== "confirmed" ||
         retained.replacement_identity !== identity ||
         retained.session.session_id !== ctx.sessionManager.getSessionId() ||
-        retained.session.transcript_path !==
-          ctx.sessionManager.getSessionFile() ||
+        retained.session.transcript_path !== ctx.sessionManager.getSessionFile() ||
         retained.session.cwd !== ctx.cwd
       )
-        throw new Error(
-          "Restored Pi runtime differs from the confirmed checkpoint",
-        );
-      if (
-        retained.session.branch_id !== null &&
-        retained.session.branch_id !== ctx.sessionManager.getLeafId()
-      ) {
+        throw new Error("Restored Pi runtime differs from the confirmed checkpoint");
+      if (retained.session.branch_id !== null && retained.session.branch_id !== ctx.sessionManager.getLeafId()) {
         restoring = true;
         try {
           const result = await ctx.navigateTree(retained.session.branch_id, {
             summarize: false,
           });
-          if (result.cancelled)
-            throw new Error("Native Pi branch restoration was refused");
+          if (result.cancelled) throw new Error("Native Pi branch restoration was refused");
         } finally {
           restoring = false;
         }
@@ -815,17 +660,11 @@ export function registerActivation(
       if (ctx.sessionManager.getLeafId() !== retained.session.branch_id)
         throw new Error("Native Pi restored another transcript branch");
       if (ctx.mode === "tui") {
-        const draft = [
-          ...(retained.session.recoverable_inputs ?? []),
-          retained.session.editor_text,
-        ]
+        const draft = [...(retained.session.recoverable_inputs ?? []), retained.session.editor_text]
           .filter((text) => text.length > 0)
           .join("\n\n");
         ctx.ui.setEditorText(draft);
-        if (ctx.ui.getEditorText() !== draft)
-          throw new Error(
-            "Native Pi recoverable editor input was not restored",
-          );
+        if (ctx.ui.getEditorText() !== draft) throw new Error("Native Pi recoverable editor input was not restored");
       }
       context = ctx;
       restoredCheckpoint = {
@@ -840,7 +679,7 @@ export function registerActivation(
   });
   pi.on("session_shutdown", async () => {
     await new Promise<void>((resolve) => {
-      if (server === undefined) {
+      if (!server) {
         resolve();
         return;
       }
@@ -850,7 +689,6 @@ export function registerActivation(
     });
     server = undefined;
     registered = false;
-    for (const path of [socketPath, metadataPath])
-      if (existsSync(path)) unlinkSync(path);
+    for (const path of [socketPath, metadataPath]) if (existsSync(path)) unlinkSync(path);
   });
 }

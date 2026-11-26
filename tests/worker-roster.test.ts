@@ -6,17 +6,13 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { Attempts, Phase, attemptSchema } from "../attempts.ts";
-import {
-  ExecutionPhase,
-  ExecutionStore,
-  VerificationPhase,
-  executionSchema,
-} from "../execution/store.ts";
+import { ExecutionPhase, ExecutionStore, VerificationPhase, executionSchema } from "../execution/store.ts";
 import { owner } from "../task-service.ts";
 import { readTaskEvidence } from "../tasks/evidence.ts";
 import { workerAssignments } from "../tasks/workers.ts";
 
 const project = randomUUID();
+
 function assignment(beadId: string, phase = ExecutionPhase.Running) {
   const id = randomUUID();
   const task = {
@@ -78,10 +74,7 @@ await test("worker rows require an in-progress linked task, the exact Beads owne
   ])
     assert.deepEqual(workerAssignments(project, [task], evidence), []);
   assert.deepEqual(workerAssignments(randomUUID(), [a.task], evidence), []);
-  assert.deepEqual(
-    workerAssignments(project, [a.task], { attempts: [a.attempt, a.attempt] }),
-    [],
-  );
+  assert.deepEqual(workerAssignments(project, [a.task], { attempts: [a.attempt, a.attempt] }), []);
   const elsewhere = assignment("graph-a");
   assert.deepEqual(workerAssignments(project, [elsewhere.task], evidence), [
     {
@@ -126,13 +119,7 @@ await test("a retained operator question comes first; reviewing, waiting for cap
       contract: "b".repeat(64),
     },
   };
-  const tasks = [
-    waiting.task,
-    review.task,
-    verifying.task,
-    parked.task,
-    decision.task,
-  ];
+  const tasks = [waiting.task, review.task, verifying.task, parked.task, decision.task];
   const evidence = {
     attempts: [
       {
@@ -204,10 +191,7 @@ await test("a registered pane is attached to its attempt and worker phase; inter
       { ...interactive, launchSettled: true },
       { ...interactive, verifier: { phase: VerificationPhase.Running } },
     ])
-      assert.equal(
-        workerAssignments(project, [task], { attempts: [stale] })[0]?.focusable,
-        false,
-      );
+      assert.equal(workerAssignments(project, [task], { attempts: [stale] })[0]?.focusable, false);
 
     const local = attemptSchema.parse({
       id: attempt.id,
@@ -296,9 +280,7 @@ await test("reading current owner IDs skips unrelated malformed receipts and lea
     const malformed = JSON.stringify({ project, phase: "no-longer-supported" });
     const runtimeDb = new Database(join(directory, "runtime.sqlite"));
     try {
-      runtimeDb
-        .query("INSERT INTO records (kind,id,record) VALUES ('attempt',?,?)")
-        .run(staleId, malformed);
+      runtimeDb.query("INSERT INTO records (kind,id,record) VALUES ('attempt',?,?)").run(staleId, malformed);
     } finally {
       runtimeDb.close();
     }
@@ -307,9 +289,7 @@ await test("reading current owner IDs skips unrelated malformed receipts and lea
     const localDb = new Database(join(directory, "attempts.sqlite"));
     try {
       localDb
-        .query(
-          "INSERT INTO attempts (id,project,bead,active,record) VALUES (?,?,?,0,?)",
-        )
+        .query("INSERT INTO attempts (id,project,bead,active,record) VALUES (?,?,?,0,?)")
         .run(staleId, project, previous.task.id, malformed);
     } finally {
       localDb.close();

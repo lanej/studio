@@ -1,10 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import type {
-  AttachmentState,
-  EditorLauncher,
-  LaunchRequest,
-} from "@lanej/copydesk";
+import type { AttachmentState, EditorLauncher, LaunchRequest } from "@lanej/copydesk";
 import type { EditorRegistration } from "@lanej/copydesk/protocol";
 import type { StudioConfig } from "../config.ts";
 import { requireIntegration } from "../integrations.ts";
@@ -26,9 +22,7 @@ interface RetainedDocumentPane {
 }
 
 declare global {
-  var studioRetainedDocumentPanes:
-    | Map<number, RetainedDocumentPane>
-    | undefined;
+  var studioRetainedDocumentPanes: Map<number, RetainedDocumentPane> | undefined;
 }
 
 globalThis.studioRetainedDocumentPanes ??= new Map();
@@ -64,8 +58,7 @@ export class StudioEditorLauncher implements EditorLauncher {
   private async observe(): Promise<AttachmentState> {
     const zellij = this.zellij;
     const request = this.request;
-    if (zellij === undefined || request === undefined)
-      return { state: "closed" };
+    if (!zellij || !request) return { state: "closed" };
     let panes: Awaited<ReturnType<Zellij["panes"]>>;
     try {
       panes = await zellij.panes();
@@ -77,30 +70,22 @@ export class StudioEditorLauncher implements EditorLauncher {
     }
     if (this.pane === undefined) {
       const candidates = panes.filter(
-        (pane) =>
-          !pane.exited &&
-          !pane.is_plugin &&
-          pane.terminal_command?.includes(request.manifestPath) === true,
+        (pane) => !pane.exited && !pane.is_plugin && pane.terminal_command?.includes(request.manifestPath) === true,
       );
       if (candidates.length !== 1)
         return {
           state: "uncertain",
-          reason:
-            "Editor launch is unconfirmed; inspect the existing pane before retrying",
+          reason: "Editor launch is unconfirmed; inspect the existing pane before retrying",
         };
       this.pane = candidates[0]?.id;
     }
-    const pane = panes.find(
-      (pane) => pane.id === this.pane && !pane.exited && !pane.is_plugin,
-    );
-    if (pane === undefined) {
+    const pane = panes.find((pane) => pane.id === this.pane && !pane.exited && !pane.is_plugin);
+    if (!pane) {
       return { state: "closed" };
     }
-    if (this.registered !== undefined) {
+    if (this.registered) {
       try {
-        if (
-          (await processStart(this.registered.pid)) !== this.registered.started
-        ) {
+        if ((await processStart(this.registered.pid)) !== this.registered.started) {
           return { state: "closed" };
         }
       } catch {
@@ -125,8 +110,7 @@ export class StudioEditorLauncher implements EditorLauncher {
         state: "uncertain",
         reason: "The Studio editor activation ended",
       };
-    if (attachmentId !== this.attachmentId)
-      return { state: "uncertain", reason: "The editor attachment changed" };
+    if (attachmentId !== this.attachmentId) return { state: "uncertain", reason: "The editor attachment changed" };
     return await this.observe();
   }
   async ensure(request: LaunchRequest): Promise<AttachmentState> {
@@ -191,7 +175,7 @@ export class StudioEditorLauncher implements EditorLauncher {
       this.request?.launchId !== request.launchId ||
       registration.launchId !== request.launchId ||
       this.executable === undefined ||
-      this.zellij === undefined
+      !this.zellij
     )
       throw new Error("No matching Studio editor launch is pending");
     const binding = processBinding.parse(
@@ -217,25 +201,13 @@ export class StudioEditorLauncher implements EditorLauncher {
       binding.connection !== request.manifestPath ||
       (this.pane !== undefined && pane !== this.pane)
     )
-      throw new Error(
-        "The Neovim process does not belong to the issued Studio pane",
-      );
-    const livePanes = (await this.zellij.panes()).filter(
-      (entry) => !entry.exited && !entry.is_plugin,
-    );
+      throw new Error("The Neovim process does not belong to the issued Studio pane");
+    const livePanes = (await this.zellij.panes()).filter((entry) => !entry.exited && !entry.is_plugin);
     const live = livePanes.find((entry) => entry.id === pane);
-    if (
-      live === undefined ||
-      (this.pane === undefined &&
-        live.terminal_command?.includes(request.manifestPath) !== true)
-    )
+    if (!live || (this.pane === undefined && live.terminal_command?.includes(request.manifestPath) !== true))
       throw new Error("The pending Studio pane could not be verified");
     const started = await processStart(registration.processId);
-    if (
-      started.length === 0 ||
-      this.isDisposed() ||
-      this.request.launchId !== request.launchId
-    )
+    if (started.length === 0 || this.isDisposed() || this.request.launchId !== request.launchId)
       throw new Error("The editor activation changed during registration");
     this.pane = pane;
     this.registered = { pid: registration.processId, started };

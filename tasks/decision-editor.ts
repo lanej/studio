@@ -1,7 +1,4 @@
-import {
-  getSelectListTheme,
-  type Theme,
-} from "@earendil-works/pi-coding-agent";
+import { getSelectListTheme, type Theme } from "@earendil-works/pi-coding-agent";
 import {
   CURSOR_MARKER,
   Editor,
@@ -12,12 +9,7 @@ import {
   truncateToWidth,
   visibleWidth,
 } from "@earendil-works/pi-tui";
-import {
-  defaultPaneKeybindings,
-  matchesPaneKey,
-  paneKeyHint,
-  paneKeyPair,
-} from "../pane-keybindings.ts";
+import { defaultPaneKeybindings, matchesPaneKey, paneKeyHint, paneKeyPair } from "../pane-keybindings.ts";
 import { selectorText } from "@lanej/pi-components";
 import { framePaneRows, paintPaneLine, paneMouse } from "../floating-pane.ts";
 
@@ -39,11 +31,7 @@ export class DecisionEditor {
     private readonly bindings = defaultPaneKeybindings,
     private readonly taskTitle?: string,
   ) {
-    this.question = new Text(
-      selectorText(question).replace(/\p{Cc}/gu, " "),
-      1,
-      0,
-    );
+    this.question = new Text(selectorText(question).replace(/\p{Cc}/gu, " "), 1, 0);
     this.editor = new Editor(
       tui,
       {
@@ -69,10 +57,7 @@ export class DecisionEditor {
 
   render(width: number): string[] {
     if (width < 1) return [];
-    const height = Math.max(
-      1,
-      Math.min(12, Math.floor(this.tui.terminal.rows / 3)),
-    );
+    const height = Math.max(1, Math.min(12, Math.floor(this.tui.terminal.rows / 3)));
     const showHeading = height >= 3;
     const showHints = height >= 4;
     const contentHeight = height - Number(showHeading) - Number(showHints);
@@ -83,16 +68,10 @@ export class DecisionEditor {
     // Use the editor's wrapped, cursor-aware rows inside the drawer's own surface.
     const editing = this.editor.render(inner).slice(1, -1);
     const prompt = this.question.render(bodyWidth);
-    this.questionHeight = Math.min(
-      contentHeight - 1,
-      Math.max(1, contentHeight - editing.length),
-    );
+    this.questionHeight = Math.min(contentHeight - 1, Math.max(1, contentHeight - editing.length));
     this.maxOffset = Math.max(0, prompt.length - this.questionHeight);
     this.offset = Math.min(this.offset, this.maxOffset);
-    const visibleQuestion = prompt.slice(
-      this.offset,
-      this.offset + this.questionHeight,
-    );
+    const visibleQuestion = prompt.slice(this.offset, this.offset + this.questionHeight);
     const answerHeight = contentHeight - visibleQuestion.length;
     const cursor = editing.findIndex((line) => line.includes(CURSOR_MARKER));
     const start = Math.max(0, cursor - answerHeight + 1);
@@ -113,21 +92,12 @@ export class DecisionEditor {
       this.bindings.decision.pageUp.filter((key) => !reserved.has(key)),
       this.bindings.decision.pageDown.filter((key) => !reserved.has(key)),
     );
-    const instructions = [
-      paneKeyHint(submit, "submit"),
-      paneKeyHint(newline, "newline"),
-      paneKeyHint(cancel, "cancel"),
-    ]
+    const instructions = [paneKeyHint(submit, "submit"), paneKeyHint(newline, "newline"), paneKeyHint(cancel, "cancel")]
       .filter(Boolean)
       .join("  ");
-    const title =
-      this.taskTitle === undefined
-        ? ""
-        : selectorText(this.taskTitle).replace(/\s+/gu, " ").trim();
+    const title = this.taskTitle === undefined ? "" : selectorText(this.taskTitle).replace(/\s+/gu, " ").trim();
     const questionScroll =
-      this.maxOffset > 0 && scroll.length > 0
-        ? this.theme.fg("muted", `  ${scroll} scroll question`)
-        : "";
+      this.maxOffset > 0 && scroll.length > 0 ? this.theme.fg("muted", `  ${scroll} scroll question`) : "";
     const header =
       this.theme.fg("warning", this.theme.bold("Worker question")) +
       questionScroll +
@@ -136,17 +106,9 @@ export class DecisionEditor {
       ...visibleQuestion.map((line) => this.theme.fg("text", line)),
       ...reply.map((line, index) => {
         // At one column Pi can render the end-of-line cursor just past the text.
-        if (
-          bodyWidth === 1 &&
-          line.includes(CURSOR_MARKER) &&
-          visibleWidth(line) > 1
-        )
+        if (bodyWidth === 1 && line.includes(CURSOR_MARKER) && visibleWidth(line) > 1)
           return line.slice(line.indexOf(CURSOR_MARKER));
-        return (
-          (index === 0
-            ? this.theme.fg("accent", prefix)
-            : " ".repeat(prefix.length)) + line
-        );
+        return (index === 0 ? this.theme.fg("accent", prefix) : " ".repeat(prefix.length)) + line;
       }),
     ];
     const footer = this.theme.fg("muted", instructions);
@@ -158,11 +120,9 @@ export class DecisionEditor {
           width,
           border: (text) => this.theme.fg("border", text),
         })
-      : [
-          ...(showHeading ? [header] : []),
-          ...body,
-          ...(showHints ? [footer] : []),
-        ].map((line) => truncateToWidth(line, width, "…", true));
+      : [...(showHeading ? [header] : []), ...body, ...(showHints ? [footer] : [])].map((line) =>
+          truncateToWidth(line, width, "…", true),
+        );
     return rows.map((line) => paintPaneLine(this.theme, "userMessageBg", line));
   }
 
@@ -170,12 +130,7 @@ export class DecisionEditor {
     if (event.type === "click" && event.button === "left") {
       const row = event.y - this.replyArea.top;
       const x = event.x - this.replyArea.left;
-      if (
-        row >= 0 &&
-        row < this.replyArea.rows &&
-        x >= 0 &&
-        x < this.replyArea.width
-      ) {
+      if (row >= 0 && row < this.replyArea.rows && x >= 0 && x < this.replyArea.width) {
         // Pi's editor includes its top border and may have more visible rows than the drawer.
         this.editor.handleMouse({
           ...event,
@@ -197,20 +152,11 @@ export class DecisionEditor {
       this.done(undefined);
       return;
     }
-    if (
-      keys.matches(data, "tui.input.submit") ||
-      keys.matches(data, "tui.input.newLine")
-    )
+    if (keys.matches(data, "tui.input.submit") || keys.matches(data, "tui.input.newLine"))
       this.editor.handleInput(data);
-    else if (
-      this.maxOffset > 0 &&
-      matchesPaneKey(data, this.bindings.decision.pageUp)
-    )
+    else if (this.maxOffset > 0 && matchesPaneKey(data, this.bindings.decision.pageUp))
       this.offset = Math.max(0, this.offset - this.questionHeight);
-    else if (
-      this.maxOffset > 0 &&
-      matchesPaneKey(data, this.bindings.decision.pageDown)
-    )
+    else if (this.maxOffset > 0 && matchesPaneKey(data, this.bindings.decision.pageDown))
       this.offset = Math.min(this.maxOffset, this.offset + this.questionHeight);
     else this.editor.handleInput(data);
     this.tui.requestRender();

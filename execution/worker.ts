@@ -1,9 +1,4 @@
-import type {
-  AgentSession,
-  ExtensionAPI,
-  ExtensionContext,
-  ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import type { AgentSession, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { isDeepStrictEqual } from "node:util";
 import { mkdirSync, realpathSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
@@ -36,11 +31,7 @@ import { deliverAssignment } from "./delivery.ts";
 import { preparePublicationBase } from "./publication-base.ts";
 import { approvedHandoffTask } from "./publication-graph.ts";
 import { octo } from "../delivery.ts";
-import {
-  recordDecision,
-  decisionContract,
-  requireDecisionPublicationReconciled,
-} from "./decisions.ts";
+import { recordDecision, decisionContract, requireDecisionPublicationReconciled } from "./decisions.ts";
 import { withAllocation } from "./allocation.ts";
 import { runtimeModelAllowed } from "./profile.ts";
 
@@ -50,31 +41,26 @@ const workerResult = z.object({
   body: z.string().max(20000).optional(),
 });
 const localWorkerResult = workerResult.pick({ summary: true });
+
 export function parseWorkerResult(
   value: unknown,
   delivery: TaskDelivery = TaskDelivery.Local,
 ): z.infer<typeof workerResult> {
-  return delivery === TaskDelivery.PullRequest
-    ? workerResult.parse(value)
-    : localWorkerResult.parse(value);
+  return delivery === TaskDelivery.PullRequest ? workerResult.parse(value) : localWorkerResult.parse(value);
 }
+
 const requestedDecision = z.strictObject({
   operatorDecision: z.strictObject({
     question: z.string().trim().min(1).max(2000),
   }),
 });
-export function parseBackgroundResult(
-  value: unknown,
-  delivery: TaskDelivery = TaskDelivery.Local,
-) {
-  if (
-    typeof value === "object" &&
-    value !== null &&
-    Object.hasOwn(value, "operatorDecision")
-  )
+
+export function parseBackgroundResult(value: unknown, delivery: TaskDelivery = TaskDelivery.Local) {
+  if (typeof value === "object" && value !== null && Object.hasOwn(value, "operatorDecision"))
     return requestedDecision.parse(value);
   return parseWorkerResult(value, delivery);
 }
+
 class DecisionRecorded extends Error {}
 /** Resume an approved revision only while its agreed verification is still accepted. */
 export async function resumeReviewedAssignment(
@@ -87,9 +73,7 @@ export async function resumeReviewedAssignment(
     verification !== undefined &&
     attempt.verifier?.phase === VerificationPhase.Complete &&
     isDeepStrictEqual(verification.check, attempt.check) &&
-    (attempt.check.length === 0
-      ? completedWithoutExecutable(attempt)
-      : verification.exitCode === 0);
+    (attempt.check.length === 0 ? completedWithoutExecutable(attempt) : verification.exitCode === 0);
   if (
     attempt.head === undefined ||
     attempt.review === undefined ||
@@ -100,6 +84,7 @@ export async function resumeReviewedAssignment(
     await implement();
   else resume();
 }
+
 const parseResult = (text: string): unknown =>
   JSON.parse(
     text
@@ -121,6 +106,7 @@ export type InteractiveWorker = (assignment: {
   check: () => Promise<void>;
   signal: AbortSignal;
 }) => Promise<string>;
+
 export function startAssignmentHeartbeat(
   renew: () => Promise<void>,
   renewed: () => void,
@@ -135,7 +121,7 @@ export function startAssignmentHeartbeat(
   let stopped = false;
   let pending: Promise<void> | undefined;
   const unschedule = schedule(() => {
-    if (stopped || pending !== undefined) return;
+    if (stopped || pending) return;
     pending = renew()
       .then(renewed)
       .catch(failed)
@@ -151,6 +137,7 @@ export function startAssignmentHeartbeat(
     await pending;
   };
 }
+
 export async function executeAssignment(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
@@ -166,100 +153,56 @@ export async function executeAssignment(
   let stopHeartbeat: (() => Promise<void>) | undefined;
   try {
     let attempt = store.attempt(id);
-    if (
-      (attempt.interactive === undefined) !==
-      (interactiveWorker === undefined)
-    )
-      throw new Error(
-        "Execution host does not match the approved dispatch mode",
-      );
+    if ((attempt.interactive === undefined) !== (interactiveWorker === undefined))
+      throw new Error("Execution host does not match the approved dispatch mode");
     const project = store.project(attempt.project);
     const service = new ExecutionBeads(project.source);
-    if (attempt.bead === undefined || attempt.revision === undefined)
-      throw new Error("Missing admitted task identity");
+    if (!attempt.bead || attempt.revision === undefined) throw new Error("Missing admitted task identity");
     requireUnattendedTask(attempt.bead);
     const handoff = store.taskHandoffIntent(project.id, attempt.bead.id);
-    if (handoff !== undefined)
-      approvedHandoffTask(store, project, attempt.bead, handoff);
+    if (handoff) approvedHandoffTask(store, project, attempt.bead, handoff);
     if (ctx.cwd !== project.root || !ctx.isProjectTrusted())
-      throw new Error(
-        "Approve Pi project trust for the enrolled repository before execution",
-      );
+      throw new Error("Approve Pi project trust for the enrolled repository before execution");
     const started = await processStart(process.pid);
     store.change(id, (row) => {
-      if (
-        row.launchToken !== token ||
-        (row.pid !== undefined && row.pid !== process.pid)
-      )
-        throw new Error(
-          "This control-host launch was retired or belongs to another process",
-        );
+      if (row.launchToken !== token || (row.pid !== undefined && row.pid !== process.pid))
+        throw new Error("This control-host launch was retired or belongs to another process");
       row.pid = process.pid;
       row.started = started;
       row.launchSettled = false;
-      if (
-        row.phase === ExecutionPhase.Uncertain &&
-        row.interactive === undefined
-      )
-        row.phase = ExecutionPhase.Launching;
+      if (row.phase === ExecutionPhase.Uncertain && !row.interactive) row.phase = ExecutionPhase.Launching;
       const session = ctx.sessionManager.getSessionId();
-      if (
-        row.controllerSession !== undefined &&
-        row.controllerSession !== session
-      )
-        throw new Error(
-          "Recovery must resume the retained native controller session before delivery effects",
-        );
+      if (row.controllerSession !== undefined && row.controllerSession !== session)
+        throw new Error("Recovery must resume the retained native controller session before delivery effects");
       row.controllerSession = session;
       row.controllerSessionFile = ctx.sessionManager.getSessionFile();
     });
     const check = async (): Promise<void> => {
       abort.throwIfAborted();
       const configured = (await loadConfig()).runtime.projects.find(
-        (item) =>
-          item.source.projectId === project.id &&
-          realpathSync(item.root) === project.root,
+        (item) => item.source.projectId === project.id && realpathSync(item.root) === project.root,
       );
-      if (
-        configured === undefined ||
-        !isDeepStrictEqual(configured.source, project.source) ||
-        configured.source.reviewOnly === true
-      )
-        throw new Error(
-          "This project's task authority changed; reconcile the accepted binding before further effects",
-        );
+      if (!configured || !isDeepStrictEqual(configured.source, project.source) || configured.source.reviewOnly === true)
+        throw new Error("This project's task authority changed; reconcile the accepted binding before further effects");
       if (failure.heartbeat !== undefined) throw new Error(failure.heartbeat);
       const current = store.attempt(id);
-      if (current.bead === undefined || current.revision === undefined)
-        throw new Error("Task admission disappeared");
+      if (!current.bead || current.revision === undefined) throw new Error("Task admission disappeared");
       if (
         current.launchToken !== token ||
         current.pid !== process.pid ||
-        [
-          ExecutionPhase.Complete,
-          ExecutionPhase.Parked,
-          ExecutionPhase.Uncertain,
-        ].includes(current.phase)
+        [ExecutionPhase.Complete, ExecutionPhase.Parked, ExecutionPhase.Uncertain].includes(current.phase)
       )
         throw new Error("The task's local execution fence was retired");
       requireUnattendedTask(current.bead);
-      requireUnattendedTask(
-        await service.requireCurrent(current.bead, current.revision, id),
-      );
+      requireUnattendedTask(await service.requireCurrent(current.bead, current.revision, id));
       abort.throwIfAborted();
       const after = store.attempt(id);
       if (
         after.launchToken !== token ||
         after.pid !== process.pid ||
-        [
-          ExecutionPhase.Complete,
-          ExecutionPhase.Parked,
-          ExecutionPhase.Uncertain,
-        ].includes(after.phase)
+        [ExecutionPhase.Complete, ExecutionPhase.Parked, ExecutionPhase.Uncertain].includes(after.phase)
       )
-        throw new Error(
-          "The task's local execution fence changed during authority validation",
-        );
+        throw new Error("The task's local execution fence changed during authority validation");
     };
     await heartbeat(project, id, attempt.bead.id);
     stopHeartbeat = startAssignmentHeartbeat(
@@ -270,35 +213,23 @@ export async function executeAssignment(
         });
       },
       (error) => {
-        failure.heartbeat =
-          error instanceof Error ? error.message : String(error);
+        failure.heartbeat = error instanceof Error ? error.message : String(error);
         controller.abort();
       },
     );
     await check();
-    attempt = await withAllocation(store, attempt.id, check, () =>
-      prepareCheckout(store, attempt, project),
-    );
+    attempt = await withAllocation(store, attempt.id, check, () => prepareCheckout(store, attempt, project));
     const checkout = attempt.checkout;
-    if (checkout === undefined) throw new Error("Missing worker checkout");
+    if (!checkout) throw new Error("Missing worker checkout");
     const git = (args: string[], env?: NodeJS.ProcessEnv) =>
       safeGit(project.root, checkout.path, args, {
-        ...(env?.["GIT_INDEX_FILE"] === undefined
-          ? {}
-          : { indexFile: env["GIT_INDEX_FILE"] }),
+        ...(env?.["GIT_INDEX_FILE"] === undefined ? {} : { indexFile: env["GIT_INDEX_FILE"] }),
       });
     const acceptedBead = beadSchema.parse(attempt.bead);
     const selections = { worker: attempt.worker, reviewer: attempt.reviewer };
-    if (
-      selections.worker === undefined ||
-      selections.reviewer === undefined ||
-      attempt.controller === undefined
-    )
+    if (!selections.worker || !selections.reviewer || !attempt.controller)
       throw new Error("The admitted role/model snapshot is unavailable");
-    if (
-      ctx.model?.provider !== attempt.controller.provider ||
-      ctx.model.id !== attempt.controller.model
-    )
+    if (ctx.model?.provider !== attempt.controller.provider || ctx.model.id !== attempt.controller.model)
       throw new Error("The control host did not retain its admitted model");
     const runner = await import("../plugin-runner.mjs");
     let round = 0;
@@ -310,30 +241,21 @@ export async function executeAssignment(
     ) => {
       await check();
       const selection = selections[role];
-      if (selection === undefined)
-        throw new Error("The admitted role is missing");
+      if (!selection) throw new Error("The admitted role is missing");
       const model = ctx.modelRegistry.find(selection.provider, selection.model);
-      if (model === undefined || !runtimeModelAllowed(attempt.profile, model))
+      if (!model || !runtimeModelAllowed(attempt.profile, model))
         throw new Error(
           `Admitted ${role} model ${selection.provider}/${selection.model} is unavailable for the ${attempt.profile} profile`,
         );
-      const sessionDir = join(
-        store.directory,
-        "runtime-sessions",
-        id,
-        `${role}-${String(round++)}`,
-      );
+      const sessionDir = join(store.directory, "runtime-sessions", id, `${role}-${String(round++)}`);
       mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
       let session: AgentSession | undefined;
       const tools = await snapshotTools(checkout.path, head, git);
       const workerTools =
         role === AgentRole.Worker
-          ? [
-              ...tools.filter((tool) => tool.name !== "read"),
-              ...writableTools(project, store.attempt(id), check),
-            ]
+          ? [...tools.filter((tool) => tool.name !== "read"), ...writableTools(project, store.attempt(id), check)]
           : undefined;
-      if (workerTools !== undefined && interactiveWorker !== undefined) {
+      if (workerTools && interactiveWorker) {
         const result = await interactiveWorker({
           cwd: checkout.path,
           directory: sessionDir,
@@ -361,11 +283,7 @@ export async function executeAssignment(
           driverTools: workerTools ?? [
             ...tools,
             ...reviewTools,
-            ...(await snapshotTools(
-              checkout.path,
-              attempt.base ?? head,
-              git,
-            ).then((items) =>
+            ...(await snapshotTools(checkout.path, attempt.base ?? head, git).then((items) =>
               items.map((tool) => ({
                 ...tool,
                 name: `base_${tool.name}`,
@@ -377,12 +295,9 @@ export async function executeAssignment(
             if (
               created.model?.id !== model.id ||
               created.model.provider !== model.provider ||
-              z.enum(ReasoningLevel).safeParse(created.thinkingLevel).data !==
-                selection.reasoning
+              z.enum(ReasoningLevel).safeParse(created.thinkingLevel).data !== selection.reasoning
             )
-              throw new Error(
-                "The child did not retain its admitted model/reasoning",
-              );
+              throw new Error("The child did not retain its admitted model/reasoning");
             const file = created.sessionManager.getSessionFile();
             store.change(id, (row) => {
               row.sessions.push(file ?? created.sessionManager.getSessionId());
@@ -392,31 +307,23 @@ export async function executeAssignment(
           },
         });
         if (result.aborted || result.failure !== undefined)
-          throw new Error(
-            result.failure ??
-              "Execution cancelled; retain this attempt before recovery",
-          );
+          throw new Error(result.failure ?? "Execution cancelled; retain this attempt before recovery");
         await check();
         return result.responseText;
       } finally {
         session?.dispose();
       }
     };
-    const metadata = taskMetadata.parse(
-      acceptedBead.metadata["studio.task"] ?? {},
-    );
+    const metadata = taskMetadata.parse(acceptedBead.metadata["studio.task"] ?? {});
     const publicationGuidance =
       metadata.delivery === TaskDelivery.PullRequest
         ? JSON.stringify(await octo(project.root, "pr", "instructions"))
         : "";
     if (publicationGuidance.length > 32000)
-      throw new Error(
-        "The project publication contract exceeds the bounded worker brief",
-      );
-    const decisionInstructions =
-      interactiveWorker === undefined
-        ? 'If an operator decision is required before proceeding, return only {"operatorDecision":{"question":"one bounded specific question"}} instead of a completion. This pauses work without changing any task authority.'
-        : "";
+      throw new Error("The project publication contract exceeds the bounded worker brief");
+    const decisionInstructions = !interactiveWorker
+      ? 'If an operator decision is required before proceeding, return only {"operatorDecision":{"question":"one bounded specific question"}} instead of a completion. This pauses work without changing any task authority.'
+      : "";
     const resultInstructions =
       metadata.delivery === TaskDelivery.PullRequest
         ? 'Return JSON only: {"summary":"implementation and criterion evidence","title":"meaningful PR title","body":"meaningful PR description"}.'
@@ -429,25 +336,12 @@ export async function executeAssignment(
     let head = attempt.head;
     const review = async (revision: string, feedback: string[]) => {
       const verification = store.attempt(id).verification;
-      if (attempt.base === undefined || verification === undefined)
-        throw new Error(
-          "Missing base or verification evidence for independent review",
-        );
-      const reviewedTree = (
-        await git(["rev-parse", `${revision}^{tree}`])
-      ).trim();
+      if (attempt.base === undefined || !verification)
+        throw new Error("Missing base or verification evidence for independent review");
+      const reviewedTree = (await git(["rev-parse", `${revision}^{tree}`])).trim();
       if (reviewedTree !== verification.gitState)
-        throw new Error(
-          "Verification evidence belongs to a different tree than the revision under review",
-        );
-      const paths = await git([
-        "diff",
-        "--name-only",
-        "--no-renames",
-        "-z",
-        attempt.base,
-        revision,
-      ]);
+        throw new Error("Verification evidence belongs to a different tree than the revision under review");
+      const paths = await git(["diff", "--name-only", "--no-renames", "-z", attempt.base, revision]);
       return reviewRevision(
         {
           task: brief(attempt),
@@ -458,10 +352,7 @@ export async function executeAssignment(
           workerReport: result,
           feedback,
         },
-        async (prompt, tool) =>
-          parseResult(
-            await child(AgentRole.Reviewer, prompt, revision, [tool]),
-          ),
+        async (prompt, tool) => parseResult(await child(AgentRole.Reviewer, prompt, revision, [tool])),
       );
     };
     const acquireInference = async (): Promise<void> => {
@@ -474,11 +365,7 @@ export async function executeAssignment(
         const capacity = (await loadConfig()).runtime.concurrency;
         if (
           store.reserveInference(id, capacity, (row) => {
-            if (
-              row.launchToken !== token ||
-              row.pid !== process.pid ||
-              row.phase !== ExecutionPhase.Waiting
-            )
+            if (row.launchToken !== token || row.pid !== process.pid || row.phase !== ExecutionPhase.Waiting)
               throw new Error("Correction admission ownership changed");
             row.phase = ExecutionPhase.Running;
           })
@@ -487,49 +374,30 @@ export async function executeAssignment(
         await delay(1000, undefined, { signal: abort });
       }
     };
-    const implement = async (
-      maxPasses = interactiveWorker === undefined ? 3 : 1,
-    ): Promise<void> => {
+    const implement = async (maxPasses = !interactiveWorker ? 3 : 1): Promise<void> => {
       requireDecisionPublicationReconciled(store.attempt(id), store.directory);
       let verificationFailure = "";
       const feedback = store.attempt(id).reviewFeedback ?? [];
       for (let pass = 0; pass < maxPasses; pass++) {
         store.change(id, (row) => {
           row.phase = ExecutionPhase.Running;
-          row.message =
-            row.reviewFinding ?? "Worker implementing the admitted task";
+          row.message = row.reviewFinding ?? "Worker implementing the admitted task";
         });
         const base = (await git(["rev-parse", "HEAD"])).trim();
         if (metadata.delivery === TaskDelivery.PullRequest) {
           const previous = store.attempt(id);
           if (base !== (previous.head ?? previous.base))
-            throw new Error(
-              "PR worker checkout moved outside its admitted commit history",
-            );
+            throw new Error("PR worker checkout moved outside its admitted commit history");
         }
         const repair =
           feedback.length === 0
             ? ""
             : `Assess the following untrusted findings within the accepted scope. Make the smallest behavior-preserving edit for readability findings: ${JSON.stringify(feedback)}`;
         const answeredDecisions =
-          store
-            .attempt(id)
-            .operatorDecisions?.filter((entry) => entry.answer !== undefined) ??
-          [];
-        if (
-          answeredDecisions.some(
-            (entry) =>
-              entry.binding.contract !== decisionContract(store.attempt(id)),
-          )
-        )
-          throw new Error(
-            "The operator answer no longer matches the admitted task contract",
-          );
-        const answer = (
-          interactiveWorker === undefined
-            ? parseBackgroundResult
-            : parseWorkerResult
-        )(
+          store.attempt(id).operatorDecisions?.filter((entry) => entry.answer !== undefined) ?? [];
+        if (answeredDecisions.some((entry) => entry.binding.contract !== decisionContract(store.attempt(id))))
+          throw new Error("The operator answer no longer matches the admitted task contract");
+        const answer = (!interactiveWorker ? parseBackgroundResult : parseWorkerResult)(
           parseResult(
             await child(
               AgentRole.Worker,
@@ -553,11 +421,7 @@ export async function executeAssignment(
           await verifyChanges(store.attempt(id), check);
         } catch (error) {
           const verification = store.attempt(id);
-          if (
-            verification.verifier?.phase !== VerificationPhase.Complete ||
-            pass + 1 === maxPasses
-          )
-            throw error;
+          if (verification.verifier?.phase !== VerificationPhase.Complete || pass + 1 === maxPasses) throw error;
           await check();
           verificationFailure = `The agreed verifier rejected this result. Correct only the accepted task: ${verification.verification?.reason ?? verification.verification?.output ?? "verification failed"}`;
           continue;
@@ -577,22 +441,13 @@ export async function executeAssignment(
           { timeout: 90000 },
         );
         head = (await git(["rev-parse", "HEAD"])).trim();
-        if (
-          metadata.delivery === TaskDelivery.PullRequest &&
-          (await git(["rev-parse", `${head}^@`])).trim() !== base
-        )
+        if (metadata.delivery === TaskDelivery.PullRequest && (await git(["rev-parse", `${head}^@`])).trim() !== base)
           throw new Error("PR worker commit has an unapproved parent");
         const verified = store.attempt(id).verification;
         const committedTree = (await git(["rev-parse", "HEAD^{tree}"])).trim();
         const actual = await gitState(checkout.path, checkout.branch, git);
-        if (
-          verified === undefined ||
-          committedTree !== verified.gitState ||
-          actual.gitState !== verified.gitState
-        )
-          throw new Error(
-            "Commit hooks or another process changed the independently verified tree",
-          );
+        if (!verified || committedTree !== verified.gitState || actual.gitState !== verified.gitState)
+          throw new Error("Commit hooks or another process changed the independently verified tree");
         store.change(id, (row) => {
           row.head = head;
           row.summary = JSON.stringify(result);
@@ -606,15 +461,11 @@ export async function executeAssignment(
           store.change(id, (row) => {
             row.review = `${verdict.summary}\n${verdict.readback}`;
             row.reviewFeedback = undefined;
-            if (row.head === undefined)
-              throw new Error("Reviewed operator answer has no exact head");
+            if (row.head === undefined) throw new Error("Reviewed operator answer has no exact head");
             for (const entry of row.operatorDecisions ?? [])
-              if (entry.answer !== undefined && entry.appliedHead === undefined)
-                entry.appliedHead = row.head;
+              if (entry.answer && entry.appliedHead === undefined) entry.appliedHead = row.head;
             row.phase =
-              metadata.delivery === TaskDelivery.PullRequest
-                ? ExecutionPhase.Delivery
-                : ExecutionPhase.Integrating;
+              metadata.delivery === TaskDelivery.PullRequest ? ExecutionPhase.Delivery : ExecutionPhase.Integrating;
             row.message = "Independent review accepted the worker revision";
           });
           break;
@@ -627,16 +478,11 @@ export async function executeAssignment(
           row.message = verdict.summary;
         });
         if (verdict.repairableInScope === false || pass + 1 === maxPasses)
-          throw new Error(
-            `Independent review still has unresolved findings: ${verdict.summary}`,
-          );
+          throw new Error(`Independent review still has unresolved findings: ${verdict.summary}`);
       }
     };
     await resumeReviewedAssignment(attempt, implement, () => {
-      const saved = parseWorkerResult(
-        JSON.parse(attempt.summary),
-        metadata.delivery,
-      );
+      const saved = parseWorkerResult(JSON.parse(attempt.summary), metadata.delivery);
       result = {
         summary: saved.summary,
         title: saved.title ?? acceptedBead.title,
@@ -659,15 +505,12 @@ export async function executeAssignment(
             row.review = undefined;
             row.reviewFeedback = [feedback];
             row.phase = ExecutionPhase.Running;
-            row.message =
-              "Correcting untrusted PR feedback within the accepted task";
+            row.message = "Correcting untrusted PR feedback within the accepted task";
           });
           await implement();
           const corrected = store.attempt(id);
           if (corrected.head === undefined || corrected.review === undefined)
-            throw new Error(
-              "Correction did not obtain exact-head independent review",
-            );
+            throw new Error("Correction did not obtain exact-head independent review");
           store.change(id, (row) => {
             row.phase = ExecutionPhase.Delivery;
           });
@@ -703,15 +546,12 @@ export async function executeAssignment(
         row.message = verdict.summary;
         if (localRepair) row.review = undefined;
       });
-      if (!localRepair || integrationRepairAttempted)
-        throw new Error(verdict.summary);
+      if (!localRepair || integrationRepairAttempted) throw new Error(verdict.summary);
       integrationRepairAttempted = true;
       await implement(1);
       const repaired = store.attempt(id);
       if (repaired.head === undefined || repaired.review === undefined)
-        throw new Error(
-          "Integration repair lacks an independently reviewed commit",
-        );
+        throw new Error("Integration repair lacks an independently reviewed commit");
       return { head: repaired.head, summary: repaired.review };
     });
     // Drain lease renewal before closing Beads, then recheck any renewal failure and current authority.
@@ -725,8 +565,7 @@ export async function executeAssignment(
     );
     store.change(id, (row) => {
       row.phase = ExecutionPhase.Complete;
-      row.message =
-        "Accepted result is integrated and Beads completion is confirmed";
+      row.message = "Accepted result is integrated and Beads completion is confirmed";
     });
   } catch (error) {
     if (!(error instanceof DecisionRecorded)) throw error;
@@ -740,35 +579,28 @@ export async function executeAssignment(
     )
       store.change(id, (row) => {
         row.phase = ExecutionPhase.Uncertain;
-        row.message =
-          "Operator question retained; heartbeat or control-host shutdown needs reconciliation";
+        row.message = "Operator question retained; heartbeat or control-host shutdown needs reconciliation";
       });
     store.close();
   }
 }
+
 function brief(attempt: Execution): string {
   const bead = attempt.bead;
-  if (bead === undefined) throw new Error("Task is not admitted");
+  if (!bead) throw new Error("Task is not admitted");
   return `Task ${bead.id} at accepted revision ${attempt.revision ?? ""}\n${bead.title}\n${bead.description}\nAcceptance: ${bead.acceptance_criteria}\nOwned paths: ${attempt.owns.length === 0 ? "the isolated checkout" : attempt.owns.join(", ")}\nApproved verifier argv: ${JSON.stringify(attempt.check)}`;
 }
-async function prepareCheckout(
-  store: ExecutionStore,
-  attempt: Execution,
-  project: RuntimeProject,
-): Promise<Execution> {
+
+async function prepareCheckout(store: ExecutionStore, attempt: Execution, project: RuntimeProject): Promise<Execution> {
   const config = await loadConfig();
-  const manager = new WorktreeManager(
-    await requireIntegration(config, "worktrees"),
-  );
-  if (attempt.checkout !== undefined) {
+  const manager = new WorktreeManager(await requireIntegration(config, "worktrees"));
+  if (attempt.checkout) {
     await manager.requireAllocation(attempt.checkout);
     return attempt;
   }
   let base = attempt.base;
   if (base === undefined) {
-    const task = taskMetadata.parse(
-      attempt.bead?.metadata["studio.task"] ?? {},
-    );
+    const task = taskMetadata.parse(attempt.bead?.metadata["studio.task"] ?? {});
     if (task.delivery === TaskDelivery.PullRequest) {
       base = await preparePublicationBase(store, project, attempt);
     } else {
@@ -776,14 +608,7 @@ async function prepareCheckout(
       base = await networkGit(project.root, ["rev-parse", "--verify", frontier])
         .then((text) => text.trim())
         .catch(() => undefined);
-      if (base === undefined)
-        base = (
-          await networkGit(project.root, [
-            "rev-parse",
-            "--verify",
-            project.base,
-          ])
-        ).trim();
+      if (base === undefined) base = (await networkGit(project.root, ["rev-parse", "--verify", project.base])).trim();
     }
     store.change(attempt.id, (row) => {
       row.base = base;
@@ -791,21 +616,15 @@ async function prepareCheckout(
     });
   }
   let reservation = attempt.reservation;
-  if (reservation === undefined) {
-    reservation = await manager.prepare(
-      project.root,
-      attempt.id,
-      `pi/task-${attempt.id}`,
-      base,
-      "pi",
-    );
+  if (!reservation) {
+    reservation = await manager.prepare(project.root, attempt.id, `pi/task-${attempt.id}`, base, "pi");
     store.change(attempt.id, (row) => {
       row.reservation = reservation;
     });
   }
   const checkout = await manager.acquire(reservation, () => {
     store.change(attempt.id, (row) => {
-      if (row.reservation !== undefined) row.reservation.attempted = true;
+      if (row.reservation) row.reservation.attempted = true;
     });
   });
   store.change(attempt.id, (row) => {
@@ -813,10 +632,8 @@ async function prepareCheckout(
   });
   return store.attempt(attempt.id);
 }
-async function verifyChanges(
-  attempt: Execution,
-  check: () => Promise<void>,
-): Promise<void> {
+
+async function verifyChanges(attempt: Execution, check: () => Promise<void>): Promise<void> {
   const cwd = attempt.checkout?.path;
   if (cwd === undefined) throw new Error("Missing owned checkout");
   await check();
@@ -829,31 +646,21 @@ async function verifyChanges(
   }
   const git = (args: string[], env?: NodeJS.ProcessEnv) =>
     safeGit(projectRoot, cwd, args, {
-      ...(env?.["GIT_INDEX_FILE"] === undefined
-        ? {}
-        : { indexFile: env["GIT_INDEX_FILE"] }),
+      ...(env?.["GIT_INDEX_FILE"] === undefined ? {} : { indexFile: env["GIT_INDEX_FILE"] }),
     });
   const changed = [
     ...(await git(["diff", "--name-only", "-z", "HEAD"])).split("\0"),
-    ...(await git(["ls-files", "--others", "--exclude-standard", "-z"])).split(
-      "\0",
-    ),
+    ...(await git(["ls-files", "--others", "--exclude-standard", "-z"])).split("\0"),
   ].filter(Boolean);
   if (
     attempt.owns.length > 0 &&
-    changed.some(
-      (path) =>
-        !attempt.owns.some(
-          (owned) => path === owned || path.startsWith(`${owned}/`),
-        ),
-    )
+    changed.some((path) => !attempt.owns.some((owned) => path === owned || path.startsWith(`${owned}/`)))
   )
     throw new Error("Checkout changes exceed accepted path ownership");
   const store = new ExecutionStore();
   try {
     const checkout = attempt.checkout;
-    if (checkout === undefined || attempt.launchToken === undefined)
-      throw new Error("Missing verification ownership");
+    if (!checkout || attempt.launchToken === undefined) throw new Error("Missing verification ownership");
     const before = await gitState(cwd, checkout.branch, git);
     store.change(attempt.id, (row) => {
       row.verification = {
@@ -864,16 +671,12 @@ async function verifyChanges(
         output: "",
         ...(row.check.length === 0
           ? {
-              reason:
-                "No executable agreed; independent criterion review is required",
+              reason: "No executable agreed; independent criterion review is required",
             }
           : {}),
       };
       row.verifier = {
-        phase:
-          row.check.length === 0
-            ? VerificationPhase.Complete
-            : VerificationPhase.Launching,
+        phase: row.check.length === 0 ? VerificationPhase.Complete : VerificationPhase.Launching,
       };
     });
     if (attempt.check.length > 0) {
@@ -883,14 +686,8 @@ async function verifyChanges(
         { cwd, timeout: 150000 },
       );
       const result = store.attempt(attempt.id);
-      if (
-        result.verifier?.phase !== VerificationPhase.Complete ||
-        result.verification?.exitCode !== 0
-      )
-        throw new Error(
-          result.verification?.reason ??
-            "The agreed verifier has no confirmed successful receipt",
-        );
+      if (result.verifier?.phase !== VerificationPhase.Complete || result.verification?.exitCode !== 0)
+        throw new Error(result.verification?.reason ?? "The agreed verifier has no confirmed successful receipt");
     }
     await check();
   } finally {
@@ -907,34 +704,20 @@ async function integrateLocal(
 ): Promise<void> {
   const cwd = attempt.checkout?.path;
   const head = attempt.merged ?? attempt.head;
-  if (cwd === undefined || head === undefined)
-    throw new Error("No result to integrate");
+  if (cwd === undefined || head === undefined) throw new Error("No result to integrate");
   const ref = `refs/studio/projects/${project.id}`;
   for (let pass = 0; pass < 4; pass++) {
     await check();
-    const before = await networkGit(project.root, [
-      "rev-parse",
-      "--verify",
-      ref,
-    ])
+    const before = await networkGit(project.root, ["rev-parse", "--verify", ref])
       .then((text) => text.trim())
       .catch(() => undefined);
-    if (attempt.integration !== undefined && before === attempt.integration)
-      return;
+    if (attempt.integration !== undefined && before === attempt.integration) return;
     const combine = async (left: string, right: string): Promise<string> => {
       if (left === right) return left;
-      const tree = (
-        await safeGit(project.root, cwd, [
-          "merge-tree",
-          "--write-tree",
-          left,
-          right,
-        ])
-      )
+      const tree = (await safeGit(project.root, cwd, ["merge-tree", "--write-tree", left, right]))
         .trim()
         .split("\n")[0];
-      if (tree === undefined)
-        throw new Error("Integration tree was not returned");
+      if (tree === undefined) throw new Error("Integration tree was not returned");
       return (
         await safeGit(project.root, cwd, [
           "commit-tree",
@@ -950,9 +733,7 @@ async function integrateLocal(
     };
     // A lost ref CAS may leave a verified candidate on this branch. Retain that ancestry on retry.
     // Squash-merged PR results also need to join the original worker branch before a fast-forward.
-    const checkoutHead = (
-      await safeGit(project.root, cwd, ["rev-parse", "HEAD"])
-    ).trim();
+    const checkoutHead = (await safeGit(project.root, cwd, ["rev-parse", "HEAD"])).trim();
     let integrated = await combine(checkoutHead, head);
     if (before !== undefined) integrated = await combine(before, integrated);
     let integrationReview = attempt.review;
@@ -961,12 +742,7 @@ async function integrateLocal(
       await verifyChanges(attempt, check);
       const accepted = await review(integrated);
       if (accepted.head !== integrated)
-        await safeGit(project.root, cwd, [
-          "merge-base",
-          "--is-ancestor",
-          integrated,
-          accepted.head,
-        ]);
+        await safeGit(project.root, cwd, ["merge-base", "--is-ancestor", integrated, accepted.head]);
       integrated = accepted.head;
       integrationReview = accepted.summary;
     }
@@ -978,8 +754,7 @@ async function integrateLocal(
       row.reviewFeedback = undefined;
       row.resultRef = ref;
       row.integrationExpected = before;
-      row.message =
-        "Verified result integration intent persisted before updating the graph ref";
+      row.message = "Verified result integration intent persisted before updating the graph ref";
     });
     try {
       await check();

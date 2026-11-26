@@ -1,16 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  Input,
-  ProcessTerminal,
-  TuiMainScreen,
-  visibleWidth,
-} from "@earendil-works/pi-tui";
+import { Input, ProcessTerminal, TuiMainScreen, visibleWidth } from "@earendil-works/pi-tui";
 import { floatingPaneHeight } from "../floating-pane.ts";
-import {
-  defaultPaneKeybindings,
-  paneKeybindingsSchema,
-} from "../pane-keybindings-config.ts";
+import { defaultPaneKeybindings, paneKeybindingsSchema } from "../pane-keybindings-config.ts";
 import { WorkerPane } from "../socrates/worker-pane.ts";
 import type { WorkerAssignment } from "../tasks/workers.ts";
 
@@ -35,9 +27,7 @@ const blocked: WorkerAssignment = {
   question: "Which terminal size?",
 };
 
-function setup(
-  focus?: (row: WorkerAssignment, signal: AbortSignal) => Promise<void>,
-) {
+function setup(focus?: (row: WorkerAssignment, signal: AbortSignal) => Promise<void>) {
   const terminal = new ProcessTerminal();
   terminal.hideCursor = () => {};
   const tui = new TuiMainScreen(terminal);
@@ -73,8 +63,7 @@ function setup(
     );
   };
   const type = (key: string) => tui.getFocusedComponent()?.handleInput?.(key);
-  const render = (width = 100) =>
-    tui.getFocusedComponent()?.render(width) ?? [];
+  const render = (width = 100) => tui.getFocusedComponent()?.render(width) ?? [];
   return { pane, tui, lead, events, open, type, render };
 }
 
@@ -176,14 +165,10 @@ await test("the narrow float stacks a scrolling assignment list over sanitized d
     assert.ok(lines.every((line) => visibleWidth(line) <= width));
     assert.match(lines.join("\n"), /› 項目 34 new/u);
     assert.match(lines.join("\n"), /Which terminal size/u);
-    assert.ok(
-      lines.every((line) => !line.includes("\x1b[2J") && !line.includes("\n")),
-    );
+    assert.ok(lines.every((line) => !line.includes("\x1b[2J") && !line.includes("\n")));
     if (width === 56) {
       const row = lines.findIndex((line) => line.includes("› 項目 34"));
-      const detail = lines.findIndex((line) =>
-        line.includes("Which terminal size"),
-      );
+      const detail = lines.findIndex((line) => line.includes("Which terminal size"));
       assert.ok(detail > row);
     }
   }
@@ -192,10 +177,7 @@ await test("the narrow float stacks a scrolling assignment list over sanitized d
 
 await test("long decision questions can be read in full without leaving the selected worker", () => {
   const { pane, open, type, render } = setup();
-  pane.setRows([
-    { ...blocked, question: `${"Continue ".repeat(180)}Finished?` },
-    working,
-  ]);
+  pane.setRows([{ ...blocked, question: `${"Continue ".repeat(180)}Finished?` }, working]);
   open();
   const initial = render(56).join("\n");
   assert.match(initial, /PgUp\/PgDn scroll/u);
@@ -212,9 +194,7 @@ await test("long decision questions can be read in full without leaving the sele
 
 await test("a wheel over the worker pane scrolls its preview and consumes the event at both ends", () => {
   const { pane, tui, open, render } = setup();
-  pane.setRows([
-    { ...blocked, question: `${"Continue ".repeat(180)}Finished?` },
-  ]);
+  pane.setRows([{ ...blocked, question: `${"Continue ".repeat(180)}Finished?` }]);
   open();
   const surface = tui.getFocusedComponent();
   assert.ok(surface !== null);

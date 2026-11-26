@@ -67,7 +67,7 @@ await test("a settled decision can change through a linked successor", () => {
     ],
   });
   const first = settled.decisions[0];
-  if (first === undefined) throw new Error("Missing fixture decision");
+  if (!first) throw new Error("Missing fixture decision");
   assert.throws(() => {
     preserveDecisions(settled, {
       ...settled,
@@ -95,8 +95,7 @@ const coverage = {
     {
       propertyId: "problem-first",
       status: "satisfied",
-      reason:
-        "The operator identified missing archived transcripts as the problem.",
+      reason: "The operator identified missing archived transcripts as the problem.",
     },
     {
       propertyId: "verification",
@@ -106,8 +105,7 @@ const coverage = {
     {
       propertyId: "stakeholders",
       status: "not-applicable",
-      reason:
-        "This private local transcript has no additional affected stakeholders.",
+      reason: "This private local transcript has no additional affected stakeholders.",
     },
   ],
   focus: "verification",
@@ -127,10 +125,7 @@ await test("startup and sparse historical coverage expose each missing property 
   const spec = assessedSpecification();
   const rows = coverageProperties(spec.draft);
   assert.equal(rows.length, 19);
-  assert.equal(
-    rows.find(({ id }) => id === "problem-first")?.status,
-    "satisfied",
-  );
+  assert.equal(rows.find(({ id }) => id === "problem-first")?.status, "satisfied");
   assert.equal(rows.find(({ id }) => id === "harmony")?.status, "open");
   assert.equal(rows.find(({ id }) => id === "modularity")?.status, "open");
   assert.equal(
@@ -140,18 +135,10 @@ await test("startup and sparse historical coverage expose each missing property 
 
   assert.equal(rows.find(({ id }) => id === "harmony")?.recorded, false);
   assert.equal(rows.find(({ id }) => id === "verification")?.recorded, true);
-  assert.match(
-    rows.find(({ id }) => id === "modularity")?.reason ?? "",
-    /boundaries/u,
-  );
+  assert.match(rows.find(({ id }) => id === "modularity")?.reason ?? "", /boundaries/u);
   const initial = coverageProperties(null);
   assert.equal(initial.length, 13);
-  assert.ok(
-    initial.every(
-      ({ status, reason, recorded }) =>
-        status === "open" && reason.length > 0 && !recorded,
-    ),
-  );
+  assert.ok(initial.every(({ status, reason, recorded }) => status === "open" && reason.length > 0 && !recorded));
   const replacement = specDraft.parse({ ...legacy, decisions: [] });
   assert.equal(
     coverageProperties(replacement).every(({ status }) => status === "open"),
@@ -240,9 +227,7 @@ await test("assessments require evidence and cannot hide outside the selected pr
 await test("complete coverage requires every universal and selected-domain property, with a rationale", () => {
   const ready = readySpecification("brief-v1").draft;
   assert.ok(assessedSpecDraft.safeParse(ready).success);
-  assert.ok(
-    !assessedSpecDraft.safeParse({ ...ready, coverage: undefined }).success,
-  );
+  assert.ok(!assessedSpecDraft.safeParse({ ...ready, coverage: undefined }).success);
   assert.ok(!coverageSchema.safeParse(coverage).success);
   const domains = ["engineering", "research", "writing"] as const;
   const all = coveragePropertyCatalog.map(({ id, gap }) => ({
@@ -258,9 +243,7 @@ await test("complete coverage requires every universal and selected-domain prope
       ...snapshot,
       assessments: remaining,
     });
-    assert.ok(
-      !incomplete.success && incomplete.error.message.includes(property),
-    );
+    assert.ok(!incomplete.success && incomplete.error.message.includes(property));
     for (const assessment of [
       { propertyId: property, status: "unknown", reason: "Need evidence." },
       { propertyId: property, status: "open", reason: "  " },
@@ -285,17 +268,14 @@ await test("a substantive draft edit updates affected evidence and preserves oth
     acceptance: "The transcript exists.",
   };
   spec.draft.requirements.push(timeRequirement);
-  const original = initial.assessments.find(
-    ({ propertyId }) => propertyId === "verification",
-  );
+  const original = initial.assessments.find(({ propertyId }) => propertyId === "verification");
   assert.ok(original !== undefined);
   original.reason = "R1/R2 verify transcript recovery.";
   spec.coverageRevision = coverageToken(spec);
   const verification = {
     propertyId: "verification",
     status: "partial",
-    reason:
-      "R2 now includes timestamps. The test only compares transcript bytes.",
+    reason: "R2 now includes timestamps. The test only compares transcript bytes.",
   };
   const draft = {
     ...spec.draft,
@@ -320,19 +300,14 @@ await test("a substantive draft edit updates affected evidence and preserves oth
   assert.deepEqual(updated.requirements, draft.requirements);
   assert.deepEqual(
     updated.coverage.assessments,
-    initial.assessments.map((item) =>
-      item.propertyId === "verification" ? verification : item,
-    ),
+    initial.assessments.map((item) => (item.propertyId === "verification" ? verification : item)),
   );
   for (const baseline of [
     { ...spec, version: spec.version + 1 },
     { ...spec, coverageRevision: undefined },
     assessedSpecification(),
   ])
-    assert.throws(
-      () => applyDraftUpdate(baseline, spec.acceptedRevision, draft),
-      /Assess every property/u,
-    );
+    assert.throws(() => applyDraftUpdate(baseline, spec.acceptedRevision, draft), /Assess every property/u);
 });
 
 await test("deleted requirements and superseded decisions require targeted updates even inside citation ranges", () => {
@@ -340,19 +315,12 @@ await test("deleted requirements and superseded decisions require targeted updat
   const initial = spec.draft.coverage;
   const [requirement] = spec.draft.requirements;
   const [decision] = spec.draft.decisions;
-  assert.ok(
-    initial !== undefined &&
-      requirement !== undefined &&
-      decision !== undefined,
-  );
-  for (const id of ["R2", "R3", "R4", "R5"])
-    spec.draft.requirements.push({ ...requirement, id });
+  assert.ok(initial !== undefined && requirement !== undefined && decision !== undefined);
+  for (const id of ["R2", "R3", "R4", "R5"]) spec.draft.requirements.push({ ...requirement, id });
   const predecessor = { ...decision, id: "D1" };
   spec.draft.decisions.push(predecessor);
   function withReason(propertyId: string, reason: string) {
-    const item = initial?.assessments.find(
-      (entry) => entry.propertyId === propertyId,
-    );
+    const item = initial?.assessments.find((entry) => entry.propertyId === propertyId);
     assert.ok(item !== undefined);
     item.reason = reason;
     return item;
@@ -376,10 +344,7 @@ await test("deleted requirements and superseded decisions require targeted updat
       ...draft,
       coverage: { domains: initial.domains, assessments },
     });
-  assert.throws(
-    () => apply([]),
-    /clarity \(R3\).*scope \(D1\).*success \(R3\)/u,
-  );
+  assert.throws(() => apply([]), /clarity \(R3\).*scope \(D1\).*success \(R3\)/u);
   const revisions = [
     { ...clarity, reason: "R2/R4 define the remaining exchange." },
     {
@@ -389,19 +354,9 @@ await test("deleted requirements and superseded decisions require targeted updat
     },
   ];
   for (const reason of [scope.reason, "D1 settles the milestone."])
-    assert.throws(
-      () => apply([...revisions, { ...scope, reason }]),
-      /scope.*D1/u,
-    );
-  assert.throws(
-    () =>
-      apply([...revisions, { ...scope, reason: "R3 defines the milestone." }]),
-    /scope.*R3/u,
-  );
-  const updated = apply([
-    ...revisions,
-    { ...scope, reason: "D21 superseded D1 and defines the new milestone." },
-  ]);
+    assert.throws(() => apply([...revisions, { ...scope, reason }]), /scope.*D1/u);
+  assert.throws(() => apply([...revisions, { ...scope, reason: "R3 defines the milestone." }]), /scope.*R3/u);
+  const updated = apply([...revisions, { ...scope, reason: "D21 superseded D1 and defines the new milestone." }]);
   assert.equal(updated.coverage.assessments.length, initial.assessments.length);
 });
 
@@ -410,14 +365,8 @@ await test("coverage follows the draft and brief instead of a reusable lifecycle
   assert.equal(coverageFresh(spec, "brief-v1"), true);
   assert.equal(coverageFresh(spec, "brief-v2"), false);
   assert.equal(coverageFresh({ ...spec, version: 2 }, "brief-v1"), false);
-  assert.equal(
-    coverageFresh({ ...spec, acceptedRevision: "brief-v2" }, "brief-v2"),
-    false,
-  );
-  assert.equal(
-    coverageFresh({ ...spec, coverageRevision: undefined }, "brief-v1"),
-    false,
-  );
+  assert.equal(coverageFresh({ ...spec, acceptedRevision: "brief-v2" }, "brief-v2"), false);
+  assert.equal(coverageFresh({ ...spec, coverageRevision: undefined }, "brief-v1"), false);
   assert.equal(
     coverageFresh(
       {
@@ -489,10 +438,7 @@ await test("a recorded answer blocks readiness until it is incorporated in a sav
       }),
     /recorded answer/u,
   );
-  assert.match(
-    specText(answered),
-    /Operator answer · The original session transcript/u,
-  );
+  assert.match(specText(answered), /Operator answer · The original session transcript/u);
   assert.match(specText(answered), /R1 needs an observable check/u);
   assert.match(specText(answered), /Harmony · open · Check/u);
 
@@ -517,9 +463,7 @@ await test("Socrates readiness requires current evidence for every applicable pr
   const coverage = spec.draft.coverage;
   assert.ok(coverage !== undefined);
   for (const status of ["missing", "partial", "open", "unknown"]) {
-    const assessments = coverage.assessments.filter(
-      ({ propertyId }) => propertyId !== "modularity",
-    );
+    const assessments = coverage.assessments.filter(({ propertyId }) => propertyId !== "modularity");
     const draft = specDraft.parse({
       ...spec.draft,
       coverage: {
@@ -539,10 +483,7 @@ await test("Socrates readiness requires current evidence for every applicable pr
     });
     const changed = { ...spec, draft };
     assert.match(
-      specificationGaps(
-        { ...changed, coverageRevision: coverageToken(changed) },
-        "brief-v1",
-      ).join("\n"),
+      specificationGaps({ ...changed, coverageRevision: coverageToken(changed) }, "brief-v1").join("\n"),
       /modularity/iu,
       status,
     );
@@ -574,12 +515,7 @@ await test("a pending question or open decision blocks an otherwise assessed spe
     },
   ]) {
     const changed = { ...spec, draft: specDraft.parse(draft) };
-    assert.ok(
-      specificationGaps(
-        { ...changed, coverageRevision: coverageToken(changed) },
-        "brief-v1",
-      ).length > 0,
-    );
+    assert.ok(specificationGaps({ ...changed, coverageRevision: coverageToken(changed) }, "brief-v1").length > 0);
   }
 });
 
@@ -588,15 +524,9 @@ await test("a daily-driver freeze requires explicit evidenced PR and merge bound
   const assess = (changes: object) => {
     const draft = specDraft.parse({ ...spec.draft, ...changes });
     const next = { ...spec, draft };
-    return specificationGaps(
-      { ...next, coverageRevision: coverageToken(next) },
-      spec.acceptedRevision,
-    );
+    return specificationGaps({ ...next, coverageRevision: coverageToken(next) }, spec.acceptedRevision);
   };
-  assert.match(
-    assess({ deliveryPolicy: undefined }).join(" "),
-    /which beads produce pull requests/u,
-  );
+  assert.match(assess({ deliveryPolicy: undefined }).join(" "), /which beads produce pull requests/u);
   const [source] = spec.draft.decisions;
   assert.ok(source !== undefined);
   for (const changes of [
@@ -672,19 +602,9 @@ await test("the reviewed publishing beads, merge rule and source decision are pa
   assert.match(specText(draft), /Open PRs for api, ui/u);
   assert.match(specText(draft), /Manual merge · D20/u);
   assert.notEqual(token, coverageToken(spec));
-  assert.equal(
-    token,
-    coverageToken(withPolicy({ ...selected, publish: ["api", "ui"] })),
-  );
-  for (const change of [
-    { merge: "project-policy" },
-    { publish: ["api"] },
-    { decisionId: "D21" },
-  ])
-    assert.notEqual(
-      token,
-      coverageToken(withPolicy({ ...selected, ...change })),
-    );
+  assert.equal(token, coverageToken(withPolicy({ ...selected, publish: ["api", "ui"] })));
+  for (const change of [{ merge: "project-policy" }, { publish: ["api"] }, { decisionId: "D21" }])
+    assert.notEqual(token, coverageToken(withPolicy({ ...selected, ...change })));
 });
 
 await test("revising a settled publication policy requires a resolved successor decision", () => {
@@ -716,10 +636,7 @@ await test("revising a settled publication policy requires a resolved successor 
     },
     {
       deliveryPolicy: policy,
-      decisions: [
-        superseded,
-        { ...replacement, disposition: DecisionDisposition.Open },
-      ],
+      decisions: [superseded, { ...replacement, disposition: DecisionDisposition.Open }],
     },
     {
       deliveryPolicy: policy,

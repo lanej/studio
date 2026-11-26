@@ -1,7 +1,4 @@
-import {
-  worktreeAllocation,
-  worktreeReservation,
-} from "@lanej/task-runtime/worktree-contracts";
+import { worktreeAllocation, worktreeReservation } from "@lanej/task-runtime/worktree-contracts";
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -58,24 +55,18 @@ export const attemptSchema = z.object({
   pid: z.number().int().positive().nullable(),
   transcript: z.string().nullable(),
   phase: z.enum(Phase),
-  resumePhase: z
-    .enum([Phase.Running, Phase.Verified, Phase.CheckFailed])
-    .optional(),
+  resumePhase: z.enum([Phase.Running, Phase.Verified, Phase.CheckFailed]).optional(),
   verification: verificationSchema.nullable(),
   message: z.string(),
 });
 export type Attempt = z.infer<typeof attemptSchema>;
 const row = z.object({ record: z.string() });
-const decode = (value: unknown): Attempt =>
-  attemptSchema.parse(JSON.parse(row.parse(value).record));
+const decode = (value: unknown): Attempt => attemptSchema.parse(JSON.parse(row.parse(value).record));
 
 export function stateDirectory(): string {
   return resolve(
     process.env["STUDIO_STATE_DIR"] ??
-      join(
-        process.env["XDG_STATE_HOME"] ?? join(homedir(), ".local", "state"),
-        "studio",
-      ),
+      join(process.env["XDG_STATE_HOME"] ?? join(homedir(), ".local", "state"), "studio"),
   );
 }
 
@@ -104,22 +95,16 @@ export class Attempts {
   }
   archives(): Attempt[] {
     return this.db
-      .prepare(
-        "SELECT record FROM attempts WHERE json_extract(record, '$.phase')=? ORDER BY rowid DESC LIMIT 1000",
-      )
+      .prepare("SELECT record FROM attempts WHERE json_extract(record, '$.phase')=? ORDER BY rowid DESC LIMIT 1000")
       .all(Phase.Archived)
       .map(decode);
   }
   get(id: string): Attempt {
-    return decode(
-      this.db.prepare("SELECT record FROM attempts WHERE id=?").get(id),
-    );
+    return decode(this.db.prepare("SELECT record FROM attempts WHERE id=?").get(id));
   }
   latest(project: string, bead: string): Attempt | null {
     const raw = this.db
-      .prepare(
-        "SELECT record FROM attempts WHERE project=? AND bead=? ORDER BY active DESC,rowid DESC LIMIT 1",
-      )
+      .prepare("SELECT record FROM attempts WHERE project=? AND bead=? ORDER BY active DESC,rowid DESC LIMIT 1")
       .get(project, bead);
     return raw === null ? null : decode(raw);
   }
@@ -142,15 +127,8 @@ export class Attempts {
   }
   reserve(attempt: Attempt): boolean {
     const result = this.db
-      .prepare(
-        "INSERT OR IGNORE INTO attempts(id,project,bead,active,record) VALUES(?,?,?,1,?)",
-      )
-      .run(
-        attempt.id,
-        attempt.source.projectId,
-        attempt.bead.id,
-        JSON.stringify(attempt),
-      );
+      .prepare("INSERT OR IGNORE INTO attempts(id,project,bead,active,record) VALUES(?,?,?,1,?)")
+      .run(attempt.id, attempt.source.projectId, attempt.bead.id, JSON.stringify(attempt));
     return result.changes === 1;
   }
   change(id: string, update: (record: Attempt) => void): Attempt {
@@ -163,17 +141,13 @@ export class Attempts {
     update: (record: Attempt) => void,
     result: (record: Attempt) => string,
   ): OperationWitness {
-    return commitOperation(this.db, id, operationId, command, () =>
-      result(this.update(id, update)),
-    );
+    return commitOperation(this.db, id, operationId, command, () => result(this.update(id, update)));
   }
   private update(id: string, update: (record: Attempt) => void): Attempt {
     const current = this.get(id);
     update(current);
     const active =
-      current.phase !== Phase.Closed &&
-      current.phase !== Phase.Archived &&
-      current.phase !== Phase.Rejected;
+      current.phase !== Phase.Closed && current.phase !== Phase.Archived && current.phase !== Phase.Rejected;
     this.db
       .prepare("UPDATE attempts SET record=?,active=? WHERE id=?")
       .run(JSON.stringify(current), Number(active), id);

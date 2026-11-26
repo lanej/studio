@@ -1,25 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  getOsc8LinkAtColumn,
-  stripTerminalSequences,
-  wrapTextWithAnsi,
-} from "@earendil-works/pi-tui";
+import { getOsc8LinkAtColumn, stripTerminalSequences, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { questionEvidence } from "../socrates/evidence.ts";
-import {
-  questionLink,
-  questionLinks,
-  renderQuestionEvidence,
-} from "../socrates/links.ts";
+import { questionLink, questionLinks, renderQuestionEvidence } from "../socrates/links.ts";
 
 await test("question prose emits OSC 8 for labeled and bare links", () => {
-  const rendered = questionLinks(
-    "See [the brief](https://example.com/brief) or https://example.com/log.",
-  );
-  assert.equal(
-    stripTerminalSequences(rendered),
-    "See the brief or https://example.com/log.",
-  );
+  const rendered = questionLinks("See [the brief](https://example.com/brief) or https://example.com/log.");
+  assert.equal(stripTerminalSequences(rendered), "See the brief or https://example.com/log.");
   assert.equal(getOsc8LinkAtColumn(rendered, 4), "https://example.com/brief");
   assert.equal(getOsc8LinkAtColumn(rendered, 13), undefined);
   assert.equal(getOsc8LinkAtColumn(rendered, 17), "https://example.com/log");
@@ -39,19 +26,10 @@ await test("source references link to the managed worktree and retain the line",
     { label: "Parser", path: "src/input parser.ts", line: 12 },
     "/workspace/task",
   );
-  assert.equal(
-    stripTerminalSequences(rendered),
-    "Parser · src/input parser.ts:12",
-  );
-  assert.equal(
-    getOsc8LinkAtColumn(rendered, 0),
-    "file:///workspace/task/src/input%20parser.ts#L12",
-  );
+  assert.equal(stripTerminalSequences(rendered), "Parser · src/input parser.ts:12");
+  assert.equal(getOsc8LinkAtColumn(rendered, 0), "file:///workspace/task/src/input%20parser.ts#L12");
   for (const path of ["../main.ts", "/etc/hosts", ".git/config"]) {
-    assert.equal(
-      questionEvidence.safeParse([{ label: "Source", path }]).success,
-      false,
-    );
+    assert.equal(questionEvidence.safeParse([{ label: "Source", path }]).success, false);
   }
 });
 
@@ -61,10 +39,7 @@ await test("observations and existing web links are both valid evidence", () => 
     { label: "Issue", url: "https://example.com/issue" },
   ];
   assert.deepEqual(questionEvidence.parse(items), items);
-  const rendered = renderQuestionEvidence(
-    { label: "Verifier", observation: "exit status 7" },
-    "/workspace",
-  );
+  const rendered = renderQuestionEvidence({ label: "Verifier", observation: "exit status 7" }, "/workspace");
   assert.equal(rendered, "Verifier\nexit status 7");
   assert.equal(getOsc8LinkAtColumn(rendered, 0), undefined);
 });

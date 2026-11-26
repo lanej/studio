@@ -11,15 +11,10 @@ export function quoteShellArgument(value: string): string {
 }
 
 // Pi takes a command in the session directory and an optional timeout in seconds.
-export function piShellArguments(
-  cwd: string,
-  { command, workdir, timeoutMs }: ShellRequest,
-) {
+export function piShellArguments(cwd: string, { command, workdir, timeoutMs }: ShellRequest) {
   return {
     command:
-      workdir === undefined
-        ? command
-        : `cd -- ${quoteShellArgument(resolve(cwd, workdir))} || exit $?\n${command}`,
+      workdir === undefined ? command : `cd -- ${quoteShellArgument(resolve(cwd, workdir))} || exit $?\n${command}`,
     ...(timeoutMs === undefined ? {} : { timeout: timeoutMs / 1000 }),
   };
 }

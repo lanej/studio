@@ -1,11 +1,5 @@
-import {
-  defaultPaneKeybindings,
-  type PaneKeybindings,
-} from "./pane-keybindings.ts";
-import {
-  registerSessionForks,
-  registerPromptLoops,
-} from "./sessions/extension.ts";
+import { defaultPaneKeybindings, type PaneKeybindings } from "./pane-keybindings.ts";
+import { registerSessionForks, registerPromptLoops } from "./sessions/extension.ts";
 import { basename } from "node:path";
 import { registerModelTools } from "./model-tools/extension.ts";
 import { registerHistoryBindings } from "./keybindings.ts";
@@ -19,10 +13,7 @@ import { safeGit } from "./execution/git.ts";
 import { retryWriterFence } from "./execution/recovery.ts";
 import { registerProjectPolicy } from "./execution/policy.ts";
 import { registerDiscovery } from "./discovery/extension.ts";
-import {
-  registerActivation,
-  registerActivationAdmission,
-} from "./activation.ts";
+import { registerActivation, registerActivationAdmission } from "./activation.ts";
 import { registerCodeIntelligence } from "./code-intelligence/extension.ts";
 import { inspectIntegrations } from "./integrations.ts";
 import { registerDiagrams } from "./diagram/extension.ts";
@@ -31,19 +22,11 @@ import { registerMermaidTool } from "./diagram/mermaid-tool.ts";
 import { registerSearchRendering } from "./search-renderer.ts";
 import { registerSkillRendering } from "./skill-renderer.ts";
 import { installFooter } from "./footer.ts";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { z } from "zod";
 import { registerArchives } from "./archives.ts";
 import { directoryProfileType, registerDirectory } from "./directory.ts";
-import {
-  BeadsReader,
-  knownTaskStatus,
-  TaskStatus,
-  taskSchema,
-} from "./beads.ts";
+import { BeadsReader, knownTaskStatus, TaskStatus, taskSchema } from "./beads.ts";
 import { delegateTool, registerDelegation } from "./delegation.ts";
 import { TaskBeads } from "./task-service.ts";
 import { dispatchGate } from "./capabilities.ts";
@@ -57,20 +40,11 @@ import {
   loadConfig,
 } from "./config.ts";
 import { IdleSession, type IdleSessionHost } from "./idle.ts";
-import {
-  isEntry,
-  PiEntryType,
-  PiEvent,
-  PiMode,
-  piModeSchema,
-} from "./runtime.ts";
+import { isEntry, PiEntryType, PiEvent, PiMode, piModeSchema } from "./runtime.ts";
 import { focusTaskPane, taskPaneBeads } from "./task-run.ts";
 import { hasInteractivePane } from "./execution/interactive-target.ts";
 import { registerDocumentWorkspace } from "./documents/workspace.ts";
-import {
-  registerPlanningDocuments,
-  getPlanningDocuments,
-} from "./planning/documents.ts";
+import { registerPlanningDocuments, getPlanningDocuments } from "./planning/documents.ts";
 
 const attemptType = "studio:idle-attempt";
 const attemptSchema = z.object({ historyId: z.string() });
@@ -92,10 +66,7 @@ export async function loadLeadKeybindings(): Promise<PaneKeybindings> {
   }
 }
 
-export default async function studioExtension(
-  pi: ExtensionAPI,
-  managed?: ManagedLead,
-): Promise<void> {
+export default async function studioExtension(pi: ExtensionAPI, managed?: ManagedLead): Promise<void> {
   registerStudio(pi, managed, await loadLeadKeybindings());
 }
 
@@ -116,31 +87,23 @@ export function registerStudio(
   let lifecycle = 0;
   let selectedProfile = managed?.profile;
 
-  const discovery =
-    managed === undefined
-      ? registerDiscovery(
-          pi,
-          () => selectedProfile,
-          () => {
-            tasks.close();
-          },
-          openTasks,
-          keybindings,
-        )
-      : undefined;
-  if (discovery !== undefined)
-    registerProjectPolicy(pi, (ctx) => discovery.runtimeHandoff(ctx)?.target);
+  const discovery = !managed
+    ? registerDiscovery(
+        pi,
+        () => selectedProfile,
+        () => {
+          tasks.close();
+        },
+        openTasks,
+        keybindings,
+      )
+    : undefined;
+  if (discovery) registerProjectPolicy(pi, (ctx) => discovery.runtimeHandoff(ctx)?.target);
   registerDocumentWorkspace(pi);
   const documentPending = () => getPlanningDocuments(pi)?.pending() === true;
-  pi.on("session_before_switch", () =>
-    documentPending() ? { cancel: true } : undefined,
-  );
-  pi.on("session_before_fork", () =>
-    documentPending() ? { cancel: true } : undefined,
-  );
-  pi.on("session_before_tree", () =>
-    documentPending() ? { cancel: true } : undefined,
-  );
+  pi.on("session_before_switch", () => (documentPending() ? { cancel: true } : undefined));
+  pi.on("session_before_fork", () => (documentPending() ? { cancel: true } : undefined));
+  pi.on("session_before_tree", () => (documentPending() ? { cancel: true } : undefined));
   const delegation = registerDelegation(
     pi,
     () => selectedProfile,
@@ -168,10 +131,7 @@ export function registerStudio(
   registerArchives(pi);
   registerDirectory(
     pi,
-    (sessionId) =>
-      documentPending() ||
-      delegation.blocks(sessionId) ||
-      discovery?.pending() === true,
+    (sessionId) => documentPending() || delegation.blocks(sessionId) || discovery?.pending() === true,
     () => selectedProfile,
   );
   registerDiagrams(pi);
@@ -179,7 +139,7 @@ export function registerStudio(
   registerMermaidTool(pi);
   registerSearchRendering(pi);
   registerSkillRendering(pi);
-  if (managed !== undefined)
+  if (managed)
     pi.on("session_start", (_event, ctx) => {
       delegation.syncTool(ctx);
     });
@@ -199,18 +159,10 @@ export function registerStudio(
       const config = await loadConfig();
       if (generation !== lifecycle) return;
       const mode = piModeSchema.parse(ctx.mode);
-      if (mode === PiMode.Tui)
-        installFooter(
-          ctx,
-          () => pi.getThinkingLevel(),
-          managed?.trackedPullRequest,
-        );
+      if (mode === PiMode.Tui) installFooter(ctx, () => pi.getThinkingLevel(), managed?.trackedPullRequest);
       if (!config.idleCompaction.enabled || mode !== PiMode.Tui) return;
       const entries = () => ctx.sessionManager.getBranch();
-      const history = () =>
-        [...entries()]
-          .reverse()
-          .find((entry) => isEntry(entry, PiEntryType.Message))?.id ?? null;
+      const history = () => [...entries()].reverse().find((entry) => isEntry(entry, PiEntryType.Message))?.id ?? null;
       const host: IdleSessionHost = {
         snapshot: () => ({
           sessionId: ctx.sessionManager.getSessionId(),
@@ -243,10 +195,7 @@ export function registerStudio(
           pi.appendEntry(attemptType, { historyId });
         },
         notify: (error) => {
-          ctx.ui.notify(
-            `Idle compaction failed: ${error.message}. Use /compact to retry.`,
-            "error",
-          );
+          ctx.ui.notify(`Idle compaction failed: ${error.message}. Use /compact to retry.`, "error");
         },
         schedule: (callback, delay) => {
           const timer = setTimeout(callback, delay);
@@ -258,23 +207,13 @@ export function registerStudio(
       };
       const marker = [...entries()]
         .reverse()
-        .find(
-          (entry) =>
-            isEntry(entry, PiEntryType.Custom) &&
-            entry.customType === attemptType,
-        );
+        .find((entry) => isEntry(entry, PiEntryType.Custom) && entry.customType === attemptType);
       const markedHistory = attemptSchema.safeParse(
-        marker !== undefined && isEntry(marker, PiEntryType.Custom)
-          ? marker.data
-          : undefined,
+        marker && isEntry(marker, PiEntryType.Custom) ? marker.data : undefined,
       );
       // Native/manual compaction also satisfies the current history; metadata entries must not retrigger it.
-      const lastCompact = [...entries()]
-        .reverse()
-        .findIndex((entry) => isEntry(entry, PiEntryType.Compaction));
-      const lastMessage = [...entries()]
-        .reverse()
-        .findIndex((entry) => isEntry(entry, PiEntryType.Message));
+      const lastCompact = [...entries()].reverse().findIndex((entry) => isEntry(entry, PiEntryType.Compaction));
+      const lastMessage = [...entries()].reverse().findIndex((entry) => isEntry(entry, PiEntryType.Message));
       idle.initialize(
         host,
         config.idleCompaction.idleMs,
@@ -291,10 +230,7 @@ export function registerStudio(
       });
     } catch (error) {
       if (generation === lifecycle && ctx.hasUI)
-        ctx.ui.notify(
-          error instanceof Error ? error.message : String(error),
-          "error",
-        );
+        ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
     }
   };
 
@@ -302,15 +238,11 @@ export function registerStudio(
     tasks.close();
     idle.newSession();
     selectedProfile = managed?.profile;
-    if (managed === undefined) {
+    if (!managed) {
       const marker = ctx.sessionManager
         .getBranch()
-        .findLast(
-          (entry) =>
-            isEntry(entry, PiEntryType.Custom) &&
-            entry.customType === directoryProfileType,
-        );
-      if (marker !== undefined && isEntry(marker, PiEntryType.Custom)) {
+        .findLast((entry) => isEntry(entry, PiEntryType.Custom) && entry.customType === directoryProfileType);
+      if (marker && isEntry(marker, PiEntryType.Custom)) {
         const profile = studioProfileSchema.safeParse(marker.data);
         if (profile.success) {
           // Consume the handoff before revalidation so a later resume does not
@@ -372,17 +304,9 @@ export function registerStudio(
     authority?: StudioConfig["beadsService"],
   ): Promise<void> {
     const handoff = discovery?.runtimeHandoff(ctx);
-    if (
-      authority !== undefined &&
-      discovery !== undefined &&
-      !isDeepStrictEqual(authority, handoff?.target.source)
-    )
-      return;
-    if (discovery !== undefined && handoff === undefined) {
-      ctx.ui.notify(
-        "Approve a Socrates plan to open its task runtime.",
-        "info",
-      );
+    if (authority && discovery && !isDeepStrictEqual(authority, handoff?.target.source)) return;
+    if (discovery && !handoff) {
+      ctx.ui.notify("Approve a Socrates plan to open its task runtime.", "info");
       return;
     }
     const generation = lifecycle;
@@ -393,9 +317,7 @@ export function registerStudio(
           ctx,
           authority ?? handoff?.target.source,
           () =>
-            current() &&
-            generation === lifecycle &&
-            discovery?.runtimeHandoff(ctx)?.operation === handoff?.operation,
+            current() && generation === lifecycle && discovery?.runtimeHandoff(ctx)?.operation === handoff?.operation,
         ),
       beadId,
       keybindings,
@@ -410,64 +332,48 @@ export function registerStudio(
     const config = await loadConfig();
     if (!current()) return;
     const source = authority ?? config.beadsService;
-    if (config.beads === undefined && source === undefined) {
+    if (!config.beads && !source) {
       ctx.ui.notify(
         "Configure a Beads service or read-only workspace in your Studio configuration. Run studio config --example for a service example.",
         "warning",
       );
       return;
     }
-    const service = source === undefined ? undefined : new TaskBeads(source);
-    const reader =
-      service !== undefined
-        ? {
-            list: async () =>
-              z.array(taskSchema).parse((await service.list()).items),
-            show: async (id: string) => taskSchema.parse(await service.get(id)),
-          }
-        : config.beads === undefined
-          ? undefined
-          : new BeadsReader(config.beads);
-    if (reader === undefined) return;
+    const service = !source ? undefined : new TaskBeads(source);
+    const reader = service
+      ? {
+          list: async () => z.array(taskSchema).parse((await service.list()).items),
+          show: async (id: string) => taskSchema.parse(await service.get(id)),
+        }
+      : !config.beads
+        ? undefined
+        : new BeadsReader(config.beads);
+    if (!reader) return;
     const projectId = source?.projectId;
     const project = config.runtime.projects.find(
-      (item) =>
-        item.source.projectId === projectId && item.source.url === source?.url,
+      (item) => item.source.projectId === projectId && item.source.url === source?.url,
     );
     return {
       focusPane: async (id, attemptId, signal) => {
-        if (source !== undefined)
-          await focusTaskPane(source, id, attemptId, signal);
+        if (source) await focusTaskPane(source, id, attemptId, signal);
       },
-      label:
-        project === undefined
-          ? source === undefined
-            ? basename(config.beads?.workspace ?? ctx.cwd)
-            : "Beads"
-          : basename(project.root),
+      label: !project ? (!source ? basename(config.beads?.workspace ?? ctx.cwd) : "Beads") : basename(project.root),
       identity: projectId ?? config.beads?.database ?? "",
       emptyHint: "Tasks added in Beads will appear here.",
       show: (id) => reader.show(id),
-      ...(project === undefined
+      ...(!project
         ? {}
         : {
             retry: retryAttempt,
-            answer: async (
-              id: string,
-              request: string,
-              question: string,
-              taskTitle: string,
-            ) => {
+            answer: async (id: string, request: string, question: string, taskTitle: string) => {
               const text = await tasks.editAnswer(ctx, question, taskTitle);
               if (text === undefined) return false;
               await answerDecision(id, request, text);
               return true;
             },
             diff: async (attempt: import("./execution/store.ts").Execution) => {
-              if (attempt.checkout === undefined || attempt.base === undefined)
-                throw new Error(
-                  "Retained checkout or base receipt is unavailable.",
-                );
+              if (!attempt.checkout || attempt.base === undefined)
+                throw new Error("Retained checkout or base receipt is unavailable.");
               const diff = await safeGit(project.root, attempt.checkout.path, [
                 "diff",
                 "--no-ext-diff",
@@ -487,14 +393,11 @@ export function registerStudio(
           if (pendingDecision(attempt) === undefined) continue;
           if (
             attempt.phase !== ExecutionPhase.AwaitingDecision ||
-            attempt.interactive !== undefined ||
-            attempt.bead === undefined ||
+            attempt.interactive ||
+            !attempt.bead ||
             attempt.revision === undefined
           )
-            answerBlocked.set(
-              attempt.id,
-              "the admitted request is not in a settled background decision wait",
-            );
+            answerBlocked.set(attempt.id, "the admitted request is not in a settled background decision wait");
           else
             try {
               if (await retryWriterFence(attempt))
@@ -503,15 +406,12 @@ export function registerStudio(
                   "the prior host/verifier is live or uncertain; wait for positive settlement",
                 );
             } catch {
-              answerBlocked.set(
-                attempt.id,
-                "writer state could not be confirmed",
-              );
+              answerBlocked.set(attempt.id, "writer state could not be confirmed");
             }
         }
         for (const attempt of evidence.attempts) {
           if (!["needs-review", "uncertain"].includes(attempt.phase)) continue;
-          if (attempt.interactive !== undefined) {
+          if (attempt.interactive) {
             retryBlocked.set(
               attempt.id,
               "interactive attempts retain their original pane binding; inspect the transcript and checkout. Automatic replacement is unavailable.",
@@ -525,16 +425,10 @@ export function registerStudio(
                 "the prior writer may still exist or its launch receipt is incomplete; reconcile it first.",
               );
           } catch {
-            retryBlocked.set(
-              attempt.id,
-              "writer state could not be confirmed; inspect the retained execution.",
-            );
+            retryBlocked.set(attempt.id, "writer state could not be confirmed; inspect the retained execution.");
           }
         }
-        const live =
-          projectId === undefined
-            ? new Set<string>()
-            : await taskPaneBeads(projectId);
+        const live = projectId === undefined ? new Set<string>() : await taskPaneBeads(projectId);
         return {
           tasks,
           ...evidence,
@@ -562,34 +456,24 @@ export function registerStudio(
     };
   }
 
-  async function selectProfile(
-    argument: string,
-    ctx: ExtensionContext,
-    restoring = false,
-  ): Promise<void> {
+  async function selectProfile(argument: string, ctx: ExtensionContext, restoring = false): Promise<void> {
     if (process.env["STUDIO_ATTEMPT"] !== undefined) {
       ctx.ui.notify("Set the profile on studio start.", "warning");
       return;
     }
     if (!ctx.isIdle() || ctx.hasPendingMessages() || documentPending()) {
-      ctx.ui.notify(
-        "Wait for the conversation and queued messages to settle before changing profiles",
-        "warning",
-      );
+      ctx.ui.notify("Wait for the conversation and queued messages to settle before changing profiles", "warning");
       return;
     }
     const config = await loadConfig();
     const parsedName = studioProfileSchema.safeParse(argument.trim());
     if (!parsedName.success) {
-      ctx.ui.notify(
-        "Use /studio-profile work or /studio-profile personal",
-        "warning",
-      );
+      ctx.ui.notify("Use /studio-profile work or /studio-profile personal", "warning");
       return;
     }
     const name = parsedName.data;
     const profile = config.profiles[name];
-    if (profile === undefined) {
+    if (!profile) {
       ctx.ui.notify(
         `Configure the ${name} profile first; studio config --example shows the role selections`,
         "warning",
@@ -597,64 +481,39 @@ export function registerStudio(
       return;
     }
     const roles = Object.values(AgentRole).map((role) => profile[role]);
-    const models = roles.map((role) =>
-      ctx.modelRegistry.find(role.provider, role.model),
-    );
+    const models = roles.map((role) => ctx.modelRegistry.find(role.provider, role.model));
     if (models.some((model) => model === undefined)) {
-      ctx.ui.notify(
-        "A configured role model is missing from Pi's registry; no model was changed",
-        "error",
-      );
+      ctx.ui.notify("A configured role model is missing from Pi's registry; no model was changed", "error");
       return;
     }
     if (
       name === StudioProfile.Personal &&
-      roles.some(
-        (role) =>
-          knownProvider(role.provider) !== DefaultProvider.ChatGPTSubscription,
-      )
+      roles.some((role) => knownProvider(role.provider) !== DefaultProvider.ChatGPTSubscription)
     ) {
-      ctx.ui.notify(
-        "The personal profile must use Pi's openai-codex subscription provider",
-        "error",
-      );
+      ctx.ui.notify("The personal profile must use Pi's openai-codex subscription provider", "error");
       return;
     }
     if (
       name === StudioProfile.Work &&
       models.some(
         (model) =>
-          model === undefined ||
-          !/^https:\/\/bedrock-mantle\.[a-z0-9-]+\.api\.aws(?:\/|$)/.test(
-            model.baseUrl,
-          ),
+          model === undefined || !/^https:\/\/bedrock-mantle\.[a-z0-9-]+\.api\.aws(?:\/|$)/.test(model.baseUrl),
       )
     ) {
-      ctx.ui.notify(
-        "The work profile must resolve to an explicit HTTPS Bedrock Mantle endpoint",
-        "error",
-      );
+      ctx.ui.notify("The work profile must resolve to an explicit HTTPS Bedrock Mantle endpoint", "error");
       return;
     }
     const leadSelection = profile[AgentRole.Lead];
-    const lead = ctx.modelRegistry.find(
-      leadSelection.provider,
-      leadSelection.model,
-    );
-    if (lead === undefined) return;
-    if (
-      restoring &&
-      (ctx.model?.provider !== lead.provider || ctx.model.id !== lead.id)
-    ) {
+    const lead = ctx.modelRegistry.find(leadSelection.provider, leadSelection.model);
+    if (!lead) return;
+    if (restoring && (ctx.model?.provider !== lead.provider || ctx.model.id !== lead.id)) {
       ctx.ui.notify(
         "The driver profile no longer matches the current model. Select /studio-profile again to enable delegation.",
         "warning",
       );
       return;
     }
-    const reasoning = restoring
-      ? pi.getThinkingLevel()
-      : leadSelection.reasoning;
+    const reasoning = restoring ? pi.getThinkingLevel() : leadSelection.reasoning;
     if (!(await pi.setModel(lead))) {
       ctx.ui.notify(
         `Cannot switch to ${name}. Authenticate with ${leadSelection.provider} and retry. The current model is still active.`,
@@ -676,15 +535,9 @@ export function registerStudio(
     handler: async (_argument, ctx) => {
       const integrations = await inspectIntegrations(await loadConfig());
       const summary = Object.entries(integrations)
-        .map(
-          ([name, state]) =>
-            `${name}: ${state.available ? "available" : state.reason}`,
-        )
+        .map(([name, state]) => `${name}: ${state.available ? "available" : state.reason}`)
         .join("\n");
-      ctx.ui.notify(
-        `${summary}\n${dispatchGate.reason}\n${intelligence.status()}`,
-        "info",
-      );
+      ctx.ui.notify(`${summary}\n${dispatchGate.reason}\n${intelligence.status()}`, "info");
     },
   });
   return openTasks;

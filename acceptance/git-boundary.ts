@@ -1,14 +1,5 @@
 import assert from "node:assert/strict";
-import {
-  access,
-  chmod,
-  mkdir,
-  mkdtemp,
-  readFile,
-  realpath,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { run } from "../process.ts";
@@ -16,14 +7,11 @@ import { gitState } from "../task-verification.ts";
 import { safeGit } from "../execution/git.ts";
 import { snapshotTools } from "../delegation.ts";
 
-const fixture = await realpath(
-  await mkdtemp(join(tmpdir(), "studio-git-boundary-")),
-);
+const fixture = await realpath(await mkdtemp(join(tmpdir(), "studio-git-boundary-")));
 const project = join(fixture, "source");
 const checkout = join(project, ".worktrees", "owned");
 const marker = join(fixture, "controller-marker");
-const ordinary = (args: string[], cwd = project) =>
-  run("/usr/bin/git", args, { cwd });
+const ordinary = (args: string[], cwd = project) => run("/usr/bin/git", args, { cwd });
 try {
   await mkdir(project);
   await ordinary(["init", "-q"]);
@@ -48,35 +36,24 @@ try {
   await writeFile(join(checkout, "result.txt"), "accepted result\n");
   const git = (args: string[], env?: NodeJS.ProcessEnv) =>
     safeGit(project, checkout, args, {
-      ...(env?.["GIT_INDEX_FILE"] === undefined
-        ? {}
-        : { indexFile: env["GIT_INDEX_FILE"] }),
+      ...(env?.["GIT_INDEX_FILE"] === undefined ? {} : { indexFile: env["GIT_INDEX_FILE"] }),
     });
   const fingerprint = await gitState(checkout, "worker", git);
   await git(["add", "-A"]);
   await git(["commit", "-qm", "Accepted worker output"]);
-  assert.equal(
-    (await git(["rev-parse", "HEAD^{tree}"])).trim(),
-    fingerprint.gitState,
-  );
+  assert.equal((await git(["rev-parse", "HEAD^{tree}"])).trim(), fingerprint.gitState);
   assert.equal(await git(["show", "HEAD:result.txt"]), "accepted result\n");
   await snapshotTools(checkout, (await git(["rev-parse", "HEAD"])).trim(), git);
   await assert.rejects(access(marker));
   // Includes from mutable source are rejected before an indexing or commit command.
-  await writeFile(
-    join(checkout, "worker-config"),
-    '[filter "extra"]\n clean = ./clean.sh\n',
-  );
+  await writeFile(join(checkout, "worker-config"), '[filter "extra"]\n clean = ./clean.sh\n');
   await ordinary(["config", "include.path", join(checkout, "worker-config")]);
   await assert.rejects(git(["add", "-A"]), /worker-writable/u);
   await ordinary(["config", "--unset", "include.path"]);
   // A changed .git pointer cannot rebind the controller to another repository.
   const identity = await readFile(join(checkout, ".git"), "utf8");
   await writeFile(join(checkout, ".git"), `gitdir: ${join(project, ".git")}\n`);
-  await assert.rejects(
-    git(["status", "--porcelain"]),
-    /registered isolated worktree/u,
-  );
+  await assert.rejects(git(["status", "--porcelain"]), /registered isolated worktree/u);
   await writeFile(join(checkout, ".git"), identity);
   await assert.rejects(access(marker));
   console.log(

@@ -3,16 +3,9 @@ import { test } from "node:test";
 import { stripVTControlCharacters } from "node:util";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { implementationColumn } from "../socrates/columns.ts";
-import {
-  implementationPresentation,
-  ImplementationState,
-} from "../socrates/implementation.ts";
+import { implementationPresentation, ImplementationState } from "../socrates/implementation.ts";
 import { LeadMode, draftSchema } from "../lead-plan.ts";
-import {
-  renderStatusSidebar,
-  renderWorkerCompact,
-  type WorkerSidebarView,
-} from "../socrates/sidebar.ts";
+import { renderStatusSidebar, renderWorkerCompact, type WorkerSidebarView } from "../socrates/sidebar.ts";
 import { renderWorkerDock } from "../socrates/worker-section.ts";
 import type { WorkerAssignment } from "../tasks/workers.ts";
 
@@ -81,14 +74,10 @@ await test("workers report questions and execution alongside a passive graph", (
     dockColumns: [implementationColumn(implementation)],
     prioritizeSpecification: false,
   };
-  const render = (workers?: WorkerSidebarView) =>
-    renderStatusSidebar(snapshot, theme, 49, 24, workers).join("\n");
+  const render = (workers?: WorkerSidebarView) => renderStatusSidebar(snapshot, theme, 49, 24, workers).join("\n");
   assert.equal(render(), render({ ...view, rows: [] }));
   const output = render(view);
-  assert.match(
-    output,
-    /Implementation[\s\S]*Verify focus handling[\s\S]*Workers/u,
-  );
+  assert.match(output, /Implementation[\s\S]*Verify focus handling[\s\S]*Workers/u);
   assert.doesNotMatch(output, /›|Alt\+W|Enter inspect|▸ Workers|▾ Workers/u);
   assert.match(output, /1 active · 1 needs you/u);
   assert.match(output, /Needs input {2}Worker · abfa56/u);
@@ -101,14 +90,8 @@ await test("compact workers prioritize operator questions, respect bounds and di
   assert.match(short[0] ?? "", /1 needs you/u);
   assert.equal(short[1], worker.question);
   const failed = { ...view, evidenceError: "Invalid record" };
-  assert.match(
-    renderWorkerCompact({ ...failed, rows: [] }, theme, 33, 3).join(" "),
-    /Worker status unavailable/u,
-  );
-  assert.match(
-    renderWorkerCompact(failed, theme, 33, 8, true).join(" "),
-    /Workers · partial[\s\S]*Reviewing/u,
-  );
+  assert.match(renderWorkerCompact({ ...failed, rows: [] }, theme, 33, 3).join(" "), /Worker status unavailable/u);
+  assert.match(renderWorkerCompact(failed, theme, 33, 8, true).join(" "), /Workers · partial[\s\S]*Reviewing/u);
   const partial = renderWorkerCompact(failed, theme, 33, 2);
   assert.match(partial[0] ?? "", /partial.*1 needs you/u);
   assert.equal(partial[1], worker.question);
@@ -126,12 +109,8 @@ await test("compact workers prioritize operator questions, respect bounds and di
 });
 
 await test("the passive worker dock fits its counts and question inside a compact frame", () => {
-  const dock = (
-    workers: WorkerSidebarView,
-    width: number,
-    height: number,
-    expanded = false,
-  ) => renderWorkerDock(workers, theme, width, height, expanded, plain);
+  const dock = (workers: WorkerSidebarView, width: number, height: number, expanded = false) =>
+    renderWorkerDock(workers, theme, width, height, expanded, plain);
   const question = "Focus 根 after refreshing the selection?";
   const assignments: WorkerSidebarView = {
     rows: [{ ...worker, question }, review],
@@ -143,11 +122,7 @@ await test("the passive worker dock fits its counts and question inside a compac
   assert.equal(rows[2], "╰" + "─".repeat(46) + "╯");
   assert.ok(rows.every((line) => visibleWidth(line) === 48));
   assert.deepEqual(dock({ rows: [] }, 48, 3), []);
-  const unavailable = dock(
-    { rows: [], evidenceError: "invalid record" },
-    48,
-    3,
-  );
+  const unavailable = dock({ rows: [], evidenceError: "invalid record" }, 48, 3);
   assert.equal(unavailable.length, 2);
   assert.match(unavailable[0] ?? "", /Worker status unavailable/u);
   const short = dock(assignments, 48, 2, true);

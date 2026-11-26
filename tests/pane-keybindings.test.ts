@@ -6,13 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { configSchema, exampleConfig, loadConfig } from "../config.ts";
 import { paneKeybindingsSchema } from "../pane-keybindings-config.ts";
-import {
-  defaultPaneKeybindings,
-  matchesPaneKey,
-  paneKeyHint,
-  paneKeyLabel,
-  paneKeyPair,
-} from "../pane-keybindings.ts";
+import { defaultPaneKeybindings, matchesPaneKey, paneKeyHint, paneKeyLabel, paneKeyPair } from "../pane-keybindings.ts";
 
 await test("old configs and the CLI example leave all lead shortcuts available", () => {
   const defaults = configSchema.parse({}).keybindings;
@@ -72,32 +66,14 @@ await test("Pi key identifiers cover modifiers, punctuation, aliases and functio
   for (const key of Object.values(Key)) {
     if (typeof key !== "string") continue;
     // The status toggle is evaluated only in the lead draft.
-    assert.equal(
-      paneKeybindingsSchema.safeParse({ lead: { toggleStatus: key } }).success,
-      true,
-      key,
-    );
+    assert.equal(paneKeybindingsSchema.safeParse({ lead: { toggleStatus: key } }).success, true, key);
   }
   const { lead } = paneKeybindingsSchema.parse({
     lead: {
-      openWorkers: [
-        "Alt+shift+Ctrl+super++",
-        "+",
-        "ctrl++",
-        "return",
-        "F12",
-        "PageUP",
-      ],
+      openWorkers: ["Alt+shift+Ctrl+super++", "+", "ctrl++", "return", "F12", "PageUP"],
     },
   });
-  assert.deepEqual(lead.openWorkers, [
-    "ctrl+shift+alt+super++",
-    "+",
-    "ctrl++",
-    "enter",
-    "f12",
-    "pageUp",
-  ]);
+  assert.deepEqual(lead.openWorkers, ["ctrl+shift+alt+super++", "+", "ctrl++", "enter", "f12", "pageUp"]);
   for (const value of [
     "",
     " ",
@@ -111,11 +87,7 @@ await test("Pi key identifiers cover modifiers, punctuation, aliases and functio
     '"',
     "ctrl+down+j",
   ]) {
-    assert.equal(
-      paneKeybindingsSchema.safeParse({ lead: { openWorkers: value } }).success,
-      false,
-      value,
-    );
+    assert.equal(paneKeybindingsSchema.safeParse({ lead: { openWorkers: value } }).success, false, value);
   }
 });
 
@@ -128,10 +100,7 @@ await test("overlapping actions reject conflicts with other overrides and inheri
     { tasks: { refresh: "q" } },
     { decision: { pageUp: "pagedown" } },
   ]) {
-    assert.throws(
-      () => paneKeybindingsSchema.parse(bindings),
-      /conflicts with/u,
-    );
+    assert.throws(() => paneKeybindingsSchema.parse(bindings), /conflicts with/u);
   }
   const bindings = paneKeybindingsSchema.parse({
     lead: { openTasks: "q", openPicker: "escape" },
@@ -140,15 +109,9 @@ await test("overlapping actions reject conflicts with other overrides and inheri
   });
   assert.deepEqual(bindings.picker.tasks, bindings.tasks.refresh);
   assert.deepEqual(bindings.lead.openPicker, bindings.tasks.quit);
-  assert.throws(
-    () => paneKeybindingsSchema.parse({ picker: { workerz: "x" } }),
-    /workerz/u,
-  );
+  assert.throws(() => paneKeybindingsSchema.parse({ picker: { workerz: "x" } }), /workerz/u);
   for (const pageUp of ["j", "shift+x", "space"]) {
-    assert.throws(
-      () => paneKeybindingsSchema.parse({ decision: { pageUp } }),
-      /non-printing/u,
-    );
+    assert.throws(() => paneKeybindingsSchema.parse({ decision: { pageUp } }), /non-printing/u);
   }
 });
 

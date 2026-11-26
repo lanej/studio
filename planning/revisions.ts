@@ -14,11 +14,7 @@ function canonical(value: JsonValue): string {
 }
 
 /** Include lifecycle guards: freezing can invalidate a save without changing prose. */
-export function documentRevision(
-  ref: DocumentRef,
-  editableDraft: unknown,
-  guardState: unknown,
-): string {
+export function documentRevision(ref: DocumentRef, editableDraft: unknown, guardState: unknown): string {
   return createHash("sha256")
     .update(
       canonical(

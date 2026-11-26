@@ -9,8 +9,4 @@ export function mappedHost(): {
   sha256: string;
   fingerprint: string;
 };
-export function runtimeIdentity(
-  bundle: string,
-  host: string,
-  minimum: string,
-): string;
+export function runtimeIdentity(bundle: string, host: string, minimum: string): string;

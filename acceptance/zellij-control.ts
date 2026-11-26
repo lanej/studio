@@ -42,9 +42,7 @@ async function dispatch(zellij: Zellij, input: Request): Promise<string> {
       await zellij.focus(input.pane);
       return "";
     case "launch":
-      return String(
-        await zellij.launch(input.tab, input.name, input.cwd, input.args),
-      );
+      return String(await zellij.launch(input.tab, input.name, input.cwd, input.args));
     case "text":
       await zellij.writeText(input.pane, input.text);
       return "";
@@ -62,8 +60,6 @@ for await (const line of createInterface({ input: process.stdin })) {
     const output = await dispatch(zellij, input);
     process.stdout.write(`${JSON.stringify({ output })}\n`);
   } catch (cause) {
-    process.stdout.write(
-      `${JSON.stringify({ error: cause instanceof Error ? cause.message : String(cause) })}\n`,
-    );
+    process.stdout.write(`${JSON.stringify({ error: cause instanceof Error ? cause.message : String(cause) })}\n`);
   }
 }

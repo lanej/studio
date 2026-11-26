@@ -2,14 +2,7 @@ import { createServer } from "node:http";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  readdir,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, delimiter, join } from "node:path";
@@ -22,9 +15,7 @@ import { run } from "../process.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 // A package-manager rename must not turn an old mapped image into the selected one.
-const hostSource = (
-  await readFile(join(root, "scripts/host-identity.mjs"), "utf8")
-)
+const hostSource = (await readFile(join(root, "scripts/host-identity.mjs"), "utf8"))
   .replace(/^import .*;\n/gmu, "")
   .replaceAll("export function", "function")
   .replaceAll("import.meta", "hostMeta");
@@ -62,15 +53,10 @@ for (const kind of ["mapped", "selected"]) {
     }),
   };
   const call = kind === "mapped" ? "mappedHost()" : "selectedHost('>=1.4.5')";
-  assert.throws(
-    () => runInNewContext(`${hostSource}\n${call}`, boundary),
-    /changed/u,
-  );
+  assert.throws(() => runInNewContext(`${hostSource}\n${call}`, boundary), /changed/u);
   assert.equal(closed, 1, "Host image descriptor must close on refusal");
 }
-const temporary = await mkdtemp(
-  join(process.platform === "darwin" ? "/private/tmp" : tmpdir(), "st-act-"),
-);
+const temporary = await mkdtemp(join(process.platform === "darwin" ? "/private/tmp" : tmpdir(), "st-act-"));
 const prefix = join(temporary, "prefix");
 const state = join(temporary, "state");
 const agent = join(temporary, "agent");
@@ -110,6 +96,7 @@ const nativeTarget = z.object({
   checkpoint: z.object({ state: z.string(), run_id: z.uuid() }).optional(),
 });
 type Target = z.infer<typeof nativeTarget>;
+
 async function control(path: string, request: object): Promise<Target> {
   return new Promise((resolve, reject) => {
     const connection = createConnection(path);
@@ -119,8 +106,8 @@ async function control(path: string, request: object): Promise<Target> {
       if (settled) return;
       settled = true;
       connection.destroy();
-      if (error !== undefined) reject(error);
-      else if (value !== undefined) resolve(value);
+      if (error) reject(error);
+      else if (value) resolve(value);
       else reject(new Error("Missing native response"));
     };
     connection.setTimeout(60_000, () => {
@@ -139,9 +126,7 @@ async function control(path: string, request: object): Promise<Target> {
       buffer += chunk.toString("utf8");
       if (!buffer.includes("\n")) return;
       try {
-        const value: unknown = JSON.parse(
-          buffer.slice(0, buffer.indexOf("\n")),
-        );
+        const value: unknown = JSON.parse(buffer.slice(0, buffer.indexOf("\n")));
         const error = z.object({ error: z.string() }).safeParse(value);
         if (error.success) {
           finish(new Error(error.data.error));
@@ -160,18 +145,12 @@ async function control(path: string, request: object): Promise<Target> {
     });
   });
 }
+
 class Host {
   readonly child: ChildProcessWithoutNullStreams;
-  private readonly pending = new Map<
-    string,
-    { resolve: (value: unknown) => void; reject: (error: Error) => void }
-  >();
+  private readonly pending = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
   errors = "";
-  constructor(
-    launcher: string,
-    args: string[],
-    environment: NodeJS.ProcessEnv = env,
-  ) {
+  constructor(launcher: string, args: string[], environment: NodeJS.ProcessEnv = env) {
     this.child = spawn(launcher, args, {
       cwd: workspace,
       env: environment,
@@ -182,12 +161,10 @@ class Host {
     });
     createInterface({ input: this.child.stdout }).on("line", (line) => {
       const value: unknown = JSON.parse(line);
-      const response = z
-        .looseObject({ id: z.string(), success: z.boolean() })
-        .safeParse(value);
+      const response = z.looseObject({ id: z.string(), success: z.boolean() }).safeParse(value);
       if (!response.success) return;
       const waiting = this.pending.get(response.data.id);
-      if (waiting === undefined) return;
+      if (!waiting) return;
       this.pending.delete(response.data.id);
       if (response.data.success) waiting.resolve(value);
       else waiting.reject(new Error(JSON.stringify(value)));
@@ -210,9 +187,8 @@ class Host {
     });
   }
 }
-async function record(
-  pid: number,
-): Promise<{ socket: string; process: z.infer<typeof processSchema> }> {
+
+async function record(pid: number): Promise<{ socket: string; process: z.infer<typeof processSchema> }> {
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
     try {
@@ -220,9 +196,7 @@ async function record(
         if (!name.endsWith(".json")) continue;
         const value = z
           .object({ socket: z.string(), process: processSchema })
-          .parse(
-            JSON.parse(await readFile(join(state, "activation", name), "utf8")),
-          );
+          .parse(JSON.parse(await readFile(join(state, "activation", name), "utf8")));
         if (value.process.pid === pid) return value;
       }
     } catch (error) {
@@ -258,10 +232,7 @@ const provider = createServer((request, response) => {
           index: 0,
           delta: {
             role: "assistant",
-            content:
-              requests === 1
-                ? "Native branch fixture is ready."
-                : "interrupted fixture output",
+            content: requests === 1 ? "Native branch fixture is ready." : "interrupted fixture output",
           },
           finish_reason: requests === 1 ? "stop" : null,
         },
@@ -277,16 +248,12 @@ await new Promise<void>((resolve) => {
   provider.listen(0, "127.0.0.1", resolve);
 });
 const address = provider.address();
-if (address === null || typeof address === "string")
-  throw new Error("Fixture provider did not bind a port");
+if (address === null || typeof address === "string") throw new Error("Fixture provider did not bind a port");
 let background: Host | undefined;
 let first: Host | undefined;
 let resumed: Host | undefined;
 try {
-  await Promise.all([
-    mkdir(agent, { recursive: true }),
-    mkdir(workspace, { recursive: true }),
-  ]);
+  await Promise.all([mkdir(agent, { recursive: true }), mkdir(workspace, { recursive: true })]);
   await writeFile(
     join(agent, "models.json"),
     JSON.stringify({
@@ -307,15 +274,7 @@ try {
   });
   const status = z
     .object({ installed_identity: z.string(), installed_release: z.string() })
-    .parse(
-      JSON.parse(
-        await run(
-          process.execPath,
-          [join(root, "scripts/lifecycle.mjs"), "status"],
-          { env },
-        ),
-      ),
-    );
+    .parse(JSON.parse(await run(process.execPath, [join(root, "scripts/lifecycle.mjs"), "status"], { env })));
   const launcher = join(status.installed_release, "scripts/pi");
   const args = ["--mode", "rpc", "--offline", "--model", "fixture/tiny"];
   const delayedReply = join(temporary, "delayed-reply.js");
@@ -361,8 +320,7 @@ export default function (pi) {
 `,
   );
   first = new Host(launcher, [...args, "--extension", delayedReply]);
-  if (first.child.pid === undefined)
-    throw new Error("Native Pi host did not start");
+  if (first.child.pid === undefined) throw new Error("Native Pi host did not start");
   const published = await record(first.child.pid);
   const suspendedBash = first.rpc("bash", {
     command: "paused-native-bash-fixture",
@@ -390,10 +348,7 @@ export default function (pi) {
     }),
     /native-Bash-dispatch-is-still-admitted/u,
   );
-  assert.equal(
-    (await control(published.socket, { action: "verify" })).ready,
-    true,
-  );
+  assert.equal((await control(published.socket, { action: "verify" })).ready, true);
   await writeFile(bashRelease, "settle");
   await suspendedBash;
   const before = await control(published.socket, { action: "inventory" });
@@ -415,10 +370,7 @@ export default function (pi) {
     }),
     /incarnation changed/u,
   );
-  assert.equal(
-    (await control(published.socket, { action: "verify" })).ready,
-    true,
-  );
+  assert.equal((await control(published.socket, { action: "verify" })).ready, true);
   const pausedCommand = first.rpc("prompt", { message: "/admission-fixture" });
   const commandDeadline = Date.now() + 10_000;
   while (Date.now() < commandDeadline) {
@@ -445,15 +397,11 @@ export default function (pi) {
   await writeFile(releaseMarker, "settle");
   await pausedCommand;
   const runtimeConfig = join(temporary, "runtime.json");
-  await writeFile(
-    runtimeConfig,
-    JSON.stringify({ runtime: { enabled: true, pollMs: 1000, projects: [] } }),
-  );
-  background = new Host(
-    join(status.installed_release, "scripts/studio"),
-    ["runtime", "serve"],
-    { ...env, STUDIO_CONFIG: runtimeConfig },
-  );
+  await writeFile(runtimeConfig, JSON.stringify({ runtime: { enabled: true, pollMs: 1000, projects: [] } }));
+  background = new Host(join(status.installed_release, "scripts/studio"), ["runtime", "serve"], {
+    ...env,
+    STUDIO_CONFIG: runtimeConfig,
+  });
   const runtimeDeadline = Date.now() + 10_000;
   let runtimeInventory: { targets: { target: string; ready: boolean }[] } = {
     targets: [],
@@ -463,28 +411,12 @@ export default function (pi) {
       .object({
         targets: z.array(z.object({ target: z.string(), ready: z.boolean() })),
       })
-      .parse(
-        JSON.parse(
-          await run(
-            process.execPath,
-            [join(root, "scripts/lifecycle.mjs"), "inventory"],
-            { env },
-          ),
-        ),
-      );
-    if (
-      runtimeInventory.targets.some((target) =>
-        target.target.startsWith("runtime:supervisor:"),
-      )
-    )
-      break;
+      .parse(JSON.parse(await run(process.execPath, [join(root, "scripts/lifecycle.mjs"), "inventory"], { env })));
+    if (runtimeInventory.targets.some((target) => target.target.startsWith("runtime:supervisor:"))) break;
     await delay(20);
   }
   assert.ok(
-    runtimeInventory.targets.some(
-      (target) =>
-        target.target.startsWith("runtime:supervisor:") && !target.ready,
-    ),
+    runtimeInventory.targets.some((target) => target.target.startsWith("runtime:supervisor:") && !target.ready),
     background.errors,
   );
   await assert.rejects(
@@ -499,10 +431,7 @@ export default function (pi) {
     }),
     /uncheckpointed-native-background-runtime-authority/u,
   );
-  assert.equal(
-    (await control(published.socket, { action: "verify" })).ready,
-    true,
-  );
+  assert.equal((await control(published.socket, { action: "verify" })).ready, true);
   await background.stop();
   background = undefined;
   // The pinned Bash abort uses forced process-tree termination. An update
@@ -522,29 +451,21 @@ export default function (pi) {
     /native-Bash-dispatch-is-still-admitted/u,
   );
   await bash;
-  assert.equal(
-    (await control(published.socket, { action: "verify" })).ready,
-    true,
-  );
+  assert.equal((await control(published.socket, { action: "verify" })).ready, true);
   await first.rpc("prompt", {
     message: "Prepare the native selected-branch fixture.",
   });
   const seedDeadline = Date.now() + 10_000;
   let seedSettled = false;
   while (Date.now() < seedDeadline) {
-    const current = z
-      .object({ data: z.object({ isStreaming: z.boolean() }) })
-      .parse(await first.rpc("get_state"));
+    const current = z.object({ data: z.object({ isStreaming: z.boolean() }) }).parse(await first.rpc("get_state"));
     if (requestCount() === 1 && !current.data.isStreaming) {
       seedSettled = true;
       break;
     }
     await delay(20);
   }
-  assert.ok(
-    seedSettled,
-    "The native seed conversation must finish before branching",
-  );
+  assert.ok(seedSettled, "The native seed conversation must finish before branching");
   await first.rpc("prompt", { message: "/activation-branch-fixture" });
   const selectedBranch = z
     .object({
@@ -558,15 +479,8 @@ export default function (pi) {
     action: "inventory",
   });
   assert.equal(beforeOperation.sessions[0]?.branch_id, selectedBranch.selected);
-  const beforeTranscript = await readFile(
-    z.string().parse(beforeOperation.sessions[0].transcript_path),
-    "utf8",
-  );
-  assert.equal(
-    requestCount(),
-    1,
-    "Branch selection must not invoke the provider",
-  );
+  const beforeTranscript = await readFile(z.string().parse(beforeOperation.sessions[0].transcript_path), "utf8");
+  assert.equal(requestCount(), 1, "Branch selection must not invoke the provider");
   await first.rpc("prompt", {
     message: "Begin the controlled interrupted fixture operation.",
   });
@@ -580,22 +494,10 @@ export default function (pi) {
     nextReadme,
     `${await readFile(nextReadme, "utf8")}\nNative activation fixture selects a distinct immutable bundle.\n`,
   );
-  await run(
-    process.execPath,
-    [join(nextSource, "scripts/lifecycle.mjs"), "build"],
-    { env, timeout: 180_000 },
-  );
+  await run(process.execPath, [join(nextSource, "scripts/lifecycle.mjs"), "build"], { env, timeout: 180_000 });
   const replacement = z
     .object({ installed_identity: z.string(), installed_release: z.string() })
-    .parse(
-      JSON.parse(
-        await run(
-          process.execPath,
-          [join(nextSource, "scripts/lifecycle.mjs"), "status"],
-          { env },
-        ),
-      ),
-    );
+    .parse(JSON.parse(await run(process.execPath, [join(nextSource, "scripts/lifecycle.mjs"), "status"], { env })));
   assert.notEqual(replacement.installed_identity, status.installed_identity);
   assert.equal(
     (await control(published.socket, { action: "verify" })).running_identity,
@@ -618,10 +520,7 @@ export default function (pi) {
   const confirmed = await control(published.socket, request);
   assert.equal(confirmed.checkpoint?.state, "confirmed");
   assert.equal(confirmed.ready, false);
-  const retainedPath = join(
-    checkpoints,
-    `studio-${admitted.process.native_id}.json`,
-  );
+  const retainedPath = join(checkpoints, `studio-${admitted.process.native_id}.json`);
   const retained = z
     .object({
       state: z.literal("confirmed"),
@@ -634,15 +533,9 @@ export default function (pi) {
       }),
     })
     .parse(JSON.parse(await readFile(retainedPath, "utf8")));
-  assert.equal(
-    retained.session.pre_checkpoint_branch_id,
-    admitted.sessions[0]?.branch_id,
-  );
+  assert.equal(retained.session.pre_checkpoint_branch_id, admitted.sessions[0]?.branch_id);
   assert.equal(retained.session.branch_id, confirmed.sessions[0]?.branch_id);
-  const checkpointTranscript = await readFile(
-    retained.session.transcript_path,
-    "utf8",
-  );
+  const checkpointTranscript = await readFile(retained.session.transcript_path, "utf8");
   assert.ok(
     checkpointTranscript.startsWith(beforeTranscript),
     "Keep the original transcript and its unselected branch",
@@ -664,10 +557,7 @@ export default function (pi) {
   const ancestors = new Set<string>();
   let cursor = retained.session.pre_checkpoint_branch_id;
   while (cursor !== null) {
-    assert.ok(
-      !ancestors.has(cursor),
-      "Fixture branch ancestry must be acyclic",
-    );
+    assert.ok(!ancestors.has(cursor), "Fixture branch ancestry must be acyclic");
     ancestors.add(cursor);
     cursor = branchEntries.get(cursor)?.parentId ?? null;
   }
@@ -682,11 +572,7 @@ export default function (pi) {
   );
   await assert.rejects(readFile(fencedBash), { code: "ENOENT" });
   await control(published.socket, request);
-  assert.equal(
-    requestCount(),
-    2,
-    "repeated checkpoint observation must not replay the interrupted request",
-  );
+  assert.equal(requestCount(), 2, "repeated checkpoint observation must not replay the interrupted request");
   await control(published.socket, {
     action: "stop",
     expected_session: admitted.sessions[0],
@@ -716,16 +602,10 @@ export default function (pi) {
   });
   resumed = new Host(
     join(replacement.installed_release, "scripts/pi"),
-    [
-      ...args,
-      "--session",
-      retained.session.transcript_path,
-      "/studio-activation-restore",
-    ],
+    [...args, "--session", retained.session.transcript_path, "/studio-activation-restore"],
     { ...env, STUDIO_ACTIVATION_CHECKPOINT: retainedPath },
   );
-  if (resumed.child.pid === undefined)
-    throw new Error("Restored native Pi host did not start");
+  if (resumed.child.pid === undefined) throw new Error("Restored native Pi host did not start");
   const newRecord = await record(resumed.child.pid);
   await resumed.rpc("prompt", { message: "/studio-activation-restore" });
   let restored = await control(newRecord.socket, { action: "verify" });
@@ -737,20 +617,12 @@ export default function (pi) {
   assert.equal(restored.ready, true, resumed.errors);
   assert.equal(restored.running_identity, replacement.installed_identity);
   const restoredSession = restored.sessions[0];
-  if (restoredSession === undefined)
-    throw new Error("The native restored session is missing");
+  if (!restoredSession) throw new Error("The native restored session is missing");
   assert.equal(restoredSession.session_id, retained.session.session_id);
-  assert.equal(
-    restoredSession.transcript_path,
-    retained.session.transcript_path,
-  );
+  assert.equal(restoredSession.transcript_path, retained.session.transcript_path);
   assert.equal(restoredSession.branch_id, retained.session.branch_id);
   assert.equal(restoredSession.restoration, "restored");
-  assert.equal(
-    requestCount(),
-    2,
-    "restoring the native conversation must not replay model work",
-  );
+  assert.equal(requestCount(), 2, "restoring the native conversation must not replay model work");
   console.log(
     JSON.stringify({
       selectedBranch,

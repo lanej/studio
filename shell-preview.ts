@@ -9,19 +9,12 @@ const timerState = z.object({
   endedAt: z.number().optional(),
 });
 
-export function shellElapsed(
-  timerText: string | undefined,
-  durationMs: number | undefined,
-  state: unknown,
-) {
+export function shellElapsed(timerText: string | undefined, durationMs: number | undefined, state: unknown) {
   if (durationMs === undefined) {
     const clock = timerState.safeParse(state);
-    if (clock.success)
-      durationMs = (clock.data.endedAt ?? Date.now()) - clock.data.startedAt;
+    if (clock.success) durationMs = (clock.data.endedAt ?? Date.now()) - clock.data.startedAt;
   }
-  return durationMs !== undefined && durationMs >= 1000
-    ? timerText?.replace(/^Took /u, "")
-    : undefined;
+  return durationMs !== undefined && durationMs >= 1000 ? timerText?.replace(/^Took /u, "") : undefined;
 }
 
 export function shellOutputPreview(
@@ -39,18 +32,11 @@ export function shellOutputPreview(
 ): Component {
   const text = new Text(output, 0, 0);
   const metadata = (hidden: number, width: number) => {
-    const count =
-      hidden > 0
-        ? `${hidden.toString()} more ${hidden === 1 ? "line" : "lines"}`
-        : "";
+    const count = hidden > 0 ? `${hidden.toString()} more ${hidden === 1 ? "line" : "lines"}` : "";
     const size = tokens === undefined ? "" : `≈${tokens.toString()} tokens`;
     const fields: string[] = [];
     for (const field of [count, size, elapsed]) {
-      if (
-        field !== undefined &&
-        field !== "" &&
-        visibleWidth([...fields, field].join(" · ")) <= width
-      )
+      if (field !== undefined && field !== "" && visibleWidth([...fields, field].join(" · ")) <= width)
         fields.push(field);
     }
     if (fields.length === 0) return "";

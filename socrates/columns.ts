@@ -12,11 +12,7 @@ import {
   type StatusMark,
   type StatusTone,
 } from "@lanej/pi-components";
-import {
-  ImplementationPhase,
-  ImplementationState,
-  type ImplementationPresentation,
-} from "./implementation.ts";
+import { ImplementationPhase, ImplementationState, type ImplementationPresentation } from "./implementation.ts";
 import { SpecStatus, type LeadSpecification } from "./spec.ts";
 
 import type { CoverageStatus } from "./assessment.ts";
@@ -28,12 +24,7 @@ export const conditionStates = {
   "not-applicable": ConditionState.NotApplicable,
 } satisfies Record<CoverageStatus, ConditionState>;
 
-function mark(
-  label: string,
-  glyph: string,
-  ascii: string,
-  tone: StatusTone,
-): StatusMark {
+function mark(label: string, glyph: string, ascii: string, tone: StatusTone): StatusMark {
   return { label, glyph, ascii, tone };
 }
 
@@ -41,11 +32,7 @@ function count(label: string, value: number, tone: StatusTone): StatusCount {
   return { label, value, tone };
 }
 
-function propertyCount(
-  value: number,
-  condition: Parameters<typeof conditionMark>[0],
-  label?: string,
-): StatusCount {
+function propertyCount(value: number, condition: Parameters<typeof conditionMark>[0], label?: string): StatusCount {
   const mark = conditionMark(condition);
   return count(label ?? mark.label.toLowerCase(), value, mark.tone);
 }
@@ -55,9 +42,7 @@ export interface AssessedCondition extends Condition {
   readonly details: string;
 }
 
-function propertyGroups(
-  conditions: readonly AssessedCondition[],
-): StatusGroup[] {
+function propertyGroups(conditions: readonly AssessedCondition[]): StatusGroup[] {
   const groups: StatusGroup[] = [
     { id: "attention", label: "Needs attention", tone: "muted", items: [] },
     {
@@ -87,12 +72,7 @@ function propertyGroups(
     .map((group) => ({
       ...group,
       items: conditions
-        .filter(
-          (property) =>
-            (property.stale === true
-              ? "attention"
-              : byState[property.state]) === group.id,
-        )
+        .filter((property) => (property.stale === true ? "attention" : byState[property.state]) === group.id)
         .map(
           (property): StatusItem => ({
             id: property.id,
@@ -129,10 +109,7 @@ const phaseMarks = {
   [ImplementationPhase.Tracking]: mark("", "◆", "*", "accent"),
 } satisfies Record<ImplementationPhase, StatusMark>;
 
-export function implementationColumn(
-  impl: ImplementationPresentation,
-  watching = false,
-): StatusColumn {
+export function implementationColumn(impl: ImplementationPresentation, watching = false): StatusColumn {
   const groups = new Map<number, StatusItem[]>();
   const priority = [
     ImplementationState.Blocked,
@@ -145,10 +122,7 @@ export function implementationColumn(
   ];
   const byStatus = watching && impl.phase === ImplementationPhase.Tracking;
   const rows = byStatus
-    ? [...impl.rows].sort(
-        (left, right) =>
-          priority.indexOf(left.state) - priority.indexOf(right.state),
-      )
+    ? [...impl.rows].sort((left, right) => priority.indexOf(left.state) - priority.indexOf(right.state))
     : impl.rows;
   for (const row of rows) {
     const item = {
@@ -160,14 +134,12 @@ export function implementationColumn(
     };
     const key = byStatus ? 0 : row.wave;
     const group = groups.get(key);
-    if (group === undefined) groups.set(key, [item]);
+    if (!group) groups.set(key, [item]);
     else group.push(item);
   }
   const phase = impl.phase;
   const version = impl.specificationVersion;
-  const linked =
-    phase === ImplementationPhase.Tracking ||
-    phase === ImplementationPhase.Loading;
+  const linked = phase === ImplementationPhase.Tracking || phase === ImplementationPhase.Loading;
   const needsExplanation =
     phase === ImplementationPhase.HandoffUncertain ||
     phase === ImplementationPhase.LinkChanged ||
@@ -177,10 +149,7 @@ export function implementationColumn(
     title: "Implementation",
     status: {
       ...phaseMarks[phase],
-      label:
-        linked && version !== undefined
-          ? `${impl.label} · spec v${String(version)}`
-          : impl.label,
+      label: linked && version !== undefined ? `${impl.label} · spec v${String(version)}` : impl.label,
     },
     counts: [
       ImplementationState.Blocked,
@@ -191,13 +160,7 @@ export function implementationColumn(
       ImplementationState.Unknown,
     ]
       .filter((state) => impl.counts[state] > 0)
-      .map((state) =>
-        count(
-          taskMarks[state].label.toLowerCase(),
-          impl.counts[state],
-          taskMarks[state].tone,
-        ),
-      ),
+      .map((state) => count(taskMarks[state].label.toLowerCase(), impl.counts[state], taskMarks[state].tone)),
     summary: needsExplanation ? impl.detail : impl.planSummary,
     groups: [...groups.entries()].map(([wave, items]) => ({
       id: `wave-${String(wave)}`,
@@ -215,7 +178,7 @@ export function specificationColumn(
   activity: Activity,
   implementation: ImplementationPresentation,
 ): StatusColumn {
-  if (spec === undefined)
+  if (!spec)
     return {
       id: "specification",
       title: "Specification",
@@ -229,17 +192,10 @@ export function specificationColumn(
     propertyCount(c.open, { state: ConditionState.Open }),
     propertyCount(c.partial, { state: ConditionState.Partial }),
     propertyCount(c.satisfied, { state: ConditionState.Satisfied }),
-    propertyCount(
-      c.notApplicable,
-      { state: ConditionState.NotApplicable },
-      "N/A",
-    ),
+    propertyCount(c.notApplicable, { state: ConditionState.NotApplicable }, "N/A"),
   ].filter((entry) => entry.value > 0);
   const version = `v${String(spec.version)}`;
-  const phase =
-    spec.status === SpecStatus.Frozen
-      ? `Frozen · ${version}`
-      : `Draft · ${version}`;
+  const phase = spec.status === SpecStatus.Frozen ? `Frozen · ${version}` : `Draft · ${version}`;
   const status = mark(
     phase,
     spec.status === SpecStatus.Frozen ? "◆" : "◇",
@@ -251,8 +207,7 @@ export function specificationColumn(
       ? (activity.detail ?? spec.draft?.objective)
       : [
           activity.label.length === 0 ? "Paused" : activity.label,
-          activity.label === "Answer recorded" &&
-          activity.state === ActivityState.Working
+          activity.label === "Answer recorded" && activity.state === ActivityState.Working
             ? "Updating the draft"
             : activity.detail,
         ]
@@ -268,18 +223,14 @@ export function specificationColumn(
       tone: "accent",
       showStatusLabels: false,
       items: requirements.map((requirement) => {
-        const linked = implementation.rows.filter((row) =>
-          row.requirements.includes(requirement.id),
-        );
+        const linked = implementation.rows.filter((row) => row.requirements.includes(requirement.id));
         return {
           id: requirement.id,
           label: `${requirement.id} · ${requirement.outcome}`,
           status: mark("Requirement", "§", "#", "accent"),
           details: [
             `Acceptance · ${requirement.acceptance}`,
-            ...linked.map(
-              (row) => `${row.beadId ?? row.id} · ${row.label} · ${row.status}`,
-            ),
+            ...linked.map((row) => `${row.beadId ?? row.id} · ${row.label} · ${row.status}`),
           ].join("\n\n"),
         };
       }),

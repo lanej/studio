@@ -3,10 +3,7 @@ import { requirePlanningDocumentHooks } from "../planning/document-hooks.ts";
 import type { PaneKeybindings } from "../pane-keybindings.ts";
 import type { OpenTasks } from "../tasks/panel.ts";
 import { renderPlanCall } from "../plan-renderer.ts";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
 import { existsSync, realpathSync } from "node:fs";
 import { Type } from "typebox";
@@ -16,30 +13,12 @@ import { z } from "zod";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/models";
 import { registerSocratesControls } from "../socrates/controls.ts";
 import { SpecStatus } from "../socrates/spec.ts";
-import {
-  loadConfig,
-  ModelCapability,
-  ReasoningLevel,
-  studioProfileSchema,
-  workerForTask,
-} from "../config.ts";
+import { loadConfig, ModelCapability, ReasoningLevel, studioProfileSchema, workerForTask } from "../config.ts";
 import { socratesGuidance } from "../socrates/guidance.ts";
-import {
-  LeadMode,
-  TaskDelivery,
-  describePlan,
-  draftSchema,
-  planDigest,
-  reviseDelivery,
-} from "../lead-plan.ts";
+import { LeadMode, TaskDelivery, describePlan, draftSchema, planDigest, reviseDelivery } from "../lead-plan.ts";
 import { isEntry, PiEntryType } from "../runtime.ts";
 import { reviewHandoff } from "./handoff-review.ts";
-import {
-  saveDiscoveryPlan,
-  Discoveries,
-  handoffDraft,
-  type Discovery,
-} from "./store.ts";
+import { saveDiscoveryPlan, Discoveries, handoffDraft, type Discovery } from "./store.ts";
 
 const selectionType = "studio:discovery";
 const markerSchema = z.object({
@@ -50,10 +29,9 @@ const markerSchema = z.object({
 
 function discoveryStatus(record: Discovery): string {
   const spec = record.specification;
-  if (spec === undefined) return "not started";
-  if (spec.status === SpecStatus.Frozen || spec.exchange === undefined)
-    return spec.status;
-  return spec.exchange.answer === undefined ? "question open" : "answer saved";
+  if (!spec) return "not started";
+  if (spec.status === SpecStatus.Frozen || !spec.exchange) return spec.status;
+  return !spec.exchange.answer ? "question open" : "answer saved";
 }
 
 export function registerDiscovery(
@@ -80,19 +58,13 @@ export function registerDiscovery(
     const project = realpathSync(ctx.cwd);
     const marker = ctx.sessionManager
       .getBranch()
-      .findLast(
-        (entry) =>
-          isEntry(entry, PiEntryType.Custom) &&
-          entry.customType === selectionType,
-      );
-    if (marker === undefined || !isEntry(marker, PiEntryType.Custom))
-      return undefined;
+      .findLast((entry) => isEntry(entry, PiEntryType.Custom) && entry.customType === selectionType);
+    if (!marker || !isEntry(marker, PiEntryType.Custom)) return undefined;
     const parsed = markerSchema.safeParse(marker.data);
     return parsed.success &&
       parsed.data.project === project &&
       (parsed.data.session === ctx.sessionManager.getSessionId() ||
-        (parsed.data.session === undefined &&
-          ctx.sessionManager.getHeader()?.parentSession === undefined))
+        (parsed.data.session === undefined && ctx.sessionManager.getHeader()?.parentSession === undefined))
       ? (parsed.data.id ?? undefined)
       : undefined;
   };
@@ -107,25 +79,19 @@ export function registerDiscovery(
   };
   const create = (ctx: ExtensionContext, title: string): void => {
     bind(
-      storage((db) =>
-        db.create(ctx.cwd, ctx.sessionManager.getSessionId(), title),
-      ),
+      storage((db) => db.create(ctx.cwd, ctx.sessionManager.getSessionId(), title)),
       ctx,
     );
   };
   const get = (): Discovery => {
     const id = selected;
-    if (id === undefined)
-      throw new Error(
-        "Start with /socrates or /plan-draft, or select with /discoveries",
-      );
+    if (id === undefined) throw new Error("Start with /socrates or /plan-draft, or select with /discoveries");
     return storage((db) => db.get(id));
   };
   const requireBinding = (ctx: ExtensionContext): Promise<Discovery> => {
     selected = locate(ctx);
     const record = get();
-    if (record.project !== realpathSync(ctx.cwd))
-      throw new Error("Select a discovery for this project");
+    if (record.project !== realpathSync(ctx.cwd)) throw new Error("Select a discovery for this project");
     return Promise.resolve(record);
   };
   const documents = requirePlanningDocumentHooks(pi);
@@ -135,7 +101,7 @@ export function registerDiscovery(
       if (id === undefined) return undefined;
       const project = realpathSync(ctx.cwd);
       const record = storage((db) => db.find(id));
-      if (record === undefined || record.project !== project) return undefined;
+      if (!record || record.project !== project) return undefined;
       return {
         kind: DocumentOwnerKind.Discovery,
         id,
@@ -143,13 +109,10 @@ export function registerDiscovery(
         conversationId: ctx.sessionManager.getSessionId(),
         read: () => storage((db) => db.get(id)),
         changeWithWitness: (operationId, command, update, result) =>
-          storage((db) =>
-            db.changeWithWitness(id, operationId, command, update, result),
-          ),
+          storage((db) => db.changeWithWitness(id, operationId, command, update, result)),
         validate: async (currentContext) => {
           const current = await requireBinding(currentContext);
-          if (current.id !== id || current.project !== project)
-            throw new Error("The selected discovery changed");
+          if (current.id !== id || current.project !== project) throw new Error("The selected discovery changed");
         },
       };
     },
@@ -177,9 +140,8 @@ export function registerDiscovery(
     selected = record?.id;
     const directCoding =
       "You are the coding agent in the current checkout. Carry out requested code changes directly, using your editing, shell, and verification tools. For a requested plan, plan locally. Socrates is an optional workflow started by the operator.";
-    if (record === undefined)
-      return { systemPrompt: `${event.systemPrompt}\n\n${directCoding}` };
-    if (record.handoff !== undefined || record.approved !== undefined)
+    if (!record) return { systemPrompt: `${event.systemPrompt}\n\n${directCoding}` };
+    if (record.handoff || record.approved !== undefined)
       return {
         systemPrompt: [
           event.systemPrompt,
@@ -191,37 +153,25 @@ export function registerDiscovery(
     const profileName =
       studioProfileSchema.safeParse(profile()).data ??
       config.runtime.projects.find(
-        (project) =>
-          existsSync(project.root) &&
-          realpathSync(project.root) === record.project,
+        (project) => existsSync(project.root) && realpathSync(project.root) === record.project,
       )?.profile;
-    const roles =
-      profileName === undefined ? undefined : config.profiles[profileName];
+    const roles = profileName === undefined ? undefined : config.profiles[profileName];
     const capabilities = Object.values(ModelCapability)
-      .filter(
-        (tier) =>
-          tier === ModelCapability.Standard ||
-          roles?.workerModels[tier] !== undefined,
-      )
+      .filter((tier) => tier === ModelCapability.Standard || roles?.workerModels[tier] !== undefined)
       .map((capability) => {
-        if (roles === undefined) return capability;
+        if (!roles) return capability;
         const worker = workerForTask(roles, {
           capability,
           reasoning: ReasoningLevel.Off,
         });
         const model = ctx.modelRegistry.find(worker.provider, worker.model);
-        const levels =
-          model === undefined
-            ? []
-            : getSupportedThinkingLevels(model).filter(
-                (level) => z.enum(ReasoningLevel).safeParse(level).success,
-              );
-        return levels.length === 0
-          ? capability
-          : `${capability} (${levels.join(", ")})`;
+        const levels = !model
+          ? []
+          : getSupportedThinkingLevels(model).filter((level) => z.enum(ReasoningLevel).safeParse(level).success);
+        return levels.length === 0 ? capability : `${capability} (${levels.join(", ")})`;
       });
     const assignmentGuidance = `Choose a worker capability and reasoning for each proposed bead. Available choices with known reasoning levels: ${capabilities.join("; ")}. Use fast for routine bounded work, standard for typical implementation, and advanced for complex or high-consequence work. Choose reasoning based on the task's uncertainty and verification needs.`;
-    if (record.specification === undefined)
+    if (!record.specification)
       return {
         systemPrompt: [
           event.systemPrompt,
@@ -229,10 +179,7 @@ export function registerDiscovery(
           assignmentGuidance,
           ...(record.leadPlan.draft === null
             ? []
-            : [
-                `Local proposal · ${record.title}`,
-                describePlan(record.leadPlan.draft, "proposal"),
-              ]),
+            : [`Local proposal · ${record.title}`, describePlan(record.leadPlan.draft, "proposal")]),
         ].join("\n\n"),
       };
     return {
@@ -255,11 +202,9 @@ export function registerDiscovery(
           name === "socrates"
             ? {
                 ...command,
-                description:
-                  "/socrates [TITLE] — start a new discovery with TITLE; omit it to continue or start one",
+                description: "/socrates [TITLE] — start a new discovery with TITLE; omit it to continue or start one",
                 async handler(argument, ctx) {
-                  if (documentActionBusy())
-                    throw new Error("Wait for the discovery command");
+                  if (documentActionBusy()) throw new Error("Wait for the discovery command");
                   runningDiscoveryCommand = true;
                   try {
                     await command.handler(argument, ctx);
@@ -274,8 +219,7 @@ export function registerDiscovery(
     },
     {
       get: (id) => (id === "selected" ? get() : storage((db) => db.get(id))),
-      change: (id, update) =>
-        storage((db) => db.change(id === "selected" ? get().id : id, update)),
+      change: (id, update) => storage((db) => db.change(id === "selected" ? get().id : id, update)),
     },
     "selected",
     requireBinding,
@@ -294,17 +238,11 @@ export function registerDiscovery(
       select: (argument, ctx) => {
         const title = argument.trim();
         selected = locate(ctx);
-        if (title !== "" || selected === undefined)
-          create(ctx, title === "" ? "Discovery" : title);
+        if (title !== "" || selected === undefined) create(ctx, title === "" ? "Discovery" : title);
         else {
           const record = get();
-          if (
-            record.specification === undefined &&
-            (record.handoff !== undefined || record.approved !== undefined)
-          )
-            throw new Error(
-              "This plan has already been handed off. Start a new discovery with /socrates TITLE.",
-            );
+          if (!record.specification && (record.handoff || record.approved !== undefined))
+            throw new Error("This plan has already been handed off. Start a new discovery with /socrates TITLE.");
         }
         return Promise.resolve();
       },
@@ -319,8 +257,7 @@ export function registerDiscovery(
   pi.registerCommand("discoveries", {
     description: "Select a saved project discovery by title for /socrates",
     async handler(_arg, ctx) {
-      if (documentActionBusy() || !ctx.isIdle())
-        throw new Error("Wait for the lead turn to settle");
+      if (documentActionBusy() || !ctx.isIdle()) throw new Error("Wait for the lead turn to settle");
       const project = realpathSync(ctx.cwd);
       const records = storage((db) => db.list(project));
       if (records.length === 0) {
@@ -343,7 +280,7 @@ export function registerDiscovery(
         if (choice === undefined) return;
         const record = records[choices.indexOf(choice)];
         if (
-          record === undefined ||
+          !record ||
           project !== realpathSync(ctx.cwd) ||
           session !== ctx.sessionManager.getSessionId() ||
           leaf !== ctx.sessionManager.getLeafId() ||
@@ -363,8 +300,7 @@ export function registerDiscovery(
   pi.registerCommand("socrates-end", {
     description: "Save the discovery and return to direct coding",
     handler(_argument, ctx) {
-      if (documentActionBusy() || !ctx.isIdle())
-        throw new Error("Wait for the lead turn to settle");
+      if (documentActionBusy() || !ctx.isIdle()) throw new Error("Wait for the lead turn to settle");
       if (locate(ctx) !== undefined) {
         pi.appendEntry(selectionType, {
           id: null,
@@ -374,10 +310,7 @@ export function registerDiscovery(
         onSelectionChange?.();
         socrates.refresh(ctx);
       }
-      ctx.ui.notify(
-        "Direct coding. Resume a saved discovery with /discoveries.",
-        "info",
-      );
+      ctx.ui.notify("Direct coding. Resume a saved discovery with /discoveries.", "info");
       return Promise.resolve();
     },
   });
@@ -385,17 +318,11 @@ export function registerDiscovery(
     description: "Preserve the frozen specification and reopen this discovery",
     async handler(_arg, ctx) {
       const record = await requireBinding(ctx);
-      if (documents.pending() || !ctx.isIdle())
-        throw new Error("Wait for the lead turn to settle");
+      if (documents.pending() || !ctx.isIdle()) throw new Error("Wait for the lead turn to settle");
       storage((db) =>
         db.change(record.id, (row) => {
-          if (row.specification?.status !== SpecStatus.Frozen)
-            throw new Error("No frozen specification to reopen");
-          if (
-            row.approved !== undefined ||
-            row.handoff !== undefined ||
-            row.graph !== undefined
-          )
+          if (row.specification?.status !== SpecStatus.Frozen) throw new Error("No frozen specification to reopen");
+          if (row.approved !== undefined || row.handoff || row.graph)
             throw new Error(
               "This discovery has been handed off. Use /tasks to track it or /socrates TITLE to start a separate discovery.",
             );
@@ -420,20 +347,16 @@ export function registerDiscovery(
     },
   });
   pi.registerCommand("plan-draft", {
-    description:
-      "Draft or revise a private work breakdown in this conversation",
+    description: "Draft or revise a private work breakdown in this conversation",
     async handler(argument, ctx) {
-      if (documents.pending() || !ctx.isIdle())
-        throw new Error("Wait for the lead turn to settle");
+      if (documents.pending() || !ctx.isIdle()) throw new Error("Wait for the lead turn to settle");
       if (locate(ctx) === undefined) {
         const title = argument.trim();
         create(ctx, title === "" ? "Work breakdown" : title);
       }
       const record = await requireBinding(ctx);
-      if (record.handoff !== undefined || record.approved !== undefined)
-        throw new Error(
-          "This breakdown has been handed off. Use /socrates-end to start a separate plan.",
-        );
+      if (record.handoff || record.approved !== undefined)
+        throw new Error("This breakdown has been handed off. Use /socrates-end to start a separate plan.");
       pi.sendUserMessage(
         `Draft or revise the local work breakdown: proposed tasks, dependencies, acceptance criteria, and checks. ${argument}`,
       );
@@ -477,9 +400,7 @@ export function registerDiscovery(
       const { expectedRevision, ...candidate } = params;
       const draft = draftSchema.parse(candidate);
       if (draft.tasks.some((task) => task.assignment === undefined))
-        throw new Error(
-          "Specify worker capability and reasoning for every task",
-        );
+        throw new Error("Specify worker capability and reasoning for every task");
       if (locate(ctx) === undefined) {
         create(ctx, draft.summary);
         documents.capture(ctx);
@@ -487,11 +408,8 @@ export function registerDiscovery(
       const record = await requireBinding(ctx);
       storage((db) =>
         db.change(record.id, (row) => {
-          if (row.approved !== undefined)
-            throw new Error(
-              "This breakdown is already approved; create a new discovery",
-            );
-          if (row.specification !== undefined) socrates.checkReview?.(row, ctx);
+          if (row.approved !== undefined) throw new Error("This breakdown is already approved; create a new discovery");
+          if (row.specification) socrates.checkReview?.(row, ctx);
           documents.assertAgent(DocumentKind.Plan, row, ctx, expectedRevision);
           saveDiscoveryPlan(row, draft);
         }),
@@ -503,9 +421,7 @@ export function registerDiscovery(
           {
             type: "text",
             text:
-              saved !== undefined &&
-              (saved.pendingReview !== undefined ||
-                saved.coverageRevision === undefined)
+              saved && (saved.pendingReview || saved.coverageRevision === undefined)
                 ? "Draft saved. Review the updated plan with draft_socrates_specification before the next question, freeze, or handoff. Update the affected properties."
                 : saved?.status === SpecStatus.Frozen
                   ? "Draft saved. /plan to inspect · /plan-approve to review the handoff"
@@ -524,68 +440,44 @@ export function registerDiscovery(
     },
   });
   pi.registerCommand("plan-delivery", {
-    description:
-      "Change a proposed task delivery: <task-key> <local|pull-request>",
+    description: "Change a proposed task delivery: <task-key> <local|pull-request>",
     async handler(argument, ctx) {
       const record = await requireBinding(ctx);
       storage((db) =>
         db.change(record.id, (row) => {
-          if (
-            row.approved !== undefined ||
-            row.leadPlan.mode !== LeadMode.Planning ||
-            row.leadPlan.draft === null
-          )
+          if (row.approved !== undefined || row.leadPlan.mode !== LeadMode.Planning || row.leadPlan.draft === null)
             throw new Error("No unapproved draft to revise");
           // Changing one delivery does not review the full plan against a newer specification.
-          saveDiscoveryPlan(
-            row,
-            reviseDelivery(row.leadPlan.draft, argument),
-            false,
-          );
+          saveDiscoveryPlan(row, reviseDelivery(row.leadPlan.draft, argument), false);
         }),
       );
       socrates.refresh(ctx);
-      ctx.ui.notify(
-        "Delivery proposal updated. Use /plan to review it.",
-        "info",
-      );
+      ctx.ui.notify("Delivery proposal updated. Use /plan to review it.", "info");
     },
   });
   pi.registerCommand("plan-approve", {
-    description:
-      "Review and authorize the plan in background mode or with /plan-approve interactive",
+    description: "Review and authorize the plan in background mode or with /plan-approve interactive",
     async handler(argument, ctx) {
       const mode = argument.trim();
       if (mode !== "" && mode !== "background" && mode !== "interactive")
-        throw new Error(
-          "Use /plan-approve background or /plan-approve interactive",
-        );
-      if (documents.pending() || !ctx.isIdle())
-        throw new Error("Wait for the lead turn to settle");
+        throw new Error("Use /plan-approve background or /plan-approve interactive");
+      if (documents.pending() || !ctx.isIdle()) throw new Error("Wait for the lead turn to settle");
       const record = await requireBinding(ctx);
       const draft = handoffDraft(record);
       const digest = planDigest(draft);
       const selectedProfile = profile();
       if (selectedProfile === undefined)
-        throw new Error(
-          "Select /studio-profile work or personal before approving execution",
-        );
+        throw new Error("Select /studio-profile work or personal before approving execution");
       if (discoveryBusy()) throw new Error("Wait for the discovery command");
       pending = true;
       try {
-        const {
-          handoffTarget,
-          handoffWorkers,
-          approveHandoff,
-          prepareInteractiveHandoff,
-        } = await import("../execution/handoff.ts");
+        const { handoffTarget, handoffWorkers, approveHandoff, prepareInteractiveHandoff } = await import(
+          "../execution/handoff.ts"
+        );
         const config = await loadConfig();
         const target = handoffTarget(config, record, selectedProfile);
         const workers = handoffWorkers(config, draft, target.profile);
-        const interactive =
-          mode === "interactive"
-            ? await prepareInteractiveHandoff(record)
-            : undefined;
+        const interactive = mode === "interactive" ? await prepareInteractiveHandoff(record) : undefined;
         if (
           !(await reviewHandoff(ctx, {
             title: record.title,
@@ -595,10 +487,9 @@ export function registerDiscovery(
             sourceId: target.id,
             profile: target.profile,
             workers,
-            execution:
-              interactive === undefined
-                ? "background"
-                : `interactive in Zellij ${interactive.session}, tab ${String(interactive.tab)}`,
+            execution: !interactive
+              ? "background"
+              : `interactive in Zellij ${interactive.session}, tab ${String(interactive.tab)}`,
           }))
         )
           return;
@@ -612,29 +503,16 @@ export function registerDiscovery(
           planDigest(current.leadPlan.draft) !== digest
         )
           throw new Error("The displayed breakdown changed; review it again");
-        await approveHandoff(
-          current,
-          selectedProfile,
-          target,
-          interactive,
-          workers,
-        );
-        ctx.ui.notify(
-          "Approved work is queued in Beads. The lead remains free.",
-          "info",
-        );
+        await approveHandoff(current, selectedProfile, target, interactive, workers);
+        ctx.ui.notify("Approved work is queued in Beads. The lead remains free.", "info");
       } finally {
         pending = false;
         socrates.refresh(ctx);
       }
     },
   });
-  pi.on("session_before_switch", () =>
-    documentActionBusy() ? { cancel: true } : undefined,
-  );
-  pi.on("session_before_fork", () =>
-    documentActionBusy() ? { cancel: true } : undefined,
-  );
+  pi.on("session_before_switch", () => (documentActionBusy() ? { cancel: true } : undefined));
+  pi.on("session_before_fork", () => (documentActionBusy() ? { cancel: true } : undefined));
   return {
     pending: documentActionBusy,
     runtimeHandoff(ctx: ExtensionContext): Discovery["handoff"] {

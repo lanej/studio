@@ -4,14 +4,8 @@ import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import { z } from "zod";
 import { diffScope } from "../code-intelligence/scopes.ts";
-import {
-  analyzeEditSyntax,
-  syntaxReplacement,
-} from "../code-intelligence/syntax-analysis.ts";
-import {
-  maxSyntaxSourceBytes,
-  supportsSyntax,
-} from "../code-intelligence/tree-sitter.ts";
+import { analyzeEditSyntax, syntaxReplacement } from "../code-intelligence/syntax-analysis.ts";
+import { maxSyntaxSourceBytes, supportsSyntax } from "../code-intelligence/tree-sitter.ts";
 
 export const patchEdits = z
   .array(
@@ -49,29 +43,19 @@ const sourceBudget = 4 * maxSyntaxSourceBytes;
 // Add can overwrite an existing regular file; delete can unlink a symlink.
 // Never open the symlink's target just to display a deletion.
 async function originalAtPath(path: string, limit: number) {
-  const file = await open(
-    path,
-    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-  );
+  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     const stat = await file.stat();
     if (!stat.isFile() || stat.size > limit) return undefined;
     const bytes = Buffer.alloc(stat.size + 1);
     let count = 0;
     while (count < bytes.length) {
-      const { bytesRead } = await file.read(
-        bytes,
-        count,
-        bytes.length - count,
-        null,
-      );
+      const { bytesRead } = await file.read(bytes, count, bytes.length - count, null);
       if (bytesRead === 0) break;
       count += bytesRead;
     }
     if (count !== stat.size) return undefined;
-    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
-      bytes.subarray(0, count),
-    );
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes.subarray(0, count));
   } finally {
     await file.close();
   }
@@ -108,11 +92,9 @@ async function displayEdit(change: FileChange, images: Images) {
   const path = change.moveTo ?? change.path;
   const studioSyntax =
     diff.length > 0 && supportsSyntax(path)
-      ? await analyzeEditSyntax(path, before, after, diff).catch(
-          () => undefined,
-        )
+      ? await analyzeEditSyntax(path, before, after, diff).catch(() => undefined)
       : undefined;
-  return { diff, ...(studioSyntax === undefined ? {} : { studioSyntax }) };
+  return { diff, ...(!studioSyntax ? {} : { studioSyntax }) };
 }
 
 export function capturePatchEdits() {
@@ -164,10 +146,10 @@ export function capturePatchEdits() {
         };
         edits.push(edit);
         const sources = images.get(index);
-        if (sources === undefined || remainingPreview <= 0) continue;
+        if (!sources || remainingPreview <= 0) continue;
         try {
           const data = await displayEdit(change, sources);
-          if (data === undefined) continue;
+          if (!data) continue;
           const bytes = Buffer.byteLength(JSON.stringify(data));
           if (bytes > remainingPreview) continue;
           remainingPreview -= bytes;

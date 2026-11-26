@@ -3,11 +3,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
-import {
-  documentRefSchema,
-  documentSnapshotSchema,
-  DocumentOwnerKind,
-} from "./model.ts";
+import { documentRefSchema, documentSnapshotSchema, DocumentOwnerKind } from "./model.ts";
 import { OperationIdReused } from "../operation-witness.ts";
 
 export enum FeedbackState {
@@ -35,10 +31,7 @@ export const selectionFeedbackSchema = z.strictObject({
       startLine: z.number().int().positive(),
       endLine: z.number().int().positive(),
     })
-    .refine(
-      (range) => range.endLine >= range.startLine,
-      "Invalid selection range",
-    ),
+    .refine((range) => range.endLine >= range.startLine, "Invalid selection range"),
   selectedText: z.string().max(100_000),
   message: z
     .string()
@@ -99,12 +92,8 @@ export class DocumentJournal {
       create: true,
     });
     this.db.run("PRAGMA busy_timeout=5000");
-    this.db.run(
-      "CREATE TABLE IF NOT EXISTS document_feedback (id TEXT PRIMARY KEY, record TEXT NOT NULL)",
-    );
-    this.db.run(
-      "CREATE TABLE IF NOT EXISTS document_saves (id TEXT PRIMARY KEY, record TEXT NOT NULL)",
-    );
+    this.db.run("CREATE TABLE IF NOT EXISTS document_feedback (id TEXT PRIMARY KEY, record TEXT NOT NULL)");
+    this.db.run("CREATE TABLE IF NOT EXISTS document_saves (id TEXT PRIMARY KEY, record TEXT NOT NULL)");
   }
   close(): void {
     this.db.close();
@@ -115,10 +104,7 @@ export class DocumentJournal {
       .all()
       .map((row) => decode(row, feedbackSchema));
   }
-  *records(
-    project: string,
-    conversation: string,
-  ): IterableIterator<FeedbackRecord> {
+  *records(project: string, conversation: string): IterableIterator<FeedbackRecord> {
     for (const row of this.db
       .query(
         "SELECT record FROM document_feedback WHERE json_extract(record,'$.ref.project')=? AND json_extract(record,'$.ref.conversationId')=? ORDER BY rowid",
@@ -162,20 +148,12 @@ export class DocumentJournal {
           owner?.id ?? "",
           owner?.kind ?? "",
         );
-      if (owner !== undefined)
+      if (owner)
         this.db
           .query(
             "UPDATE document_feedback SET record=json_remove(json_set(record,'$.state',?),'$.reason') WHERE json_extract(record,'$.ref.project')=? AND json_extract(record,'$.ref.conversationId')=? AND json_extract(record,'$.generation')=? AND json_extract(record,'$.state')=? AND json_extract(record,'$.ref.ownerId')=? AND json_extract(record,'$.ref.ownerKind')=?",
           )
-          .run(
-            FeedbackState.Queued,
-            project,
-            conversation,
-            generation,
-            FeedbackState.Parked,
-            owner.id,
-            owner.kind,
-          );
+          .run(FeedbackState.Queued, project, conversation, generation, FeedbackState.Parked, owner.id, owner.kind);
       this.db.run("COMMIT");
     } catch (cause) {
       this.db.run("ROLLBACK");
@@ -193,30 +171,19 @@ export class DocumentJournal {
       .query("INSERT OR IGNORE INTO document_feedback VALUES (?,?)")
       .run(request.requestId, JSON.stringify(record));
     const retained = this.submitted(request);
-    if (retained === undefined)
-      throw new Error("The feedback receipt was not retained");
+    if (!retained) throw new Error("The feedback receipt was not retained");
     return retained;
   }
   submitted(request: SelectionFeedback): FeedbackRecord | undefined {
-    const row = this.db
-      .query("SELECT record FROM document_feedback WHERE id=?")
-      .get(request.requestId);
+    const row = this.db.query("SELECT record FROM document_feedback WHERE id=?").get(request.requestId);
     if (row === null) return undefined;
     const retained = decode(row, feedbackSchema);
-    if (
-      !isDeepStrictEqual(
-        selectionFeedbackSchema.parse(stripFeedback(retained)),
-        request,
-      )
-    )
+    if (!isDeepStrictEqual(selectionFeedbackSchema.parse(stripFeedback(retained)), request))
       throw new FeedbackRequestReused();
     return retained;
   }
   get(id: string): FeedbackRecord {
-    return decode(
-      this.db.query("SELECT record FROM document_feedback WHERE id=?").get(id),
-      feedbackSchema,
-    );
+    return decode(this.db.query("SELECT record FROM document_feedback WHERE id=?").get(id), feedbackSchema);
   }
   change(id: string, update: (record: FeedbackRecord) => void): FeedbackRecord {
     this.db.run("BEGIN IMMEDIATE");
@@ -224,9 +191,7 @@ export class DocumentJournal {
       const record = this.get(id);
       update(record);
       const checked = feedbackSchema.parse(record);
-      this.db
-        .query("UPDATE document_feedback SET record=? WHERE id=?")
-        .run(JSON.stringify(checked), id);
+      this.db.query("UPDATE document_feedback SET record=? WHERE id=?").run(JSON.stringify(checked), id);
       this.db.run("COMMIT");
       return checked;
     } catch (error) {
@@ -239,10 +204,7 @@ export class DocumentJournal {
     // never evidence of acceptance; only an authoritative witness proves that.
     const reservation = {
       version: 1,
-      authority:
-        request.ref.ownerKind === DocumentOwnerKind.Attempt
-          ? "attempts.sqlite"
-          : "discoveries.sqlite",
+      authority: request.ref.ownerKind === DocumentOwnerKind.Attempt ? "attempts.sqlite" : "discoveries.sqlite",
       ownerId: request.ref.ownerId,
       command,
     };
@@ -250,29 +212,20 @@ export class DocumentJournal {
       .query("INSERT OR IGNORE INTO document_saves VALUES (?,?)")
       .run(request.operationId, JSON.stringify({ request, reservation }));
     const receipt = this.saved(request, command);
-    if (receipt === undefined)
-      throw new Error("The save reservation was not retained");
+    if (!receipt) throw new Error("The save reservation was not retained");
     return receipt;
   }
-  saved(
-    request: SaveDraft,
-    command = JSON.stringify(request),
-  ): SaveReceipt | undefined {
-    const row = this.db
-      .query("SELECT record FROM document_saves WHERE id=?")
-      .get(request.operationId);
+  saved(request: SaveDraft, command = JSON.stringify(request)): SaveReceipt | undefined {
+    const row = this.db.query("SELECT record FROM document_saves WHERE id=?").get(request.operationId);
     if (row === null) return undefined;
     const receipt = decode(row, saveReceiptSchema);
-    if (!isDeepStrictEqual(receipt.request, request))
-      throw new OperationIdReused();
+    if (!isDeepStrictEqual(receipt.request, request)) throw new OperationIdReused();
     if (
-      receipt.reservation !== undefined &&
+      receipt.reservation &&
       (receipt.reservation.command !== command ||
         receipt.reservation.ownerId !== request.ref.ownerId ||
         receipt.reservation.authority !==
-          (request.ref.ownerKind === DocumentOwnerKind.Attempt
-            ? "attempts.sqlite"
-            : "discoveries.sqlite"))
+          (request.ref.ownerKind === DocumentOwnerKind.Attempt ? "attempts.sqlite" : "discoveries.sqlite"))
     )
       throw new OperationIdReused();
     return receipt;
@@ -284,29 +237,18 @@ export class DocumentJournal {
     command = JSON.stringify(request),
   ): void {
     const receipt = this.save(request, command);
-    if (
-      receipt.accepted !== undefined &&
-      !isDeepStrictEqual(receipt.accepted, accepted)
-    )
-      throw new Error(
-        "The save receipt already identifies another accepted revision",
-      );
+    if (receipt.accepted && !isDeepStrictEqual(receipt.accepted, accepted))
+      throw new Error("The save receipt already identifies another accepted revision");
     this.db
       .query("UPDATE document_saves SET record=? WHERE id=?")
-      .run(
-        JSON.stringify(
-          saveReceiptSchema.parse({ ...receipt, accepted, commitWitnessId }),
-        ),
-        request.operationId,
-      );
+      .run(JSON.stringify(saveReceiptSchema.parse({ ...receipt, accepted, commitWitnessId })), request.operationId);
   }
 }
 
 function decode<T>(row: unknown, schema: z.ZodType<T>): T {
-  return schema.parse(
-    JSON.parse(z.object({ record: z.string() }).parse(row).record),
-  );
+  return schema.parse(JSON.parse(z.object({ record: z.string() }).parse(row).record));
 }
+
 function stripFeedback(record: FeedbackRecord): SelectionFeedback {
   return {
     requestId: record.requestId,

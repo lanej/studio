@@ -5,22 +5,10 @@ import { z } from "zod";
 import { octo } from "../delivery.ts";
 import { draftSchema } from "../lead-plan.ts";
 import { safeGit, networkGit } from "./git.ts";
-import {
-  assertPublicationHead,
-  fetchPublicationTarget,
-  publicationTarget,
-} from "./publication-base.ts";
+import { assertPublicationHead, fetchPublicationTarget, publicationTarget } from "./publication-base.ts";
 import { mergePolicy } from "./policy.ts";
-import {
-  hasManualMergeApproval,
-  requireManualMergeAuthority,
-} from "./manual-merge.ts";
-import {
-  type ExecutionStore,
-  ExecutionPhase,
-  type Execution,
-  type RuntimeProject,
-} from "./store.ts";
+import { hasManualMergeApproval, requireManualMergeAuthority } from "./manual-merge.ts";
+import { type ExecutionStore, ExecutionPhase, type Execution, type RuntimeProject } from "./store.ts";
 
 const publication = z.looseObject({
   id: z.string(),
@@ -31,16 +19,12 @@ const publication = z.looseObject({
 const notice = z.looseObject({
   message: z.looseObject({
     id: z.string(),
-    mergeTarget: z
-      .looseObject({ head: z.string(), prId: z.string(), ownerId: z.string() })
-      .optional(),
+    mergeTarget: z.looseObject({ head: z.string(), prId: z.string(), ownerId: z.string() }).optional(),
     items: z.array(
       z.looseObject({
         id: z.string(),
         applicable: z.boolean().optional(),
-        action: z
-          .looseObject({ action: z.looseObject({ id: z.string() }) })
-          .optional(),
+        action: z.looseObject({ action: z.looseObject({ id: z.string() }) }).optional(),
       }),
     ),
   }),
@@ -77,12 +61,8 @@ const tracked = z.looseObject({
       .looseObject({
         headSha: z.string(),
         lifecycle: z.string(),
-        feedback: z
-          .object({ state: z.string(), value: z.array(z.unknown()).optional() })
-          .optional(),
-        reviews: z
-          .object({ state: z.string(), value: z.array(z.unknown()).optional() })
-          .optional(),
+        feedback: z.object({ state: z.string(), value: z.array(z.unknown()).optional() }).optional(),
+        reviews: z.object({ state: z.string(), value: z.array(z.unknown()).optional() }).optional(),
       })
       .optional(),
   }),
@@ -134,9 +114,7 @@ export async function deliverAssignment(
   adapters: DeliveryDependencies = deliveryDependencies,
 ): Promise<void> {
   // The claimed brief is retained across restarts. An older graph has no per-plan restriction.
-  const mergeMode = draftSchema.shape.pullRequestMerge.parse(
-    initial.bead?.metadata["studio.pullRequestMerge"],
-  );
+  const mergeMode = draftSchema.shape.pullRequestMerge.parse(initial.bead?.metadata["studio.pullRequestMerge"]);
   const cwd = initial.checkout?.path;
   if (
     cwd === undefined ||
@@ -144,9 +122,7 @@ export async function deliverAssignment(
     initial.review === undefined ||
     initial.controllerSession === undefined
   )
-    throw new Error(
-      "Delivery needs an owned checkout, exact-head independent review, and native control session",
-    );
+    throw new Error("Delivery needs an owned checkout, exact-head independent review, and native control session");
   // Octo reads its contract from the trusted enrolled source, never worker-writable policy files.
   const authority = project.root;
   const directory = join(store.directory, "delivery", initial.id);
@@ -157,20 +133,14 @@ export async function deliverAssignment(
     // Preserve mutation receipts even when authority is revoked during the request.
     if (
       args[0] === "merge" ||
-      (args[0] === "pr" &&
-        ["publish", "ready", "auto-merge"].includes(args[1] ?? "")) ||
+      (args[0] === "pr" && ["publish", "ready", "auto-merge"].includes(args[1] ?? "")) ||
       (args[0] === "action" && args[1] === "ack") ||
       (args[0] === "agent" && args[1] === "register")
     ) {
       const evidence = JSON.stringify({ args, value });
-      await writeFile(
-        join(
-          directory,
-          `effect-${createHash("sha256").update(evidence).digest("hex")}.json`,
-        ),
-        evidence,
-        { mode: 0o600 },
-      );
+      await writeFile(join(directory, `effect-${createHash("sha256").update(evidence).digest("hex")}.json`), evidence, {
+        mode: 0o600,
+      });
     }
     await authorityFence();
     return value;
@@ -197,13 +167,7 @@ export async function deliverAssignment(
       if (!hasManualMergeApproval(current, target)) return false;
       await adapters.requireManualMergeAuthority(project);
     } else if (!(await adapters.mergePolicy(project.id)).enabled) return false;
-    await assertPublicationHead(
-      store,
-      project,
-      current,
-      target.head,
-      dependencies,
-    );
+    await assertPublicationHead(store, project, current, target.head, dependencies);
     return true;
   };
   let attempt = store.attempt(initial.id);
@@ -250,22 +214,12 @@ export async function deliverAssignment(
     initial.controllerSession,
   ];
   if (attempt.publication === undefined) {
-    const remote = (
-      await dependencies.networkGit(project.root, [
-        "remote",
-        "get-url",
-        "origin",
-      ])
-    ).trim();
-    const match =
-      /^(?:https:\/\/github\.com\/|git@github\.com:)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/u.exec(
-        remote,
-      );
+    const remote = (await dependencies.networkGit(project.root, ["remote", "get-url", "origin"])).trim();
+    const match = /^(?:https:\/\/github\.com\/|git@github\.com:)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/u.exec(
+      remote,
+    );
     const repo = match?.[1];
-    if (repo === undefined)
-      throw new Error(
-        "PR delivery requires an explicit GitHub origin repository",
-      );
+    if (repo === undefined) throw new Error("PR delivery requires an explicit GitHub origin repository");
     const inputPath = join(directory, "publication.json");
     const inputSchema = z.object({
       head: z.string(),
@@ -278,27 +232,14 @@ export async function deliverAssignment(
       mode: 0o600,
       flag: "wx",
     }).catch((error: unknown) => {
-      if (
-        !(error instanceof Error && "code" in error && error.code === "EEXIST")
-      )
-        throw error;
+      if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
     });
-    const saved = inputSchema.parse(
-      JSON.parse(await readFile(inputPath, "utf8")),
-    );
+    const saved = inputSchema.parse(JSON.parse(await readFile(inputPath, "utf8")));
     if (saved.head !== initial.head)
-      throw new Error(
-        "Reconcile the retained publication before publishing another head",
-      );
+      throw new Error("Reconcile the retained publication before publishing another head");
     const body = join(directory, "body.md");
     await writeFile(body, saved.body, { mode: 0o600 });
-    await assertPublicationHead(
-      store,
-      project,
-      store.attempt(initial.id),
-      initial.head,
-      dependencies,
-    );
+    await assertPublicationHead(store, project, store.attempt(initial.id), initial.head, dependencies);
     await dependencies.networkGit(project.root, [
       "push",
       "origin",
@@ -323,8 +264,7 @@ export async function deliverAssignment(
     );
     store.change(initial.id, (row) => {
       row.phase = ExecutionPhase.Delivery;
-      row.message =
-        "Publication intent persisted; request identity is the admitted attempt ID";
+      row.message = "Publication intent persisted; request identity is the admitted attempt ID";
     });
     const result = publication.parse(
       await call(
@@ -357,43 +297,20 @@ export async function deliverAssignment(
   while (!signal.aborted) {
     attempt = store.attempt(initial.id);
     const submitted = publication.parse(
-      await call(
-        authority,
-        "publication",
-        "show",
-        z.string().parse(attempt.publication),
-      ),
+      await call(authority, "publication", "show", z.string().parse(attempt.publication)),
     );
-    if (submitted.id !== attempt.publication)
-      throw new Error("Octo returned another publication receipt");
+    if (submitted.id !== attempt.publication) throw new Error("Octo returned another publication receipt");
     if (submitted.state === "failed" || submitted.state === "uncertain")
-      throw new Error(
-        `Octo publication ${submitted.id} is ${submitted.state}; reconcile its receipt before retrying`,
-      );
-    if (
-      submitted.state === "published" &&
-      submitted.url !== undefined &&
-      submitted.tracking === "active"
-    ) {
-      const observed = tracked.parse(
-        await call(
-          authority,
-          "pr",
-          "show",
-          submitted.url,
-          "--full",
-          ...identity,
-        ),
-      );
+      throw new Error(`Octo publication ${submitted.id} is ${submitted.state}; reconcile its receipt before retrying`);
+    if (submitted.state === "published" && submitted.url !== undefined && submitted.tracking === "active") {
+      const observed = tracked.parse(await call(authority, "pr", "show", submitted.url, "--full", ...identity));
       if (
         observed.pr.ownerAgentId !== agent ||
         observed.pr.url !== submitted.url ||
         (attempt.pr !== undefined && attempt.pr !== observed.pr.id) ||
         (attempt.url !== undefined && attempt.url !== observed.pr.url)
       )
-        throw new Error(
-          "Octo delivery ownership differs from the admitted controller",
-        );
+        throw new Error("Octo delivery ownership differs from the admitted controller");
       store.change(initial.id, (row) => {
         row.pr = observed.pr.id;
         row.url = observed.pr.url;
@@ -403,10 +320,7 @@ export async function deliverAssignment(
             ? "Published; the approved plan reserves merging for the operator"
             : "Published; processing durable Octo inbox independently of the lead";
       });
-      if (
-        observed.pr.observation?.lifecycle !== "merged" &&
-        !attempt.events.includes("receipt-policy")
-      ) {
+      if (observed.pr.observation?.lifecycle !== "merged" && !attempt.events.includes("receipt-policy")) {
         await call(
           authority,
           "pr",
@@ -422,10 +336,7 @@ export async function deliverAssignment(
         });
       }
       if (observed.pr.observation?.lifecycle === "merged") {
-        if (
-          attempt.mergeReceipt === undefined ||
-          observed.pr.observation.headSha !== attempt.head
-        )
+        if (attempt.mergeReceipt === undefined || observed.pr.observation.headSha !== attempt.head)
           throw new Error(
             "PR merged outside the retained exact-head delivery intent; assess task criteria before completion",
           );
@@ -448,11 +359,7 @@ export async function deliverAssignment(
           throw new Error(
             "The merged PR has no matching authorized exact-head intent; assess task criteria before completion",
           );
-        const merged = await fetchPublicationTarget(
-          project,
-          initial.id,
-          dependencies.networkGit,
-        );
+        const merged = await fetchPublicationTarget(project, initial.id, dependencies.networkGit);
         const paths = (
           await dependencies.safeGit(project.root, cwd, [
             "diff",
@@ -476,8 +383,7 @@ export async function deliverAssignment(
           ]);
         store.change(initial.id, (row) => {
           row.merged = merged;
-          row.message =
-            "Octo confirms the pinned PR merged; accepted changed paths are present in the fetched base";
+          row.message = "Octo confirms the pinned PR merged; accepted changed paths are present in the fetched base";
         });
         return;
       }
@@ -501,16 +407,7 @@ export async function deliverAssignment(
             observed.pr.observation?.headSha === target.head &&
             (await mayRequestMerge(target))
           ) {
-            await requestMerge(
-              store,
-              initial.id,
-              directory,
-              authority,
-              observed.pr.url,
-              target,
-              identity,
-              call,
-            );
+            await requestMerge(store, initial.id, directory, authority, observed.pr.url, target, identity, call);
           }
         } else {
           const chain = z
@@ -526,54 +423,28 @@ export async function deliverAssignment(
                 z.looseObject({
                   entryId: z.string(),
                   kind: z.enum(["merge", "prepare"]),
-                  state: z.enum([
-                    "planned",
-                    "running",
-                    "succeeded",
-                    "failed",
-                    "uncertain",
-                  ]),
+                  state: z.enum(["planned", "running", "succeeded", "failed", "uncertain"]),
                 }),
               ),
             })
-            .parse(
-              await call(
-                authority,
-                "chain",
-                "show",
-                z.string().parse(retained.chain),
-                "--full",
-              ),
-            );
-          const entries = chain.entries.filter((entry) =>
-            entry.id.startsWith(z.string().parse(retained.entry)),
-          );
+            .parse(await call(authority, "chain", "show", z.string().parse(retained.chain), "--full"));
+          const entries = chain.entries.filter((entry) => entry.id.startsWith(z.string().parse(retained.entry)));
           const entry = entries[0];
           if (entries.length !== 1 || entry?.prId !== observed.pr.id)
             throw new Error("Merge-chain receipt no longer identifies this PR");
           const unresolved = chain.operations.some(
-            (operation) =>
-              operation.entryId === entry.id &&
-              operation.kind === "merge" &&
-              operation.state !== "failed",
+            (operation) => operation.entryId === entry.id && operation.kind === "merge" && operation.state !== "failed",
           );
-          if (
-            !unresolved &&
-            ["blocked", "waiting_owner", "cancelled"].includes(entry.state)
-          ) {
+          if (!unresolved && ["blocked", "waiting_owner", "cancelled"].includes(entry.state)) {
             await writeFile(
-              join(
-                directory,
-                `merge-settled-${createHash("sha256").update(attempt.mergeReceipt).digest("hex")}.json`,
-              ),
+              join(directory, `merge-settled-${createHash("sha256").update(attempt.mergeReceipt).digest("hex")}.json`),
               JSON.stringify(chain),
               { mode: 0o600 },
             );
             store.change(initial.id, (row) => {
               row.mergeReceipt = undefined;
               clearReadiness(row);
-              row.message =
-                "Octo confirms no active merge; retained assignment can assess new feedback";
+              row.message = "Octo confirms no active merge; retained assignment can assess new feedback";
             });
           }
         }
@@ -617,53 +488,26 @@ export async function deliverAssignment(
           if (
             !entry.applicable ||
             entry.recipientAgentId !== agent ||
-            (entry.readyHead === undefined &&
-              store.attempt(initial.id).events.includes(entry.id))
+            (entry.readyHead === undefined && store.attempt(initial.id).events.includes(entry.id))
           )
             continue;
           // An agent can own multiple PRs. Inspect action subjects before consuming their delivery.
-          if (
-            entry.workflowPrId !== undefined &&
-            entry.workflowPrId !== observed.pr.id
-          )
-            continue;
+          if (entry.workflowPrId !== undefined && entry.workflowPrId !== observed.pr.id) continue;
           if (entry.workflowPrId === undefined) {
             if (entry.actionId === undefined || entry.actionId === "") continue;
             const subject = shown.parse(
-              await call(
-                authority,
-                "action",
-                "show",
-                entry.actionId,
-                "--full",
-                ...identity,
-              ),
+              await call(authority, "action", "show", entry.actionId, "--full", ...identity),
             ).action;
-            if (
-              subject.prId !== observed.pr.id ||
-              subject.ownerAgentId !== agent
-            )
-              continue;
+            if (subject.prId !== observed.pr.id || subject.ownerAgentId !== agent) continue;
           }
-          const message = notice.parse(
-            await call(authority, "read", entry.id, ...identity),
-          );
+          const message = notice.parse(await call(authority, "read", entry.id, ...identity));
           let belongs = entry.workflowPrId === observed.pr.id;
           for (const item of message.message.items) {
-            if (item.applicable === false || item.action === undefined)
-              continue;
+            if (item.applicable === false || !item.action) continue;
             const action = shown.parse(
-              await call(
-                authority,
-                "action",
-                "show",
-                item.action.action.id,
-                "--full",
-                ...identity,
-              ),
+              await call(authority, "action", "show", item.action.action.id, "--full", ...identity),
             ).action;
-            if (action.prId === observed.pr.id && action.ownerAgentId === agent)
-              belongs = true;
+            if (action.prId === observed.pr.id && action.ownerAgentId === agent) belongs = true;
           }
           if (!belongs) continue;
           const current = store.attempt(initial.id);
@@ -681,8 +525,7 @@ export async function deliverAssignment(
           });
         }
         if (!inbox.hasMore) break;
-        if (inbox.nextSequence <= after)
-          throw new Error("Octo inbox cursor did not advance");
+        if (inbox.nextSequence <= after) throw new Error("Octo inbox cursor did not advance");
         after = inbox.nextSequence;
       }
       // Assess every current action before attesting owner readiness, including feedback whose
@@ -693,20 +536,9 @@ export async function deliverAssignment(
       let corrected = false;
       let awaitingEvidence = false;
       for (const candidate of actions.actions) {
-        const action = shown.parse(
-          await call(
-            authority,
-            "action",
-            "show",
-            candidate.id,
-            "--full",
-            ...identity,
-          ),
-        ).action;
+        const action = shown.parse(await call(authority, "action", "show", candidate.id, "--full", ...identity)).action;
         if (action.prId !== observed.pr.id || action.ownerAgentId !== agent)
-          throw new Error(
-            "Octo returned an action outside this delivery owner/PR",
-          );
+          throw new Error("Octo returned an action outside this delivery owner/PR");
         if (["resolved", "superseded"].includes(action.state)) continue;
         const evidence = JSON.stringify(action);
         const digest = createHash("sha256")
@@ -718,21 +550,11 @@ export async function deliverAssignment(
           mode: 0o600,
           flag: "wx",
         }).catch((error: unknown) => {
-          if (
-            !(
-              error instanceof Error &&
-              "code" in error &&
-              error.code === "EEXIST"
-            )
-          )
-            throw error;
+          if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
         });
         const current = store.attempt(initial.id);
         const blocker = action.blocker;
-        if (blocker === undefined)
-          throw new Error(
-            "Full action evidence is missing; retain pending feedback",
-          );
+        if (!blocker) throw new Error("Full action evidence is missing; retain pending feedback");
         let needsCorrection = true;
         if (blocker.case === "checkResults") {
           const result = checks.parse(blocker.value);
@@ -740,50 +562,29 @@ export async function deliverAssignment(
           if (result.checks.some((check) => check.headSha !== current.head))
             throw new Error("Mixed-head check evidence cannot be assessed");
           needsCorrection = result.checks.some(
-            (check) =>
-              check.status === "completed" &&
-              !["success", "skipped", "neutral"].includes(check.conclusion),
+            (check) => check.status === "completed" && !["success", "skipped", "neutral"].includes(check.conclusion),
           );
           if (result.checks.some((check) => check.status !== "completed")) {
             awaitingEvidence = true;
             continue;
           }
         } else if (["conflict", "checkFailed"].includes(blocker.case)) {
-          const head = z
-            .object({ headSha: z.string() })
-            .parse(blocker.value).headSha;
+          const head = z.object({ headSha: z.string() }).parse(blocker.value).headSha;
           if (head !== current.head) continue;
-        } else if (
-          !["changesRequested", "reviewFeedback"].includes(blocker.case)
-        ) {
-          throw new Error(
-            "Unsupported Octo action requires explicit assessment",
-          );
+        } else if (!["changesRequested", "reviewFeedback"].includes(blocker.case)) {
+          throw new Error("Unsupported Octo action requires explicit assessment");
         }
         if (needsCorrection) {
           const correction = `correction:${digest}`;
           if (!store.attempt(initial.id).events.includes(correction)) {
-            if (
-              store
-                .attempt(initial.id)
-                .events.filter((event) => event.startsWith("correction:"))
-                .length >= 3
-            )
-              throw new Error(
-                "Feedback correction budget exhausted; retained assignment needs review",
-              );
+            if (store.attempt(initial.id).events.filter((event) => event.startsWith("correction:")).length >= 3)
+              throw new Error("Feedback correction budget exhausted; retained assignment needs review");
             store.change(initial.id, (row) => {
               row.events.push(correction);
             });
           }
           const update = await correct(evidence);
-          await pushCorrection(
-            store,
-            initial.id,
-            project,
-            update,
-            dependencies,
-          );
+          await pushCorrection(store, initial.id, project, update, dependencies);
           corrected = true;
         }
         // Persist the actual assessment before acknowledging delivery/progress. A changed
@@ -799,42 +600,26 @@ export async function deliverAssignment(
         continue;
       }
       attempt = store.attempt(initial.id);
-      if (attempt.review === undefined)
-        throw new Error("The current PR revision lacks independent review");
+      if (attempt.review === undefined) throw new Error("The current PR revision lacks independent review");
       const observation = observed.pr.observation;
       if (
         awaitingEvidence ||
-        observation === undefined ||
+        !observation ||
         observation.headSha !== attempt.head ||
         observation.feedback?.state !== "complete" ||
         observation.reviews?.state !== "complete"
       ) {
-        if (attempt.readyNotice !== undefined)
-          store.change(initial.id, clearReadiness);
+        if (attempt.readyNotice) store.change(initial.id, clearReadiness);
         await dependencies.wait(signal);
         continue;
       }
       // Re-attest when feedback changes on the same head. The full action sweep above
       // must precede readiness, which attests to Octo's complete feedback snapshot.
       const assessment = `assessed:${createHash("sha256")
-        .update(
-          JSON.stringify([
-            attempt.head,
-            observation.feedback,
-            observation.reviews,
-          ]),
-        )
+        .update(JSON.stringify([attempt.head, observation.feedback, observation.reviews]))
         .digest("hex")}`;
       if (!attempt.events.includes(assessment)) {
-        await call(
-          authority,
-          "pr",
-          "ready",
-          observed.pr.id,
-          "--head",
-          z.string().parse(attempt.head),
-          ...identity,
-        );
+        await call(authority, "pr", "ready", observed.pr.id, "--head", z.string().parse(attempt.head), ...identity);
         store.change(initial.id, (row) => {
           row.events.push(assessment);
           clearReadiness(row);
@@ -845,42 +630,20 @@ export async function deliverAssignment(
       // Expose an operator prompt only after assessing this poll's applicable Ready receipt.
       const target = currentReady;
       store.change(initial.id, (row) => {
-        if (
-          target?.id !== row.readyNotice?.id ||
-          target?.head !== row.readyNotice?.head
-        )
-          clearReadiness(row);
+        if (target?.id !== row.readyNotice?.id || target?.head !== row.readyNotice?.head) clearReadiness(row);
         row.readyNotice = target;
-        if (
-          mergeMode === "manual" &&
-          target !== undefined &&
-          !hasManualMergeApproval(row, target)
-        )
+        if (mergeMode === "manual" && target && !hasManualMergeApproval(row, target))
           row.message = `Ready for operator approval: studio runtime approve-merge ${row.id} --head ${target.head}`;
       });
-      if (
-        target !== undefined &&
-        target.head === attempt.head &&
-        (await mayRequestMerge(target))
-      ) {
-        await requestMerge(
-          store,
-          initial.id,
-          directory,
-          authority,
-          observed.pr.url,
-          target,
-          identity,
-          call,
-        );
+      if (target && target.head === attempt.head && (await mayRequestMerge(target))) {
+        await requestMerge(store, initial.id, directory, authority, observed.pr.url, target, identity, call);
       }
     }
     await dependencies.wait(signal);
   }
-  throw new Error(
-    "Delivery interrupted; retained receipts must be reconciled before retry",
-  );
+  throw new Error("Delivery interrupted; retained receipts must be reconciled before retry");
 }
+
 function clearReadiness(row: Execution): void {
   row.readyNotice = undefined;
   row.manualMergeApproval = undefined;
@@ -917,10 +680,7 @@ async function requestMerge(
   );
   const evidence = JSON.stringify({ receipt });
   await writeFile(
-    join(
-      directory,
-      `merge-response-${createHash("sha256").update(evidence).digest("hex")}.json`,
-    ),
+    join(directory, `merge-response-${createHash("sha256").update(evidence).digest("hex")}.json`),
     evidence,
     { mode: 0o600 },
   );
@@ -939,16 +699,10 @@ async function requestMerge(
       head: target.head,
     });
   });
-  if (accepted.pr !== url)
-    throw new Error(
-      "Octo returned another merge subject; inspect the retained receipt",
-    );
+  if (accepted.pr !== url) throw new Error("Octo returned another merge subject; inspect the retained receipt");
   if (accepted.state === "blocked") {
     await writeFile(
-      join(
-        directory,
-        `merge-blocked-${createHash("sha256").update(target.id).digest("hex")}.json`,
-      ),
+      join(directory, `merge-blocked-${createHash("sha256").update(target.id).digest("hex")}.json`),
       JSON.stringify(receipt),
       { mode: 0o600 },
     );
@@ -956,13 +710,10 @@ async function requestMerge(
       row.events.push(`blocked:${target.id}:${target.head}`);
       row.mergeReceipt = undefined;
       clearReadiness(row);
-      row.message =
-        "Pinned merge rejected; waiting for fresh Octo readiness evidence";
+      row.message = "Pinned merge rejected; waiting for fresh Octo readiness evidence";
     });
   } else if (accepted.entry === undefined || accepted.chain === undefined)
-    throw new Error(
-      "Octo did not accept the pinned merge; inspect the retained receipt",
-    );
+    throw new Error("Octo did not accept the pinned merge; inspect the retained receipt");
 }
 
 async function pushCorrection(
@@ -973,14 +724,8 @@ async function pushCorrection(
   dependencies: DeliveryDependencies,
 ): Promise<void> {
   const record = store.attempt(id);
-  if (
-    record.checkout === undefined ||
-    record.head !== draft.head ||
-    record.review === undefined
-  )
-    throw new Error(
-      "Correction is not independently reviewed at the reported head",
-    );
+  if (!record.checkout || record.head !== draft.head || record.review === undefined)
+    throw new Error("Correction is not independently reviewed at the reported head");
   await assertPublicationHead(store, project, record, draft.head, dependencies);
   await dependencies.networkGit(project.root, [
     "push",
@@ -992,7 +737,6 @@ async function pushCorrection(
   store.change(id, (row) => {
     clearReadiness(row);
     row.mergeReceipt = undefined;
-    row.message =
-      "Reviewed correction pushed on the same PR; waiting for fresh check evidence";
+    row.message = "Reviewed correction pushed on the same PR; waiting for fresh check evidence";
   });
 }

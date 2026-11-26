@@ -16,28 +16,14 @@ import { existsSync } from "node:fs";
 import { registerProjectPolicy } from "../execution/policy.ts";
 import { registerDiscovery } from "../discovery/extension.ts";
 import { Discoveries, handoffDraft, HandoffPhase } from "../discovery/store.ts";
-import {
-  exampleConfig,
-  ModelCapability,
-  ReasoningLevel,
-  runtimeProjectSchema,
-  StudioProfile,
-} from "../config.ts";
+import { exampleConfig, ModelCapability, ReasoningLevel, runtimeProjectSchema, StudioProfile } from "../config.ts";
 import { randomUUID } from "node:crypto";
-import {
-  registerPlanningDocuments,
-  getPlanningDocuments,
-} from "../planning/documents.ts";
+import { registerPlanningDocuments, getPlanningDocuments } from "../planning/documents.ts";
 import { DocumentKind } from "../planning/model.ts";
 import { SpecStatus } from "../socrates/spec.ts";
 import { draftSchema, planDigest } from "../lead-plan.ts";
 import { readySpecification } from "./fixtures/socrates.ts";
-import {
-  coverageFresh,
-  coverageProperties,
-  coverageToken,
-  specificationToken,
-} from "../socrates/assessment.ts";
+import { coverageFresh, coverageProperties, coverageToken, specificationToken } from "../socrates/assessment.ts";
 
 async function discoveryFixture(t: TestContext) {
   const directory = await mkdtemp(join(tmpdir(), "studio-conversation-plan-"));
@@ -86,10 +72,7 @@ async function discoveryFixture(t: TestContext) {
     }),
   );
   process.env["STUDIO_CONFIG"] = config;
-  const openLead = () =>
-    discoveryLead(project, agentDir, (authority) =>
-      authorities.push(authority),
-    );
+  const openLead = () => discoveryLead(project, agentDir, (authority) => authorities.push(authority));
   return {
     state,
     project,
@@ -105,9 +88,7 @@ async function discoveryFixture(t: TestContext) {
 async function discoveryLead(
   project: string,
   agentDir: string,
-  ownAuthority: (
-    authority: ReturnType<typeof registerPlanningDocuments>,
-  ) => void,
+  ownAuthority: (authority: ReturnType<typeof registerPlanningDocuments>) => void,
 ) {
   let api: ExtensionAPI | undefined;
   const session = SessionManager.inMemory(project);
@@ -127,10 +108,7 @@ async function discoveryLead(
         api = pi;
         const selected = registerDiscovery(pi, () => StudioProfile.Personal);
         discovery = selected;
-        registerProjectPolicy(
-          pi,
-          (ctx) => selected.runtimeHandoff(ctx)?.target,
-        );
+        registerProjectPolicy(pi, (ctx) => selected.runtimeHandoff(ctx)?.target);
       },
     ],
   });
@@ -142,13 +120,7 @@ async function discoveryLead(
     modelsPath: null,
     refreshOnCreate: false,
   });
-  const runner = new ExtensionRunner(
-    extensions,
-    runtime,
-    project,
-    session,
-    new ModelRegistry(modelRuntime),
-  );
+  const runner = new ExtensionRunner(extensions, runtime, project, session, new ModelRegistry(modelRuntime));
   runtime.appendEntry = (type, data) => {
     session.appendCustomEntry(type, data);
   };
@@ -194,9 +166,7 @@ async function discoveryLead(
     const document = getPlanningDocuments(api)
       ?.capture(context)
       .find((item) => item.ref.kind === kind);
-    return document === undefined
-      ? {}
-      : { expectedRevision: document.revision };
+    return !document ? {} : { expectedRevision: document.revision };
   };
   const save = async (proposal = draft, context = toolContext) => {
     await runner.emitContext([]);
@@ -259,18 +229,8 @@ async function discoveryLead(
 }
 
 await test("a daily lead codes directly and can save and revise a private plan without a runtime handoff", async (t) => {
-  const {
-    project,
-    discovery,
-    store,
-    ctx,
-    session,
-    prompt,
-    save,
-    firstTask,
-    draft,
-    approve,
-  } = await discoveryFixture(t);
+  const { project, discovery, store, ctx, session, prompt, save, firstTask, draft, approve } =
+    await discoveryFixture(t);
   assert.match(await prompt(), /requested code changes directly/u);
   assert.equal(discovery.runtimeHandoff(ctx), undefined);
   const leaf = session.getLeafId();
@@ -321,17 +281,7 @@ await test("a daily lead codes directly and can save and revise a private plan w
 });
 
 await test("Socrates requires a complete baseline and merges affected assessments after a plan change", async (t) => {
-  const {
-    project,
-    store,
-    runner,
-    toolContext,
-    save,
-    assess,
-    draft,
-    firstTask,
-    ctx,
-  } = await discoveryFixture(t);
+  const { project, store, runner, toolContext, save, assess, draft, firstTask, ctx } = await discoveryFixture(t);
   await save();
   const record = store.list(project)[0];
   assert.ok(record !== undefined);
@@ -368,26 +318,19 @@ await test("Socrates requires a complete baseline and merges affected assessment
   assert.ok(!coverageFresh(pending, record.revision));
   await assert.rejects(freeze.handler("", ctx), /review|assess/iu);
   await assert.rejects(
-    ask.execute(
-      "ask",
-      { decisionId: "D1", question: "Apply where?", options: [] },
-      undefined,
-      undefined,
-      { ...toolContext, hasUI: true },
-    ),
+    ask.execute("ask", { decisionId: "D1", question: "Apply where?", options: [] }, undefined, undefined, {
+      ...toolContext,
+      hasUI: true,
+    }),
     /review|assessment/iu,
   );
   const verification = {
     propertyId: "verification",
     status: "partial",
-    reason:
-      "The linked task checks R1 in CI. A restored-session check is still missing.",
+    reason: "The linked task checks R1 in CI. A restored-session check is still missing.",
   };
   const coverage = { domains: initial.domains, assessments: [verification] };
-  await assert.rejects(
-    assess({ coverage: { ...coverage, domains: ["engineering", "writing"] } }),
-    /audience/u,
-  );
+  await assert.rejects(assess({ coverage: { ...coverage, domains: ["engineering", "writing"] } }), /audience/u);
   await assert.rejects(
     assess({
       coverage: { ...coverage, assessments: [verification, verification] },
@@ -410,8 +353,7 @@ await test("Socrates requires a complete baseline and merges affected assessment
 });
 
 await test("delivered operator input keeps property evidence and requires a disposition before freeze", async (t) => {
-  const { project, store, runner, send, save, assess, ctx } =
-    await discoveryFixture(t);
+  const { project, store, runner, send, save, assess, ctx } = await discoveryFixture(t);
   await save();
   const record = store.list(project)[0];
   assert.ok(record !== undefined);
@@ -439,14 +381,8 @@ await test("delivered operator input keeps property evidence and requires a disp
     assert.equal(pending.coverageRevision, spec.coverageRevision);
     const freeze = runner.getCommand("spec-freeze");
     assert.ok(freeze !== undefined);
-    await assert.rejects(
-      freeze.handler("", ctx),
-      /review|incorporate|assess/iu,
-    );
-    await assert.rejects(
-      assess({ coverage: { domains: [], assessments: [] } }),
-      /removing a property domain/u,
-    );
+    await assert.rejects(freeze.handler("", ctx), /review|incorporate|assess/iu);
+    await assert.rejects(assess({ coverage: { domains: [], assessments: [] } }), /removing a property domain/u);
     await assess({ coverage: { assessments: [] } });
     assert.deepEqual(snapshot(), spec);
   }
@@ -472,19 +408,11 @@ await test("a lead can acknowledge only the input and plan visible to its model 
       select: (_title, options) => Promise.resolve(options[0]),
     },
   });
-  const draftTool = lead.runner.getToolDefinition(
-    "draft_socrates_specification",
-  );
+  const draftTool = lead.runner.getToolDefinition("draft_socrates_specification");
   const planTool = lead.runner.getToolDefinition("draft_implementation_plan");
   assert.ok(draftTool !== undefined && planTool !== undefined);
   const acknowledge = (revision: ReturnType<typeof lead.expectedRevision>) =>
-    draftTool.execute(
-      "assess",
-      { coverage: { assessments: [] }, ...revision },
-      undefined,
-      undefined,
-      lead.toolContext,
-    );
+    draftTool.execute("assess", { coverage: { assessments: [] }, ...revision }, undefined, undefined, lead.toolContext);
 
   const question = "Which properties are open?";
   const correction = "Limit transcript recovery to the local checkout.";
@@ -541,24 +469,13 @@ await test("a lead can acknowledge only the input and plan visible to its model 
   const changedPlan = lead.store.get(record.id);
   await assert.rejects(acknowledge(beforePlanSpec), staleRequest);
   await assert.rejects(
-    planTool.execute(
-      "old-plan",
-      { ...lead.draft, ...beforePlan },
-      undefined,
-      undefined,
-      lead.toolContext,
-    ),
+    planTool.execute("old-plan", { ...lead.draft, ...beforePlan }, undefined, undefined, lead.toolContext),
     staleRequest,
   );
   assert.deepEqual(lead.store.get(record.id), changedPlan);
-  assert.ok(
-    JSON.stringify(await lead.runner.emitContext([])).includes(next.summary),
-  );
+  assert.ok(JSON.stringify(await lead.runner.emitContext([])).includes(next.summary));
   await acknowledge(lead.expectedRevision(DocumentKind.Specification));
-  assert.equal(
-    lead.store.get(record.id).specification?.pendingReview,
-    undefined,
-  );
+  assert.equal(lead.store.get(record.id).specification?.pendingReview, undefined);
 });
 
 await test("only the current assessed specification and linked plan can reach handoff review", async (t) => {
@@ -592,10 +509,7 @@ await test("only the current assessed specification and linked plan can reach ha
     tasks: [{ ...firstTask, requirements: ["R1"] }],
   };
   await save(linked);
-  await assert.rejects(
-    save({ ...draft, tasks: [{ ...firstTask, requirements: ["R9"] }] }),
-    /current specification/u,
-  );
+  await assert.rejects(save({ ...draft, tasks: [{ ...firstTask, requirements: ["R9"] }] }), /current specification/u);
   await assert.rejects(approve.handler("", ctx), /freeze/iu);
   store.change(first.id, (row) => {
     const spec = readySpecification(row.revision);
@@ -611,23 +525,14 @@ await test("only the current assessed specification and linked plan can reach ha
       approvalAt: "2026-11-24T00:00:00Z",
     };
   });
-  await assert.rejects(
-    approve.handler("", ctx),
-    /current frozen specification/u,
-  );
+  await assert.rejects(approve.handler("", ctx), /current frozen specification/u);
   await save();
   await send("Check how the revised plan verifies R1.");
-  assert.equal(
-    store.get(first.id).specification?.pendingReview?.cause,
-    "input-and-plan",
-  );
+  assert.equal(store.get(first.id).specification?.pendingReview?.cause, "input-and-plan");
   await assert.rejects(approve.handler("", ctx), /review|assess/iu);
   const frozen = store.get(first.id).specification;
   assert.ok(frozen?.draft !== null && frozen?.draft !== undefined);
-  await assert.rejects(
-    assess({ ...frozen.draft, objective: "Changed" }),
-    /spec-reopen/u,
-  );
+  await assert.rejects(assess({ ...frozen.draft, objective: "Changed" }), /spec-reopen/u);
   await assert.rejects(
     assess({
       ...frozen.draft,
@@ -645,14 +550,8 @@ await test("only the current assessed specification and linked plan can reach ha
     /spec-reopen/u,
   );
   await assess(frozen.draft);
-  assert.equal(
-    store.get(first.id).specification?.approvalAt,
-    frozen.approvalAt,
-  );
-  await assert.rejects(
-    approve.handler("", ctx),
-    /Cover every frozen requirement/u,
-  );
+  assert.equal(store.get(first.id).specification?.approvalAt, frozen.approvalAt);
+  await assert.rejects(approve.handler("", ctx), /Cover every frozen requirement/u);
   await save(linked);
   await assess(frozen.draft);
 
@@ -667,10 +566,7 @@ await test("only the current assessed specification and linked plan can reach ha
     ...target,
     id: authority,
   });
-  assert.deepEqual(
-    discovery.runtimeHandoff(ctx),
-    store.get(handoff.id).handoff,
-  );
+  assert.deepEqual(discovery.runtimeHandoff(ctx), store.get(handoff.id).handoff);
   const handedOff = store.change(
     first.id,
     (row) => {
@@ -700,20 +596,8 @@ await test("only the current assessed specification and linked plan can reach ha
 });
 
 await test("a legacy assessment cannot authorize a plan revised after freeze before the upgrade", async (t) => {
-  const {
-    project,
-    store,
-    save,
-    assess,
-    draft,
-    firstTask,
-    reviewUI,
-    ctx,
-    approve,
-    review,
-    authority,
-    target,
-  } = await discoveryFixture(t);
+  const { project, store, save, assess, draft, firstTask, reviewUI, ctx, approve, review, authority, target } =
+    await discoveryFixture(t);
   await save();
   const record = store.list(project)[0];
   assert.ok(record !== undefined);
@@ -759,35 +643,19 @@ await test("a legacy assessment cannot authorize a plan revised after freeze bef
     changedPlan,
   );
 
-  await assert.rejects(
-    assess({ coverage: { domains: ["engineering"], assessments: [] } }),
-  );
+  await assert.rejects(assess({ coverage: { domains: ["engineering"], assessments: [] } }));
   assert.deepEqual(store.get(record.id), saved);
   await assess(frozen.draft);
   const refreshed = store.get(record.id);
   assert.equal(refreshed.planSpecificationRevision, legacyStamp);
-  assert.equal(
-    refreshed.specification?.coverageRevision,
-    coverageToken(frozen),
-  );
+  assert.equal(refreshed.specification?.coverageRevision, coverageToken(frozen));
   await approve.handler("", { ...ctx, ui: reviewUI });
   assert.equal(review.openings, 1);
 });
 
 await test("the frozen publication decision assigns PRs to the intended beads and survives final review", async (t) => {
-  const {
-    project,
-    store,
-    save,
-    assess,
-    firstTask,
-    draft,
-    approve,
-    ctx,
-    reviewUI,
-    review,
-    runner,
-  } = await discoveryFixture(t);
+  const { project, store, save, assess, firstTask, draft, approve, ctx, reviewUI, review, runner } =
+    await discoveryFixture(t);
   await save();
   const record = store.list(project)[0];
   assert.ok(record !== undefined);
@@ -822,10 +690,7 @@ await test("the frozen publication decision assigns PRs to the intended beads an
   assert.ok(frozen?.draft !== undefined);
   await save({ ...draft, tasks: [prep] });
   await assess(frozen.draft);
-  await assert.rejects(
-    approve.handler("", ctx),
-    /missing publishing beads: cli/u,
-  );
+  await assert.rejects(approve.handler("", ctx), /missing publishing beads: cli/u);
   await save({ ...draft, tasks: [prep, cli] });
   await assess(frozen.draft);
   const approvedDraft = store.get(record.id).leadPlan.draft;
@@ -840,10 +705,7 @@ await test("the frozen publication decision assigns PRs to the intended beads an
   assert.equal(approvedDraft.pullRequestMerge, "manual");
   const revise = runner.getCommand("plan-delivery");
   assert.ok(revise !== undefined);
-  await assert.rejects(
-    revise.handler("cli local", ctx),
-    /conflicts with decision D20/u,
-  );
+  await assert.rejects(revise.handler("cli local", ctx), /conflicts with decision D20/u);
   assert.deepEqual(store.get(record.id).leadPlan.draft, approvedDraft);
   await approve.handler("", { ...ctx, ui: reviewUI });
   assert.equal(review.openings, 1);
@@ -851,8 +713,7 @@ await test("the frozen publication decision assigns PRs to the intended beads an
 });
 
 await test("ending discovery preserves the unfinished specification and leaves no runtime receipt", async (t) => {
-  const { project, discovery, store, ctx, runner, prompt, save } =
-    await discoveryFixture(t);
+  const { project, discovery, store, ctx, runner, prompt, save } = await discoveryFixture(t);
   await save();
   const record = store.list(project)[0];
   assert.ok(record !== undefined);
@@ -923,8 +784,7 @@ await test("legacy handoffs keep their receipt when switching conversations and 
 });
 
 await test("a fork requires an explicit selection to reuse a parent discovery", async (t) => {
-  const { project, store, runner, session, save, draft } =
-    await discoveryFixture(t);
+  const { project, store, runner, session, save, draft } = await discoveryFixture(t);
   await save();
   const first = store.list(project)[0];
   assert.ok(first !== undefined);
@@ -968,17 +828,7 @@ await test("a fork requires an explicit selection to reuse a parent discovery", 
 });
 
 await test("a lead can change merge policy only after a handoff to the configured project authority", async (t) => {
-  const {
-    state,
-    project,
-    authority,
-    target,
-    store,
-    runner,
-    toolContext,
-    save,
-    draft,
-  } = await discoveryFixture(t);
+  const { state, project, authority, target, store, runner, toolContext, save, draft } = await discoveryFixture(t);
   const policy = runner.getToolDefinition("studio_project_merge_policy");
   assert.ok(policy !== undefined);
   const update = () =>
@@ -1021,8 +871,7 @@ await test("a lead can change merge policy only after a handoff to the configure
 });
 
 await test("a recorded answer survives draft replays until its decision changes", async (t) => {
-  const { project, store, runner, toolContext, save, assess } =
-    await discoveryFixture(t);
+  const { project, store, runner, toolContext, save, assess } = await discoveryFixture(t);
   await save();
   const record = store.list(project)[0];
   assert.ok(record !== undefined);
@@ -1047,20 +896,13 @@ await test("a recorded answer survives draft replays until its decision changes"
   await assess(draft);
   const ask = runner.getToolDefinition("ask_user_question");
   assert.ok(ask !== undefined);
-  const answer =
-    "Keep production transcripts for seven days. Decide sandbox retention separately.";
+  const answer = "Keep production transcripts for seven days. Decide sandbox retention separately.";
   await runner.emitContext([]);
-  await ask.execute(
-    "retention",
-    { decisionId: decision.id, question, options: [] },
-    undefined,
-    undefined,
-    {
-      ...toolContext,
-      hasUI: true,
-      ui: { ...toolContext.ui, input: () => Promise.resolve(answer) },
-    },
-  );
+  await ask.execute("retention", { decisionId: decision.id, question, options: [] }, undefined, undefined, {
+    ...toolContext,
+    hasUI: true,
+    ui: { ...toolContext.ui, input: () => Promise.resolve(answer) },
+  });
   const answered = store.get(record.id).specification;
   assert.equal(answered?.exchange?.answer?.text, answer);
   const replay = {
@@ -1068,10 +910,7 @@ await test("a recorded answer survives draft replays until its decision changes"
     coverage: { domains: ["engineering"], assessments: [] },
   };
   await assert.rejects(assess(replay), /recorded answer.*D21/u);
-  await assert.rejects(
-    assess({ ...replay, objective: "Retain transcripts for debugging" }),
-    /recorded answer.*D21/u,
-  );
+  await assert.rejects(assess({ ...replay, objective: "Retain transcripts for debugging" }), /recorded answer.*D21/u);
   assert.deepEqual(store.get(record.id).specification, answered);
 
   const remaining = "How long should sandbox transcripts be retained?";

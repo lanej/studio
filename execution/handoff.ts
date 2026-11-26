@@ -3,18 +3,8 @@ import { isDeepStrictEqual } from "node:util";
 import { realpathSync } from "node:fs";
 import { z } from "zod";
 import { InteractiveMode } from "@earendil-works/pi-coding-agent";
-import {
-  loadConfig,
-  studioProfileSchema,
-  workerForTask,
-  type StudioConfig,
-} from "../config.ts";
-import {
-  planDigest,
-  TaskDelivery,
-  type LeadDraft,
-  type PlanWorkers,
-} from "../lead-plan.ts";
+import { loadConfig, studioProfileSchema, workerForTask, type StudioConfig } from "../config.ts";
+import { planDigest, TaskDelivery, type LeadDraft, type PlanWorkers } from "../lead-plan.ts";
 import { requireIntegration } from "../integrations.ts";
 import { octo } from "../delivery.ts";
 import type { Discovery } from "../discovery/store.ts";
@@ -31,10 +21,7 @@ import { ensureRuntime } from "./supervisor.ts";
 import { alive } from "./supervisor.ts";
 import { processStart } from "../process.ts";
 import { assertRuntimeProfile } from "./profile.ts";
-import {
-  currentInteractiveTarget,
-  verifyInteractiveTarget,
-} from "./interactive-target.ts";
+import { currentInteractiveTarget, verifyInteractiveTarget } from "./interactive-target.ts";
 import { setTimeout as delay } from "node:timers/promises";
 
 export function handoffWorkers(
@@ -42,28 +29,19 @@ export function handoffWorkers(
   draft: LeadDraft | null,
   profile: RuntimeProject["profile"],
 ): PlanWorkers | undefined {
-  const assigned =
-    draft?.tasks.filter((task) => task.assignment !== undefined) ?? [];
+  const assigned = draft?.tasks.filter((task) => task.assignment !== undefined) ?? [];
   if (assigned.length === 0) return undefined;
   const roles = config.profiles[profile];
-  if (roles === undefined)
-    throw new Error(`Configure the ${profile} profile first`);
-  return Object.fromEntries(
-    assigned.map((task) => [task.key, workerForTask(roles, task.assignment)]),
-  );
+  if (!roles) throw new Error(`Configure the ${profile} profile first`);
+  return Object.fromEntries(assigned.map((task) => [task.key, workerForTask(roles, task.assignment)]));
 }
 
-export async function prepareInteractiveHandoff(
-  record: Discovery,
-): Promise<InteractiveTarget> {
+export async function prepareInteractiveHandoff(record: Discovery): Promise<InteractiveTarget> {
   if (typeof InteractiveMode.prototype.runAssignmentTurn !== "function")
     throw new Error("The installed Pi host lacks restricted assignment input");
   if (
     record.leadPlan.draft?.tasks.some(
-      (task) =>
-        task.delivery === TaskDelivery.PullRequest ||
-        task.owns.length === 0 ||
-        (task.check?.length ?? 0) === 0,
+      (task) => task.delivery === TaskDelivery.PullRequest || task.owns.length === 0 || (task.check?.length ?? 0) === 0,
     ) === true
   )
     throw new Error(
@@ -73,31 +51,15 @@ export async function prepareInteractiveHandoff(
   return await currentInteractiveTarget();
 }
 
-export function handoffTarget(
-  config: StudioConfig,
-  record: Discovery,
-  profile: string,
-): RuntimeProject {
+export function handoffTarget(config: StudioConfig, record: Discovery, profile: string): RuntimeProject {
   if (!config.runtime.enabled)
-    throw new Error(
-      "Enable runtime and configure this project before approving unattended execution",
-    );
-  if (!config.integrations.worktrees.enabled)
-    throw new Error("Enable the native worktree integration for execution");
-  const project = config.runtime.projects.find(
-    (item) => realpathSync(item.root) === record.project,
-  );
-  if (
-    project === undefined ||
-    project.profile !== studioProfileSchema.parse(profile)
-  )
-    throw new Error(
-      "Configure this project's runtime repository, Beads service, and selected profile",
-    );
+    throw new Error("Enable runtime and configure this project before approving unattended execution");
+  if (!config.integrations.worktrees.enabled) throw new Error("Enable the native worktree integration for execution");
+  const project = config.runtime.projects.find((item) => realpathSync(item.root) === record.project);
+  if (!project || project.profile !== studioProfileSchema.parse(profile))
+    throw new Error("Configure this project's runtime repository, Beads service, and selected profile");
   if (project.source.reviewOnly === true)
-    throw new Error(
-      "Review-only Beads authority does not permit unattended task creation or completion",
-    );
+    throw new Error("Review-only Beads authority does not permit unattended task creation or completion");
   return projectSchema.parse({
     ...project,
     root: record.project,
@@ -112,11 +74,7 @@ async function verifyHandoff(
   workers?: PlanWorkers,
 ): Promise<void> {
   await requireIntegration(config, "worktrees");
-  if (
-    record.leadPlan.draft?.tasks.some(
-      (task) => task.delivery === TaskDelivery.PullRequest,
-    ) === true
-  ) {
+  if (record.leadPlan.draft?.tasks.some((task) => task.delivery === TaskDelivery.PullRequest) === true) {
     await requireIntegration(config, "octo");
     await octo(enrolled.root, "pr", "instructions");
   }
@@ -128,10 +86,7 @@ async function verifyHandoff(
   }
   await assertRuntimeProfile(config, enrolled.profile, workers);
   await verifyHeartbeatAuthority(enrolled);
-  await assertVerificationIsolation(
-    enrolled.root,
-    enrolled.verificationReadPaths,
-  );
+  await assertVerificationIsolation(enrolled.root, enrolled.verificationReadPaths);
 }
 
 export async function approveHandoff(
@@ -147,10 +102,7 @@ export async function approveHandoff(
     const prior = record.handoff;
     let recover = false;
     if (prior?.phase === HandoffPhase.Pending) {
-      if (
-        prior.owner === undefined ||
-        (await alive(prior.owner.pid, prior.owner.started))
-      )
+      if (!prior.owner || (await alive(prior.owner.pid, prior.owner.started)))
         throw new Error(
           "The handoff owner is live or lacks a settled identity; retain the pending effect before retrying",
         );
@@ -175,22 +127,13 @@ export async function approveHandoff(
     project = handoffTarget(config, locked, profile);
     if (
       !isDeepStrictEqual(project, target) ||
-      !isDeepStrictEqual(
-        handoffWorkers(config, locked.leadPlan.draft, project.profile),
-        workers,
-      )
+      !isDeepStrictEqual(handoffWorkers(config, locked.leadPlan.draft, project.profile), workers)
     )
-      throw new Error(
-        "Runtime project authority or worker selections changed after the displayed approval",
-      );
+      throw new Error("Runtime project authority or worker selections changed after the displayed approval");
     await verifyHandoff(locked, config, project, workers);
-    if (interactive !== undefined) {
-      if (
-        !isDeepStrictEqual(await prepareInteractiveHandoff(record), interactive)
-      )
-        throw new Error(
-          "The displayed interactive target changed; review the approval again",
-        );
+    if (interactive) {
+      if (!isDeepStrictEqual(await prepareInteractiveHandoff(record), interactive))
+        throw new Error("The displayed interactive target changed; review the approval again");
       await ensureInteractiveSupervisor();
       await verifyInteractiveTarget(interactive);
     }
@@ -211,11 +154,9 @@ export async function approveHandoff(
   const store = new ExecutionStore();
   try {
     const service = new ExecutionBeads(project.source);
-    let intent = handoffIntentSchema
-      .optional()
-      .parse(store.intent(record.revision));
+    let intent = handoffIntentSchema.optional().parse(store.intent(record.revision));
     if (
-      intent !== undefined &&
+      intent &&
       (intent.digest !== digest ||
         !isDeepStrictEqual(intent.interactive, interactive) ||
         !isDeepStrictEqual(intent.workers, workers))
@@ -223,12 +164,11 @@ export async function approveHandoff(
       throw new Error(
         "A different graph creation attempt is already retained; reconcile it before changing the proposal",
       );
-    if (intent === undefined) {
+    if (!intent) {
       const prefix = await service.prefix();
       const root = `${prefix}-${record.revision.replaceAll("-", "")}`;
       const entries: [string, string][] = [["root", root]];
-      for (const task of draft.tasks)
-        entries.push([task.key, `${root}.${task.key}`]);
+      for (const task of draft.tasks) entries.push([task.key, `${root}.${task.key}`]);
       intent = {
         digest,
         project: project.id,
@@ -236,7 +176,7 @@ export async function approveHandoff(
         draft,
         ids: Object.fromEntries(entries),
         workers,
-        ...(interactive === undefined ? {} : { interactive }),
+        ...(!interactive ? {} : { interactive }),
       };
       store.saveIntent(record.revision, intent);
     }
@@ -259,9 +199,7 @@ export async function approveHandoff(
           row.handoff.revision !== record.revision ||
           row.handoff.digest !== digest
         )
-          throw new Error(
-            "The handoff identity changed; retain its receipt before reconciliation",
-          );
+          throw new Error("The handoff identity changed; retain its receipt before reconciliation");
         row.approved = digest;
         row.graph = ids;
         row.handoff.phase = HandoffPhase.Complete;
@@ -295,14 +233,9 @@ async function ensureInteractiveSupervisor(): Promise<void> {
     const deadline = Date.now() + 5000;
     do {
       const supervisor = store.supervisor();
-      if (
-        supervisor !== undefined &&
-        (await alive(supervisor.pid, supervisor.started))
-      ) {
+      if (supervisor && (await alive(supervisor.pid, supervisor.started))) {
         if (supervisor.interactiveDispatch !== true || supervisor.stop)
-          throw new Error(
-            "Restart the Studio runtime on this version before approving interactive execution",
-          );
+          throw new Error("Restart the Studio runtime on this version before approving interactive execution");
         return;
       }
       await delay(100);

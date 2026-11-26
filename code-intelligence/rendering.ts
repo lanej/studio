@@ -1,25 +1,11 @@
 import { registerCodingRenderer } from "../model-tools/rendering.ts";
 import type { StudioConfig } from "../config.ts";
-import {
-  editFileHeading,
-  inlineDiagnosticLines,
-  syntaxDiffRows,
-} from "./diff.ts";
+import { editFileHeading, inlineDiagnosticLines, syntaxDiffRows } from "./diff.ts";
 import { diffScope, type DiffScope } from "./scopes.ts";
-import {
-  syntaxReplacement,
-  type SyntaxReplacement,
-} from "./syntax-analysis.ts";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import { syntaxReplacement, type SyntaxReplacement } from "./syntax-analysis.ts";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { z } from "zod";
-import {
-  diagnosticRows,
-  diagnosticSnapshot,
-  type DiagnosticSnapshot,
-} from "./diagnostics.ts";
+import { diagnosticRows, diagnosticSnapshot, type DiagnosticSnapshot } from "./diagnostics.ts";
 import type { CodeIntelligence } from "./service.ts";
 
 const detailsSchema = z.object({
@@ -46,6 +32,7 @@ interface View {
   settled: boolean;
   invalidate?: () => void;
 }
+
 export function registerDiagnosticRendering(
   pi: ExtensionAPI,
   intelligence: CodeIntelligence,
@@ -94,11 +81,7 @@ export function registerDiagnosticRendering(
     const id = latest.get(snapshot.path);
     if (id === undefined) return;
     const view = views.get(id);
-    if (
-      view === undefined ||
-      JSON.stringify(view.snapshot) === JSON.stringify(snapshot)
-    )
-      return;
+    if (!view || JSON.stringify(view.snapshot) === JSON.stringify(snapshot)) return;
     view.snapshot = snapshot;
     view.invalidate?.();
     if (view.settled)
@@ -115,12 +98,11 @@ export function registerDiagnosticRendering(
   registerCodingRenderer(pi, (name, next) => {
     const base = next();
     const render = base?.renderResult;
-    if ((name !== "edit" && name !== "write") || render === undefined)
-      return base;
-    const renderCall = base?.renderCall;
+    if ((name !== "edit" && name !== "write") || !render) return base;
+    const renderCall = base.renderCall;
     return {
       ...base,
-      ...(name === "edit" && renderCall !== undefined
+      ...(name === "edit" && renderCall
         ? {
             renderCall(args, theme, context) {
               const edit = z
@@ -133,13 +115,7 @@ export function registerDiagnosticRendering(
               const native = renderCall(args, theme, {
                 ...context,
                 renderEditHeading: (pathLabel) =>
-                  editFileHeading(
-                    theme,
-                    context.displayToolName ?? "edit",
-                    pathLabel,
-                    reason,
-                    addedFile,
-                  ),
+                  editFileHeading(theme, context.displayToolName ?? "edit", pathLabel, reason, addedFile),
               });
               return {
                 invalidate() {
@@ -147,7 +123,7 @@ export function registerDiagnosticRendering(
                 },
                 render(width) {
                   const value = diffs.get(context.toolCallId);
-                  if (value === undefined) return native.render(width);
+                  if (!value) return native.render(width);
                   return syntaxDiffRows(
                     value.diff,
                     value.path,
@@ -173,29 +149,19 @@ export function registerDiagnosticRendering(
       renderResult(result, options, theme, context) {
         const diff = editDetails.safeParse(result.details);
         const args = z.object({ path: z.string() }).safeParse(context.args);
-        if (
-          name === "edit" &&
-          !context.isError &&
-          !options.isPartial &&
-          diff.success &&
-          args.success
-        ) {
+        if (name === "edit" && !context.isError && !options.isPartial && diff.success && args.success) {
           diffs.set(context.toolCallId, {
             path: args.data.path,
             diff: diff.data.diff,
-            scopes:
-              diff.data.studioSyntax?.scopes ??
-              diff.data.studioDiffScopes ??
-              [],
+            scopes: diff.data.studioSyntax?.scopes ?? diff.data.studioDiffScopes ?? [],
             replacements: diff.data.studioSyntax?.replacements ?? [],
           });
         }
         const parsed = detailsSchema.safeParse(result.details);
-        if (!parsed.success || options.isPartial)
-          return render(result, options, theme, context);
+        if (!parsed.success || options.isPartial) return render(result, options, theme, context);
         const annotation = parsed.data.studioDiagnostics;
         let view = views.get(annotation.toolCallId ?? context.toolCallId);
-        if (view === undefined) {
+        if (!view) {
           view = { snapshot: annotation.snapshot, settled: true };
         }
         views.set(context.toolCallId, view);
@@ -204,9 +170,7 @@ export function registerDiagnosticRendering(
         const original = render(
           {
             ...result,
-            content: result.content.filter(
-              (_item, index) => index !== annotation.contentIndex,
-            ),
+            content: result.content.filter((_item, index) => index !== annotation.contentIndex),
           },
           options,
           theme,
@@ -219,23 +183,11 @@ export function registerDiagnosticRendering(
           render(width) {
             const edit = diffs.get(context.toolCallId);
             const inlineLines =
-              renderCall !== undefined &&
-              edit !== undefined &&
-              width >= 3 &&
-              diffDisplay().inline_diagnostics
+              renderCall && edit && width >= 3 && diffDisplay().inline_diagnostics
                 ? inlineDiagnosticLines(edit.diff)
                 : undefined;
-            const diagnostics = diagnosticRows(
-              current.snapshot,
-              theme,
-              width,
-              options.expanded,
-              inlineLines,
-            );
-            return [
-              ...original.render(width),
-              ...(diagnostics.length === 0 ? [] : ["", ...diagnostics]),
-            ];
+            const diagnostics = diagnosticRows(current.snapshot, theme, width, options.expanded, inlineLines);
+            return [...original.render(width), ...(diagnostics.length === 0 ? [] : ["", ...diagnostics])];
           },
         };
       },
@@ -251,7 +203,7 @@ export function registerDiagnosticRendering(
     },
     finish(id: string, snapshot: DiagnosticSnapshot) {
       const view = views.get(id);
-      if (view !== undefined) {
+      if (view) {
         view.snapshot = snapshot;
         view.settled = true;
       }

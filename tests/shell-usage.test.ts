@@ -1,9 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import {
-  estimateTokens,
-  type AgentToolResult,
-} from "@earendil-works/pi-coding-agent";
+import { estimateTokens, type AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { estimateShellUsage } from "../shell-usage.ts";
 
 await test("shell usage estimates count the complete model call and all returned blocks", () => {
@@ -32,21 +29,15 @@ await test("shell usage estimates count the complete model call and all returned
       timestamp: 0,
     }),
   });
-  assert.deepEqual(
-    estimateShellUsage("bash", { command: "true" }, { content: [] }),
-    {
-      call: 6,
-      result: 0,
-    },
-  );
+  assert.deepEqual(estimateShellUsage("bash", { command: "true" }, { content: [] }), {
+    call: 6,
+    result: 0,
+  });
 });
 
 await test("shell usage skips missing or unserializable tool arguments", () => {
   const cycle: { self?: unknown } = {};
   cycle.self = cycle;
   for (const invalid of [undefined, null, cycle])
-    assert.equal(
-      estimateShellUsage("bash", invalid, { content: [] }),
-      undefined,
-    );
+    assert.equal(estimateShellUsage("bash", invalid, { content: [] }), undefined);
 });

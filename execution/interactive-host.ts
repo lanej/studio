@@ -17,12 +17,7 @@ import { ReasoningLevel } from "../config.ts";
 import { packageRoot } from "../package-resources.ts";
 import { processFailure, processStart } from "../process.ts";
 import { currentPaneId, requireInteractivePane } from "./interactive-target.ts";
-import {
-  ExecutionPhase,
-  ExecutionStore,
-  VerificationPhase,
-  type Execution,
-} from "./store.ts";
+import { ExecutionPhase, ExecutionStore, VerificationPhase, type Execution } from "./store.ts";
 import { executeAssignment, type InteractiveWorker } from "./worker.ts";
 import { runtimeModelAllowed } from "./profile.ts";
 
@@ -67,15 +62,8 @@ async function session(
       extensionFactories: [extension],
     },
   });
-  const model = services.modelRuntime.getModel(
-    selection.provider,
-    selection.model,
-  );
-  if (
-    model === undefined ||
-    !services.modelRuntime.hasConfiguredAuth(model.provider) ||
-    !runtimeModelAllowed(profile, model)
-  )
+  const model = services.modelRuntime.getModel(selection.provider, selection.model);
+  if (!model || !services.modelRuntime.hasConfiguredAuth(model.provider) || !runtimeModelAllowed(profile, model))
     throw new Error("The admitted model is unavailable");
   const created = await createAgentSessionFromServices({
     services,
@@ -88,34 +76,20 @@ async function session(
   if (
     created.session.model?.provider !== selection.provider ||
     created.session.model.id !== selection.model ||
-    z.enum(ReasoningLevel).safeParse(created.session.thinkingLevel).data !==
-      selection.reasoning
+    z.enum(ReasoningLevel).safeParse(created.session.thinkingLevel).data !== selection.reasoning
   )
-    throw new Error(
-      "The Pi session changed the admitted model or reasoning level",
-    );
+    throw new Error("The Pi session changed the admitted model or reasoning level");
   return { ...created, services, diagnostics: [] };
 }
 
-const runWorker: InteractiveWorker = async ({
-  cwd,
-  directory,
-  selection,
-  profile,
-  tools,
-  prompt,
-  check,
-  signal,
-}) => {
-  if (mode !== undefined)
-    throw new Error("This attempt already used its native worker");
+const runWorker: InteractiveWorker = async ({ cwd, directory, selection, profile, tools, prompt, check, signal }) => {
+  if (mode) throw new Error("This attempt already used its native worker");
   await check();
   const sessionManager = SessionManager.create(cwd, directory, { id });
   let turn = 0;
   const runtime = await createAgentSessionRuntime(
     async ({ sessionManager: current }) => {
-      if (current !== sessionManager)
-        throw new Error("The assigned session cannot change");
+      if (current !== sessionManager) throw new Error("The assigned session cannot change");
       return await session(
         cwd,
         selection,
@@ -150,20 +124,12 @@ const runWorker: InteractiveWorker = async ({
     assignmentInput: true,
     initialThemeSetting: "dotfiles",
   });
-  if (
-    !mode.assignmentInputEnabled ||
-    typeof mode.runAssignmentTurn !== "function"
-  )
+  if (!mode.assignmentInputEnabled || typeof mode.runAssignmentTurn !== "function")
     throw new Error("The installed Pi host lacks restricted assignment input");
   const file = sessionManager.getSessionFile();
-  if (file === undefined)
-    throw new Error("The assigned worker needs a retained transcript");
+  if (file === undefined) throw new Error("The assigned worker needs a retained transcript");
   store.change(id, (row) => {
-    if (
-      row.launchToken !== token ||
-      row.pid !== process.pid ||
-      row.phase !== ExecutionPhase.Running
-    )
+    if (row.launchToken !== token || row.pid !== process.pid || row.phase !== ExecutionPhase.Running)
       throw new Error("The attempt lost its worker fence before starting Pi");
     row.workerSessionFile = file;
     row.sessions.push(file);
@@ -178,18 +144,10 @@ const runWorker: InteractiveWorker = async ({
   try {
     await mode.runAssignmentTurn(prompt);
     signal.throwIfAborted();
-    const last = runtime.session.messages.findLast(
-      (message) => message.role === "assistant",
-    );
+    const last = runtime.session.messages.findLast((message) => message.role === "assistant");
     const response = runtime.session.getLastAssistantText();
-    if (
-      last?.role !== "assistant" ||
-      last.stopReason !== "stop" ||
-      response === undefined
-    )
-      throw new Error(
-        "Native worker stopped before producing a complete result",
-      );
+    if (last?.role !== "assistant" || last.stopReason !== "stop" || response === undefined)
+      throw new Error("Native worker stopped before producing a complete result");
     return response;
   } finally {
     signal.removeEventListener("abort", abortTurn);
@@ -201,8 +159,8 @@ try {
   const project = store.project(record.project);
   if (
     record.launchToken !== token ||
-    record.interactive === undefined ||
-    record.controller === undefined ||
+    !record.interactive ||
+    !record.controller ||
     realpathSync(process.cwd()) !== project.root ||
     !process.stdin.isTTY ||
     !process.stdout.isTTY
@@ -214,8 +172,7 @@ try {
   store.change(id, (row) => {
     if (
       row.launchToken !== token ||
-      (row.phase !== ExecutionPhase.Launching &&
-        row.phase !== ExecutionPhase.Uncertain) ||
+      (row.phase !== ExecutionPhase.Launching && row.phase !== ExecutionPhase.Uncertain) ||
       row.pid !== undefined ||
       (row.pane !== undefined && row.pane !== pane)
     )
@@ -243,51 +200,26 @@ try {
   );
   try {
     await host.session.bindExtensions({ mode: "rpc" });
-    if (context.ctx === undefined || context.pi === undefined)
-      throw new Error("The native controller context failed to bind");
-    await executeAssignment(
-      context.pi,
-      context.ctx,
-      id,
-      controller.signal,
-      token,
-      runWorker,
-    );
+    if (!context.ctx || !context.pi) throw new Error("The native controller context failed to bind");
+    await executeAssignment(context.pi, context.ctx, id, controller.signal, token, runWorker);
   } finally {
     host.session.dispose();
   }
 } catch (error) {
   const message = processFailure(error).message;
   store.change(id, (row) => {
-    if (
-      row.launchToken !== token ||
-      row.pid !== process.pid ||
-      row.phase === ExecutionPhase.Complete
-    )
-      return;
-    row.launchSettled =
-      row.verifier === undefined ||
-      row.verifier.phase === VerificationPhase.Complete;
-    row.phase = row.launchSettled
-      ? ExecutionPhase.Parked
-      : ExecutionPhase.Uncertain;
+    if (row.launchToken !== token || row.pid !== process.pid || row.phase === ExecutionPhase.Complete) return;
+    row.launchSettled = row.verifier === undefined || row.verifier.phase === VerificationPhase.Complete;
+    row.phase = row.launchSettled ? ExecutionPhase.Parked : ExecutionPhase.Uncertain;
     row.message = `Interactive attempt retained. Inspect its transcript and checkout. ${message}`;
   });
   console.error(message);
   process.exitCode = 1;
 } finally {
   store.change(id, (row) => {
-    if (
-      row.launchToken === token &&
-      row.pid === process.pid &&
-      row.phase === ExecutionPhase.Complete
-    )
+    if (row.launchToken === token && row.pid === process.pid && row.phase === ExecutionPhase.Complete)
       row.launchSettled = true;
   });
   store.close();
-  if (
-    mode?.assignmentInputEnabled === true &&
-    typeof mode.closeAssignment === "function"
-  )
-    await mode.closeAssignment();
+  if (mode?.assignmentInputEnabled === true && typeof mode.closeAssignment === "function") await mode.closeAssignment();
 }

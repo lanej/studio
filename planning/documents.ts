@@ -1,7 +1,4 @@
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
@@ -11,12 +8,7 @@ import { Type } from "typebox";
 import { stateDirectory } from "../attempts.ts";
 import { readOperationWitness } from "../operation-witness.ts";
 import { LeadMode, draftSchema } from "../lead-plan.ts";
-import {
-  SpecStatus,
-  preserveDecisions,
-  specDraft,
-  assessedSpecDraft,
-} from "../socrates/spec.ts";
+import { SpecStatus, preserveDecisions, specDraft, assessedSpecDraft } from "../socrates/spec.ts";
 import { saveDiscoveryPlan } from "../discovery/store.ts";
 import {
   DocumentKind,
@@ -54,12 +46,7 @@ export type PlanningBinding = {
 };
 export class PlanningSaveError extends Error {
   constructor(
-    readonly code:
-      | "invalid"
-      | "conflict"
-      | "protected"
-      | "wrong_owner"
-      | "uncertain",
+    readonly code: "invalid" | "conflict" | "protected" | "wrong_owner" | "uncertain",
     message: string,
   ) {
     super(message);
@@ -78,14 +65,14 @@ export type PlanningSaveResult = z.infer<typeof savedDocumentSchema> & {
 };
 
 const hosts = new WeakMap<ExtensionAPI, PlanningDocuments>();
-export function getPlanningDocuments(
-  pi: ExtensionAPI,
-): PlanningDocuments | undefined {
+
+export function getPlanningDocuments(pi: ExtensionAPI): PlanningDocuments | undefined {
   return hosts.get(pi);
 }
+
 export function registerPlanningDocuments(pi: ExtensionAPI): PlanningDocuments {
   const existing = hosts.get(pi);
-  if (existing !== undefined) return existing;
+  if (existing) return existing;
   const host = new PlanningDocuments(pi);
   hosts.set(pi, host);
   installPlanningDocumentHooks(pi, host);
@@ -101,14 +88,13 @@ function refFor(owner: DocumentOwner, kind: DocumentKind): DocumentRef {
     kind,
   };
 }
+
 function ownerMatches(owner: DocumentOwner, ref: DocumentRef): boolean {
   return isDeepStrictEqual(refFor(owner, ref.kind), ref);
 }
+
 export function revisionFor(ref: DocumentRef, record: DocumentState): string {
-  const draft =
-    ref.kind === DocumentKind.Specification
-      ? record.specification?.draft
-      : record.leadPlan?.draft;
+  const draft = ref.kind === DocumentKind.Specification ? record.specification?.draft : record.leadPlan?.draft;
   const guards = JSON.parse(
     JSON.stringify({
       revision: record.revision,
@@ -121,38 +107,25 @@ export function revisionFor(ref: DocumentRef, record: DocumentState): string {
   ) as unknown;
   return documentRevision(ref, draft ?? null, guards);
 }
-function protectedReason(
-  record: DocumentState,
-  kind: DocumentKind,
-  ownerKind: DocumentOwnerKind,
-): string | undefined {
-  if (record.handoff !== undefined && record.handoff.phase !== "complete")
+
+function protectedReason(record: DocumentState, kind: DocumentKind, ownerKind: DocumentOwnerKind): string | undefined {
+  if (record.handoff && record.handoff.phase !== "complete")
     return "Reconcile the pending Studio handoff before editing";
-  if (
-    record.approved !== undefined ||
-    record.leadPlan?.mode !== LeadMode.Planning
-  )
+  if (record.approved !== undefined || record.leadPlan?.mode !== LeadMode.Planning)
     return "This plan is protected; use Studio's existing reopen controls";
   if (kind === DocumentKind.Specification) {
-    if (
-      record.specification?.draft != null &&
-      !specDraft.safeParse(record.specification.draft).success
-    )
+    if (record.specification?.draft != null && !specDraft.safeParse(record.specification.draft).success)
       return "This legacy specification is read-only; ask Studio to redraft it with current decision metadata before editing";
-    if (
-      record.specification?.draft != null &&
-      !assessedSpecDraft.safeParse(record.specification.draft).success
-    )
+    if (record.specification?.draft != null && !assessedSpecDraft.safeParse(record.specification.draft).success)
       return "This specification needs a complete property assessment; ask Studio to reassess it before editing";
     if (record.specification?.status !== SpecStatus.Interrogating)
       return "Reopen the frozen specification in Studio before editing";
     if (record.specification.acceptedRevision !== record.revision)
       return "Refresh the accepted task revision in Studio";
-    if (record.specification.exchange !== undefined)
-      return "Resolve the pending Socrates exchange in Studio before editing";
+    if (record.specification.exchange) return "Resolve the pending Socrates exchange in Studio before editing";
   } else if (
     ownerKind === DocumentOwnerKind.Attempt &&
-    record.specification !== undefined &&
+    record.specification &&
     (record.specification.status !== SpecStatus.Frozen ||
       record.specification.draft === null ||
       record.specification.acceptedRevision !== record.revision)
@@ -161,6 +134,7 @@ function protectedReason(
   }
   return undefined;
 }
+
 export function snapshotFor(
   owner: DocumentOwner,
   record: DocumentState,
@@ -168,10 +142,7 @@ export function snapshotFor(
 ): DocumentSnapshot | undefined {
   const ref = refFor(owner, kind);
   const reason = protectedReason(record, kind, owner.kind);
-  const draft =
-    kind === DocumentKind.Specification
-      ? record.specification?.draft
-      : record.leadPlan?.draft;
+  const draft = kind === DocumentKind.Specification ? record.specification?.draft : record.leadPlan?.draft;
   if (draft === undefined || draft === null) return undefined;
   const markdown =
     kind === DocumentKind.Specification
@@ -195,6 +166,7 @@ export function snapshotFor(
     ...(reason === undefined ? {} : { reason }),
   };
 }
+
 function applyDocument(
   record: DocumentState,
   kind: DocumentKind,
@@ -207,13 +179,13 @@ function applyDocument(
   if (parsed.kind === DocumentKind.Specification) {
     const draft = assessedSpecDraft.parse(parsed.draft);
     const spec = record.specification;
-    if (spec === undefined) throw new Error("No specification exists");
+    if (!spec) throw new Error("No specification exists");
     preserveDecisions(spec.draft, draft);
     // An editor can revise prose, but cannot certify the old assessment against new content.
     record.specification = { ...spec, draft, coverageRevision: undefined };
   } else {
     const draft = draftSchema.parse(parsed.draft);
-    if (record.leadPlan === undefined) throw new Error("No plan exists");
+    if (!record.leadPlan) throw new Error("No plan exists");
     if (ownerKind === DocumentOwnerKind.Discovery) {
       const proposal = { ...record, leadPlan: record.leadPlan };
       saveDiscoveryPlan(proposal, draft);
@@ -225,28 +197,18 @@ function applyDocument(
     }
   }
 }
-function validatePlanRequirements(
-  record: DocumentState,
-  draft: ReturnType<typeof draftSchema.parse>,
-): void {
+
+function validatePlanRequirements(record: DocumentState, draft: ReturnType<typeof draftSchema.parse>): void {
   const specification = record.specification;
-  if (specification === undefined) return;
-  const requirements =
-    specification.draft?.requirements.map((item) => item.id) ?? [];
+  if (!specification) return;
+  const requirements = specification.draft?.requirements.map((item) => item.id) ?? [];
   if (
     draft.tasks.some(
-      (task) =>
-        task.requirements.length === 0 ||
-        task.requirements.some((id) => !requirements.includes(id)),
+      (task) => task.requirements.length === 0 || task.requirements.some((id) => !requirements.includes(id)),
     ) ||
-    (draft.tasks.length > 0 &&
-      requirements.some(
-        (id) => !draft.tasks.some((task) => task.requirements.includes(id)),
-      ))
+    (draft.tasks.length > 0 && requirements.some((id) => !draft.tasks.some((task) => task.requirements.includes(id))))
   )
-    throw new Error(
-      "Cover every frozen requirement and link each task to known requirement IDs",
-    );
+    throw new Error("Cover every frozen requirement and link each task to known requirement IDs");
 }
 
 interface ActiveFeedback {
@@ -261,21 +223,15 @@ interface ActiveFeedback {
 export class PlanningDocuments implements PlanningDocumentHooks {
   private adapter: PlanningDocumentAuthority | undefined;
   bind(authority: PlanningDocumentAuthority): void {
-    if (this.adapter !== undefined)
-      throw new Error("The planning document authority is already bound");
+    if (this.adapter) throw new Error("The planning document authority is already bound");
     this.adapter = authority;
   }
   private ctx: ExtensionContext | undefined;
   private generation = randomUUID();
   private journal: DocumentJournal | undefined;
-  private known = new Map<
-    DocumentKind,
-    { ref: DocumentRef; revision: string; markdown?: string }
-  >();
+  private known = new Map<DocumentKind, { ref: DocumentRef; revision: string; markdown?: string }>();
   private listeners = new Set<() => void>();
-  private promptListeners = new Set<
-    (admission: DocumentPromptAdmission, ctx: ExtensionContext) => void
-  >();
+  private promptListeners = new Set<(admission: DocumentPromptAdmission, ctx: ExtensionContext) => void>();
   private dialogs = 0;
   private active: ActiveFeedback | undefined;
   private dispatching = false;
@@ -299,17 +255,11 @@ export class PlanningDocuments implements PlanningDocumentHooks {
       const active = this.active;
       const request =
         event.messageType === "user"
-          ? this.journal
-              ?.list()
-              .find((row) => feedbackPrompt(row) === event.prompt)
+          ? this.journal?.list().find((row) => feedbackPrompt(row) === event.prompt)
           : undefined;
-      if (request !== undefined) {
-        if (
-          active?.requestId !== request.requestId ||
-          request.generation !== this.generation
-        ) {
-          this.blockedRun =
-            "This feedback delivery is no longer admitted; inspect its original chat before retrying";
+      if (request) {
+        if (active?.requestId !== request.requestId || request.generation !== this.generation) {
+          this.blockedRun = "This feedback delivery is no longer admitted; inspect its original chat before retrying";
         } else {
           active.observed = true;
           clearTimeout(active.timer);
@@ -325,17 +275,14 @@ export class PlanningDocuments implements PlanningDocumentHooks {
         }
         if (this.blockedRun !== undefined) {
           this.store().change(request.requestId, (row) => {
-            if (
-              row.state !== FeedbackState.Answered &&
-              row.state !== FeedbackState.Failed
-            ) {
+            if (row.state !== FeedbackState.Answered && row.state !== FeedbackState.Failed) {
               row.state = FeedbackState.Uncertain;
               row.reason = this.blockedRun;
             }
           });
           ctx.abort();
         }
-      } else if (active !== undefined) {
+      } else if (active) {
         this.blockedRun =
           "A document feedback delivery is already pending; wait for it to settle before changing documents";
         ctx.abort();
@@ -352,13 +299,11 @@ export class PlanningDocuments implements PlanningDocumentHooks {
               ctx,
             );
         } catch (error) {
-          this.blockedRun =
-            error instanceof Error ? error.message : String(error);
-          if (request !== undefined)
+          this.blockedRun = error instanceof Error ? error.message : String(error);
+          if (request)
             this.store().change(request.requestId, (row) => {
               row.state = FeedbackState.Uncertain;
-              row.reason =
-                "Studio could not prepare the admitted feedback; inspect its chat before retrying";
+              row.reason = "Studio could not prepare the admitted feedback; inspect its chat before retrying";
             });
           ctx.abort();
         }
@@ -404,8 +349,7 @@ export class PlanningDocuments implements PlanningDocumentHooks {
         )
           this.store().change(record.requestId, (row) => {
             row.state = FeedbackState.Uncertain;
-            row.reason =
-              "Studio settled without a confirmed feedback outcome; inspect its chat before resubmitting";
+            row.reason = "Studio settled without a confirmed feedback outcome; inspect its chat before resubmitting";
           });
         this.active = undefined;
       }
@@ -415,19 +359,8 @@ export class PlanningDocuments implements PlanningDocumentHooks {
     });
     pi.on("turn_end", (event) => {
       const active = this.active;
-      if (
-        this.blockedRun !== undefined ||
-        active?.observed !== true ||
-        active.outcome === undefined
-      )
-        return;
-      if (
-        !event.toolResults.some(
-          (result) =>
-            result.toolCallId === active.outcome?.callId && !result.isError,
-        )
-      )
-        return;
+      if (this.blockedRun !== undefined || active?.observed !== true || !active.outcome) return;
+      if (!event.toolResults.some((result) => result.toolCallId === active.outcome?.callId && !result.isError)) return;
       const request = this.store().get(active.requestId);
       this.requireOwner(request.ref);
       const outcome = active.outcome;
@@ -443,8 +376,7 @@ export class PlanningDocuments implements PlanningDocumentHooks {
       try {
         this.assertFeedbackAdmission();
       } catch (error) {
-        this.blockedRun =
-          error instanceof Error ? error.message : String(error);
+        this.blockedRun = error instanceof Error ? error.message : String(error);
         // Pi reports hook errors without cancelling the run. Abort the live provider signal as well.
         ctx.abort();
         throw error;
@@ -492,9 +424,7 @@ export class PlanningDocuments implements PlanningDocumentHooks {
         this.requireOwner(this.store().get(active.requestId).ref);
         const summary = params.summary.trim();
         if (summary.length === 0 || summary.length > 1000)
-          throw new Error(
-            "Use a concise nonempty outcome of at most 1000 characters",
-          );
+          throw new Error("Use a concise nonempty outcome of at most 1000 characters");
         active.outcome = { summary, callId };
         return Promise.resolve({
           content: [{ type: "text", text: summary }],
@@ -511,12 +441,7 @@ export class PlanningDocuments implements PlanningDocumentHooks {
     };
   }
   /** Tell planning controls whether the upcoming user delivery has been admitted. */
-  onPromptAdmission(
-    listener: (
-      admission: DocumentPromptAdmission,
-      ctx: ExtensionContext,
-    ) => void,
-  ): () => void {
+  onPromptAdmission(listener: (admission: DocumentPromptAdmission, ctx: ExtensionContext) => void): () => void {
     this.promptListeners.add(listener);
     return () => {
       this.promptListeners.delete(listener);
@@ -534,30 +459,20 @@ export class PlanningDocuments implements PlanningDocumentHooks {
   }
   private reset(ctx: ExtensionContext): void {
     const previous = this.binding();
-    this.finishUncertain(
-      "Studio conversation or branch changed; inspect the original request before retrying",
-    );
+    this.finishUncertain("Studio conversation or branch changed; inspect the original request before retrying");
     this.ctx = ctx;
     this.generation = randomUUID();
-    if (previous !== undefined)
-      this.journal?.reconcile(
-        this.generation,
-        previous.project,
-        previous.conversationId,
-      );
+    if (previous) this.journal?.reconcile(this.generation, previous.project, previous.conversationId);
     this.known.clear();
     this.blockedRun = undefined;
     this.disposed = false;
     this.emit();
   }
   private finishUncertain(reason: string): void {
-    if (this.active !== undefined) {
+    if (this.active) {
       clearTimeout(this.active.timer);
       const record = this.store().get(this.active.requestId);
-      if (
-        record.state !== FeedbackState.Answered &&
-        record.state !== FeedbackState.Failed
-      )
+      if (record.state !== FeedbackState.Answered && record.state !== FeedbackState.Failed)
         this.store().change(record.requestId, (row) => {
           row.state = FeedbackState.Uncertain;
           row.reason = reason;
@@ -567,26 +482,19 @@ export class PlanningDocuments implements PlanningDocumentHooks {
   }
   dispose(): void {
     const previous = this.binding();
-    this.finishUncertain(
-      "The Studio process closed before a confirmed response",
-    );
+    this.finishUncertain("The Studio process closed before a confirmed response");
     this.disposed = true;
-    if (previous !== undefined)
-      this.journal?.reconcile(
-        randomUUID(),
-        previous.project,
-        previous.conversationId,
-      );
+    if (previous) this.journal?.reconcile(randomUUID(), previous.project, previous.conversationId);
     this.journal?.close();
     this.journal = undefined;
     this.ctx = undefined;
     this.known.clear();
   }
   private owner(): DocumentOwner | undefined {
-    return this.ctx === undefined ? undefined : this.adapter?.current(this.ctx);
+    return !this.ctx ? undefined : this.adapter?.current(this.ctx);
   }
   binding(): PlanningBinding | undefined {
-    if (this.disposed || this.ctx === undefined) return undefined;
+    if (this.disposed || !this.ctx) return undefined;
     return {
       generation: this.generation,
       project: realpathSync(this.ctx.cwd),
@@ -606,7 +514,7 @@ export class PlanningDocuments implements PlanningDocumentHooks {
   }
   private requireOwner(ref: DocumentRef): DocumentOwner {
     const owner = this.owner();
-    if (owner === undefined || !ownerMatches(owner, ref))
+    if (!owner || !ownerMatches(owner, ref))
       throw new PlanningSaveError(
         "wrong_owner",
         "The owning Studio document is no longer selected; return to its discovery before continuing",
@@ -615,12 +523,10 @@ export class PlanningDocuments implements PlanningDocumentHooks {
   }
   private assertFeedbackAdmission(): void {
     if (this.blockedRun !== undefined) throw new Error(this.blockedRun);
-    if (this.active !== undefined) {
+    if (this.active) {
       const request = this.store().get(this.active.requestId);
       if (request.generation !== this.generation || !this.active.observed)
-        throw new Error(
-          "The pending feedback has not been admitted to this agent run; wait for delivery to settle",
-        );
+        throw new Error("The pending feedback has not been admitted to this agent run; wait for delivery to settle");
       this.requireOwner(request.ref);
     }
   }
@@ -628,7 +534,7 @@ export class PlanningDocuments implements PlanningDocumentHooks {
     this.ctx = ctx;
     const owner = this.owner();
     this.known.clear();
-    if (owner === undefined) return [];
+    if (!owner) return [];
     const record = owner.read();
     for (const kind of Object.values(DocumentKind)) {
       const ref = refFor(owner, kind);
@@ -641,52 +547,34 @@ export class PlanningDocuments implements PlanningDocumentHooks {
     }
     return this.snapshots(owner, record);
   }
-  private snapshots(
-    owner: DocumentOwner,
-    record = owner.read(),
-  ): DocumentSnapshot[] {
+  private snapshots(owner: DocumentOwner, record = owner.read()): DocumentSnapshot[] {
     return Object.values(DocumentKind).flatMap((kind) => {
       const snapshot = snapshotFor(owner, record, kind);
-      return snapshot === undefined ? [] : [snapshot];
+      return !snapshot ? [] : [snapshot];
     });
   }
-  assertAgent(
-    kind: DocumentKind,
-    record: DocumentState,
-    ctx: ExtensionContext,
-    expectedRevision?: string,
-  ): void {
+  assertAgent(kind: DocumentKind, record: DocumentState, ctx: ExtensionContext, expectedRevision?: string): void {
     this.ctx = ctx;
     this.assertFeedbackAdmission();
     const owner = this.owner();
-    if (owner === undefined || owner.id !== record.id)
-      throw new Error(
-        "The document owner changed before this proposal was saved",
-      );
+    if (!owner || owner.id !== record.id) throw new Error("The document owner changed before this proposal was saved");
     const ref = refFor(owner, kind);
     const known = this.known.get(kind);
     const empty =
-      kind === DocumentKind.Specification
-        ? record.specification?.draft == null
-        : record.leadPlan?.draft == null;
+      kind === DocumentKind.Specification ? record.specification?.draft == null : record.leadPlan?.draft == null;
     if (
       (!empty && expectedRevision === undefined) ||
-      (expectedRevision !== undefined &&
-        expectedRevision !== revisionFor(ref, record))
+      (expectedRevision !== undefined && expectedRevision !== revisionFor(ref, record))
     )
       throw new Error(
         `The Studio document changed after the agent read it, or the candidate has no expectedRevision. Call ${documentReadTool}, then recompute the candidate with that document's exact revision in expectedRevision.`,
       );
     // Initial tool-created discoveries have no preceding snapshot; only an absent draft can use this path.
-    if (known === undefined && empty) {
+    if (!known && empty) {
       this.known.set(kind, { ref, revision: revisionFor(ref, record) });
       return;
     }
-    if (
-      known === undefined ||
-      !isDeepStrictEqual(known.ref, ref) ||
-      known.revision !== revisionFor(ref, record)
-    )
+    if (!known || !isDeepStrictEqual(known.ref, ref) || known.revision !== revisionFor(ref, record))
       throw new Error(
         `The Studio document changed after the agent read it. Call ${documentReadTool}, preserve current edits, and recompute this proposal.`,
       );
@@ -694,7 +582,7 @@ export class PlanningDocuments implements PlanningDocumentHooks {
   committed(kind: DocumentKind, ctx: ExtensionContext): void {
     this.ctx = ctx;
     const owner = this.owner();
-    if (owner === undefined) return;
+    if (!owner) return;
     const ref = refFor(owner, kind);
     const before = this.known.get(kind);
     const after = revisionFor(ref, owner.read());
@@ -702,27 +590,21 @@ export class PlanningDocuments implements PlanningDocumentHooks {
     this.known.set(kind, {
       ref,
       revision: after,
-      ...(snapshot === undefined ? {} : { markdown: snapshot.markdown }),
+      ...(!snapshot ? {} : { markdown: snapshot.markdown }),
     });
-    if (
-      this.active?.observed === true &&
-      before !== undefined &&
-      before.revision !== after
-    ) {
-      const previous = this.active.changes.find((change) =>
-        isDeepStrictEqual(change.ref, ref),
-      );
+    if (this.active?.observed === true && before && before.revision !== after) {
+      const previous = this.active.changes.find((change) => isDeepStrictEqual(change.ref, ref));
       const change: DocumentChange = {
         ref,
         beforeRevision: previous?.beforeRevision ?? before.revision,
         afterRevision: after,
-        ...(snapshot === undefined
+        ...(!snapshot
           ? {}
           : {
               range: changedRange(before.markdown ?? "", snapshot.markdown),
             }),
       };
-      if (previous === undefined) this.active.changes.push(change);
+      if (!previous) this.active.changes.push(change);
       else Object.assign(previous, change);
     }
     this.adapter?.changed?.(ctx);
@@ -733,23 +615,13 @@ export class PlanningDocuments implements PlanningDocumentHooks {
     feedback: (value: FeedbackRecord) => void,
   ): { binding?: PlanningBinding; owner?: DocumentOwner } {
     const binding = this.binding();
-    if (binding === undefined) return {};
+    if (!binding) return {};
     const owner = this.owner();
-    this.store().reconcile(
-      binding.generation,
-      binding.project,
-      binding.conversationId,
-      owner,
-    );
-    if (owner !== undefined)
-      for (const value of this.snapshots(owner)) document(value);
-    for (const value of this.store().records(
-      binding.project,
-      binding.conversationId,
-    ))
-      feedback(value);
+    this.store().reconcile(binding.generation, binding.project, binding.conversationId, owner);
+    if (owner) for (const value of this.snapshots(owner)) document(value);
+    for (const value of this.store().records(binding.project, binding.conversationId)) feedback(value);
     this.schedule();
-    return { binding, ...(owner === undefined ? {} : { owner }) };
+    return { binding, ...(!owner ? {} : { owner }) };
   }
   sync(): Promise<{
     documents: DocumentSnapshot[];
@@ -766,10 +638,7 @@ export class PlanningDocuments implements PlanningDocumentHooks {
   async save(input: unknown): Promise<DocumentSnapshot> {
     return (await this.saveWithWitness(input)).document;
   }
-  async saveWithWitness(
-    input: unknown,
-    evidence?: PlanningSaveEvidence,
-  ): Promise<PlanningSaveResult> {
+  async saveWithWitness(input: unknown, evidence?: PlanningSaveEvidence): Promise<PlanningSaveResult> {
     this.saves += 1;
     try {
       return await this.saveDraft(input, evidence);
@@ -777,42 +646,30 @@ export class PlanningDocuments implements PlanningDocumentHooks {
       this.saves -= 1;
     }
   }
-  private async saveDraft(
-    input: unknown,
-    evidence?: PlanningSaveEvidence,
-  ): Promise<PlanningSaveResult> {
+  private async saveDraft(input: unknown, evidence?: PlanningSaveEvidence): Promise<PlanningSaveResult> {
     const generation = this.generation;
     const request = saveDraftSchema.parse(input);
     const command = evidence?.command ?? JSON.stringify(request);
     const binding = this.binding();
-    if (
-      binding === undefined ||
-      binding.project !== request.ref.project ||
-      binding.conversationId !== request.ref.conversationId
-    )
-      throw new PlanningSaveError(
-        "wrong_owner",
-        "The save belongs to another Studio conversation",
-      );
+    if (!binding || binding.project !== request.ref.project || binding.conversationId !== request.ref.conversationId)
+      throw new PlanningSaveError("wrong_owner", "The save belongs to another Studio conversation");
     const retained = this.store().saved(request, command);
-    if (retained !== undefined) {
+    if (retained) {
       const witness = readOperationWitness(
         join(
           stateDirectory(),
           retained.reservation?.authority ??
-            (request.ref.ownerKind === DocumentOwnerKind.Attempt
-              ? "attempts.sqlite"
-              : "discoveries.sqlite"),
+            (request.ref.ownerKind === DocumentOwnerKind.Attempt ? "attempts.sqlite" : "discoveries.sqlite"),
         ),
         request.ref.ownerId,
         request.operationId,
         command,
       );
-      if (witness !== undefined) {
+      if (witness) {
         const accepted = savedDocumentSchema.parse(JSON.parse(witness.result));
         return { ...accepted, commitWitnessId: witness.id };
       }
-      if (retained.reservation === undefined)
+      if (!retained.reservation)
         throw new PlanningSaveError(
           "uncertain",
           "The save outcome is uncertain: this historical receipt has no authoritative commit witness; inspect it before creating another operation",
@@ -820,65 +677,44 @@ export class PlanningDocuments implements PlanningDocumentHooks {
     }
     const owner = this.requireOwner(request.ref);
     const ctx = this.ctx;
-    if (ctx === undefined)
-      throw new Error("Studio has no current conversation");
+    if (!ctx) throw new Error("Studio has no current conversation");
     await owner.validate(ctx);
     if (this.generation !== generation || this.disposed)
-      throw new PlanningSaveError(
-        "wrong_owner",
-        "The Studio activation changed while validating this save",
-      );
+      throw new PlanningSaveError("wrong_owner", "The Studio activation changed while validating this save");
     this.requireOwner(request.ref);
     const receipt = this.store().save(request, command);
     const witness = owner.changeWithWitness(
       request.operationId,
       command,
       (record) => {
-        if (receipt.reservation === undefined)
+        if (!receipt.reservation)
           throw new PlanningSaveError(
             "uncertain",
             "The save outcome is uncertain: this historical receipt has no authoritative commit witness; inspect it before creating another operation",
           );
         if (this.generation !== generation || this.disposed)
-          throw new PlanningSaveError(
-            "wrong_owner",
-            "The Studio activation changed before this save committed",
-          );
+          throw new PlanningSaveError("wrong_owner", "The Studio activation changed before this save committed");
         this.requireOwner(request.ref);
         const current = snapshotFor(owner, record, request.ref.kind);
-        if (current === undefined)
-          throw new PlanningSaveError(
-            "wrong_owner",
-            "The draft no longer exists",
-          );
+        if (!current) throw new PlanningSaveError("wrong_owner", "The draft no longer exists");
         if (current.revision !== request.expectedRevision)
           throw new PlanningSaveError(
             "conflict",
             "The Studio draft changed; compare and reconcile your unsaved text before saving",
           );
-        if (!current.writable)
-          throw new PlanningSaveError(
-            "protected",
-            current.reason ?? "This document is protected",
-          );
+        if (!current.writable) throw new PlanningSaveError("protected", current.reason ?? "This document is protected");
         try {
           applyDocument(record, request.ref.kind, request.markdown, owner.kind);
         } catch (cause) {
-          throw new PlanningSaveError(
-            "invalid",
-            cause instanceof Error ? cause.message : String(cause),
-          );
+          throw new PlanningSaveError("invalid", cause instanceof Error ? cause.message : String(cause));
         }
       },
       (record) => {
         const accepted = snapshotFor(owner, record, request.ref.kind);
-        if (accepted === undefined)
-          throw new Error("The saved document snapshot is missing");
+        if (!accepted) throw new Error("The saved document snapshot is missing");
         return JSON.stringify({
           document: accepted,
-          ...(evidence === undefined
-            ? {}
-            : { presentation: evidence.presentation(accepted) }),
+          ...(!evidence ? {} : { presentation: evidence.presentation(accepted) }),
         });
       },
     );
@@ -888,25 +724,15 @@ export class PlanningDocuments implements PlanningDocumentHooks {
     this.emit();
     return { ...accepted, commitWitnessId: witness.id };
   }
-  feedback(
-    input: unknown,
-    expected?: PlanningBinding,
-  ): Promise<FeedbackRecord> {
+  feedback(input: unknown, expected?: PlanningBinding): Promise<FeedbackRecord> {
     return Promise.resolve().then(() => {
-      if (expected !== undefined) this.assertBinding(expected);
+      if (expected) this.assertBinding(expected);
       const request = selectionFeedbackSchema.parse(input);
       const binding = this.binding();
-      if (
-        binding === undefined ||
-        binding.project !== request.ref.project ||
-        binding.conversationId !== request.ref.conversationId
-      )
-        throw new PlanningSaveError(
-          "wrong_owner",
-          "The feedback belongs to another Studio conversation",
-        );
+      if (!binding || binding.project !== request.ref.project || binding.conversationId !== request.ref.conversationId)
+        throw new PlanningSaveError("wrong_owner", "The feedback belongs to another Studio conversation");
       const retained = this.store().submitted(request);
-      if (retained !== undefined) return retained;
+      if (retained) return retained;
       this.requireOwner(request.ref);
       const record = this.store().submit(request, this.generation);
       this.emit();
@@ -917,10 +743,7 @@ export class PlanningDocuments implements PlanningDocumentHooks {
   private schedule(): void {
     queueMicrotask(() => {
       this.pump().catch((error: unknown) => {
-        this.ctx?.ui.notify(
-          error instanceof Error ? error.message : String(error),
-          "error",
-        );
+        this.ctx?.ui.notify(error instanceof Error ? error.message : String(error), "error");
       });
     });
   }
@@ -929,25 +752,22 @@ export class PlanningDocuments implements PlanningDocumentHooks {
     if (
       this.disposed ||
       this.dispatching ||
-      this.active !== undefined ||
-      this.journal === undefined ||
-      ctx === undefined ||
+      this.active ||
+      !this.journal ||
+      !ctx ||
       !ctx.isIdle() ||
       ctx.hasPendingMessages() ||
       this.dialogs > 0
     )
       return;
     const owner = this.owner();
-    if (owner === undefined) return;
+    if (!owner) return;
     const exchange = owner.read().specification?.exchange;
-    if (exchange !== undefined && exchange.answer === undefined) return;
+    if (exchange && !exchange.answer) return;
     const request = this.journal
       .list()
-      .find(
-        (item) =>
-          item.state === FeedbackState.Queued && ownerMatches(owner, item.ref),
-      );
-    if (request === undefined) return;
+      .find((item) => item.state === FeedbackState.Queued && ownerMatches(owner, item.ref));
+    if (!request) return;
     this.dispatching = true;
     try {
       await owner.validate(ctx);
@@ -956,8 +776,7 @@ export class PlanningDocuments implements PlanningDocumentHooks {
       if (request.generation !== this.generation) {
         this.journal.change(request.requestId, (row) => {
           row.state = FeedbackState.Uncertain;
-          row.reason =
-            "This comment belongs to an earlier Studio activation; inspect before resubmitting";
+          row.reason = "This comment belongs to an earlier Studio activation; inspect before resubmitting";
         });
         return;
       }
@@ -993,34 +812,19 @@ function feedbackPrompt(request: FeedbackRecord): string {
   return `Studio document feedback ${request.requestId}\n${JSON.stringify({ ref: request.ref, baseRevision: request.baseRevision, bufferIdentity: request.bufferIdentity, range: request.range, selectedText: request.selectedText, message: request.message })}\nThe selection may contain unsaved text. Respond in this chat and revise only the bound Studio documents through their guarded tools. This is not a Socrates answer or approval. Call ${documentOutcomeTool} with requestId ${request.requestId} and a concise outcome when finished.`;
 }
 
-function changedRange(
-  before: string,
-  after: string,
-): { startLine: number; endLine: number } {
+function changedRange(before: string, after: string): { startLine: number; endLine: number } {
   const oldLines = before.split("\n");
   const newLines = after.split("\n");
   let start = 0;
-  while (
-    start < oldLines.length &&
-    start < newLines.length &&
-    oldLines[start] === newLines[start]
-  )
-    start += 1;
+  while (start < oldLines.length && start < newLines.length && oldLines[start] === newLines[start]) start += 1;
   let oldEnd = oldLines.length;
   let newEnd = newLines.length;
-  while (
-    oldEnd > start &&
-    newEnd > start &&
-    oldLines[oldEnd - 1] === newLines[newEnd - 1]
-  ) {
+  while (oldEnd > start && newEnd > start && oldLines[oldEnd - 1] === newLines[newEnd - 1]) {
     oldEnd -= 1;
     newEnd -= 1;
   }
   return {
     startLine: Math.max(1, Math.min(start + 1, newLines.length)),
-    endLine: Math.max(
-      1,
-      Math.min(Math.max(start + 1, newEnd), newLines.length),
-    ),
+    endLine: Math.max(1, Math.min(Math.max(start + 1, newEnd), newLines.length)),
   };
 }

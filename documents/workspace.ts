@@ -3,17 +3,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { EditorWorkspace } from "@lanej/copydesk";
 import { loadConfig } from "../config.ts";
 import { PiMode, piModeSchema } from "../runtime.ts";
-import {
-  getPlanningDocuments,
-  type PlanningBinding,
-} from "../planning/documents.ts";
+import { getPlanningDocuments, type PlanningBinding } from "../planning/documents.ts";
 
 /** Optional editor composition; planning controls do not load the interoperability package. */
 export function registerDocumentWorkspace(pi: ExtensionAPI): void {
@@ -30,8 +24,7 @@ export function registerDocumentWorkspace(pi: ExtensionAPI): void {
   let lastError: string | undefined;
   const report = (cause: unknown) => {
     const message = cause instanceof Error ? cause.message : String(cause);
-    if (message !== lastError)
-      context?.ui.notify(`Studio documents: ${message}`, "warning");
+    if (message !== lastError) context?.ui.notify(`Studio documents: ${message}`, "warning");
     lastError = message;
   };
   const close = async (quitting = false) => {
@@ -42,11 +35,7 @@ export function registerDocumentWorkspace(pi: ExtensionAPI): void {
     bound = undefined;
     const previous = workspace;
     workspace = undefined;
-    if (
-      quitting &&
-      context !== undefined &&
-      piModeSchema.parse(context.mode) === PiMode.Tui
-    ) {
+    if (quitting && context && piModeSchema.parse(context.mode) === PiMode.Tui) {
       const { preserveDocumentPanesOnQuit } = await import("./editor.ts");
       await preserveDocumentPanesOnQuit().catch(report);
     }
@@ -54,25 +43,18 @@ export function registerDocumentWorkspace(pi: ExtensionAPI): void {
   };
   const refreshNow = async (open: boolean) => {
     const ctx = context;
-    if (ctx === undefined || piModeSchema.parse(ctx.mode) !== PiMode.Tui)
-      return;
+    if (!ctx || piModeSchema.parse(ctx.mode) !== PiMode.Tui) return;
     const activation = epoch;
     const config = await loadConfig();
     if (activation !== epoch) return;
-    if (
-      !config.integrations.neovim.enabled ||
-      !config.integrations.zellij.enabled
-    ) {
-      if (workspace !== undefined) await close();
-      if (open)
-        throw new Error(
-          "Enable integrations.neovim and integrations.zellij to open documents",
-        );
+    if (!config.integrations.neovim.enabled || !config.integrations.zellij.enabled) {
+      if (workspace) await close();
+      if (open) throw new Error("Enable integrations.neovim and integrations.zellij to open documents");
       return;
     }
     const authority = getPlanningDocuments(pi);
     const binding = authority?.binding();
-    if (authority === undefined || binding === undefined) return;
+    if (!authority || !binding) return;
     if (authority !== observedHost) {
       releaseHost?.();
       observedHost = authority;
@@ -80,24 +62,17 @@ export function registerDocumentWorkspace(pi: ExtensionAPI): void {
         refresh().catch(report);
       });
     }
-    if (workspace !== undefined && !isDeepStrictEqual(bound, binding)) {
+    if (workspace && !isDeepStrictEqual(bound, binding)) {
       const previous = workspace;
       workspace = undefined;
       bound = undefined;
       await previous.dispose();
       if (activation !== epoch) return;
     }
-    if (workspace === undefined) {
+    if (!workspace) {
       const session = process.env["ZELLIJ_SESSION_NAME"];
-      if (session === undefined)
-        throw new Error(
-          "Start Studio inside Zellij to open the companion editor",
-        );
-      const [
-        { createWorkspace },
-        { StudioDocumentProvider },
-        { StudioEditorLauncher },
-      ] = await Promise.all([
+      if (session === undefined) throw new Error("Start Studio inside Zellij to open the companion editor");
+      const [{ createWorkspace }, { StudioDocumentProvider }, { StudioEditorLauncher }] = await Promise.all([
         import("@lanej/copydesk"),
         import("./provider.ts"),
         import("./editor.ts"),
@@ -110,16 +85,11 @@ export function registerDocumentWorkspace(pi: ExtensionAPI): void {
         provider,
         launcher: new StudioEditorLauncher(config, session),
         directory: await mkdtemp(join(tmpdir(), "studio-editor-")),
-        runtimePath: dirname(
-          fileURLToPath(import.meta.resolve("@lanej/copydesk/neovim")),
-        ),
+        runtimePath: dirname(fileURLToPath(import.meta.resolve("@lanej/copydesk/neovim"))),
         workingDirectory: binding.project,
         title: "Studio documents",
       });
-      if (
-        activation !== epoch ||
-        !isDeepStrictEqual(authority.binding(), binding)
-      ) {
+      if (activation !== epoch || !isDeepStrictEqual(authority.binding(), binding)) {
         await candidate.dispose();
         return;
       }
@@ -134,7 +104,7 @@ export function registerDocumentWorkspace(pi: ExtensionAPI): void {
   };
   const refresh = (open = false): Promise<void> => {
     explicit ||= open;
-    if (refreshing !== undefined) {
+    if (refreshing) {
       again = true;
       return refreshing;
     }
@@ -151,8 +121,7 @@ export function registerDocumentWorkspace(pi: ExtensionAPI): void {
     return refreshing;
   };
   pi.registerCommand("documents", {
-    description:
-      "Open or reconnect this Studio session's specification and plan editor",
+    description: "Open or reconnect this Studio session's specification and plan editor",
     async handler(_argument, ctx) {
       context = ctx;
       await refresh(true);

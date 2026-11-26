@@ -11,16 +11,14 @@ import { withBeadsHttp } from "./beads-http-fixture.ts";
 const execute = promisify(execFile);
 const root = fileURLToPath(new URL("../", import.meta.url));
 const runtime = z.object({ bd: z.string(), dolt: z.string() }).parse(
-  process.env["STUDIO_NATIVE_BD"] !== undefined &&
-    process.env["STUDIO_NATIVE_DOLT"] !== undefined
+  process.env["STUDIO_NATIVE_BD"] !== undefined && process.env["STUDIO_NATIVE_DOLT"] !== undefined
     ? {
         bd: process.env["STUDIO_NATIVE_BD"],
         dolt: process.env["STUDIO_NATIVE_DOLT"],
       }
     : JSON.parse(
         await readFile(
-          process.env["STUDIO_NATIVE_RUNTIME"] ??
-            join(homedir(), ".local/share/beads-service/runtime.json"),
+          process.env["STUDIO_NATIVE_RUNTIME"] ?? join(homedir(), ".local/share/beads-service/runtime.json"),
           "utf8",
         ),
       ),
@@ -30,22 +28,15 @@ const dolt = process.env["STUDIO_NATIVE_DOLT"] ?? runtime.dolt;
 
 // The interactive controller uses the managed child runner; do not depend on unit-test order.
 if (process.env["STUDIO_ACCEPTANCE_CASE"] === "interactive-dispatch")
-  await execute(
-    process.execPath,
-    [join(root, "scripts/prepare-delegation.mjs")],
-    {
-      cwd: root,
-    },
-  );
+  await execute(process.execPath, [join(root, "scripts/prepare-delegation.mjs")], {
+    cwd: root,
+  });
 
 await withBeadsHttp(bd, dolt, async (fixture, source) => {
   const env: NodeJS.ProcessEnv = {
     ...Object.fromEntries(
       Object.entries(process.env).filter(
-        ([key]) =>
-          !/^(BEADS_|BD_|DOLT_|GIT_|WORKTREE_|ZELLIJ|TMUX|PI_|PASEO_)/.test(
-            key,
-          ),
+        ([key]) => !/^(BEADS_|BD_|DOLT_|GIT_|WORKTREE_|ZELLIJ|TMUX|PI_|PASEO_)/.test(key),
       ),
     ),
     HOME: fixture.directory,

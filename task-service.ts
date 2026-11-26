@@ -1,18 +1,9 @@
-import {
-  BeadsError,
-  BeadsHttp,
-  type components,
-} from "@lanej/task-runtime/beads";
+import { BeadsError, BeadsHttp, type components } from "@lanej/task-runtime/beads";
 import { readFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import type { StudioConfig } from "./config.ts";
-import {
-  orderedTasks,
-  draftSchema,
-  TaskDelivery,
-  type LeadDraft,
-} from "./lead-plan.ts";
+import { orderedTasks, draftSchema, TaskDelivery, type LeadDraft } from "./lead-plan.ts";
 
 export const beadSchema = z.looseObject({
   id: z.string().min(1),
@@ -56,9 +47,7 @@ export class TaskBeads extends BeadsHttp {
     super(
       settings.url,
       settings.projectId,
-      settings.tokenFile === undefined
-        ? undefined
-        : readFileSync(settings.tokenFile, "utf8").trim(),
+      settings.tokenFile === undefined ? undefined : readFileSync(settings.tokenFile, "utf8").trim(),
     );
     this.reviewOnly = settings.reviewOnly === true;
   }
@@ -66,12 +55,9 @@ export class TaskBeads extends BeadsHttp {
   async get(id: string): Promise<NativeBead> {
     await this.verifyAuthority();
     const row = beadSchema.parse(
-      await this.result(
-        this.client.GET("/v0/beads/issues/{id}", { params: { path: { id } } }),
-      ),
+      await this.result(this.client.GET("/v0/beads/issues/{id}", { params: { path: { id } } })),
     );
-    if (row.id !== id)
-      throw new Error("Beads returned a different task identity");
+    if (row.id !== id) throw new Error("Beads returned a different task identity");
     return row;
   }
 
@@ -105,10 +91,7 @@ export class TaskBeads extends BeadsHttp {
       parent.metadata["pi.plan"] !== metadata["pi.plan"] ||
       edges.missing.length > 0 ||
       !edges.items.some(
-        (edge) =>
-          edge.issue_id === bead.id &&
-          edge.depends_on_id === parent.id &&
-          edge.type === "parent-child",
+        (edge) => edge.issue_id === bead.id && edge.depends_on_id === parent.id && edge.type === "parent-child",
       )
     )
       throw new Error(
@@ -116,9 +99,7 @@ export class TaskBeads extends BeadsHttp {
       );
     const delivery = metadata["pi.plan_task"].delivery ?? TaskDelivery.Local;
     if (delivery === TaskDelivery.Local && lead)
-      throw new Error(
-        "This task was approved for local delivery; start it with --worker (no PR)",
-      );
+      throw new Error("This task was approved for local delivery; start it with --worker (no PR)");
     if (delivery === TaskDelivery.PullRequest && !lead)
       throw new Error(
         "This task was approved for PR delivery; omit --worker to use the lead verification and publication path",
@@ -132,10 +113,7 @@ export class TaskBeads extends BeadsHttp {
         params: { query: { limit: 1000, all: true } },
       }),
     );
-    const relationships = new Map<
-      string,
-      components["schemas"]["Dependency"][]
-    >();
+    const relationships = new Map<string, components["schemas"]["Dependency"][]>();
     for (let offset = 0; offset < page.items.length; offset += 100) {
       const ids = page.items.slice(offset, offset + 100).map((task) => task.id);
       const batch = await this.result(
@@ -143,13 +121,10 @@ export class TaskBeads extends BeadsHttp {
           params: { query: { issue_id: ids } },
         }),
       );
-      if (batch.missing.length > 0)
-        throw new Error(
-          "The Beads graph changed while reading tasks. Refresh the tree",
-        );
+      if (batch.missing.length > 0) throw new Error("The Beads graph changed while reading tasks. Refresh the tree");
       for (const edge of batch.items) {
         const edges = relationships.get(edge.issue_id);
-        if (edges === undefined) relationships.set(edge.issue_id, [edge]);
+        if (!edges) relationships.set(edge.issue_id, [edge]);
         else edges.push(edge);
       }
     }
@@ -162,11 +137,7 @@ export class TaskBeads extends BeadsHttp {
     };
   }
 
-  private async write(
-    before: NativeBead,
-    attempt: string,
-    patch: components["schemas"]["IssuePatchBody"],
-  ) {
+  private async write(before: NativeBead, attempt: string, patch: components["schemas"]["IssuePatchBody"]) {
     return this.result(
       this.client.PATCH("/v0/beads/issues/{id}", {
         params: { path: { id: before.id } },
@@ -184,8 +155,7 @@ export class TaskBeads extends BeadsHttp {
   }
 
   private async requireReady(before: NativeBead): Promise<void> {
-    if (before.status !== "open" || before.assignee !== "")
-      throw new Error("The bead must be open and unclaimed");
+    if (before.status !== "open" || before.assignee !== "") throw new Error("The bead must be open and unclaimed");
     const list = (limit: number) =>
       this.result(
         this.client.GET("/v0/beads/ready", {
@@ -214,10 +184,7 @@ export class TaskBeads extends BeadsHttp {
     try {
       await this.requireReady(before);
     } catch (cause) {
-      throw new ClaimRefused(
-        cause instanceof Error ? cause.message : String(cause),
-        { cause },
-      );
+      throw new ClaimRefused(cause instanceof Error ? cause.message : String(cause), { cause });
     }
     // Preserve the revision minted by the claim. A later detail read might already carry another writer's revision.
     const result = await this.write(before, attempt, {
@@ -225,10 +192,7 @@ export class TaskBeads extends BeadsHttp {
       status: "in_progress",
       metadata: { merge: { "pi.attempt": attempt } },
     }).catch((cause: unknown) => {
-      if (
-        cause instanceof BeadsError &&
-        [400, 401, 403, 404, 409, 422].includes(cause.status)
-      ) {
+      if (cause instanceof BeadsError && [400, 401, 403, 404, 409, 422].includes(cause.status)) {
         throw new ClaimRefused(cause.message, { cause });
       }
       throw cause;
@@ -240,18 +204,12 @@ export class TaskBeads extends BeadsHttp {
       confirmed.metadata["pi.attempt"] !== attempt ||
       !sameBrief(before, confirmed)
     ) {
-      throw new Error(
-        "The bead changed during admission. Inspect the recorded claim before dispatch",
-      );
+      throw new Error("The bead changed during admission. Inspect the recorded claim before dispatch");
     }
     return result.revision;
   }
 
-  async requireCurrent(
-    accepted: NativeBead,
-    revision: string,
-    attempt: string,
-  ): Promise<NativeBead> {
+  async requireCurrent(accepted: NativeBead, revision: string, attempt: string): Promise<NativeBead> {
     const current = await this.get(accepted.id);
     if (
       !sameBrief(accepted, current) ||
@@ -274,15 +232,11 @@ export class TaskBeads extends BeadsHttp {
     digest: string,
     draft: LeadDraft,
   ): Promise<{ revision: string; children: Record<string, string> }> {
-    if (this.reviewOnly)
-      throw new Error("This Beads service requires operator-managed changes");
+    if (this.reviewOnly) throw new Error("This Beads service requires operator-managed changes");
     const current = await this.requireCurrent(accepted, revision, attempt);
-    if (draft.tasks.length === 0)
-      return { revision: current.revision, children: {} };
+    if (draft.tasks.length === 0) return { revision: current.revision, children: {} };
     if (current.metadata["pi.plan"] !== undefined)
-      throw new Error(
-        "A task breakdown is already recorded. Inspect the Beads tree",
-      );
+      throw new Error("A task breakdown is already recorded. Inspect the Beads tree");
     const items: components["schemas"]["ApplyItem"][] = [
       {
         kind: "update",
@@ -353,13 +307,8 @@ export class TaskBeads extends BeadsHttp {
       draft.tasks.some((task) => !Object.hasOwn(result.keys, task.key))
     )
       throw new Error("Beads did not return a complete plan receipt");
-    const confirmed = await this.requireCurrent(
-      accepted,
-      patch.revision,
-      attempt,
-    );
-    if (confirmed.metadata["pi.plan"] !== digest)
-      throw new Error("Beads did not confirm the approved plan");
+    const confirmed = await this.requireCurrent(accepted, patch.revision, attempt);
+    if (confirmed.metadata["pi.plan"] !== digest) throw new Error("Beads did not confirm the approved plan");
     return { revision: confirmed.revision, children: result.keys };
   }
 
@@ -380,22 +329,15 @@ export class TaskBeads extends BeadsHttp {
         },
       });
     } catch (cause) {
-      if (cause instanceof BeadsError && cause.status === 409)
-        throw new BeadChanged(cause.message, { cause });
+      if (cause instanceof BeadsError && cause.status === 409) throw new BeadChanged(cause.message, { cause });
       if (!(await this.closedWith(accepted.id, attempt, evidence))) throw cause;
       return;
     }
     if (!(await this.closedWith(accepted.id, attempt, evidence)))
-      throw new Error(
-        "Beads has not confirmed closure with this attempt's evidence",
-      );
+      throw new Error("Beads has not confirmed closure with this attempt's evidence");
   }
 
-  async closedWith(
-    id: string,
-    attempt: string,
-    evidence: Verification,
-  ): Promise<boolean> {
+  async closedWith(id: string, attempt: string, evidence: Verification): Promise<boolean> {
     const current = await this.get(id);
     return (
       current.status === "closed" &&

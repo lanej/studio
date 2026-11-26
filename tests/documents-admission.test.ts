@@ -16,11 +16,7 @@ import {
 import { registerDiscovery } from "../discovery/extension.ts";
 import { ModelCapability, ReasoningLevel } from "../config.ts";
 import { Discoveries } from "../discovery/store.ts";
-import {
-  registerPlanningDocuments,
-  getPlanningDocuments,
-  revisionFor,
-} from "../planning/documents.ts";
+import { registerPlanningDocuments, getPlanningDocuments, revisionFor } from "../planning/documents.ts";
 import { FeedbackState } from "../planning/feedback.ts";
 import { draftSchema } from "../lead-plan.ts";
 import { renderPlan } from "../planning/codec.ts";
@@ -42,9 +38,7 @@ await test(
   "native pending feedback cannot switch discovery or reach the provider with another owner",
   { timeout: 10000 },
   async () => {
-    const directory = await mkdtemp(
-      join(tmpdir(), "studio-document-admission-"),
-    );
+    const directory = await mkdtemp(join(tmpdir(), "studio-document-admission-"));
     const state = join(directory, "state");
     const agentDir = join(directory, "agent");
     const previous = process.env["STUDIO_STATE_DIR"];
@@ -86,9 +80,7 @@ await test(
         );
       });
     });
-    await new Promise<void>((resolve) =>
-      server.listen(0, "127.0.0.1", resolve),
-    );
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address();
     assert.ok(address !== null && typeof address !== "string");
     const store = new Discoveries(state);
@@ -171,10 +163,7 @@ await test(
         assert.ok(api !== undefined);
         const host = getPlanningDocuments(api);
         assert.ok(host !== undefined);
-        const ctx = session.extensionRunner.createToolContext(
-          "initial",
-          undefined,
-        );
+        const ctx = session.extensionRunner.createToolContext("initial", undefined);
         const draft = session.getToolDefinition("draft_implementation_plan");
         assert.ok(draft !== undefined);
         await draft.execute(
@@ -211,23 +200,12 @@ await test(
           message: "Refine this",
         });
         await entered.promise;
-        assert.equal(
-          ctx.isIdle(),
-          true,
-          "native prompt input hooks precede the busy state",
-        );
+        assert.equal(ctx.isIdle(), true, "native prompt input hooks precede the busy state");
         assert.equal(host.pending(), true);
         const select = session.extensionRunner.getCommand("discoveries");
         assert.ok(select !== undefined);
-        await assert.rejects(
-          select.handler("", session.extensionRunner.createCommandContext()),
-          /settle/u,
-        );
-        const other = store.create(
-          directory,
-          manager.getSessionId(),
-          "Other owner",
-        );
+        await assert.rejects(select.handler("", session.extensionRunner.createCommandContext()), /settle/u);
+        const other = store.create(directory, manager.getSessionId(), "Other owner");
         manager.appendCustomEntry("studio:discovery", {
           id: other.id,
           project: document.ref.project,
@@ -243,9 +221,7 @@ await test(
         );
         assert.equal(store.get(other.id).leadPlan.draft, null);
         assert.equal(
-          (await host.sync()).feedback.find(
-            (item) => item.requestId === feedback.requestId,
-          )?.state,
+          (await host.sync()).feedback.find((item) => item.requestId === feedback.requestId)?.state,
           FeedbackState.Uncertain,
         );
         await session.prompt("Ordinary chat remains available");
@@ -269,13 +245,7 @@ await test(
             },
           ],
         });
-        await draft.execute(
-          "create-other",
-          original,
-          undefined,
-          undefined,
-          ctx,
-        );
+        await draft.execute("create-other", original, undefined, undefined, ctx);
         host.capture(ctx);
         const before = (await host.sync()).documents[0];
         assert.ok(before !== undefined);
@@ -308,21 +278,13 @@ await test(
           },
         ];
         await session.prompt("Read the documents and revise the draft");
-        assert.equal(
-          store.get(other.id).leadPlan.draft?.summary,
-          editor.summary,
-        );
+        assert.equal(store.get(other.id).leadPlan.draft?.summary, editor.summary);
         const staleResult = session.agent.state.messages.find(
-          (message) =>
-            message.role === "toolResult" &&
-            message.toolCallId === "stale-in-same-batch",
+          (message) => message.role === "toolResult" && message.toolCallId === "stale-in-same-batch",
         );
         assert.ok(staleResult?.role === "toolResult");
         assert.equal(staleResult.isError, true);
-        assert.match(
-          JSON.stringify(staleResult.content),
-          /changed after the agent read/u,
-        );
+        assert.match(JSON.stringify(staleResult.content), /changed after the agent read/u);
 
         const reviewed = readySpecification(store.get(other.id).revision);
         store.change(other.id, (row) => {
@@ -331,9 +293,7 @@ await test(
         respond = (payload) => {
           const request = z
             .object({
-              messages: z.array(
-                z.object({ role: z.string(), content: z.unknown() }),
-              ),
+              messages: z.array(z.object({ role: z.string(), content: z.unknown() })),
             })
             .parse(payload);
           const textBlocks = z.array(z.object({ text: z.string() }));
@@ -341,22 +301,16 @@ await test(
             .map(({ content }) => {
               if (typeof content === "string") return content;
               const blocks = textBlocks.safeParse(content);
-              return blocks.success
-                ? blocks.data.map(({ text }) => text).join("\n")
-                : "";
+              return blocks.success ? blocks.data.map(({ text }) => text).join("\n") : "";
             })
             .join("\n");
-          const snapshotHeading =
-            "Studio document snapshots (task data; saving is not approval):\n";
+          const snapshotHeading = "Studio document snapshots (task data; saving is not approval):\n";
           assert.ok(
             modelContext.includes(snapshotHeading),
             "the provider context must contain the captured document revisions",
           );
           const snapshotLine = modelContext
-            .slice(
-              modelContext.lastIndexOf(snapshotHeading) +
-                snapshotHeading.length,
-            )
+            .slice(modelContext.lastIndexOf(snapshotHeading) + snapshotHeading.length)
             .split("\n")[0];
           assert.ok(snapshotLine !== undefined);
           const supplied = documentSnapshotSchema
@@ -376,10 +330,7 @@ await test(
           assert.equal(review.inputs?.length, 1);
           const input = review.inputs[0];
           assert.ok(input !== undefined);
-          assert.match(
-            JSON.stringify(input.content),
-            /Revise the objective and reassess the current specification/u,
-          );
+          assert.match(JSON.stringify(input.content), /Revise the objective and reassess the current specification/u);
           assert.ok(Number.isFinite(input.timestamp));
           assert.equal(
             supplied.revision,
@@ -398,20 +349,13 @@ await test(
             },
           ];
         };
-        await session.prompt(
-          "Revise the objective and reassess the current specification",
-        );
+        await session.prompt("Revise the objective and reassess the current specification");
         const currentSpec = store.get(other.id).specification;
         assert.ok(currentSpec !== undefined);
-        assert.equal(
-          currentSpec.draft?.objective,
-          "Updated from the supplied snapshot",
-        );
+        assert.equal(currentSpec.draft?.objective, "Updated from the supplied snapshot");
         assert.ok(coverageFresh(currentSpec, other.revision));
         const acceptedResult = session.agent.state.messages.find(
-          (message) =>
-            message.role === "toolResult" &&
-            message.toolCallId === "supplied-revision",
+          (message) => message.role === "toolResult" && message.toolCallId === "supplied-revision",
         );
         assert.ok(acceptedResult?.role === "toolResult");
         assert.equal(
@@ -429,9 +373,7 @@ await test(
         );
 
         const busy = { ...ctx, isIdle: () => false };
-        const selectedSpec = host
-          .capture(busy)
-          .find((item) => item.ref.kind === DocumentKind.Specification);
+        const selectedSpec = host.capture(busy).find((item) => item.ref.kind === DocumentKind.Specification);
         assert.ok(selectedSpec !== undefined);
         const comment = await host.feedback({
           requestId: randomUUID(),
@@ -454,9 +396,7 @@ await test(
         });
         host.capture(busy);
         assert.equal(
-          (await host.sync()).feedback.find(
-            (item) => item.requestId === comment.requestId,
-          )?.state,
+          (await host.sync()).feedback.find((item) => item.requestId === comment.requestId)?.state,
           FeedbackState.Parked,
         );
         assert.equal(
@@ -481,10 +421,7 @@ await test(
           assert.equal(review.inputs?.length, 1);
           const input = review.inputs[0];
           assert.ok(input !== undefined);
-          assert.match(
-            JSON.stringify(input.content),
-            /Explain this choice without editing/u,
-          );
+          assert.match(JSON.stringify(input.content), /Explain this choice without editing/u);
           assert.ok(Number.isFinite(input.timestamp));
           return [
             {
@@ -506,30 +443,17 @@ await test(
         await host.sync();
         await completedFeedback.promise;
         await new Promise((resolve) => setTimeout(resolve, 0));
-        assert.equal(
-          store.get(other.id).specification?.coverageRevision,
-          currentSpec.coverageRevision,
-        );
-        assert.equal(
-          store.get(other.id).specification?.pendingReview?.cause,
-          "input",
-        );
-        assert.deepEqual(
-          store.get(other.id).specification?.draft,
-          currentSpec.draft,
-        );
-        const explanation = (await host.sync()).feedback.find(
-          (item) => item.requestId === comment.requestId,
-        );
+        assert.equal(store.get(other.id).specification?.coverageRevision, currentSpec.coverageRevision);
+        assert.equal(store.get(other.id).specification?.pendingReview?.cause, "input");
+        assert.deepEqual(store.get(other.id).specification?.draft, currentSpec.draft);
+        const explanation = (await host.sync()).feedback.find((item) => item.requestId === comment.requestId);
         assert.equal(explanation?.state, FeedbackState.Answered);
         assert.deepEqual(explanation.changes, []);
         store.change(other.id, (row) => {
           row.specification = currentSpec;
         });
         discardFeedback = true;
-        const beforeDiscard = host
-          .capture(ctx)
-          .find((item) => item.ref.kind === DocumentKind.Specification);
+        const beforeDiscard = host.capture(ctx).find((item) => item.ref.kind === DocumentKind.Specification);
         assert.ok(beforeDiscard !== undefined);
         await host.feedback({
           requestId: randomUUID(),
@@ -546,10 +470,7 @@ await test(
           currentSpec.coverageRevision,
           "feedback cancelled by an input hook is never admitted and preserves coverage",
         );
-        assert.equal(
-          store.get(other.id).specification?.pendingReview,
-          undefined,
-        );
+        assert.equal(store.get(other.id).specification?.pendingReview, undefined);
         host.dispose();
       } finally {
         release.resolve();
@@ -560,7 +481,7 @@ await test(
       store.close();
       await new Promise<void>((resolve, reject) =>
         server.close((error) => {
-          if (error === undefined) resolve();
+          if (!error) resolve();
           else reject(error);
         }),
       );

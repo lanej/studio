@@ -6,22 +6,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Discoveries, HandoffPhase } from "../discovery/store.ts";
-import {
-  executionSchema,
-  ExecutionPhase,
-  ExecutionStore,
-  projectSchema,
-} from "../execution/store.ts";
+import { executionSchema, ExecutionPhase, ExecutionStore, projectSchema } from "../execution/store.ts";
 import { publicationPrerequisites as completedPrerequisites } from "../execution/publication-graph.ts";
 import { TaskBeads, beadSchema } from "../task-service.ts";
 import { startTask } from "../task-run.ts";
-import {
-  configSchema,
-  exampleConfig,
-  ModelCapability,
-  ReasoningLevel,
-  StudioProfile,
-} from "../config.ts";
+import { configSchema, exampleConfig, ModelCapability, ReasoningLevel, StudioProfile } from "../config.ts";
 import { ExecutionBeads } from "../execution/beads.ts";
 import { retainClaim } from "../execution/recovery.ts";
 import { expect, test } from "bun:test";
@@ -67,11 +56,7 @@ test("an older background handoff resolves the approved graph and rejects change
   const discoveries = new Discoveries(directory);
   try {
     const id = randomUUID();
-    const discovery = discoveries.create(
-      directory,
-      "session",
-      "Original handoff",
-    );
+    const discovery = discoveries.create(directory, "session", "Original handoff");
     const project = projectSchema.parse({
       id,
       root: discovery.project,
@@ -170,11 +155,7 @@ test("an older background handoff resolves the approved graph and rejects change
     await retainClaim(store, service, attempt.id, standalone, config);
     assert.equal(store.attempt(attempt.id).bead?.id, standalone.id);
     assert.deepEqual(completedPrerequisites(store, project, attempt), []);
-    assert.throws(
-      () =>
-        completedPrerequisites(store, { ...project, base: "release" }, attempt),
-      /target branch/u,
-    );
+    assert.throws(() => completedPrerequisites(store, { ...project, base: "release" }, attempt), /target branch/u);
     assert.throws(
       () =>
         completedPrerequisites(store, project, {
@@ -308,9 +289,7 @@ test("delivery revisions change the approved draft and retain the explicit defau
       },
     ],
   });
-  expect(describePlan(draft)).toContain(
-    "Local integration only — no PR (default)",
-  );
+  expect(describePlan(draft)).toContain("Local integration only — no PR (default)");
   expect(describePlan(draft)).toContain("Opens a PR");
   const revised = reviseDelivery(draft, "one pull-request");
   expect(planDigest(revised)).not.toBe(planDigest(draft));
@@ -356,12 +335,7 @@ test("new child delivery selects existing launch paths and rejects mismatches be
         project_id: projectId,
         backend: "dolt",
         dolt_mode: "server",
-        capabilities: [
-          "project.enforce",
-          "issues.get",
-          "issues.create",
-          "issues.update",
-        ],
+        capabilities: ["project.enforce", "issues.get", "issues.create", "issues.update"],
       });
     if (url.pathname.endsWith("/dependencies"))
       return reply({
@@ -394,11 +368,7 @@ test("new child delivery selects existing launch paths and rejects mismatches be
   const state = join(directory, "state");
   const executed = join(directory, "unexpected-integration");
   const executable = join(directory, "integration");
-  writeFileSync(
-    executable,
-    `#!/bin/sh\nprintf unexpected > '${executed}'\nexit 99\n`,
-    { mode: 0o755 },
-  );
+  writeFileSync(executable, `#!/bin/sh\nprintf unexpected > '${executed}'\nexit 99\n`, { mode: 0o755 });
   const priorConfig = process.env["STUDIO_CONFIG"];
   const priorState = process.env["STUDIO_STATE_DIR"];
   const source = { url: `http://127.0.0.1:${String(address.port)}`, projectId };
@@ -417,10 +387,7 @@ test("new child delivery selects existing launch paths and rejects mismatches be
   try {
     const service = new TaskBeads(source);
     await service.requireDeliveryLaunch(await service.get("child"), false);
-    await assert.rejects(
-      startTask("child", StudioProfile.Personal, [], undefined, true),
-      /local delivery.*--worker/u,
-    );
+    await assert.rejects(startTask("child", StudioProfile.Personal, [], undefined, true), /local delivery.*--worker/u);
     assert.equal(existsSync(state), false);
     metadata = {
       ...metadata,
@@ -433,22 +400,13 @@ test("new child delivery selects existing launch paths and rejects mismatches be
     );
     assert.equal(existsSync(state), false);
     metadata = { ...metadata, "pi.plan_key": "another" };
-    await assert.rejects(
-      startTask("child", StudioProfile.Personal, [], undefined, true),
-      /malformed or mismatched/u,
-    );
+    await assert.rejects(startTask("child", StudioProfile.Personal, [], undefined, true), /malformed or mismatched/u);
     metadata = { ...metadata, "pi.plan_key": "one" };
     parentDigest = "another";
-    await assert.rejects(
-      startTask("child", StudioProfile.Personal, [], undefined, true),
-      /does not match its parent/u,
-    );
+    await assert.rejects(startTask("child", StudioProfile.Personal, [], undefined, true), /does not match its parent/u);
     parentDigest = "digest";
     linked = false;
-    await assert.rejects(
-      startTask("child", StudioProfile.Personal, [], undefined, true),
-      /does not match its parent/u,
-    );
+    await assert.rejects(startTask("child", StudioProfile.Personal, [], undefined, true), /does not match its parent/u);
     assert.equal(existsSync(state), false);
     await service.requireDeliveryLaunch(
       beadSchema.parse({

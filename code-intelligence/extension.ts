@@ -4,54 +4,39 @@ import { registerDiagnosticRendering } from "./rendering.ts";
 import type { DiagnosticSnapshot } from "./diagnostics.ts";
 import type { DiffScope } from "./scopes.ts";
 import { resolve } from "node:path";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import {
-  getAgentDir,
-  ProjectTrustStore,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, ProjectTrustStore } from "@earendil-works/pi-coding-agent";
 import { readFile, realpath } from "node:fs/promises";
 import { Type } from "typebox";
 import { z } from "zod";
-import {
-  defaultMinSplitColumns,
-  loadConfig,
-  type StudioConfig,
-} from "../config.ts";
+import { defaultMinSplitColumns, loadConfig, type StudioConfig } from "../config.ts";
 import { CodeIntelligence, Lookup } from "./service.ts";
 
 export const lspTool = "studio_lsp";
 export const renameTool = "studio_lsp_rename";
 const location = {
   path: Type.String({
-    description:
-      "File in the active checkout; also selects the server for workspace queries",
+    description: "File in the active checkout; also selects the server for workspace queries",
   }),
   line: Type.Optional(Type.Integer({ minimum: 1 })),
-  column: Type.Optional(
-    Type.Integer({ minimum: 1, description: "One-based UTF-16 column" }),
-  ),
+  column: Type.Optional(Type.Integer({ minimum: 1, description: "One-based UTF-16 column" })),
 };
+
 function result(value: unknown, isError = false) {
   const serialized = JSON.stringify(value, null, 2);
   return {
     content: [
       {
         type: "text" as const,
-        text:
-          serialized.length > 24_000
-            ? `${serialized.slice(0, 24_000)}\n[truncated; narrow the query]`
-            : serialized,
+        text: serialized.length > 24_000 ? `${serialized.slice(0, 24_000)}\n[truncated; narrow the query]` : serialized,
       },
     ],
     details: {},
     isError,
   };
 }
-const message = (error: unknown) =>
-  error instanceof Error ? error.message : String(error);
+
+const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 export function registerCodeIntelligence(pi: ExtensionAPI): CodeIntelligence {
   registerReasonedEdit(pi);
@@ -60,21 +45,14 @@ export function registerCodeIntelligence(pi: ExtensionAPI): CodeIntelligence {
     min_split_columns: defaultMinSplitColumns,
     inline_diagnostics: true,
   };
-  const display = registerDiagnosticRendering(
-    pi,
-    intelligence,
-    () => diffDisplay,
-  );
+  const display = registerDiagnosticRendering(pi, intelligence, () => diffDisplay);
   const renameCalls = new Set<string>();
   let approvedProject: string | undefined;
   let lifecycle = 0;
   const approved = async (ctx: ExtensionContext): Promise<boolean> => {
     if (!ctx.isProjectTrusted()) return false;
     const root = await realpath(ctx.cwd);
-    return (
-      approvedProject === root ||
-      new ProjectTrustStore(getAgentDir()).get(root) === true
-    );
+    return approvedProject === root || new ProjectTrustStore(getAgentDir()).get(root) === true;
   };
   const requireTrust = async (ctx: ExtensionContext): Promise<void> => {
     if (await approved(ctx)) return;
@@ -85,21 +63,14 @@ export function registerCodeIntelligence(pi: ExtensionAPI): CodeIntelligence {
     );
   };
   pi.registerCommand("lsp-trust", {
-    description:
-      "Approve language-server execution for this project in this session",
+    description: "Approve language-server execution for this project in this session",
     handler: async (_argument, ctx) => {
       if (await approved(ctx)) {
-        ctx.ui.notify(
-          "Language-server execution is already approved for this project",
-          "info",
-        );
+        ctx.ui.notify("Language-server execution is already approved for this project", "info");
         return;
       }
       if (!ctx.isProjectTrusted()) {
-        ctx.ui.notify(
-          "Approve the project through Pi's normal trust flow first, then use /lsp-trust",
-          "warning",
-        );
+        ctx.ui.notify("Approve the project through Pi's normal trust flow first, then use /lsp-trust", "warning");
         return;
       }
       const generation = lifecycle;
@@ -108,18 +79,9 @@ export function registerCodeIntelligence(pi: ExtensionAPI): CodeIntelligence {
         "Allow language-server execution?",
         `${root}\n\nLanguage servers can execute project code, including Rust build scripts and proc macros. Allow this for the current session?`,
       );
-      if (
-        !allowed ||
-        generation !== lifecycle ||
-        !ctx.isProjectTrusted() ||
-        (await realpath(ctx.cwd)) !== root
-      )
-        return;
+      if (!allowed || generation !== lifecycle || !ctx.isProjectTrusted() || (await realpath(ctx.cwd)) !== root) return;
       approvedProject = root;
-      ctx.ui.notify(
-        "Language-server execution approved for this project in this session",
-        "info",
-      );
+      ctx.ui.notify("Language-server execution approved for this project in this session", "info");
     },
   });
   pi.on("session_start", async () => {
@@ -192,14 +154,7 @@ export function registerCodeIntelligence(pi: ExtensionAPI): CodeIntelligence {
           if (args.action === "preview")
             return result(
               intelligence.describe(
-                await intelligence.preview(
-                  ctx.cwd,
-                  args.path,
-                  args.line ?? 1,
-                  args.column ?? 1,
-                  args.newName,
-                  signal,
-                ),
+                await intelligence.preview(ctx.cwd, args.path, args.line ?? 1, args.column ?? 1, args.newName, signal),
               ),
             );
           const preview = await intelligence.consume(ctx.cwd, args.token);
@@ -209,24 +164,20 @@ export function registerCodeIntelligence(pi: ExtensionAPI): CodeIntelligence {
           renameCalls.add(_id);
           try {
             for (const file of preview.files) {
-              if (
-                signal?.aborted === true ||
-                (await readFile(file.path, "utf8")) !== file.before
-              )
+              if (signal?.aborted === true || (await readFile(file.path, "utf8")) !== file.before)
                 return result(
                   {
                     error: "Rename interrupted or file changed",
                     applied,
                     recoveryEntry: preview.token,
-                    recovery:
-                      "Original and proposed contents are retained in the studio:rename-recovery session entry",
+                    recovery: "Original and proposed contents are retained in the studio:rename-recovery session entry",
                   },
                   true,
                 );
               const outcome = await ctx.executeTool(
                 "write",
                 { path: file.path, content: file.after },
-                signal === undefined ? {} : { signal },
+                !signal ? {} : { signal },
               );
               if (outcome.isError)
                 return result(
@@ -235,8 +186,7 @@ export function registerCodeIntelligence(pi: ExtensionAPI): CodeIntelligence {
                     failed: file.path,
                     applied,
                     recoveryEntry: preview.token,
-                    recovery:
-                      "Original and proposed contents are retained in the studio:rename-recovery session entry",
+                    recovery: "Original and proposed contents are retained in the studio:rename-recovery session entry",
                     writeResult: outcome.result.content,
                   },
                   true,
@@ -244,10 +194,7 @@ export function registerCodeIntelligence(pi: ExtensionAPI): CodeIntelligence {
               applied.push(file.path);
             }
           } catch (error) {
-            return result(
-              { error: message(error), applied, recoveryEntry: preview.token },
-              true,
-            );
+            return result({ error: message(error), applied, recoveryEntry: preview.token }, true);
           } finally {
             renameCalls.delete(_id);
           }
@@ -267,18 +214,9 @@ export function registerCodeIntelligence(pi: ExtensionAPI): CodeIntelligence {
   });
   registerPatchDiagnostics(pi, intelligence, requireTrust, display);
   pi.on("tool_result", async (event, ctx) => {
-    if (
-      !intelligence.enabled ||
-      event.isError ||
-      (event.toolName !== "edit" && event.toolName !== "write")
-    )
-      return;
+    if (!intelligence.enabled || event.isError || (event.toolName !== "edit" && event.toolName !== "write")) return;
     // Nested rename writes run inside the same serialized operation; their diagnostics follow the rename.
-    if (
-      event.parentToolCallId !== undefined &&
-      renameCalls.has(event.parentToolCallId)
-    )
-      return;
+    if (event.parentToolCallId !== undefined && renameCalls.has(event.parentToolCallId)) return;
     const input = z.object({ path: z.string() }).safeParse(event.input);
     if (!input.success) return;
     const path = resolve(await realpath(ctx.cwd), input.data.path);
@@ -293,9 +231,7 @@ export function registerCodeIntelligence(pi: ExtensionAPI): CodeIntelligence {
         return intelligence.editFeedback(
           ctx.cwd,
           input.data.path,
-          event.toolName === "edit" &&
-            typeof diff === "string" &&
-            native.data?.["studioSyntax"] === undefined
+          event.toolName === "edit" && typeof diff === "string" && native.data?.["studioSyntax"] === undefined
             ? diff
             : undefined,
         );
@@ -316,9 +252,7 @@ export function registerCodeIntelligence(pi: ExtensionAPI): CodeIntelligence {
         ...(scopes.length > 0 ? { studioDiffScopes: scopes } : {}),
         studioDiagnostics: {
           contentIndex: event.content.length,
-          ...(event.parentToolCallId === undefined
-            ? {}
-            : { toolCallId: event.toolCallId }),
+          ...(event.parentToolCallId === undefined ? {} : { toolCallId: event.toolCallId }),
           snapshot: diagnostics,
         },
       },

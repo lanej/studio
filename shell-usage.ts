@@ -1,15 +1,7 @@
-import {
-  estimateTokens,
-  type AgentToolResult,
-} from "@earendil-works/pi-coding-agent";
+import { estimateTokens, type AgentToolResult } from "@earendil-works/pi-coding-agent";
 
 function serializeArguments(modelArgs: unknown): string | undefined {
-  if (
-    typeof modelArgs !== "object" ||
-    modelArgs === null ||
-    Array.isArray(modelArgs)
-  )
-    return undefined;
+  if (typeof modelArgs !== "object" || modelArgs === null || Array.isArray(modelArgs)) return undefined;
   try {
     return JSON.stringify(modelArgs);
   } catch {

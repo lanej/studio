@@ -29,12 +29,7 @@ import { registerModelTools } from "../model-tools/extension.ts";
 import { applyPatch, replaceText } from "../model-tools/operations.ts";
 import { registerSearchRendering } from "../search-renderer.ts";
 
-async function patchSession(
-  cwd: string,
-  t: TestContext,
-  tools: string[],
-  register: (pi: ExtensionAPI) => void,
-) {
+async function patchSession(cwd: string, t: TestContext, tools: string[], register: (pi: ExtensionAPI) => void) {
   const services = await createAgentSessionServices({
     cwd,
     agentDir: cwd,
@@ -58,9 +53,7 @@ async function patchSession(
   await session.bindExtensions({ mode: "rpc" });
   session.agent.state.messages.push({
     role: "assistant",
-    content: [
-      { type: "toolCall", id: "codex", name: "apply_patch", arguments: {} },
-    ],
+    content: [{ type: "toolCall", id: "codex", name: "apply_patch", arguments: {} }],
     api: "openai-responses",
     provider: "fixture",
     model: "fixture",
@@ -94,19 +87,12 @@ await test(
     const moved = join(cwd, "moved.txt");
     const deleted = join(cwd, "obsolete.txt");
     await writeFile(deleted, "old\n");
-    await writeFile(
-      join(cwd, "bunfig.toml"),
-      'preload = ["./fixture-preload.mjs"]',
-    );
-    await writeFile(
-      join(cwd, "fixture-preload.mjs"),
-      'throw new Error("unexpected checkout preload")',
-    );
+    await writeFile(join(cwd, "bunfig.toml"), 'preload = ["./fixture-preload.mjs"]');
+    await writeFile(join(cwd, "fixture-preload.mjs"), 'throw new Error("unexpected checkout preload")');
     let blocked = true;
     const { ctx } = await patchSession(cwd, t, ["bash"], (pi) => {
       pi.on("tool_call", (event) => {
-        if (blocked && event.toolName === "bash")
-          return { block: true, reason: "Bash is blocked in this session" };
+        if (blocked && event.toolName === "bash") return { block: true, reason: "Bash is blocked in this session" };
         return undefined;
       });
     });
@@ -145,34 +131,19 @@ async function conversationFixture(t: TestContext) {
   initTheme("dark", false);
   const cwd = await mkdtemp(join(tmpdir(), "studio-patch-rendering-"));
   t.after(() => rm(cwd, { recursive: true, force: true }));
-  const { ctx, session } = await patchSession(
-    cwd,
-    t,
-    ["read", "edit", "write", "bash"],
-    (pi) => {
-      registerCodeIntelligence(pi);
-      registerSearchRendering(pi);
-      registerModelTools(pi);
-    },
-  );
+  const { ctx, session } = await patchSession(cwd, t, ["read", "edit", "write", "bash"], (pi) => {
+    registerCodeIntelligence(pi);
+    registerSearchRendering(pi);
+    registerModelTools(pi);
+  });
   const ui = new TuiMainScreen(new ProcessTerminal());
   const component = (name: string, args: object) => {
     const renderers = session.extensionRunner.resolveToolRenderers(
       name,
-      () =>
-        session.getToolDefinition(name) ??
-        session.extensionRunner.getToolDefinition(name),
+      () => session.getToolDefinition(name) ?? session.extensionRunner.getToolDefinition(name),
     );
     assert.ok(renderers !== undefined, name);
-    return new ToolExecutionComponent(
-      name,
-      randomUUID(),
-      args,
-      { showImages: false },
-      renderers,
-      ui,
-      cwd,
-    );
+    return new ToolExecutionComponent(name, randomUUID(), args, { showImages: false }, renderers, ui, cwd);
   };
   return {
     cwd,
@@ -243,20 +214,14 @@ await test("shell tool aliases render tagged heredocs with the selected syntax a
     tagged.setArgsComplete();
     const colored = tagged.render(100).join("\n");
     const transcript = stripTerminalSequences(colored);
-    assert.match(
-      transcript,
-      /psql <<'SQL'[\s\S]+echo checking[\s\S]+sh <<'SH'[\s\S]+echo finished/u,
-    );
+    assert.match(transcript, /psql <<'SQL'[\s\S]+echo checking[\s\S]+sh <<'SH'[\s\S]+echo finished/u);
     for (const [role, token] of [
       ["syntaxKeyword", "SELECT"],
       ["syntaxString", "'ready'"],
       ["syntaxKeyword", "if"],
       ["syntaxString", "'done'"],
     ] as const)
-      assert.ok(
-        colored.includes(ctx.ui.theme.fg(role, token)),
-        `${name} ${token}`,
-      );
+      assert.ok(colored.includes(ctx.ui.theme.fg(role, token)), `${name} ${token}`);
     assert.ok(tagged.render(24).every((line) => visibleWidth(line) <= 24));
     tagged.setExpanded(true);
     assert.equal(plain(tagged, 100), expanded);
@@ -303,8 +268,7 @@ await test("shell aliases share the shell prompt and file tools keep their invok
     const call = component(name, args);
     call.setArgsComplete();
     const heading = plain(call, 80).trimStart();
-    if ("command" in args)
-      assert.ok(heading.startsWith(`$ ${command}`), heading);
+    if ("command" in args) assert.ok(heading.startsWith(`$ ${command}`), heading);
     else assert.ok(heading.startsWith(name), heading);
     assert.ok(heading.includes(subject), heading);
   }
@@ -342,9 +306,7 @@ await test("Codex discovery displays TypeScript tokens in both compact and expan
     assert.doesNotMatch(display, /Took|0\.2s/u);
     assert.match(display, /≈\d+ tokens/u);
     assert.equal(display.includes("1 more line"), !expanded);
-    const context = rows.find((row) =>
-      stripTerminalSequences(row).includes(`17-${source}`),
-    );
+    const context = rows.find((row) => stripTerminalSequences(row).includes(`17-${source}`));
     assert.ok(
       context?.includes(highlighted) === true,
       "Expected the native TypeScript token colors in the context line",
@@ -371,9 +333,7 @@ await test("Codex shell excerpts preserve the first source line's indentation", 
     });
     for (const expanded of [false, true]) {
       shell.setExpanded(expanded);
-      const rows = shell
-        .render(80)
-        .map((row) => stripTerminalSequences(row).trimEnd());
+      const rows = shell.render(80).map((row) => stripTerminalSequences(row).trimEnd());
       for (const line of source)
         assert.ok(
           rows.some((row) => row.endsWith(line)),
@@ -394,9 +354,7 @@ await test("finished shells use the result separator for size, hidden rows and s
   const shell = component("shell_command", args);
   const text = "first\ntwo\nthree\nfour\nfive\nlast";
   const result = { content: [{ type: "text", text }], isError: false };
-  const callTokens = Math.ceil(
-    ("shell_command".length + JSON.stringify(args).length) / 4,
-  );
+  const callTokens = Math.ceil(("shell_command".length + JSON.stringify(args).length) / 4);
   const size = `≈${String(callTokens + Math.ceil(text.length / 4))} tokens`;
   shell.setArgsComplete();
   shell.updateResult(result, true);
@@ -408,30 +366,15 @@ await test("finished shells use the result separator for size, hidden rows and s
       shell.setExpanded(expanded);
       const rows = shell.render(100);
       const display = stripTerminalSequences(rows.join("\n"));
-      const heading = rows.findIndex(
-        (row) => stripTerminalSequences(row).trim() === "$ printf lines",
-      );
+      const heading = rows.findIndex((row) => stripTerminalSequences(row).trim() === "$ printf lines");
       assert.ok(heading >= 0);
       const status = rows[heading + 1];
       assert.ok(status !== undefined);
-      const firstOutput = stripTerminalSequences(
-        rows[heading + 2] ?? "",
-      ).trim();
-      assert.equal(
-        firstOutput,
-        expanded ? "first" : "two",
-        "Use the existing separator without adding a second row",
-      );
-      const label = [
-        ...(expanded ? [] : ["1 more line"]),
-        size,
-        ...(durationMs === 1000 ? ["1.0s"] : []),
-      ].join(" · ");
+      const firstOutput = stripTerminalSequences(rows[heading + 2] ?? "").trim();
+      assert.equal(firstOutput, expanded ? "first" : "two", "Use the existing separator without adding a second row");
+      const label = [...(expanded ? [] : ["1 more line"]), size, ...(durationMs === 1000 ? ["1.0s"] : [])].join(" · ");
       assert.equal(stripTerminalSequences(status).trim(), label);
-      assert.ok(
-        status.includes(inlayText(theme, label)),
-        "Shell metadata uses Studio's inlay foreground",
-      );
+      assert.ok(status.includes(inlayText(theme, label)), "Shell metadata uses Studio's inlay foreground");
       assert.doesNotMatch(display, /ctrl\+[oy]|earlier lines|to expand|Took/u);
       assert.equal(display.includes("first"), expanded);
       assert.match(display, /last/u);
@@ -463,11 +406,7 @@ await test("finished shells use the result separator for size, hidden rows and s
   });
   const warning = plain(second, 100);
   assert.match(warning, /Truncated: showing 6 of 20 lines/u);
-  assert.equal(
-    warning.split(path).length,
-    2,
-    "Pi shows the full-output path exactly once",
-  );
+  assert.equal(warning.split(path).length, 2, "Pi shows the full-output path exactly once");
   second.updateResult({ content: [], isError: false, durationMs: 10 });
   const empty = second
     .render(100)
@@ -499,8 +438,7 @@ await test("shell previews report only rows they actually hide", async (t) => {
       assert.equal(heading, "$ cat report");
       assert.ok(metadata !== undefined);
       assert.deepEqual(shown, expanded ? output : output.slice(-5));
-      if (!expanded && length === 9)
-        assert.match(metadata, /^4 more lines · ≈\d+ tokens$/u);
+      if (!expanded && length === 9) assert.match(metadata, /^4 more lines · ≈\d+ tokens$/u);
       else assert.match(metadata, /^≈\d+ tokens$/u);
     }
   }
@@ -513,22 +451,13 @@ await test("resizing shell results keeps the natural command rows and exactly on
   shell.setArgsComplete();
   const exactFit = visibleWidth(`$ ls ${argument}`) + 2;
   const widths = [160, 80, exactFit, exactFit - 1, 32, 16, 12, 9, 8, 6, 5, 160];
-  shell.updateResult(
-    { content: [{ type: "text", text: "O1" }], isError: false },
-    true,
-  );
+  shell.updateResult({ content: [{ type: "text", text: "O1" }], isError: false }, true);
   const natural = new Map(
     widths.map((width) => {
-      const rows = shell
-        .render(width)
-        .map((row) => stripTerminalSequences(row).trimEnd());
+      const rows = shell.render(width).map((row) => stripTerminalSequences(row).trimEnd());
       const firstOutput = rows.findIndex((row) => row.trim() === "O1");
       assert.ok(firstOutput > 0);
-      assert.equal(
-        rows[firstOutput - 1],
-        "",
-        "A partial one-line result has a blank separator",
-      );
+      assert.equal(rows[firstOutput - 1], "", "A partial one-line result has a blank separator");
       return [width, rows.slice(0, firstOutput - 1)];
     }),
   );
@@ -553,37 +482,21 @@ await test("resizing shell results keeps the natural command rows and exactly on
       const statusRow = rows[firstOutput - 1] ?? "";
       const status = statusRow.trim();
       if (status !== "")
-        assert.equal(
-          visibleWidth(statusRow),
-          width - 1,
-          "Right-align metadata to the last content cell",
-        );
+        assert.equal(visibleWidth(statusRow), width - 1, "Right-align metadata to the last content cell");
       assert.doesNotMatch(status, /ctrl\+|to expand/u);
       if (width >= exactFit - 1) {
         assert.match(status, /≈\d+ tokens/u);
         assert.match(status, /1\.3s/u);
         assert.equal(status.includes("1 more line"), !expanded);
       }
-      if (width === 6)
-        assert.equal(
-          status,
-          "1.3s",
-          "Four content cells fit the full duration",
-        );
-      if (width === 5)
-        assert.equal(
-          status,
-          "",
-          "Three content cells cannot fit a whole field",
-        );
+      if (width === 6) assert.equal(status, "1.3s", "Four content cells fit the full duration");
+      if (width === 5) assert.equal(status, "", "Three content cells cannot fit a whole field");
       assert.deepEqual(
         rows
           .slice(firstOutput)
           .map((row) => row.trim())
           .filter(Boolean),
-        expanded
-          ? ["O1", "O2", "O3", "O4", "O5", "O6"]
-          : ["O2", "O3", "O4", "O5", "O6"],
+        expanded ? ["O1", "O2", "O3", "O4", "O5", "O6"] : ["O2", "O3", "O4", "O5", "O6"],
       );
     }
   }
@@ -593,9 +506,7 @@ await test("resizing shell results keeps the natural command rows and exactly on
 function codeRows(component: ToolExecutionComponent, width: number) {
   return component
     .render(width)
-    .filter((row) =>
-      /computeRate|value \+=|return value/u.test(stripTerminalSequences(row)),
-    );
+    .filter((row) => /computeRate|value \+=|return value/u.test(stripTerminalSequences(row)));
 }
 
 function assertPatchTitle(view: string) {
@@ -604,156 +515,141 @@ function assertPatchTitle(view: string) {
   assert.doesNotMatch(view, /^\s*(?:edit|Edit)\s/mu);
 }
 
-await test(
-  "apply_patch and Edit show the invoked name above the same contextual diff",
-  processDeadline,
-  async (t) => {
-    const { cwd, ctx, component } = await conversationFixture(t);
-    const path = "rates.ts";
-    const before = "  value += 25;";
-    const after = "  value += 50;";
-    const original = [
-      "export function computeRate(value: number) {",
-      ...Array.from({ length: 7 }, (_, i) => `  value += ${String(i + 1)};`),
-      before,
-      "  return value;",
-      "}",
-      "",
-    ].join("\n");
-    const file = join(cwd, path);
-    await writeFile(file, original);
-    const replacement = {
-      file_path: path,
-      old_string: before,
-      new_string: after,
-      reason: "Apply the new rate.",
-    };
-    const claude = component("Edit", replacement);
-    const edit = await replaceText(ctx, {
-      path,
-      oldText: before,
-      newText: after,
-      replaceAll: false,
-      reason: replacement.reason,
-    });
-    assert.equal(edit.isError, false);
-    claude.setArgsComplete();
-    claude.updateResult(edit);
-    assert.equal(await readFile(file, "utf8"), original.replace(before, after));
-    await writeFile(file, original);
-    const patch = [
-      "*** Begin Patch",
-      `*** Update File: ${path}`,
-      `*** Reason: ${replacement.reason}`,
-      "@@",
-      `-${before}`,
-      `+${after}`,
-      "*** End Patch",
-    ].join("\n");
-    const codex = component("apply_patch", {
-      patch: "*** Begin Patch\n*** Update File: rates.ts\n@@",
-    });
-    codex.setExpanded(true);
-    const preview = plain(codex, 62);
-    assertPatchTitle(preview);
-    assert.match(preview, /rates\.ts/u);
-    assert.doesNotMatch(preview, /\*\*\* (?:Begin Patch|Update File)|25 → 50/u);
-    codex.updateArgs({ patch });
-    assert.match(plain(codex, 62), /rates\.ts[^\n]+Apply the new rate\./u);
-    codex.setArgsComplete();
-    const patched = await applyPatch(ctx, patch);
-    assert.equal(patched.isError, false);
-    assert.equal(await readFile(file, "utf8"), original.replace(before, after));
-    // Rendering a retained transcript must use the change that ran even after the file disappears.
-    await rm(file);
-    codex.updateResult(patched);
-    for (const expanded of [false, true]) {
-      claude.setExpanded(expanded);
-      codex.setExpanded(expanded);
-      for (const width of [62, 132]) {
-        const view = plain(codex, width);
-        const canonical = plain(claude, width);
-        assertPatchTitle(view);
-        assert.match(view, /rates\.ts[^\n]+Apply the new rate\./u);
-        assert.match(canonical.trimStart(), /^Edit\s+rates\.ts/u);
-        assert.match(canonical, /rates\.ts[^\n]+Apply the new rate\./u);
-        assert.match(canonical, /╭ function computeRate/u);
-        assert.match(canonical, /~\s*9 .*25 → 50/u);
-        assert.match(canonical, /10 +return value/u);
-        assert.deepEqual(codeRows(codex, width), codeRows(claude, width));
-        assert.ok(
-          codex.render(width).every((row) => visibleWidth(row) <= width),
-        );
-        assert.doesNotMatch(
-          view,
-          /\*\*\* (?:Begin Patch|Update File|End Patch)/u,
-        );
-      }
-    }
-
-    const issue = {
-      path: file,
-      state: "received",
-      diagnostics: [
-        {
-          line: 9,
-          column: 12,
-          endLine: 9,
-          endColumn: 14,
-          severity: "warning",
-          message: "Rate exceeds limit",
-        },
-      ],
-    };
-    const annotation = JSON.stringify({
-      lsp: { files: [issue], omittedFiles: 0 },
-    });
-    const diagnostic = component("apply_patch", { patch });
-    diagnostic.setArgsComplete();
-    diagnostic.updateResult({
-      ...patched,
-      content: [...patched.content, { type: "text", text: annotation }],
-      details: {
-        ...patched.details,
-        studioPatchDiagnostics: {
-          files: [issue],
-          contentIndex: patched.content.length,
-          omittedFiles: 0,
-        },
-      },
-    });
-    const editDetails: unknown = edit.details;
-    assert.ok(typeof editDetails === "object" && editDetails !== null);
-    const annotatedEdit = component("Edit", replacement);
-    annotatedEdit.setArgsComplete();
-    annotatedEdit.updateResult({
-      ...edit,
-      content: [...edit.content, { type: "text", text: annotation }],
-      details: {
-        ...editDetails,
-        studioDiagnostics: {
-          snapshot: issue,
-          contentIndex: edit.content.length,
-        },
-      },
-    });
+await test("apply_patch and Edit show the invoked name above the same contextual diff", processDeadline, async (t) => {
+  const { cwd, ctx, component } = await conversationFixture(t);
+  const path = "rates.ts";
+  const before = "  value += 25;";
+  const after = "  value += 50;";
+  const original = [
+    "export function computeRate(value: number) {",
+    ...Array.from({ length: 7 }, (_, i) => `  value += ${String(i + 1)};`),
+    before,
+    "  return value;",
+    "}",
+    "",
+  ].join("\n");
+  const file = join(cwd, path);
+  await writeFile(file, original);
+  const replacement = {
+    file_path: path,
+    old_string: before,
+    new_string: after,
+    reason: "Apply the new rate.",
+  };
+  const claude = component("Edit", replacement);
+  const edit = await replaceText(ctx, {
+    path,
+    oldText: before,
+    newText: after,
+    replaceAll: false,
+    reason: replacement.reason,
+  });
+  assert.equal(edit.isError, false);
+  claude.setArgsComplete();
+  claude.updateResult(edit);
+  assert.equal(await readFile(file, "utf8"), original.replace(before, after));
+  await writeFile(file, original);
+  const patch = [
+    "*** Begin Patch",
+    `*** Update File: ${path}`,
+    `*** Reason: ${replacement.reason}`,
+    "@@",
+    `-${before}`,
+    `+${after}`,
+    "*** End Patch",
+  ].join("\n");
+  const codex = component("apply_patch", {
+    patch: "*** Begin Patch\n*** Update File: rates.ts\n@@",
+  });
+  codex.setExpanded(true);
+  const preview = plain(codex, 62);
+  assertPatchTitle(preview);
+  assert.match(preview, /rates\.ts/u);
+  assert.doesNotMatch(preview, /\*\*\* (?:Begin Patch|Update File)|25 → 50/u);
+  codex.updateArgs({ patch });
+  assert.match(plain(codex, 62), /rates\.ts[^\n]+Apply the new rate\./u);
+  codex.setArgsComplete();
+  const patched = await applyPatch(ctx, patch);
+  assert.equal(patched.isError, false);
+  assert.equal(await readFile(file, "utf8"), original.replace(before, after));
+  // Rendering a retained transcript must use the change that ran even after the file disappears.
+  await rm(file);
+  codex.updateResult(patched);
+  for (const expanded of [false, true]) {
+    claude.setExpanded(expanded);
+    codex.setExpanded(expanded);
     for (const width of [62, 132]) {
-      assert.deepEqual(
-        codeRows(diagnostic, width),
-        codeRows(annotatedEdit, width),
-      );
+      const view = plain(codex, width);
+      const canonical = plain(claude, width);
+      assertPatchTitle(view);
+      assert.match(view, /rates\.ts[^\n]+Apply the new rate\./u);
+      assert.match(canonical.trimStart(), /^Edit\s+rates\.ts/u);
+      assert.match(canonical, /rates\.ts[^\n]+Apply the new rate\./u);
+      assert.match(canonical, /╭ function computeRate/u);
+      assert.match(canonical, /~\s*9 .*25 → 50/u);
+      assert.match(canonical, /10 +return value/u);
+      assert.deepEqual(codeRows(codex, width), codeRows(claude, width));
+      assert.ok(codex.render(width).every((row) => visibleWidth(row) <= width));
+      assert.doesNotMatch(view, /\*\*\* (?:Begin Patch|Update File|End Patch)/u);
     }
-    assert.match(plain(diagnostic, 132), /-\s*9 .*25;.*│.*\+\s*9 .*50;/u);
-    assert.doesNotMatch(plain(diagnostic, 62), /│/u);
-    const annotated = plain(diagnostic, 100);
-    assert.equal(annotated.match(/Rate exceeds limit/gu)?.length, 1);
-    assert.match(
-      annotated,
-      /value \+= 50;[\s\S]*Rate exceeds limit[\s\S]*return value/u,
-    );
-    assert.doesNotMatch(annotated, /"lsp":/u);
-  },
-);
+  }
+
+  const issue = {
+    path: file,
+    state: "received",
+    diagnostics: [
+      {
+        line: 9,
+        column: 12,
+        endLine: 9,
+        endColumn: 14,
+        severity: "warning",
+        message: "Rate exceeds limit",
+      },
+    ],
+  };
+  const annotation = JSON.stringify({
+    lsp: { files: [issue], omittedFiles: 0 },
+  });
+  const diagnostic = component("apply_patch", { patch });
+  diagnostic.setArgsComplete();
+  diagnostic.updateResult({
+    ...patched,
+    content: [...patched.content, { type: "text", text: annotation }],
+    details: {
+      ...patched.details,
+      studioPatchDiagnostics: {
+        files: [issue],
+        contentIndex: patched.content.length,
+        omittedFiles: 0,
+      },
+    },
+  });
+  const editDetails: unknown = edit.details;
+  assert.ok(typeof editDetails === "object" && editDetails !== null);
+  const annotatedEdit = component("Edit", replacement);
+  annotatedEdit.setArgsComplete();
+  annotatedEdit.updateResult({
+    ...edit,
+    content: [...edit.content, { type: "text", text: annotation }],
+    details: {
+      ...editDetails,
+      studioDiagnostics: {
+        snapshot: issue,
+        contentIndex: edit.content.length,
+      },
+    },
+  });
+  for (const width of [62, 132]) {
+    assert.deepEqual(codeRows(diagnostic, width), codeRows(annotatedEdit, width));
+  }
+  assert.match(plain(diagnostic, 132), /-\s*9 .*25;.*│.*\+\s*9 .*50;/u);
+  assert.doesNotMatch(plain(diagnostic, 62), /│/u);
+  const annotated = plain(diagnostic, 100);
+  assert.equal(annotated.match(/Rate exceeds limit/gu)?.length, 1);
+  assert.match(annotated, /value \+= 50;[\s\S]*Rate exceeds limit[\s\S]*return value/u);
+  assert.doesNotMatch(annotated, /"lsp":/u);
+});
 
 await test(
   "multi-file patch rendering shows added and deleted source and preserves preflight errors",
@@ -769,30 +665,18 @@ await test(
       "*** Reason: Retire the archived flag.",
       "*** End Patch",
     ].join("\n");
-    await writeFile(
-      join(cwd, "archived.ts"),
-      "export const archived = false;\n",
-    );
+    await writeFile(join(cwd, "archived.ts"), "export const archived = false;\n");
     const multi = component("apply_patch", { patch: multiFile });
-    assert.match(
-      plain(multi, 100),
-      /\+\s+active\.ts[^\n]+Enable the active flag\./u,
-    );
+    assert.match(plain(multi, 100), /\+\s+active\.ts[^\n]+Enable the active flag\./u);
     multi.setArgsComplete();
     multi.setExpanded(true);
     const multiple = await applyPatch(ctx, multiFile);
     assert.equal(multiple.isError, false);
-    assert.doesNotMatch(
-      JSON.stringify(multiple.content),
-      /export const archived/u,
-    );
+    assert.doesNotMatch(JSON.stringify(multiple.content), /export const archived/u);
     multi.updateResult(multiple);
     const applied = plain(multi, 100);
     assertPatchTitle(applied);
-    assert.match(
-      applied,
-      /2 files *\n *\n *\+ active\.ts[^\n]+Enable the active flag\./u,
-    );
+    assert.match(applied, /2 files *\n *\n *\+ active\.ts[^\n]+Enable the active flag\./u);
     assert.match(applied, /export const active = true; *\n *\n *archived\.ts/u);
     assert.match(applied, /^ *archived\.ts[^\n]+Retire the archived flag\./mu);
     assert.match(applied, /^ +1 +export const active = true/mu);
@@ -820,10 +704,7 @@ await test(
     assertPatchTitle(failure);
     assert.match(failure, /archived\.ts[^\n]+Retire the archived flag\./u);
     assert.match(failure, /Cannot delete missing file 'archived\.ts'/u);
-    assert.doesNotMatch(
-      failure,
-      /Success\. Updated|export const archived = false/u,
-    );
+    assert.doesNotMatch(failure, /Success\. Updated|export const archived = false/u);
   },
 );
 
@@ -853,10 +734,7 @@ await test(
     assert.match(view, /^ +existing\.txt[^\n]+Include the missing example\./mu);
     assert.doesNotMatch(view, /\+\s+existing\.txt/u);
     assert.match(view, /\+\s*2 +example/u);
-    assert.match(
-      view,
-      /^ +\+ generated\.txt[^\n]+Store the generated sample\./mu,
-    );
+    assert.match(view, /^ +\+ generated\.txt[^\n]+Store the generated sample\./mu);
     assert.match(view, /2 files *\n *\n *\+ generated\.txt/u);
     assert.match(view, /Diff unavailable *\n *\n *existing\.txt/u);
     assert.doesNotMatch(view, /Added file/u);

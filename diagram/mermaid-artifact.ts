@@ -1,15 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import {
-  link,
-  lstat,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rename,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { link, lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { delimiter, isAbsolute, join, resolve } from "node:path";
 import { selectorText } from "@lanej/pi-components";
 import { processFailure, signalProcessGroup } from "../process.ts";
@@ -46,18 +37,10 @@ const siteConfig = {
   ],
 };
 
-async function runRenderer(
-  executable: string,
-  args: string[],
-  cwd: string,
-  signal: AbortSignal,
-): Promise<void> {
+async function runRenderer(executable: string, args: string[], cwd: string, signal: AbortSignal): Promise<void> {
   signal.throwIfAborted();
   const unix = process.platform !== "win32";
-  const path = (process.env["PATH"] ?? "")
-    .split(delimiter)
-    .filter(isAbsolute)
-    .join(delimiter);
+  const path = (process.env["PATH"] ?? "").split(delimiter).filter(isAbsolute).join(delimiter);
   const child = spawn(executable, args, {
     cwd,
     env: { ...process.env, PATH: path },
@@ -74,8 +57,7 @@ async function runRenderer(
     let escalation: NodeJS.Timeout | undefined;
     const terminate = (name: NodeJS.Signals) => {
       try {
-        if (unix && child.pid !== undefined)
-          signalProcessGroup(child.pid, name);
+        if (unix && child.pid !== undefined) signalProcessGroup(child.pid, name);
         else child.kill(name);
       } catch (error) {
         reject(error instanceof Error ? error : new Error(String(error)));
@@ -99,27 +81,17 @@ async function runRenderer(
       cleanup();
       reject(
         processFailure(error).code === "ENOENT"
-          ? new Error(
-              "Mermaid CLI (mmdc) was not found on PATH. Install it and retry to generate SVG and PNG.",
-            )
+          ? new Error("Mermaid CLI (mmdc) was not found on PATH. Install it and retry to generate SVG and PNG.")
           : error,
       );
     });
     child.once("close", (code, killedBy) => {
       cleanup();
-      if (signal.aborted)
-        reject(new Error("Mermaid CLI rendering was interrupted"));
+      if (signal.aborted) reject(new Error("Mermaid CLI rendering was interrupted"));
       else if (code === 0) done();
       else {
-        const detail = selectorText(stderr)
-          .replace(/\s+/gu, " ")
-          .trim()
-          .slice(0, 1000);
-        reject(
-          new Error(
-            `Mermaid CLI exited with ${String(killedBy ?? code)}${detail === "" ? "" : ` — ${detail}`}`,
-          ),
-        );
+        const detail = selectorText(stderr).replace(/\s+/gu, " ").trim().slice(0, 1000);
+        reject(new Error(`Mermaid CLI exited with ${String(killedBy ?? code)}${detail === "" ? "" : ` — ${detail}`}`));
       }
     });
     if (signal.aborted) cancel();
@@ -133,31 +105,23 @@ async function checkImage(path: string, format: ImageFormat) {
   const info = await lstat(path);
   const limit = format === "png" ? 4 * 1024 * 1024 : 8 * 1024 * 1024;
   if (!info.isFile() || info.size === 0 || info.size > limit)
-    throw new Error(
-      `Mermaid CLI produced an empty, oversized, or non-file ${format.toUpperCase()} output`,
-    );
+    throw new Error(`Mermaid CLI produced an empty, oversized, or non-file ${format.toUpperCase()} output`);
   const bytes = await readFile(path);
   if (format === "svg") {
     const xml = bytes.toString("utf8").trim();
-    if (
-      !/^(?:<\?xml\s[^?]*\?>\s*)?<svg\b/u.test(xml) ||
-      !xml.endsWith("</svg>")
-    )
+    if (!/^(?:<\?xml\s[^?]*\?>\s*)?<svg\b/u.test(xml) || !xml.endsWith("</svg>"))
       throw new Error("Mermaid CLI did not produce a complete SVG");
     return;
   }
   if (
     bytes.length < 45 ||
-    !bytes
-      .subarray(0, 8)
-      .equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ||
+    !bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ||
     bytes.toString("ascii", 12, 16) !== "IHDR" ||
     bytes.toString("ascii", bytes.length - 8, bytes.length - 4) !== "IEND"
   )
     throw new Error("Mermaid CLI did not produce a complete PNG");
   const pixels = bytes.readUInt32BE(16) * bytes.readUInt32BE(20);
-  if (pixels === 0 || pixels > 16_000_000)
-    throw new Error("Rendered PNG exceeds the terminal preview dimensions");
+  if (pixels === 0 || pixels > 16_000_000) throw new Error("Rendered PNG exceeds the terminal preview dimensions");
 }
 
 async function missingImages(directory: string): Promise<ImageFormat[]> {
@@ -165,9 +129,8 @@ async function missingImages(directory: string): Promise<ImageFormat[]> {
     if (processFailure(error).code !== "ENOENT") throw error;
     return undefined;
   });
-  if (info === undefined) return [...imageFormats];
-  if (!info.isDirectory())
-    throw new Error("Mermaid output path is not a directory");
+  if (!info) return [...imageFormats];
+  if (!info.isDirectory()) throw new Error("Mermaid output path is not a directory");
   const missing: ImageFormat[] = [];
   for (const format of imageFormats) {
     try {
@@ -187,17 +150,14 @@ export async function renderMermaidArtifact(
 ): Promise<MermaidArtifact> {
   options.signal?.throwIfAborted();
   if (source.trim() === "" || source.length > mermaidSourceLimit)
-    throw new Error(
-      `Mermaid diagrams must contain between 1 and ${String(mermaidSourceLimit)} characters`,
-    );
+    throw new Error(`Mermaid diagrams must contain between 1 and ${String(mermaidSourceLimit)} characters`);
   const timeoutMs = options.timeoutMs ?? 45_000;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 120_000)
     throw new Error("Mermaid rendering requires a timeout of 1 to 120000 ms");
   const digest = createHash("sha256").update(source, "utf8").digest("hex");
   const directory = resolve(root, digest);
   await mkdir(directory, { recursive: true, mode: 0o700 });
-  if (!(await lstat(directory)).isDirectory())
-    throw new Error("Mermaid artifact path is not a directory");
+  if (!(await lstat(directory)).isDirectory()) throw new Error("Mermaid artifact path is not a directory");
   const stage = await mkdtemp(join(directory, ".render-"));
   const input = join(stage, "diagram.mmd");
   const sourcePath = join(directory, "diagram.mmd");
@@ -223,15 +183,10 @@ export async function renderMermaidArtifact(
         existing.size !== Buffer.byteLength(source) ||
         (await readFile(sourcePath, "utf8")) !== source
       )
-        throw new Error(
-          "The saved Mermaid source has changed; move it before recreating this artifact",
-        );
+        throw new Error("The saved Mermaid source has changed; move it before recreating this artifact");
     }
     const timeout = AbortSignal.timeout(timeoutMs);
-    const signal =
-      options.signal === undefined
-        ? timeout
-        : AbortSignal.any([options.signal, timeout]);
+    const signal = !options.signal ? timeout : AbortSignal.any([options.signal, timeout]);
     try {
       const missing = await missingImages(output);
       if (missing.length === 0) {
@@ -249,18 +204,7 @@ export async function renderMermaidArtifact(
         const destination = join(drafts, `diagram.${format}`);
         await runRenderer(
           options.executable ?? "mmdc",
-          [
-            "-i",
-            input,
-            "-o",
-            destination,
-            "-c",
-            config,
-            "-t",
-            "dark",
-            "-b",
-            "#2E3440",
-          ],
+          ["-i", input, "-o", destination, "-c", config, "-t", "dark", "-b", "#2E3440"],
           stage,
           signal,
         );
@@ -274,12 +218,10 @@ export async function renderMermaidArtifact(
         } catch (error) {
           // A competing render can publish the directory while we render.
           const { code } = processFailure(error);
-          if (code !== "EEXIST" && code !== "ENOTEMPTY" && code !== "EPERM")
-            throw error;
+          if (code !== "EEXIST" && code !== "ENOTEMPTY" && code !== "EPERM") throw error;
         }
       }
-      if (!(await lstat(output)).isDirectory())
-        throw new Error("Mermaid output path is not a directory");
+      if (!(await lstat(output)).isDirectory()) throw new Error("Mermaid output path is not a directory");
       for (const format of missing) {
         const name = `diagram.${format}`;
         try {
@@ -289,18 +231,12 @@ export async function renderMermaidArtifact(
         }
       }
       // Also check any files the user or another render supplied concurrently.
-      await Promise.all(
-        imageFormats.map((format) =>
-          checkImage(join(output, `diagram.${format}`), format),
-        ),
-      );
+      await Promise.all(imageFormats.map((format) => checkImage(join(output, `diagram.${format}`), format)));
       return rendered;
     } catch (error) {
       options.signal?.throwIfAborted();
       const failure = processFailure(error);
-      const reason = timeout.aborted
-        ? "Mermaid CLI timed out."
-        : failure.message;
+      const reason = timeout.aborted ? "Mermaid CLI timed out." : failure.message;
       return { status: "source-only", sourcePath, reason };
     }
   } finally {

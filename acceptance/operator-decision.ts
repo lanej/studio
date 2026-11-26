@@ -12,18 +12,9 @@ import { Command } from "commander";
 import { z } from "zod";
 import { withBeadsHttp } from "./beads-http-fixture.ts";
 import { fixtureMetricsEnv } from "./beads-fixture.ts";
-import {
-  loadConfig,
-  AgentRole,
-  StudioProfile,
-  ReasoningLevel,
-} from "../config.ts";
+import { loadConfig, AgentRole, StudioProfile, ReasoningLevel } from "../config.ts";
 import { ExecutionBeads } from "../execution/beads.ts";
-import {
-  ExecutionStore,
-  ExecutionPhase,
-  pendingDecision,
-} from "../execution/store.ts";
+import { ExecutionStore, ExecutionPhase, pendingDecision } from "../execution/store.ts";
 import { alive } from "../execution/supervisor.ts";
 import { retryWriterFence } from "../execution/recovery.ts";
 import { draftSchema, planDigest } from "../lead-plan.ts";
@@ -38,12 +29,7 @@ const options = new Command()
   .opts<{ bd: string; dolt: string; output: string }>();
 await mkdir(options.output, { recursive: true });
 await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
-  const state = await mkdtemp(
-    join(
-      process.platform === "darwin" ? "/private/tmp" : tmpdir(),
-      "st-decision-",
-    ),
-  );
+  const state = await mkdtemp(join(process.platform === "darwin" ? "/private/tmp" : tmpdir(), "st-decision-"));
   await writeFile(
     join(options.output, "setup.json"),
     JSON.stringify({ fixture: fixture.directory, state, pid: process.pid }),
@@ -51,19 +37,12 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
   const agent = join(fixture.directory, "agent"),
     configFile = join(fixture.directory, "config.json");
   await mkdir(join(agent, "themes"), { recursive: true });
-  await copyFile(
-    join(root, "resources/theme.json"),
-    join(agent, "themes/dotfiles.json"),
-  );
-  await writeFile(
-    join(agent, "settings.json"),
-    JSON.stringify({ theme: "dotfiles", quietStartup: true }),
-  );
+  await copyFile(join(root, "resources/theme.json"), join(agent, "themes/dotfiles.json"));
+  await writeFile(join(agent, "settings.json"), JSON.stringify({ theme: "dotfiles", quietStartup: true }));
   const env: NodeJS.ProcessEnv = {
     ...Object.fromEntries(
       Object.entries(process.env).filter(
-        ([key]) =>
-          !/^(GIT_|PI_|STUDIO_|BEADS_|BD_|DOLT_|ZELLIJ|WORKTREE_)/u.test(key),
+        ([key]) => !/^(GIT_|PI_|STUDIO_|BEADS_|BD_|DOLT_|ZELLIJ|WORKTREE_)/u.test(key),
       ),
     ),
     ...fixtureMetricsEnv,
@@ -76,16 +55,9 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_CONFIG_NOSYSTEM: "1",
   };
-  const git = (...args: string[]) =>
-    run("git", args, { cwd: fixture.workspace, env });
-  await writeFile(
-    join(fixture.workspace, ".gitignore"),
-    ".beads/\n.worktrees/\n",
-  );
-  await writeFile(
-    join(fixture.workspace, "README.md"),
-    "Disposable operator decision fixture\n",
-  );
+  const git = (...args: string[]) => run("git", args, { cwd: fixture.workspace, env });
+  await writeFile(join(fixture.workspace, ".gitignore"), ".beads/\n.worktrees/\n");
+  await writeFile(join(fixture.workspace, "README.md"), "Disposable operator decision fixture\n");
   await git("config", "user.name", "Fixture");
   await git("config", "user.email", "fixture@example.invalid");
   await git("config", "core.hooksPath", "/dev/null");
@@ -150,9 +122,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
             text = JSON.stringify({ operatorDecision: { question } });
           } else if (
             !prompt.includes(`"answer":"${secondAnswer}"`) &&
-            prompt.includes(
-              "Confirm the scoped marker before accepting this revision",
-            )
+            prompt.includes("Confirm the scoped marker before accepting this revision")
           ) {
             workerQuestions++;
             text = JSON.stringify({
@@ -178,8 +148,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
           }
         } else {
           assert.equal(
-            store.attempts().find((row) => row.bead?.id === `${parent}.ask`)
-              ?.phase,
+            store.attempts().find((row) => row.bead?.id === `${parent}.ask`)?.phase,
             ExecutionPhase.Complete,
             "Overlapping work was admitted before normal completion",
           );
@@ -189,10 +158,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
         assert.equal(request.model, AgentRole.Reviewer);
         if (tools.length === 0) {
           assert.ok(!conversation.includes("Used the scoped operator answer"));
-          assert.ok(
-            conversation.includes('exitCode\\":0') ||
-              conversation.includes('exitCode":0'),
-          );
+          assert.ok(conversation.includes('exitCode\\":0') || conversation.includes('exitCode":0'));
           call = {
             name: "read",
             arguments: JSON.stringify({ path: "decision.txt" }),
@@ -219,24 +185,23 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
             summary: "Read the exact verified marker revision",
           });
       }
-      const delta =
-        call === undefined
-          ? { role: "assistant", content: text }
-          : {
-              role: "assistant",
-              tool_calls: [
-                {
-                  index: 0,
-                  id: randomUUID(),
-                  type: "function",
-                  function: call,
-                },
-              ],
-            };
+      const delta = !call
+        ? { role: "assistant", content: text }
+        : {
+            role: "assistant",
+            tool_calls: [
+              {
+                index: 0,
+                id: randomUUID(),
+                type: "function",
+                function: call,
+              },
+            ],
+          };
       response.writeHead(200, { "Content-Type": "text/event-stream" });
       for (const [part, finish] of [
         [delta, null],
-        [{}, call === undefined ? "stop" : "tool_calls"],
+        [{}, !call ? "stop" : "tool_calls"],
       ])
         response.write(
           `data: ${JSON.stringify({ id: randomUUID(), object: "chat.completion.chunk", created: 1, model: request.model, choices: [{ index: 0, delta: part, finish_reason: finish }] })}\n\n`,
@@ -264,21 +229,13 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     });
   };
   const stop = async () => {
-    if (
-      supervisor?.pid !== undefined &&
-      supervisor.exitCode === null &&
-      supervisor.signalCode === null
-    ) {
+    if (supervisor?.pid !== undefined && supervisor.exitCode === null && supervisor.signalCode === null) {
       supervisor.kill("SIGTERM");
       await once(supervisor, "close");
     }
   };
-  const wait = async (
-    label: string,
-    predicate: () => boolean | Promise<boolean>,
-  ) => {
-    const deadline =
-      Date.now() + (process.env["CI"] === "true" ? 120000 : 60000);
+  const wait = async (label: string, predicate: () => boolean | Promise<boolean>) => {
+    const deadline = Date.now() + (process.env["CI"] === "true" ? 120000 : 60000);
     while (Date.now() < deadline) {
       if (providerError !== undefined)
         throw providerError instanceof Error
@@ -287,19 +244,15 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       const failed = store
         .attempts()
         .find(
-          (row) =>
-            row.bead !== undefined &&
-            row.phase === ExecutionPhase.Parked &&
-            pendingDecision(row) === undefined,
+          (row) => row.bead !== undefined && row.phase === ExecutionPhase.Parked && pendingDecision(row) === undefined,
         );
-      if (failed !== undefined) throw new Error(`${label}: ${failed.message}`);
+      if (failed) throw new Error(`${label}: ${failed.message}`);
       if (await predicate()) return;
       await delay(100);
     }
     throw new Error(`${label}\n${diagnostics}`);
   };
-  const attempt = () =>
-    store.attempts().find((row) => row.bead?.id === `${parent}.ask`);
+  const attempt = () => store.attempts().find((row) => row.bead?.id === `${parent}.ask`);
   try {
     server.listen(0, "127.0.0.1");
     await once(server, "listening");
@@ -365,14 +318,10 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       },
     };
     await writeFile(configFile, JSON.stringify(config));
-    await run(
-      process.execPath,
-      [join(root, "scripts/prepare-delegation.mjs")],
-      {
-        cwd: root,
-        env,
-      },
-    );
+    await run(process.execPath, [join(root, "scripts/prepare-delegation.mjs")], {
+      cwd: root,
+      env,
+    });
     store.enroll(project);
     const enrolled = store.project(project.id);
     const configured = (await loadConfig(configFile)).runtime.projects[0];
@@ -404,18 +353,11 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
         },
       ],
     });
-    await service.createGraph(
-      graph,
-      planDigest(draft),
-      "Operator decision",
-      draft,
-      { root: parent, ask: `${parent}.ask` },
-    );
-    assert.equal(
-      (await fixture.command(["update", `${parent}.ask`, "--priority", "0"]))
-        .code,
-      0,
-    );
+    await service.createGraph(graph, planDigest(draft), "Operator decision", draft, {
+      root: parent,
+      ask: `${parent}.ask`,
+    });
+    assert.equal((await fixture.command(["update", `${parent}.ask`, "--priority", "0"])).code, 0);
     // Separate approved graphs deliberately overlap; a single draft rejects same-wave overlaps.
     for (const [key, priority] of [
       ["one", "1"],
@@ -433,41 +375,24 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
             description: "Retain marker",
             acceptance: "File exists",
             owns: key === "one" ? ["decision.txt"] : [],
-            check: [
-              process.execPath,
-              "-e",
-              'if(!(await Bun.file("decision.txt").exists()))process.exit(42)',
-            ],
+            check: [process.execPath, "-e", 'if(!(await Bun.file("decision.txt").exists()))process.exit(42)'],
           },
         ],
       });
-      await service.createGraph(
-        graphId,
-        planDigest(overlap),
-        `Queued overlap ${key}`,
-        overlap,
-        { root: rootId, [key]: beadId },
-      );
+      await service.createGraph(graphId, planDigest(overlap), `Queued overlap ${key}`, overlap, {
+        root: rootId,
+        [key]: beadId,
+      });
       overlapIds.push(beadId);
-      assert.equal(
-        (await fixture.command(["update", beadId, "--priority", priority]))
-          .code,
-        0,
-      );
+      assert.equal((await fixture.command(["update", beadId, "--priority", priority])).code, 0);
     }
     start();
-    await wait(
-      "No real worker decision",
-      () => attempt()?.phase === ExecutionPhase.AwaitingDecision,
-    );
+    await wait("No real worker decision", () => attempt()?.phase === ExecutionPhase.AwaitingDecision);
     const first = attempt();
     assert.ok(first !== undefined);
     const initialQuestion = pendingDecision(first);
     assert.ok(initialQuestion !== undefined);
-    await wait(
-      "Writer did not settle",
-      async () => !(await retryWriterFence(store.attempt(first.id))),
-    );
+    await wait("Writer did not settle", async () => !(await retryWriterFence(store.attempt(first.id))));
     assert.equal(first.verification, undefined);
     assert.equal(first.head, undefined);
     assert.equal(workerQuestions, 1);
@@ -478,17 +403,11 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
           .attempts()
           .filter((row) => overlapIds.includes(row.bead?.id ?? ""))
           .every((row) => row.phase === ExecutionPhase.Queued) &&
-        store
-          .attempts()
-          .filter((row) => overlapIds.includes(row.bead?.id ?? "")).length ===
-          2,
+        store.attempts().filter((row) => overlapIds.includes(row.bead?.id ?? "")).length === 2,
     );
     await stop();
     start();
-    await wait(
-      "Supervisor did not restore",
-      () => store.supervisor()?.pid === supervisor?.pid,
-    );
+    await wait("Supervisor did not restore", () => store.supervisor()?.pid === supervisor?.pid);
     await delay(1500);
     const restored = store.attempt(first.id);
     assert.deepEqual(restored.operatorDecisions, first.operatorDecisions);
@@ -549,21 +468,13 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
         env: {
           ...env,
           UV_PYTHON_DOWNLOADS: "never",
-          UV_CACHE_DIR:
-            process.env["UV_CACHE_DIR"] ?? join(homedir(), ".cache", "uv"),
+          UV_CACHE_DIR: process.env["UV_CACHE_DIR"] ?? join(homedir(), ".cache", "uv"),
         },
         timeout: 90000,
       },
     );
-    await wait(
-      "No second real decision",
-      () =>
-        pendingDecision(store.attempt(first.id))?.question === secondQuestion,
-    );
-    await wait(
-      "Second question writer did not settle",
-      async () => !(await retryWriterFence(store.attempt(first.id))),
-    );
+    await wait("No second real decision", () => pendingDecision(store.attempt(first.id))?.question === secondQuestion);
+    await wait("Second question writer did not settle", async () => !(await retryWriterFence(store.attempt(first.id))));
     const second = store.attempt(first.id);
     const secondRequest = pendingDecision(second);
     assert.ok(secondRequest !== undefined);
@@ -573,11 +484,10 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     assert.equal(second.verification?.exitCode, 0);
     assert.equal(second.review, undefined);
     await assert.rejects(
-      run(
-        join(root, "scripts/studio"),
-        ["runtime", "answer", first.id, initialQuestion.id, "--text", answer],
-        { cwd: fixture.workspace, env },
-      ),
+      run(join(root, "scripts/studio"), ["runtime", "answer", first.id, initialQuestion.id, "--text", answer], {
+        cwd: fixture.workspace,
+        env,
+      }),
       /stale or superseded/u,
     );
     const lost = spawn(
@@ -589,43 +499,27 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     lost.stderr.on("data", (chunk: Buffer) => {
       errors += chunk.toString();
     });
-    const [exit] = z
-      .tuple([z.number().nullable(), z.string().nullable()])
-      .parse(await once(lost, "exit"));
+    const [exit] = z.tuple([z.number().nullable(), z.string().nullable()]).parse(await once(lost, "exit"));
     assert.equal(exit, 0, errors);
     await wait("Answer was not consumed", () => workerAfterAnswer > 0);
     const answered = store.attempt(first.id);
     const replay: unknown = JSON.parse(
       await run(
         join(root, "scripts/studio"),
-        [
-          "runtime",
-          "answer",
-          first.id,
-          secondRequest.id,
-          "--text",
-          secondAnswer,
-        ],
+        ["runtime", "answer", first.id, secondRequest.id, "--text", secondAnswer],
         { cwd: fixture.workspace, env },
       ),
     );
-    assert.equal(
-      z.object({ request: z.string() }).parse(replay).request,
-      secondRequest.id,
-    );
+    assert.equal(z.object({ request: z.string() }).parse(replay).request, secondRequest.id);
     assert.deepEqual(store.attempt(first.id), answered);
     await assert.rejects(
-      run(
-        join(root, "scripts/studio"),
-        ["runtime", "answer", first.id, secondRequest.id, "--text", "conflict"],
-        { cwd: fixture.workspace, env },
-      ),
+      run(join(root, "scripts/studio"), ["runtime", "answer", first.id, secondRequest.id, "--text", "conflict"], {
+        cwd: fixture.workspace,
+        env,
+      }),
       /different answer/u,
     );
-    assert.equal(
-      store.attempts().filter((row) => row.bead?.id === `${parent}.ask`).length,
-      1,
-    );
+    assert.equal(store.attempts().filter((row) => row.bead?.id === `${parent}.ask`).length, 1);
     assert.deepEqual(answered.checkout, first.checkout);
     releaseFinal?.();
     await wait(
@@ -638,11 +532,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     assert.ok(complete.review !== undefined);
     assert.ok(complete.operatorDecisions !== undefined);
     assert.equal(complete.operatorDecisions.length, 2);
-    assert.ok(
-      complete.operatorDecisions.every(
-        (entry) => entry.appliedHead === complete.head,
-      ),
-    );
+    assert.ok(complete.operatorDecisions.every((entry) => entry.appliedHead === complete.head));
     assert.equal((await service.get(`${parent}.ask`)).status, "closed");
     await wait("Overlaps did not complete after normal closure", () =>
       store
@@ -679,28 +569,17 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     releaseFinal?.();
     await stop();
     await writeFile(join(options.output, "supervisor.log"), diagnostics);
-    await writeFile(
-      join(options.output, "provider-requests.json"),
-      JSON.stringify(requests, null, 2),
-    );
+    await writeFile(join(options.output, "provider-requests.json"), JSON.stringify(requests, null, 2));
     const hosts = [];
     for (const record of store.attempts()) {
-      if (
-        record.pid !== undefined &&
-        record.started !== undefined &&
-        (await alive(record.pid, record.started))
-      ) {
+      if (record.pid !== undefined && record.started !== undefined && (await alive(record.pid, record.started))) {
         try {
           process.kill(-record.pid, "SIGTERM");
         } catch {
           /* This owned host may have finished. */
         }
         const deadline = Date.now() + 5000;
-        while (
-          Date.now() < deadline &&
-          (await alive(record.pid, record.started))
-        )
-          await delay(20);
+        while (Date.now() < deadline && (await alive(record.pid, record.started))) await delay(20);
         const exited = !(await alive(record.pid, record.started));
         if (!exited) process.kill(-record.pid, "SIGKILL");
         hosts.push({

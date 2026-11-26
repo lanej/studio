@@ -1,8 +1,4 @@
-import type {
-  ContextEvent,
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ContextEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { isDeepStrictEqual } from "node:util";
 import { describePlan } from "../lead-plan.ts";
 import type { SocratesState } from "./controls.ts";
@@ -19,12 +15,7 @@ export function registerDiscoveryReview<T extends SocratesState>(
   pi.on("context", (event, ctx) => {
     observed = undefined;
     const record = snapshot(ctx);
-    if (
-      record?.specification === undefined ||
-      record.handoff !== undefined ||
-      record.approved !== undefined
-    )
-      return;
+    if (!record?.specification || record.handoff || record.approved !== undefined) return;
     const spec = record.specification;
     const plan = record.leadPlan?.draft;
     const summary = [
@@ -35,9 +26,7 @@ export function registerDiscoveryReview<T extends SocratesState>(
             "Earlier operator guidance was not retained by this version of Studio. Recover it from the conversation or clarify it with the operator, then save a complete assessment.",
           ]
         : []),
-      plan == null
-        ? "No proposed work breakdown."
-        : describePlan(plan, "proposal"),
+      plan == null ? "No proposed work breakdown." : describePlan(plan, "proposal"),
     ].join("\n\n");
     const messages = [...event.messages];
     // Reinsert missing inputs in their saved delivery order. A visible input remains at its
@@ -70,7 +59,7 @@ export function registerDiscoveryReview<T extends SocratesState>(
   });
   return (record: T, ctx: ExtensionContext): void => {
     if (
-      observed === undefined ||
+      !observed ||
       observed.session !== ctx.sessionManager.getSessionId() ||
       observed.id !== identity(record) ||
       observed.record.revision !== record.revision ||

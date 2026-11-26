@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  initTheme,
-  type ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import { initTheme, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   Input,
   ProcessTerminal,
@@ -61,8 +58,7 @@ await test("the Studio picker accepts same-read mnemonics, limits allowed choice
     },
   };
   const send = (input: string) => {
-    if (guard?.(input)?.consume !== true)
-      tui.getFocusedComponent()?.handleInput?.(input);
+    if (guard?.(input)?.consume !== true) tui.getFocusedComponent()?.handleInput?.(input);
   };
 
   for (const [key, expected] of [

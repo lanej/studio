@@ -3,25 +3,13 @@ import { isDeepStrictEqual } from "node:util";
 import { existsSync, mkdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
-import {
-  knownTaskStatus,
-  TaskStatus,
-  type Task,
-  type TaskReview,
-} from "../beads.ts";
+import { knownTaskStatus, TaskStatus, type Task, type TaskReview } from "../beads.ts";
 import { stateDirectory } from "../attempts.ts";
-import {
-  runtimeProjectSchema,
-  studioProfileSchema,
-  selection,
-} from "../config.ts";
+import { runtimeProjectSchema, studioProfileSchema, selection } from "../config.ts";
 import { verificationSchema, beadSchema, owner } from "../task-service.ts";
 import { draftSchema, planWorkersSchema } from "../lead-plan.ts";
 import { sha } from "../delivery-record.ts";
-import {
-  worktreeReservation,
-  worktreeAllocation,
-} from "../vendor/task-runtime/worktree-contracts.ts";
+import { worktreeReservation, worktreeAllocation } from "../vendor/task-runtime/worktree-contracts.ts";
 
 export enum ExecutionPhase {
   Queued = "queued",
@@ -76,9 +64,7 @@ export const operatorDecisionSchema = z.object({
     launchToken: z.uuid(),
     contract: z.string().regex(/^[a-f0-9]{64}$/u),
   }),
-  answer: z
-    .object({ text: z.string().min(1).max(4000), at: z.string() })
-    .optional(),
+  answer: z.object({ text: z.string().min(1).max(4000), at: z.string() }).optional(),
   appliedHead: z.string().optional(),
 });
 export type OperatorDecision = z.infer<typeof operatorDecisionSchema>;
@@ -103,9 +89,7 @@ export const executionSchema = z.object({
   publicationBase: z
     .object({
       remote: sha,
-      prerequisites: z.array(
-        z.object({ id: z.uuid(), before: sha, after: sha, commit: sha }),
-      ),
+      prerequisites: z.array(z.object({ id: z.uuid(), before: sha, after: sha, commit: sha })),
     })
     .optional(),
   head: z.string().optional(),
@@ -161,20 +145,16 @@ export const executionSchema = z.object({
   message: z.string(),
 });
 export type Execution = z.infer<typeof executionSchema>;
-export const latestDecision = (
-  record: Execution,
-): OperatorDecision | undefined => record.operatorDecisions?.at(-1);
-export function pendingDecision(
-  record: Execution,
-): OperatorDecision | undefined {
+export const latestDecision = (record: Execution): OperatorDecision | undefined => record.operatorDecisions?.at(-1);
+
+export function pendingDecision(record: Execution): OperatorDecision | undefined {
   const latest = latestDecision(record);
-  return latest?.answer === undefined ? latest : undefined;
+  return !latest?.answer ? latest : undefined;
 }
+
 export const hasUnappliedAnswer = (record: Execution): boolean =>
-  record.operatorDecisions?.some(
-    (decision) =>
-      decision.answer !== undefined && decision.appliedHead === undefined,
-  ) === true;
+  record.operatorDecisions?.some((decision) => decision.answer !== undefined && decision.appliedHead === undefined) ===
+  true;
 export const mergeOverrideSchema = z.object({
   enabled: z.boolean(),
   actor: z.string(),
@@ -209,9 +189,7 @@ export function activeTaskReviews(
   if (project === undefined || !existsSync(path)) return result;
   const db = new Database(path, { readonly: true });
   try {
-    const attempt = db.query(
-      "SELECT record FROM records WHERE kind='attempt' AND id=?",
-    );
+    const attempt = db.query("SELECT record FROM records WHERE kind='attempt' AND id=?");
     const ownerPrefix = owner("");
     for (const task of tasks) {
       const assignee = task.assignee;
@@ -230,11 +208,7 @@ export function activeTaskReviews(
       if (
         inReview ||
         (current.reviewFinding !== undefined &&
-          [
-            ExecutionPhase.Running,
-            ExecutionPhase.Parked,
-            ExecutionPhase.Waiting,
-          ].includes(current.phase))
+          [ExecutionPhase.Running, ExecutionPhase.Parked, ExecutionPhase.Waiting].includes(current.phase))
       )
         result.set(task.id, { finding: current.reviewFinding });
     }
@@ -273,29 +247,21 @@ export class ExecutionStore {
     }
   }
   private read(kind: string, id: string): unknown {
-    const result = this.db
-      .query("SELECT record FROM records WHERE kind=? AND id=?")
-      .get(kind, id);
-    return result === null
-      ? undefined
-      : JSON.parse(z.object({ record: z.string() }).parse(result).record);
+    const result = this.db.query("SELECT record FROM records WHERE kind=? AND id=?").get(kind, id);
+    return result === null ? undefined : JSON.parse(z.object({ record: z.string() }).parse(result).record);
   }
   private rows(kind: string): unknown[] {
     return this.db
       .query("SELECT record FROM records WHERE kind=? ORDER BY rowid")
       .all(kind)
       .map((row) => {
-        const value: unknown = JSON.parse(
-          z.object({ record: z.string() }).parse(row).record,
-        );
+        const value: unknown = JSON.parse(z.object({ record: z.string() }).parse(row).record);
         return value;
       });
   }
   private save(kind: string, id: string, record: unknown): void {
     this.db
-      .query(
-        "INSERT INTO records VALUES (?,?,?) ON CONFLICT(kind,id) DO UPDATE SET record=excluded.record",
-      )
+      .query("INSERT INTO records VALUES (?,?,?) ON CONFLICT(kind,id) DO UPDATE SET record=excluded.record")
       .run(kind, id, JSON.stringify(record));
   }
   projects(): RuntimeProject[] {
@@ -306,26 +272,13 @@ export class ExecutionStore {
   }
   validateEnrollment(input: RuntimeProject): RuntimeProject {
     const project = { ...input, root: realpathSync(input.root) };
-    const current = this.projects().find(
-      (item) => item.id === project.id || item.root === project.root,
-    );
+    const current = this.projects().find((item) => item.id === project.id || item.root === project.root);
+    if (current && (current.root !== project.root || current.id !== project.id))
+      throw new Error("Project identity is already enrolled with a different repository");
     if (
-      current !== undefined &&
-      (current.root !== project.root || current.id !== project.id)
-    )
-      throw new Error(
-        "Project identity is already enrolled with a different repository",
-      );
-    if (
-      current !== undefined &&
-      !isDeepStrictEqual(
-        { ...current, merge: undefined },
-        { ...project, merge: undefined },
-      ) &&
-      this.attempts().some(
-        (row) =>
-          row.project === current.id && row.phase !== ExecutionPhase.Complete,
-      )
+      current &&
+      !isDeepStrictEqual({ ...current, merge: undefined }, { ...project, merge: undefined }) &&
+      this.attempts().some((row) => row.project === current.id && row.phase !== ExecutionPhase.Complete)
     )
       throw new Error(
         "Retained attempts pin this project's authority; reconcile them before reenrollment with changed settings",
@@ -358,23 +311,16 @@ export class ExecutionStore {
       return record;
     });
   }
-  reserveInference(
-    id: string,
-    limit: number,
-    update: (record: Execution) => void,
-  ): boolean {
+  reserveInference(id: string, limit: number, update: (record: Execution) => void): boolean {
     return this.transaction(() => {
       const holders = this.attempts().filter(
         (row) =>
           row.id !== id &&
           row.launchToken !== undefined &&
           !row.launchSettled &&
-          ![
-            ExecutionPhase.Delivery,
-            ExecutionPhase.Waiting,
-            ExecutionPhase.Complete,
-            ExecutionPhase.Parked,
-          ].includes(row.phase),
+          ![ExecutionPhase.Delivery, ExecutionPhase.Waiting, ExecutionPhase.Complete, ExecutionPhase.Parked].includes(
+            row.phase,
+          ),
       );
       if (holders.length >= limit) return false;
       const row = this.attempt(id);
@@ -390,14 +336,9 @@ export class ExecutionStore {
     this.save("supervisor", "owner", supervisorSchema.parse(record));
   }
   allocationOwner(): AllocationOwner | undefined {
-    return allocationOwnerSchema
-      .optional()
-      .parse(this.read("allocation", "owner"));
+    return allocationOwnerSchema.optional().parse(this.read("allocation", "owner"));
   }
-  reserveAllocation(
-    owner: AllocationOwner,
-    expected: string | undefined,
-  ): boolean {
+  reserveAllocation(owner: AllocationOwner, expected: string | undefined): boolean {
     return this.transaction(() => {
       if (this.allocationOwner()?.id !== expected) return false;
       this.save("allocation", "owner", allocationOwnerSchema.parse(owner));
@@ -407,23 +348,14 @@ export class ExecutionStore {
   releaseAllocation(id: string): void {
     this.transaction(() => {
       if (this.allocationOwner()?.id === id)
-        this.db
-          .query("DELETE FROM records WHERE kind='allocation' AND id='owner'")
-          .run();
+        this.db.query("DELETE FROM records WHERE kind='allocation' AND id='owner'").run();
     });
   }
   override(project: string): MergeOverride | undefined {
     return mergeOverrideSchema.optional().parse(this.read("merge", project));
   }
-  setOverride(
-    project: string,
-    override: MergeOverride | undefined,
-    audit?: { actor: string; reason: string },
-  ): void {
-    if (
-      override === undefined &&
-      (audit === undefined || audit.reason.trim().length === 0)
-    )
+  setOverride(project: string, override: MergeOverride | undefined, audit?: { actor: string; reason: string }): void {
+    if (!override && (!audit || audit.reason.trim().length === 0))
       throw new Error("Record who cleared the project override and why");
     this.transaction(() => {
       this.db.query("INSERT INTO journal(kind,id,record) VALUES (?,?,?)").run(
@@ -436,10 +368,7 @@ export class ExecutionStore {
           at: new Date().toISOString(),
         }),
       );
-      if (override === undefined)
-        this.db
-          .query("DELETE FROM records WHERE kind='merge' AND id=?")
-          .run(project);
+      if (!override) this.db.query("DELETE FROM records WHERE kind='merge' AND id=?").run(project);
       else this.save("merge", project, mergeOverrideSchema.parse(override));
     });
   }
@@ -452,13 +381,10 @@ export class ExecutionStore {
         "SELECT id, record FROM records WHERE kind='handoff' AND (json_extract(record,'$.project') IS NULL OR json_extract(record,'$.project')=?) AND EXISTS (SELECT 1 FROM json_each(record,'$.ids') WHERE key!='root' AND value=?)",
       )
       .all(project, bead);
-    if (rows.length > 1)
-      throw new Error("Multiple handoff receipts identify this bead");
+    if (rows.length > 1) throw new Error("Multiple handoff receipts identify this bead");
     const row = rows[0];
     if (row === undefined) return undefined;
-    const { id, record } = z
-      .object({ id: z.uuid(), record: z.string() })
-      .parse(row);
+    const { id, record } = z.object({ id: z.uuid(), record: z.string() }).parse(row);
     return { id, ...handoffIntentSchema.parse(JSON.parse(record)) };
   }
   saveIntent(id: string, value: unknown): void {
@@ -474,6 +400,6 @@ export function completedWithoutExecutable(attempt: Execution): boolean {
     attempt.verifier?.phase === VerificationPhase.Complete
   );
 }
+
 export const unsettled = (record: Execution): boolean =>
-  record.phase !== ExecutionPhase.Complete &&
-  record.phase !== ExecutionPhase.Parked;
+  record.phase !== ExecutionPhase.Complete && record.phase !== ExecutionPhase.Parked;

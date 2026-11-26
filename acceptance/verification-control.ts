@@ -25,24 +25,17 @@ async function running(pid: number): Promise<boolean> {
     const result = await execute("ps", ["-p", String(pid), "-o", "stat="], {
       timeout: 2000,
     });
-    return (
-      result.stdout.trim().length > 0 && !result.stdout.trim().startsWith("Z")
-    );
+    return result.stdout.trim().length > 0 && !result.stdout.trim().startsWith("Z");
   } catch (cause) {
     if (processFailure(cause).code === 1) return false;
     throw cause;
   }
 }
 
-export async function verificationControl(
-  fixture: NativeBeads,
-  source: BeadsHttpSource,
-) {
+export async function verificationControl(fixture: NativeBeads, source: BeadsHttpSource) {
   const { directory, workspace, command } = fixture;
   const git = async (...args: string[]) =>
-    (
-      await execute("git", args, { cwd: workspace, timeout: 5000 })
-    ).stdout.trim();
+    (await execute("git", args, { cwd: workspace, timeout: 5000 })).stdout.trim();
   await writeFile(join(workspace, ".gitignore"), ".beads/\n");
   await git("add", ".gitignore");
   await git(
@@ -59,10 +52,7 @@ export async function verificationControl(
   await git("branch", "-M", "main");
   const service = new TaskBeads(source);
   const db = new Attempts(join(directory, "verification-journal"));
-  const admitted = async (
-    check: string[],
-    reviewOnly = false,
-  ): Promise<Attempt> => {
+  const admitted = async (check: string[], reviewOnly = false): Promise<Attempt> => {
     const created = await command([
       "create",
       "--title",
@@ -76,9 +66,7 @@ export async function verificationControl(
       "--json",
     ]);
     assert.equal(created.code, 0, created.stderr);
-    const id = z
-      .object({ id: z.string() })
-      .parse(JSON.parse(created.stdout)).id;
+    const id = z.object({ id: z.string() }).parse(JSON.parse(created.stdout)).id;
     const bead = await service.get(id);
     const attempt = randomUUID();
     const revision = await service.claim(bead, attempt);
@@ -148,39 +136,24 @@ setInterval(()=>{},1000);
   );
   try {
     const cancelled = await admitted([process.execPath, verifier]);
-    pending = submitResult(
-      db,
-      cancelled.id,
-      "Cancel the real blocking verifier",
-      controller.signal,
-    );
+    pending = submitResult(db, cancelled.id, "Cancel the real blocking verifier", controller.signal);
     const deadline = Date.now() + 5000;
-    while (processes === undefined && Date.now() < deadline) {
+    while (!processes && Date.now() < deadline) {
       try {
-        processes = pidsSchema.parse(
-          JSON.parse(await readFile(marker, "utf8")),
-        );
+        processes = pidsSchema.parse(JSON.parse(await readFile(marker, "utf8")));
       } catch (cause) {
-        const missing = z
-          .object({ code: z.literal("ENOENT") })
-          .safeParse(cause);
+        const missing = z.object({ code: z.literal("ENOENT") }).safeParse(cause);
         if (!missing.success) throw cause;
         await delay(20);
       }
     }
-    assert(
-      processes !== undefined,
-      "The actual verifier never signalled startup",
-    );
+    assert(processes !== undefined, "The actual verifier never signalled startup");
     assert(await running(processes.parent));
     assert(await running(processes.child));
     const started = Date.now();
     controller.abort(new Error("Fixture operator cancelled verification"));
     assert.match(await pending, /cancel/i);
-    assert(
-      Date.now() - started < 5000,
-      "Cancellation did not promptly finish the verifier process tree",
-    );
+    assert(Date.now() - started < 5000, "Cancellation did not promptly finish the verifier process tree");
     assert.equal(await running(processes.parent), false);
     assert.equal(await running(processes.child), false);
     const stored = db.get(cancelled.id);
@@ -188,16 +161,8 @@ setInterval(()=>{},1000);
     assert.notEqual(stored.phase, Phase.Closed);
     assert.match(stored.message, /cancel/i);
     assert.notEqual((await service.get(cancelled.bead.id)).status, "closed");
-    assert.equal(
-      (await service.get(cancelled.bead.id)).metadata["pi.result"],
-      undefined,
-    );
-    await submitResult(
-      db,
-      cancelled.id,
-      "Same cancelled submission",
-      controller.signal,
-    ).catch(() => undefined);
+    assert.equal((await service.get(cancelled.bead.id)).metadata["pi.result"], undefined);
+    await submitResult(db, cancelled.id, "Same cancelled submission", controller.signal).catch(() => undefined);
     assert.equal(
       await readFile(effects, "utf8"),
       "started\n",
@@ -206,26 +171,16 @@ setInterval(()=>{},1000);
 
     const reviewEffects = join(directory, "review-effects.txt");
     const review = await admitted(
-      [
-        process.execPath,
-        "-e",
-        `require('node:fs').appendFileSync(${JSON.stringify(reviewEffects)},'checked\\n')`,
-      ],
+      [process.execPath, "-e", `require('node:fs').appendFileSync(${JSON.stringify(reviewEffects)},'checked\\n')`],
       true,
     );
-    assert.match(
-      await submitResult(db, review.id, "Passing check requires review"),
-      /human review/,
-    );
+    assert.match(await submitResult(db, review.id, "Passing check requires review"), /human review/);
     assert.equal(db.get(review.id).phase, Phase.NeedsReview);
     assert.equal(db.get(review.id).verification?.exitCode, 0);
     const reviewTask = await service.get(review.bead.id);
     assert.notEqual(reviewTask.status, "closed");
     assert.equal(reviewTask.metadata["pi.result"], undefined);
-    await assert.rejects(
-      () => submitResult(db, review.id, "Repeat review-only result"),
-      /requires a running worker/,
-    );
+    await assert.rejects(() => submitResult(db, review.id, "Repeat review-only result"), /requires a running worker/);
     assert.equal(await readFile(reviewEffects, "utf8"), "checked\n");
     return {
       cancellationStopsTree: true,
@@ -234,9 +189,8 @@ setInterval(()=>{},1000);
     };
   } finally {
     controller.abort();
-    if (processes !== undefined)
-      signalProcessGroup(processes.parent, "SIGKILL");
-    if (pending !== undefined) await pending.catch(() => undefined);
+    if (processes) signalProcessGroup(processes.parent, "SIGKILL");
+    if (pending) await pending.catch(() => undefined);
     db.close();
   }
 }

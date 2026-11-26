@@ -1,14 +1,5 @@
-import {
-  spawnSync,
-  type SpawnSyncOptionsWithBufferEncoding,
-} from "node:child_process";
-import {
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { spawnSync, type SpawnSyncOptionsWithBufferEncoding } from "node:child_process";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -22,24 +13,18 @@ function run(argv: string[], options: SpawnSyncOptionsWithBufferEncoding) {
 // widgets. All files and shell state are isolated and removed on failure too.
 const shells = ["bash", "zsh", "fish"];
 for (const shell of [...shells, "python3"]) {
-  if (run([shell, "--version"], { timeout: 5000 }).error !== undefined)
-    throw new Error(
-      `Required native completion verifier unavailable: ${shell}`,
-    );
+  if (run([shell, "--version"], { timeout: 5000 }).error)
+    throw new Error(`Required native completion verifier unavailable: ${shell}`);
 }
 // Preserve provisioned packages, not user configuration, across HOME isolation.
 // An empty Bun cache would turn this offline check into a network install.
 const bunInstall = process.env["BUN_INSTALL"] ?? join(homedir(), ".bun");
-const dependencyCache =
-  process.env["BUN_INSTALL_CACHE_DIR"] ?? join(bunInstall, "install", "cache");
+const dependencyCache = process.env["BUN_INSTALL_CACHE_DIR"] ?? join(bunInstall, "install", "cache");
 // Explicit evidence destination survives fixture cleanup for PR review.
 const captureDirectory = process.env["STUDIO_COMPLETION_CAPTURE_DIR"];
 if (captureDirectory !== undefined) {
   mkdirSync(captureDirectory, { recursive: true });
-  writeFileSync(
-    join(captureDirectory, "geometry.json"),
-    JSON.stringify({ columns: 160, rows: 40 }),
-  );
+  writeFileSync(join(captureDirectory, "geometry.json"), JSON.stringify({ columns: 160, rows: 40 }));
 }
 const directory = mkdtempSync(join(tmpdir(), "studio-native-completion-"));
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
@@ -68,10 +53,7 @@ try {
     TERM: "xterm-256color",
   };
   for (const shell of shells) {
-    const generated = run(
-      [process.execPath, "--no-install", cli, "completion", shell],
-      { env, timeout: 15_000 },
-    );
+    const generated = run([process.execPath, "--no-install", cli, "completion", shell], { env, timeout: 15_000 });
     if (generated.status !== 0 || generated.stderr.length !== 0)
       throw new Error(`Generation failed: ${generated.stderr.toString()}`);
     writeFileSync(join(directory, `${shell}.completion`), generated.stdout);
@@ -176,10 +158,7 @@ for shell in shells:
     maxBuffer: 4 * 1024 * 1024,
   });
   process.stdout.write(result.stdout);
-  if (result.status !== 0)
-    throw new Error(
-      `Native shell completion failed:\n${result.stderr.toString()}`,
-    );
+  if (result.status !== 0) throw new Error(`Native shell completion failed:\n${result.stderr.toString()}`);
 
   // Also exercise Fish's public native candidate-query API (no fake commandline).
   const fish = run(
@@ -192,38 +171,16 @@ for shell in shells:
     { cwd: directory, env, timeout: 15_000 },
   );
   if (fish.status !== 0 || fish.stdout.toString().trim() !== "personal")
-    throw new Error(
-      `Fish native complete -C failed: ${fish.stdout.toString()} ${fish.stderr.toString()}`,
-    );
-  const query = run(
-    [
-      process.execPath,
-      "--no-install",
-      cli,
-      "completion",
-      "--query",
-      "--",
-      "tasks",
-      "unavailable-id",
-    ],
-    { env: { ...env, PATH: directory }, cwd: directory, timeout: 15_000 },
-  );
-  if (
-    query.status !== 0 ||
-    query.stdout.length !== 0 ||
-    query.stderr.length !== 0
-  )
-    throw new Error(
-      "Missing optional integrations must produce empty offline ID candidates",
-    );
-  if (
-    readdirSync(directory).some((name) =>
-      /sqlite|runtime|credential/.test(name),
-    )
-  )
-    throw new Error(
-      "Completion created unexpected runtime or credential state",
-    );
+    throw new Error(`Fish native complete -C failed: ${fish.stdout.toString()} ${fish.stderr.toString()}`);
+  const query = run([process.execPath, "--no-install", cli, "completion", "--query", "--", "tasks", "unavailable-id"], {
+    env: { ...env, PATH: directory },
+    cwd: directory,
+    timeout: 15_000,
+  });
+  if (query.status !== 0 || query.stdout.length !== 0 || query.stderr.length !== 0)
+    throw new Error("Missing optional integrations must produce empty offline ID candidates");
+  if (readdirSync(directory).some((name) => /sqlite|runtime|credential/.test(name)))
+    throw new Error("Completion created unexpected runtime or credential state");
   console.log("Offline completion with unavailable integrations passed");
 } finally {
   rmSync(directory, { recursive: true, force: true });

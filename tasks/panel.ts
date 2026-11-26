@@ -1,26 +1,10 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { StudioConfig } from "../config.ts";
-import {
-  floatingPaneOptions,
-  floatingPaneHeight,
-  framePaneRows,
-  paneMouse,
-  paintPaneLine,
-} from "../floating-pane.ts";
-import {
-  isKeyRelease,
-  type OverlayHandle,
-  type TuiMouseEvent,
-} from "@earendil-works/pi-tui";
+import { floatingPaneOptions, floatingPaneHeight, framePaneRows, paneMouse, paintPaneLine } from "../floating-pane.ts";
+import { isKeyRelease, type OverlayHandle, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { defaultPaneKeybindings } from "../pane-keybindings.ts";
 import { DecisionEditor } from "./decision-editor.ts";
-import {
-  closesTaskBrowser,
-  taskCloseHint,
-  loadTaskSnapshot,
-  TaskBrowser,
-  type BrowserSource,
-} from "./browser.ts";
+import { closesTaskBrowser, taskCloseHint, loadTaskSnapshot, TaskBrowser, type BrowserSource } from "./browser.ts";
 
 export type OpenTasks = (
   ctx: ExtensionContext,
@@ -29,17 +13,10 @@ export type OpenTasks = (
 ) => Promise<void>;
 
 export interface PanelSource extends BrowserSource {
-  focusPane: (
-    id: string,
-    attemptId: string | undefined,
-    signal: AbortSignal,
-  ) => Promise<void>;
+  focusPane: (id: string, attemptId: string | undefined, signal: AbortSignal) => Promise<void>;
 }
 type PanelContext = Pick<ExtensionContext, "hasUI"> & {
-  ui: Pick<
-    ExtensionContext["ui"],
-    "custom" | "notify" | "onTerminalInput" | "setWidget"
-  >;
+  ui: Pick<ExtensionContext["ui"], "custom" | "notify" | "onTerminalInput" | "setWidget">;
 };
 
 const answerWidget = "studio:worker-answer";
@@ -72,14 +49,9 @@ export class TaskPanel {
     close?.();
   }
 
-  async editAnswer(
-    ctx: PanelContext,
-    question: string,
-    taskTitle?: string,
-  ): Promise<string | undefined> {
+  async editAnswer(ctx: PanelContext, question: string, taskTitle?: string): Promise<string | undefined> {
     const overlay = this.browserOverlay;
-    if (overlay === undefined || this.closeAnswer !== undefined)
-      return undefined;
+    if (!overlay || this.closeAnswer) return undefined;
     const generation = this.generation;
 
     // Keep the inspector mounted so its selection and scroll position survive the reply.
@@ -100,14 +72,7 @@ export class TaskPanel {
         ctx.ui.setWidget(
           answerWidget,
           (tui, theme) => {
-            const editor = new DecisionEditor(
-              tui,
-              theme,
-              question,
-              finish,
-              this.bindings,
-              taskTitle,
-            );
+            const editor = new DecisionEditor(tui, theme, question, finish, this.bindings, taskTitle);
             // Pi mounts widgets synchronously. The next key in this read already belongs to the reply.
             tui.setFocus(editor);
             return Object.assign(editor, {
@@ -142,18 +107,14 @@ export class TaskPanel {
     // Pi attaches a custom overlay in a microtask. Protect the lead draft if a
     // terminal sends more keys in the same read as the command/shortcut.
     this.removeInputGuard = ctx.ui.onTerminalInput((input) => {
-      if (!isKeyRelease(input) && closesTaskBrowser(input, bindings))
-        this.close();
+      if (!isKeyRelease(input) && closesTaskBrowser(input, bindings)) this.close();
       return { consume: true };
     });
     let start: (() => Promise<void>) | undefined;
     const fail = (error: unknown) => {
       if (!current()) return;
       this.close();
-      ctx.ui.notify(
-        error instanceof Error ? error.message : String(error),
-        "error",
-      );
+      ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
     };
     try {
       await ctx.ui.custom<undefined>(
@@ -163,7 +124,7 @@ export class TaskPanel {
           };
           let browser: TaskBrowser | undefined;
           const schedule = () => {
-            if (!current() || browser === undefined) return;
+            if (!current() || !browser) return;
             const view = browser;
             this.timer = setTimeout(() => {
               view.refresh().then(schedule, fail);
@@ -173,7 +134,7 @@ export class TaskPanel {
           start = async () => {
             const source = await getSource(current);
             if (!current()) return;
-            if (source === undefined) {
+            if (!source) {
               this.close();
               return;
             }
@@ -189,7 +150,7 @@ export class TaskPanel {
               },
               (id, attemptId) => {
                 if (id === undefined) this.close();
-                else if (this.paneFocus === undefined) {
+                else if (!this.paneFocus) {
                   const focus = new AbortController();
                   this.paneFocus = focus;
                   source.focusPane(id, attemptId, focus.signal).then(
@@ -199,10 +160,7 @@ export class TaskPanel {
                     (error: unknown) => {
                       if (!current()) return;
                       this.paneFocus = undefined;
-                      ctx.ui.notify(
-                        error instanceof Error ? error.message : String(error),
-                        "error",
-                      );
+                      ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
                     },
                   );
                 }
@@ -232,7 +190,7 @@ export class TaskPanel {
               );
             },
             handleInput: (input: string) => {
-              if (browser !== undefined) browser.handleInput(input);
+              if (browser) browser.handleInput(input);
               else if (closesTaskBrowser(input, bindings)) this.close();
             },
             handleMouse(event: TuiMouseEvent) {

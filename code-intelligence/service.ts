@@ -3,20 +3,10 @@ import { resolveDiffScopes, type DiffScope } from "./scopes.ts";
 import { access, lstat, readFile, realpath, stat } from "node:fs/promises";
 import { createPatch } from "diff";
 import { randomUUID } from "node:crypto";
-import {
-  dirname,
-  extname,
-  isAbsolute,
-  relative,
-  resolve,
-  sep,
-} from "node:path";
+import { dirname, extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import {
-  DocumentSymbol,
-  type SymbolInformation,
-} from "vscode-languageserver-protocol";
+import { DocumentSymbol, type SymbolInformation } from "vscode-languageserver-protocol";
 import { LspClient, type ServerSpec } from "./client.ts";
 
 export enum Lookup {
@@ -60,6 +50,7 @@ const aliases: Record<string, string> = {
   mts: "ts",
   cts: "ts",
 };
+
 export function serverForPath(path: string) {
   const extension = extname(path).slice(1);
   return servers[aliases[extension] ?? extension];
@@ -88,11 +79,7 @@ const workspaceEditSchema = z
       )
       .optional(),
   })
-  .refine(
-    (value) =>
-      value.changes === undefined || value.documentChanges === undefined,
-    "Ambiguous workspace edit",
-  );
+  .refine((value) => value.changes === undefined || value.documentChanges === undefined, "Ambiguous workspace edit");
 export interface RenameFile {
   path: string;
   before: string;
@@ -116,11 +103,7 @@ function present(value: unknown): unknown {
   if (!object.success) return value;
   return Object.fromEntries(
     Object.entries(object.data).map(([key, item]) => {
-      if (
-        (key === "uri" || key === "targetUri") &&
-        typeof item === "string" &&
-        item.startsWith("file:")
-      )
+      if ((key === "uri" || key === "targetUri") && typeof item === "string" && item.startsWith("file:"))
         return [key === "uri" ? "path" : "targetPath", fileURLToPath(item)];
       return [key, present(item)];
     }),
@@ -145,28 +128,16 @@ function documentSymbolLocations(value: unknown, uri: string): unknown {
   return locations;
 }
 
-export function offset(
-  text: string,
-  position: z.infer<typeof positionSchema>,
-): number {
+export function offset(text: string, position: z.infer<typeof positionSchema>): number {
   const lines = text.split("\n");
   const line = lines[position.line];
-  if (
-    line === undefined ||
-    position.character > line.replace(/\r$/u, "").length
-  )
+  if (line === undefined || position.character > line.replace(/\r$/u, "").length)
     throw new Error("Invalid LSP text position");
   const prefix = lines.slice(0, position.line).join("\n");
-  const result =
-    prefix.length + (position.line === 0 ? 0 : 1) + position.character;
+  const result = prefix.length + (position.line === 0 ? 0 : 1) + position.character;
   const previous = text.charCodeAt(result - 1);
   const next = text.charCodeAt(result);
-  if (
-    previous >= 0xd800 &&
-    previous <= 0xdbff &&
-    next >= 0xdc00 &&
-    next <= 0xdfff
-  )
+  if (previous >= 0xd800 && previous <= 0xdbff && next >= 0xdc00 && next <= 0xdfff)
     throw new Error("LSP position splits a Unicode character");
   return result;
 }
@@ -182,27 +153,20 @@ export async function safePath(cwd: string, path: string): Promise<string> {
     within.startsWith(`..${sep}`) ||
     within.split(sep).includes(".git")
   )
-    throw new Error(
-      "LSP paths must stay inside the active checkout and outside .git",
-    );
+    throw new Error("LSP paths must stay inside the active checkout and outside .git");
   for (let current = target; current !== root; current = dirname(current)) {
-    if ((await lstat(current)).isSymbolicLink())
-      throw new Error("LSP paths cannot follow symbolic links");
+    if ((await lstat(current)).isSymbolicLink()) throw new Error("LSP paths cannot follow symbolic links");
   }
   return target;
 }
 
 export class CodeIntelligence {
   constructor(
-    private readonly startClient: (
-      root: string,
-      spec: ServerSpec,
-    ) => LspClient = (root, spec) => new LspClient(root, spec),
+    private readonly startClient: (root: string, spec: ServerSpec) => LspClient = (root, spec) =>
+      new LspClient(root, spec),
   ) {}
 
-  private readonly observers = new Set<
-    (snapshot: DiagnosticSnapshot) => void
-  >();
+  private readonly observers = new Set<(snapshot: DiagnosticSnapshot) => void>();
   private readonly subscriptions: (() => void)[] = [];
   onDiagnostics(observer: (snapshot: DiagnosticSnapshot) => void): () => void {
     this.observers.add(observer);
@@ -223,15 +187,11 @@ export class CodeIntelligence {
     return result;
   }
 
-  async client(
-    cwd: string,
-    path: string,
-  ): Promise<{ client: LspClient; path: string }> {
+  async client(cwd: string, path: string): Promise<{ client: LspClient; path: string }> {
     if (!this.enabled) throw new Error("LSP disabled by lsp.enabled");
     const target = await safePath(cwd, path);
     const spec = serverForPath(target);
-    if (spec === undefined)
-      throw new Error(`LSP unavailable for ${extname(target)}`);
+    if (spec === undefined) throw new Error(`LSP unavailable for ${extname(target)}`);
     const checkout = await realpath(cwd);
     let root = dirname(target);
     for (;;) {
@@ -250,10 +210,8 @@ export class CodeIntelligence {
     }
     const key = `${checkout}:${root}:${spec.command}`;
     let client = this.clients.get(key);
-    if (client === undefined) {
-      const entries = (process.env["PATH"] ?? "").split(
-        sep === "/" ? ":" : ";",
-      );
+    if (!client) {
+      const entries = (process.env["PATH"] ?? "").split(sep === "/" ? ":" : ";");
       let executable = false;
       for (const entry of entries) {
         try {
@@ -274,8 +232,7 @@ export class CodeIntelligence {
       this.clients.set(key, client);
       this.subscriptions.push(
         client.onDiagnostics((path, result) => {
-          for (const observer of this.observers)
-            observer(snapshot(path, result));
+          for (const observer of this.observers) observer(snapshot(path, result));
         }),
       );
     }
@@ -295,29 +252,16 @@ export class CodeIntelligence {
   ): Promise<unknown> {
     const { client, path: target } = await this.client(cwd, path);
     if (action === Lookup.Diagnostics) return this.diagnostics(cwd, target);
-    const methods: Record<
-      Exclude<Lookup, Lookup.Diagnostics>,
-      [string, Parameters<LspClient["supports"]>[0]]
-    > = {
+    const methods: Record<Exclude<Lookup, Lookup.Diagnostics>, [string, Parameters<LspClient["supports"]>[0]]> = {
       [Lookup.Definition]: ["textDocument/definition", "definitionProvider"],
       [Lookup.References]: ["textDocument/references", "referencesProvider"],
-      [Lookup.Implementation]: [
-        "textDocument/implementation",
-        "implementationProvider",
-      ],
+      [Lookup.Implementation]: ["textDocument/implementation", "implementationProvider"],
       [Lookup.Hover]: ["textDocument/hover", "hoverProvider"],
-      [Lookup.DocumentSymbols]: [
-        "textDocument/documentSymbol",
-        "documentSymbolProvider",
-      ],
-      [Lookup.WorkspaceSymbols]: [
-        "workspace/symbol",
-        "workspaceSymbolProvider",
-      ],
+      [Lookup.DocumentSymbols]: ["textDocument/documentSymbol", "documentSymbolProvider"],
+      [Lookup.WorkspaceSymbols]: ["workspace/symbol", "workspaceSymbolProvider"],
     };
     const [method, capability] = methods[action];
-    if (!client.supports(capability))
-      throw new Error(`Server does not support ${action}`);
+    if (!client.supports(capability)) throw new Error(`Server does not support ${action}`);
     const { uri } = await client.sync(target);
     const position = { line: line - 1, character: column - 1 };
     if (action !== Lookup.DocumentSymbols && action !== Lookup.WorkspaceSymbols)
@@ -329,17 +273,11 @@ export class CodeIntelligence {
         : {
             textDocument: { uri },
             position,
-            ...(action === Lookup.References
-              ? { context: { includeDeclaration: true } }
-              : {}),
+            ...(action === Lookup.References ? { context: { includeDeclaration: true } } : {}),
           },
       signal,
     );
-    return present(
-      action === Lookup.DocumentSymbols
-        ? documentSymbolLocations(response, uri)
-        : response,
-    );
+    return present(action === Lookup.DocumentSymbols ? documentSymbolLocations(response, uri) : response);
   }
 
   async diagnostics(cwd: string, path: string): Promise<DiagnosticSnapshot> {
@@ -357,7 +295,7 @@ export class CodeIntelligence {
     if (diff !== undefined && diff.length <= 65536) {
       try {
         const outline = await client.documentOutline(target);
-        if (outline !== undefined)
+        if (outline)
           return {
             diagnostics,
             scopes: resolveDiffScopes(diff, outline.text, outline.symbols),
@@ -379,19 +317,14 @@ export class CodeIntelligence {
   ): Promise<RenamePreview> {
     this.previews.clear();
     const { client, path: target } = await this.client(cwd, path);
-    if (!client.supports("renameProvider"))
-      throw new Error("Server does not support semantic rename");
+    if (!client.supports("renameProvider")) throw new Error("Server does not support semantic rename");
     const { uri } = await client.sync(target);
     const beforeRequest = await readFile(target, "utf8");
     const position = { line: line - 1, character: column - 1 };
     offset(beforeRequest, position);
     // Filesystem timestamps can have finer resolution than Date.now().
     const requestedAt = Date.now() + 1;
-    const response = await client.request(
-      "textDocument/rename",
-      { textDocument: { uri }, position, newName },
-      signal,
-    );
+    const response = await client.request("textDocument/rename", { textDocument: { uri }, position, newName }, signal);
     const edit = workspaceEditSchema.parse(response);
     const changes =
       edit.documentChanges ??
@@ -399,20 +332,16 @@ export class CodeIntelligence {
         textDocument: { uri, version: null },
         edits,
       }));
-    if (changes.length === 0 || changes.length > 100)
-      throw new Error("Rename must change between 1 and 100 files");
+    if (changes.length === 0 || changes.length > 100) throw new Error("Rename must change between 1 and 100 files");
     const seen = new Set<string>();
     const files: RenameFile[] = [];
     for (const change of changes) {
       const path = await safePath(cwd, fileURLToPath(change.textDocument.uri));
-      if (seen.has(path))
-        throw new Error("Rename contains duplicate file entries");
+      if (seen.has(path)) throw new Error("Rename contains duplicate file entries");
       seen.add(path);
-      if ((await stat(path)).mtimeMs > requestedAt)
-        throw new Error("File changed while preparing rename");
+      if ((await stat(path)).mtimeMs > requestedAt) throw new Error("File changed while preparing rename");
       const before = await readFile(path, "utf8");
-      if (path === target && before !== beforeRequest)
-        throw new Error("File changed while preparing rename");
+      if (path === target && before !== beforeRequest) throw new Error("File changed while preparing rename");
       const snapshot = await client.sync(path);
       if (
         change.textDocument.version !== null &&
@@ -430,11 +359,7 @@ export class CodeIntelligence {
       let after = before;
       let boundary = before.length + 1;
       for (const item of edits) {
-        if (
-          item.end < item.start ||
-          item.end > boundary ||
-          item.start === boundary
-        )
+        if (item.end < item.start || item.end > boundary || item.start === boundary)
           throw new Error("Rename contains overlapping edits");
         after = after.slice(0, item.start) + item.text + after.slice(item.end);
         boundary = item.start;
@@ -466,12 +391,10 @@ export class CodeIntelligence {
   async consume(cwd: string, token: string): Promise<RenamePreview> {
     const preview = this.previews.get(token);
     this.previews.delete(token);
-    if (preview === undefined || preview.expires < Date.now())
-      throw new Error("Rename preview expired; prepare it again");
+    if (!preview || preview.expires < Date.now()) throw new Error("Rename preview expired; prepare it again");
     for (const file of preview.files) {
       await safePath(cwd, file.path);
-      if ((await readFile(file.path, "utf8")) !== file.before)
-        throw new Error(`Rename preview is stale: ${file.path}`);
+      if ((await readFile(file.path, "utf8")) !== file.before) throw new Error(`Rename preview is stale: ${file.path}`);
     }
     return preview;
   }

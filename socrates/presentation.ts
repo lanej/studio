@@ -1,14 +1,7 @@
-import {
-  defaultPaneKeybindings,
-  type PaneKeybindings,
-} from "../pane-keybindings.ts";
+import { defaultPaneKeybindings, type PaneKeybindings } from "../pane-keybindings.ts";
 import { pickLeadPane } from "../floating-pane-picker.ts";
 import type { OpenTasks } from "../tasks/panel.ts";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-  Theme,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, type TUI } from "@earendil-works/pi-tui";
 import {
   ActivityState,
@@ -18,22 +11,9 @@ import {
   type Activity,
   type StatusTheme,
 } from "@lanej/pi-components";
-import {
-  coverageBasisCurrent,
-  coverageProperties,
-  draftCoverage,
-} from "./assessment.ts";
-import {
-  hasSettledDeliveryPolicy,
-  specificationGaps,
-  SpecStatus,
-} from "./spec.ts";
-import {
-  type AssessedCondition,
-  conditionStates,
-  implementationColumn,
-  specificationColumn,
-} from "./columns.ts";
+import { coverageBasisCurrent, coverageProperties, draftCoverage } from "./assessment.ts";
+import { hasSettledDeliveryPolicy, specificationGaps, SpecStatus } from "./spec.ts";
+import { type AssessedCondition, conditionStates, implementationColumn, specificationColumn } from "./columns.ts";
 import {
   assessmentRevision,
   implementationPresentation,
@@ -46,17 +26,8 @@ import { createPlanInspector } from "./plan-inspector.ts";
 import { planGraphColor } from "../plan-graph.ts";
 import { focusTaskPane } from "../task-run.ts";
 import { WorkerPane } from "./worker-pane.ts";
-import {
-  floatingPaneHeight,
-  floatingPaneOptions,
-  framePaneRows,
-  paneMouse,
-} from "../floating-pane.ts";
-import {
-  renderSocratesDock,
-  renderStatusSidebar,
-  type WorkerSidebarView,
-} from "./sidebar.ts";
+import { floatingPaneHeight, floatingPaneOptions, framePaneRows, paneMouse } from "../floating-pane.ts";
+import { renderSocratesDock, renderStatusSidebar, type WorkerSidebarView } from "./sidebar.ts";
 import { renderWorkerDock } from "./worker-section.ts";
 import { createImplementationWatch } from "./implementation-watch.ts";
 
@@ -91,11 +62,8 @@ export function socratesPresentation(
 ): SocratesPresentation {
   const { specification: spec, label } = observation;
   const revision = assessmentRevision(observation);
-  const implementation = implementationPresentation(
-    observation,
-    beadObservation,
-  );
-  if (spec === undefined) {
+  const implementation = implementationPresentation(observation, beadObservation);
+  if (!spec) {
     const activity = { state: ActivityState.Idle, label: "No specification" };
     const column = specificationColumn(undefined, [], activity, implementation);
     return {
@@ -122,8 +90,7 @@ export function socratesPresentation(
     }),
   );
   const counts = conditionCounts(conditions);
-  const outstanding =
-    counts.satisfied + counts.notApplicable < conditions.length;
+  const outstanding = counts.satisfied + counts.notApplicable < conditions.length;
   const needsReview = outstanding || spec.pendingReview !== undefined;
   const reviewBeforeHandoff =
     spec.status === SpecStatus.Frozen &&
@@ -136,14 +103,10 @@ export function socratesPresentation(
     ...(counts.partial > 0 ? [`${String(counts.partial)} partial`] : []),
     ...(counts.open > 0 ? [`${String(counts.open)} open`] : []),
     ...(counts.stale > 0 ? [`${String(counts.stale)} recheck`] : []),
-    ...(counts.notApplicable > 0
-      ? [`${String(counts.notApplicable)} not applicable`]
-      : []),
+    ...(counts.notApplicable > 0 ? [`${String(counts.notApplicable)} not applicable`] : []),
   ].join(" · ");
   const focus = draftCoverage(spec.draft)?.focus;
-  const focusLabel = properties.find(
-    (property) => property.id === focus,
-  )?.label;
+  const focusLabel = properties.find((property) => property.id === focus)?.label;
   const activity = (): Activity => {
     if (spec.acceptedRevision !== revision)
       return {
@@ -151,8 +114,8 @@ export function socratesPresentation(
         label: "Brief changed",
         detail: "Refresh Socrates before continuing",
       };
-    if (spec.exchange !== undefined) {
-      if (spec.exchange.answer === undefined)
+    if (spec.exchange) {
+      if (!spec.exchange.answer)
         return {
           state: ActivityState.Waiting,
           label: "Waiting for your answer",
@@ -164,17 +127,11 @@ export function socratesPresentation(
         detail: "Awaiting incorporation into the draft",
       };
     }
-    if (
-      spec.pendingReview !== undefined &&
-      (spec.status !== SpecStatus.Frozen || reviewBeforeHandoff)
-    ) {
+    if (spec.pendingReview && (spec.status !== SpecStatus.Frozen || reviewBeforeHandoff)) {
       const labels = {
         input: ["Reviewing new input", "New input pending review"],
         plan: ["Reviewing plan changes", "Plan changes pending review"],
-        "input-and-plan": [
-          "Reviewing recent changes",
-          "Changes pending review",
-        ],
+        "input-and-plan": ["Reviewing recent changes", "Changes pending review"],
       } as const;
       const [active, pending] = labels[spec.pendingReview.cause];
       return live.working
@@ -207,8 +164,7 @@ export function socratesPresentation(
         label: "",
         detail: "Resume with /socrates",
       };
-    if (spec.draft === null)
-      return { state: ActivityState.Idle, label: "Specification not drafted" };
+    if (spec.draft === null) return { state: ActivityState.Idle, label: "Specification not drafted" };
     if (counts.stale > 0)
       return {
         state: ActivityState.Idle,
@@ -219,7 +175,7 @@ export function socratesPresentation(
       questions === 0 &&
       counts.open === 0 &&
       counts.partial === 0 &&
-      observation.bead === undefined &&
+      !observation.bead &&
       !hasSettledDeliveryPolicy(spec.draft)
     )
       return {
@@ -230,18 +186,11 @@ export function socratesPresentation(
     return {
       state: ActivityState.Idle,
       label: questions > 0 ? "Open questions remain" : "Awaiting review",
-      ...(questions > 0
-        ? { detail: `${String(questions)} blocking questions` }
-        : {}),
+      ...(questions > 0 ? { detail: `${String(questions)} blocking questions` } : {}),
     };
   };
   const currentActivity = activity();
-  const column = specificationColumn(
-    spec,
-    conditions,
-    currentActivity,
-    implementation,
-  );
+  const column = specificationColumn(spec, conditions, currentActivity, implementation);
   return {
     id: observation.id,
     title: label,
@@ -250,9 +199,7 @@ export function socratesPresentation(
       spec.acceptedRevision !== revision ||
       reviewBeforeHandoff ||
       (spec.status !== SpecStatus.Frozen &&
-        (needsReview ||
-          (observation.bead === undefined &&
-            specificationGaps(spec, revision).length > 0))),
+        (needsReview || (observation.bead === undefined && specificationGaps(spec, revision).length > 0))),
     activity: currentActivity,
     summary,
     implementation,
@@ -299,9 +246,7 @@ function surface(theme: Theme, line: string, width: number): string {
 const widgetKey = "studio:socrates";
 
 function sidebarWidth(columns: number): number {
-  return columns >= 104
-    ? Math.min(56, columns - 68, Math.floor(columns * 0.4))
-    : 0;
+  return columns >= 104 ? Math.min(56, columns - 68, Math.floor(columns * 0.4)) : 0;
 }
 
 /** UI state is session-local; no timer or saved focus can establish agent activity. */
@@ -353,19 +298,10 @@ export function registerSocratesPresentation(
         : {
             rows: [],
             evidenceError:
-              observed?.state === "unavailable"
-                ? (observed.message ?? "Beads could not be read.")
-                : undefined,
+              observed?.state === "unavailable" ? (observed.message ?? "Beads could not be read.") : undefined,
           };
-    workerPane.setRows(
-      workers.rows,
-      workers.evidenceError,
-      observed?.state === "loading",
-    );
-    snapshot =
-      binding === undefined
-        ? undefined
-        : socratesPresentation(binding, live, observed);
+    workerPane.setRows(workers.rows, workers.evidenceError, observed?.state === "loading");
+    snapshot = !binding ? undefined : socratesPresentation(binding, live, observed);
     render();
   }
   const watch = createImplementationWatch({ changed: project });
@@ -387,7 +323,7 @@ export function registerSocratesPresentation(
       clear(ctx);
       return;
     }
-    if (observation === undefined) {
+    if (!observation) {
       clear(ctx);
       return;
     }
@@ -409,7 +345,7 @@ export function registerSocratesPresentation(
           {
             invalidate() {},
             render(width) {
-              if (snapshot === undefined) return [];
+              if (!snapshot) return [];
               return renderStatusSidebar(
                 snapshot,
                 { ...statusTheme(theme), lane: planGraphColor(theme) },
@@ -419,8 +355,7 @@ export function registerSocratesPresentation(
               ).map((line) => surface(theme, line, width));
             },
           },
-          (width) =>
-            sidebarOpen && snapshot !== undefined ? sidebarWidth(width) : 0,
+          (width) => (sidebarOpen && snapshot ? sidebarWidth(width) : 0),
         );
         return {
           invalidate() {},
@@ -431,14 +366,10 @@ export function registerSocratesPresentation(
             renders.delete(repaint);
           },
           render(width) {
-            if (snapshot === undefined || usesSidebar()) return [];
-            const hasWorkers =
-              workers.rows.length > 0 || workers.evidenceError !== undefined;
+            if (!snapshot || usesSidebar()) return [];
+            const hasWorkers = workers.rows.length > 0 || workers.evidenceError !== undefined;
             const limit = (dockExpanded ? 8 : 3) + Number(hasWorkers);
-            const maxRows = Math.max(
-              1,
-              Math.min(limit, Math.floor(tui.terminal.rows / 3)),
-            );
+            const maxRows = Math.max(1, Math.min(limit, Math.floor(tui.terminal.rows / 3)));
             const colors = statusTheme(theme);
             // In a very short terminal the pending question takes priority over the plan.
             const roster = renderWorkerDock(
@@ -456,9 +387,7 @@ export function registerSocratesPresentation(
               maxRows - roster.length,
               dockExpanded,
             );
-            return [...rows.map((row) => `  ${row}`), ...roster].map((line) =>
-              surface(theme, line, width),
-            );
+            return [...rows.map((row) => `  ${row}`), ...roster].map((line) => surface(theme, line, width));
           },
         };
       },
@@ -507,11 +436,9 @@ export function registerSocratesPresentation(
   async function inspect(ctx: ExtensionContext, column?: "implementation") {
     refresh(ctx);
     const initial = snapshot;
-    if (initial === undefined) {
+    if (!initial) {
       ctx.ui.notify(
-        column === "implementation"
-          ? "No plan drafted yet."
-          : "No specification or implementation breakdown selected.",
+        column === "implementation" ? "No plan drafted yet." : "No specification or implementation breakdown selected.",
         "info",
       );
       return;
@@ -525,8 +452,7 @@ export function registerSocratesPresentation(
           const options = {
             title: initial.title,
             theme: statusTheme(theme),
-            height: () =>
-              Math.max(0, floatingPaneHeight(tui.terminal.rows) - 1),
+            height: () => Math.max(0, floatingPaneHeight(tui.terminal.rows) - 1),
             requestRender: () => {
               tui.requestRender();
             },
@@ -540,18 +466,11 @@ export function registerSocratesPresentation(
               : createStatusBoard({
                   ...options,
                   columns: initial.columns,
-                  initialColumnId:
-                    binding?.specification === undefined
-                      ? "implementation"
-                      : "specification",
+                  initialColumnId: !binding?.specification ? "implementation" : "specification",
                 });
           let shown = initial;
           const repaint = () => {
-            if (
-              snapshot === undefined ||
-              snapshot.id !== initial.id ||
-              snapshot.title !== initial.title
-            ) {
+            if (!snapshot || snapshot.id !== initial.id || snapshot.title !== initial.title) {
               renders.delete(repaint);
               done(undefined);
             } else if (snapshot !== shown) {
@@ -597,31 +516,19 @@ export function registerSocratesPresentation(
   const toggle = (ctx: ExtensionContext) => {
     if (!ctx.hasUI) return;
     refresh(ctx);
-    if (snapshot === undefined) return;
+    if (!snapshot) return;
     resizeStatus();
   };
   const openWorkers = (ctx: ExtensionContext) => {
     if (!ctx.hasUI || inspecting) return;
     refresh(ctx);
-    const request =
-      binding === undefined ? undefined : implementationRead(binding);
-    if (
-      request === undefined ||
-      request.key !== workerKey ||
-      layoutTui === undefined
-    ) {
-      ctx.ui.notify(
-        "Worker assignments are available after plan approval.",
-        "info",
-      );
+    const request = !binding ? undefined : implementationRead(binding);
+    if (!request || request.key !== workerKey || !layoutTui) {
+      ctx.ui.notify("Worker assignments are available after plan approval.", "info");
       return;
     }
     const report = (error: unknown) => {
-      if (workerKey === request.key)
-        ctx.ui.notify(
-          error instanceof Error ? error.message : String(error),
-          "warning",
-        );
+      if (workerKey === request.key) ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning");
     };
     workerPane.open(
       layoutTui,
@@ -630,8 +537,7 @@ export function registerSocratesPresentation(
         inspect: (row) => {
           openTasks?.(ctx, row.beadId, request.authority).catch(report);
         },
-        focusPane: (row, signal) =>
-          focusTaskPane(request.authority, row.beadId, row.attemptId, signal),
+        focusPane: (row, signal) => focusTaskPane(request.authority, row.beadId, row.attemptId, signal),
         onError: report,
       },
       keybindings,
@@ -648,9 +554,7 @@ export function registerSocratesPresentation(
     if (!ctx.hasUI || inspecting) return;
     const choice = await pickLeadPane(
       ctx,
-      openTasks === undefined
-        ? ["workers", "status"]
-        : ["workers", "tasks", "status"],
+      !openTasks ? ["workers", "status"] : ["workers", "tasks", "status"],
       keybindings,
     );
     if (choice === "workers") openWorkers(ctx);
@@ -671,7 +575,7 @@ export function registerSocratesPresentation(
       description: "Open worker assignments",
       handler: openWorkers,
     });
-  if (openTasks !== undefined)
+  if (openTasks)
     for (const key of keybindings.lead.openTasks)
       pi.registerShortcut(key, {
         description: "Open the task browser",
@@ -699,15 +603,14 @@ export function registerSocratesPresentation(
         toggle(ctx);
         return;
       }
-      if (action !== "min" && action !== "max")
-        throw new Error("Use /socrates-status min, max, inspect, or spec");
+      if (action !== "min" && action !== "max") throw new Error("Use /socrates-status min, max, inspect, or spec");
       refresh(ctx);
       resizeStatus(action === "max");
     },
   });
   function open(ctx: ExtensionContext) {
     refresh(ctx);
-    if (snapshot !== undefined) resizeStatus(true);
+    if (snapshot) resizeStatus(true);
   }
   return { refresh, inspect, open };
 }

@@ -1,23 +1,7 @@
-import type {
-  ExtensionContext,
-  Theme,
-  ThemeColor,
-} from "@earendil-works/pi-coding-agent";
-import {
-  matchesKey,
-  Text,
-  truncateToWidth,
-  visibleWidth,
-  type Component,
-} from "@earendil-works/pi-tui";
+import type { ExtensionContext, Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
+import { matchesKey, Text, truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { selectorText } from "@lanej/pi-components";
-import {
-  floatingPaneHeight,
-  floatingPaneOptions,
-  framePaneRows,
-  paintPaneLine,
-  paneMouse,
-} from "./floating-pane.ts";
+import { floatingPaneHeight, floatingPaneOptions, framePaneRows, paintPaneLine, paneMouse } from "./floating-pane.ts";
 import { knownTaskStatus, TaskStatus } from "./beads.ts";
 import type { TaskAssignment } from "./config.ts";
 import { NavigationKey } from "./runtime.ts";
@@ -39,15 +23,9 @@ const statusTones = {
   [TaskStatus.Closed]: { glyph: "●", tone: "success" },
 } satisfies Record<TaskStatus, { glyph: string; tone: ThemeColor }>;
 
-export function taskStatusGlyph(
-  status: string,
-  theme: Pick<Theme, "fg">,
-): string {
+export function taskStatusGlyph(status: string, theme: Pick<Theme, "fg">): string {
   const recognized = knownTaskStatus(status);
-  const { glyph, tone } =
-    recognized === undefined
-      ? { glyph: "?", tone: "muted" as const }
-      : statusTones[recognized];
+  const { glyph, tone } = recognized === undefined ? { glyph: "?", tone: "muted" as const } : statusTones[recognized];
   return theme.fg(tone, glyph);
 }
 
@@ -57,11 +35,9 @@ export function withTaskAssignment(
   width: number,
   muted: (text: string) => string,
 ): string {
-  if (assignment === undefined) return row;
+  if (!assignment) return row;
   const suffix = `  ·  ${assignment.capability} · ${assignment.reasoning}`;
-  return visibleWidth(row) + visibleWidth(suffix) <= width
-    ? row + muted(suffix)
-    : row;
+  return visibleWidth(row) + visibleWidth(suffix) <= width ? row + muted(suffix) : row;
 }
 
 export async function showTask(
@@ -111,23 +87,15 @@ export async function showTask(
             matchesKey(input, NavigationKey.Cancel)
           )
             done(undefined);
-          else if (
-            matchesKey(input, NavigationKey.Down) ||
-            matchesKey(input, NavigationKey.VimDown)
-          )
+          else if (matchesKey(input, NavigationKey.Down) || matchesKey(input, NavigationKey.VimDown))
             offset = Math.min(maximum, offset + 1);
-          else if (
-            matchesKey(input, NavigationKey.Up) ||
-            matchesKey(input, NavigationKey.VimUp)
-          )
+          else if (matchesKey(input, NavigationKey.Up) || matchesKey(input, NavigationKey.VimUp))
             offset = Math.max(0, offset - 1);
           tui.requestRender();
         },
       };
     },
-    floating
-      ? { overlay: true, overlayOptions: floatingPaneOptions }
-      : documentOverlay,
+    floating ? { overlay: true, overlayOptions: floatingPaneOptions } : documentOverlay,
   );
 }
 
@@ -142,12 +110,7 @@ interface ApprovalBody {
   right?: readonly string[];
 }
 
-function approvalBody(
-  details: string | PlanReview,
-  theme: ApprovalTheme,
-  width: number,
-  split: boolean,
-): ApprovalBody {
+function approvalBody(details: string | PlanReview, theme: ApprovalTheme, width: number, split: boolean): ApprovalBody {
   if (typeof details === "string")
     return {
       left: new Text(selectorText(details), 0, 0).render(width),
@@ -158,34 +121,23 @@ function approvalBody(
   const rightWidth = split ? width - reviewColumnGap - leftWidth : width;
   const plan = renderPlanReview(details, theme, leftWidth, rightWidth);
   if (split) return { left: plan.overview, leftWidth, right: plan.details };
-  const left =
-    plan.details.length === 0
-      ? plan.overview
-      : [...plan.overview, "", ...plan.details];
+  const left = plan.details.length === 0 ? plan.overview : [...plan.overview, "", ...plan.details];
   return { left, leftWidth };
 }
 
-function approvalRows(
-  body: ApprovalBody,
-  theme: ApprovalTheme,
-  offset: number,
-  height: number,
-): string[] {
+function approvalRows(body: ApprovalBody, theme: ApprovalTheme, offset: number, height: number): string[] {
   const start = Math.min(offset, Math.max(0, body.left.length - height));
   const left = body.left.slice(start, start + height);
-  if (body.right === undefined) return left;
+  if (!body.right) return left;
 
   const rightStart = Math.min(offset, Math.max(0, body.right.length - height));
   const right = body.right.slice(rightStart, rightStart + height);
   const divider = `  ${theme.fg("border", "│")}  `;
-  return Array.from(
-    { length: Math.max(left.length, right.length) },
-    (_, row) => {
-      const line = left[row] ?? "";
-      const fill = " ".repeat(body.leftWidth - visibleWidth(line));
-      return line + fill + divider + (right[row] ?? "");
-    },
-  );
+  return Array.from({ length: Math.max(left.length, right.length) }, (_, row) => {
+    const line = left[row] ?? "";
+    const fill = " ".repeat(body.leftWidth - visibleWidth(line));
+    return line + fill + divider + (right[row] ?? "");
+  });
 }
 
 export async function reviewPlan(
@@ -195,8 +147,7 @@ export async function reviewPlan(
   action: string,
 ): Promise<boolean> {
   return ctx.ui.custom<boolean>(
-    (tui, theme, _keys, done) =>
-      createPlanApproval(tui, theme, done, heading, details, action),
+    (tui, theme, _keys, done) => createPlanApproval(tui, theme, done, heading, details, action),
     {
       ...(typeof details === "string"
         ? documentOverlay
@@ -241,12 +192,7 @@ export function createPlanApproval(
 
       const rows = tui.terminal.rows;
       if (rows < (fullScreen ? 4 : 5) || (fullScreen && width < 5))
-        return [
-          truncateToWidth(
-            theme.fg("warning", "Enlarge terminal to review · Esc cancel"),
-            width,
-          ),
-        ];
+        return [truncateToWidth(theme.fg("warning", "Enlarge terminal to review · Esc cancel"), width)];
 
       const split = fullScreen && width >= planReviewBreakpoint;
       const inner = fullScreen ? width - 4 : width;
@@ -259,11 +205,7 @@ export function createPlanApproval(
       rendered ??= approvalBody(details, theme, inner, split);
       const spacer = fullScreen && rows >= 5 ? [""] : [];
       page = fullScreen ? rows - 3 - spacer.length : rows - 4;
-      maximum = Math.max(
-        0,
-        rendered.left.length - page,
-        (rendered.right?.length ?? 0) - page,
-      );
+      maximum = Math.max(0, rendered.left.length - page, (rendered.right?.length ?? 0) - page);
       offset = Math.min(offset, maximum);
       renderedOffset = offset;
       const endDisplayed = offset === maximum;
@@ -275,15 +217,10 @@ export function createPlanApproval(
         : fullScreen
           ? "↑↓ scroll · Enter next page · Esc cancel"
           : "↓ More · Esc cancel";
-      const compact = endDisplayed
-        ? "Enter confirm · Esc cancel"
-        : "↓ More · Esc cancel";
+      const compact = endDisplayed ? "Enter confirm · Esc cancel" : "↓ More · Esc cancel";
       const heading = theme.fg("accent", theme.bold(title));
       const instructions = truncateToWidth(
-        theme.fg(
-          endDisplayed ? "accent" : "dim",
-          !fullScreen || visibleWidth(hint) <= inner ? hint : compact,
-        ),
+        theme.fg(endDisplayed ? "accent" : "dim", !fullScreen || visibleWidth(hint) <= inner ? hint : compact),
         inner,
       );
       return fullScreen
@@ -296,10 +233,7 @@ export function createPlanApproval(
         : [truncateToWidth(heading, inner), ...body, instructions];
     },
     handleInput(input) {
-      if (
-        matchesKey(input, NavigationKey.Escape) ||
-        matchesKey(input, NavigationKey.Cancel)
-      ) {
+      if (matchesKey(input, NavigationKey.Escape) || matchesKey(input, NavigationKey.Cancel)) {
         done(false);
         return;
       }
@@ -308,15 +242,9 @@ export function createPlanApproval(
       if (matchesKey(input, NavigationKey.Enter)) {
         if (offset === maximum) done(true);
         else offset = Math.min(maximum, offset + Math.max(1, page - 1));
-      } else if (
-        matchesKey(input, NavigationKey.Down) ||
-        matchesKey(input, NavigationKey.VimDown)
-      ) {
+      } else if (matchesKey(input, NavigationKey.Down) || matchesKey(input, NavigationKey.VimDown)) {
         offset = Math.min(maximum, offset + 1);
-      } else if (
-        matchesKey(input, NavigationKey.Up) ||
-        matchesKey(input, NavigationKey.VimUp)
-      ) {
+      } else if (matchesKey(input, NavigationKey.Up) || matchesKey(input, NavigationKey.VimUp)) {
         offset = Math.max(0, offset - 1);
       }
       tui.requestRender();

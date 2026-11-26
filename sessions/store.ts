@@ -71,20 +71,14 @@ export class LoopStore {
     this.db.close();
   }
   get(session: string): LoopRecord | undefined {
-    const row: unknown = this.db
-      .query("SELECT record FROM loops WHERE session=?")
-      .get(session);
-    return row === null
-      ? undefined
-      : loopSchema.parse(JSON.parse(rowSchema.parse(row).record));
+    const row: unknown = this.db.query("SELECT record FROM loops WHERE session=?").get(session);
+    return row === null ? undefined : loopSchema.parse(JSON.parse(rowSchema.parse(row).record));
   }
   iterations(session: string): z.infer<typeof iterationSchema>[] {
     return this.db
       .query("SELECT record FROM iterations WHERE session=? ORDER BY rowid")
       .all(session)
-      .map((row) =>
-        iterationSchema.parse(JSON.parse(rowSchema.parse(row).record)),
-      );
+      .map((row) => iterationSchema.parse(JSON.parse(rowSchema.parse(row).record)));
   }
   save(record: LoopRecord, expected: number | undefined): LoopRecord {
     const next = loopSchema.parse({
@@ -95,35 +89,25 @@ export class LoopStore {
     try {
       const current = this.get(record.session);
       if (current?.revision !== expected)
-        throw new Error(
-          "Loop ownership changed; inspect /loop status before continuing",
-        );
+        throw new Error("Loop ownership changed; inspect /loop status before continuing");
       this.db
         .query(
           "INSERT INTO loops VALUES (?,?,?) ON CONFLICT(session) DO UPDATE SET revision=excluded.revision, record=excluded.record",
         )
         .run(next.session, next.revision, JSON.stringify(next));
       const intent = next.intent ?? current?.intent;
-      if (intent !== null && intent !== undefined) {
+      if (intent !== null && intent) {
         const settled = next.lastSettled?.id === intent.id;
         const iteration = iterationSchema.parse({
           ...intent,
           session: next.session,
           prompt: current?.prompt ?? next.prompt,
-          state: settled
-            ? "settled"
-            : next.intent === null || next.needsInspection
-              ? "uncertain"
-              : "pending",
+          state: settled ? "settled" : next.intent === null || next.needsInspection ? "uncertain" : "pending",
           ...(settled ? { settledAt: next.lastSettled?.at } : {}),
-          ...(next.intent === null && !settled
-            ? { acknowledgedAt: Date.now() }
-            : {}),
+          ...(next.intent === null && !settled ? { acknowledgedAt: Date.now() } : {}),
         });
         this.db
-          .query(
-            "INSERT INTO iterations VALUES (?,?,?) ON CONFLICT(session,id) DO UPDATE SET record=excluded.record",
-          )
+          .query("INSERT INTO iterations VALUES (?,?,?) ON CONFLICT(session,id) DO UPDATE SET record=excluded.record")
           .run(next.session, intent.id, JSON.stringify(iteration));
       }
       this.db.run("COMMIT");

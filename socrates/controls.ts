@@ -1,14 +1,8 @@
 import { DocumentKind } from "../planning/model.ts";
-import {
-  getPlanningDocumentHooks,
-  type PlanningDocumentHooks,
-} from "../planning/document-hooks.ts";
+import { getPlanningDocumentHooks, type PlanningDocumentHooks } from "../planning/document-hooks.ts";
 import type { PaneKeybindings } from "../pane-keybindings.ts";
 import type { OpenTasks } from "../tasks/panel.ts";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { isDeepStrictEqual } from "node:util";
 import { Type } from "typebox";
@@ -74,14 +68,9 @@ export function registerSocrates(
     keybindings,
     identity: (record) => record.id,
     label: (record) => record.bead.id,
-    snapshot: (ctx) =>
-      ctx.sessionManager.getSessionId() === id ? db.get(id) : undefined,
+    snapshot: (ctx) => (ctx.sessionManager.getSessionId() === id ? db.get(id) : undefined),
     check: async (record, revision) => {
-      await new TaskBeads(record.source).requireCurrent(
-        record.bead,
-        revision,
-        id,
-      );
+      await new TaskBeads(record.source).requireCurrent(record.bead, revision, id);
     },
   });
 }
@@ -110,7 +99,7 @@ export function registerSocratesControls<T extends SocratesState>(
 ) {
   async function viewSpecification(ctx: ExtensionContext) {
     const record = await requireBinding(ctx);
-    if (record.specification === undefined) {
+    if (!record.specification) {
       ctx.ui.notify("No Socrates specification selected.", "info");
       return;
     }
@@ -132,10 +121,8 @@ export function registerSocratesControls<T extends SocratesState>(
   const presentation = registerSocratesPresentation(
     pi,
     (ctx) => {
-      const record =
-        scope.snapshot === undefined ? db.get(id) : scope.snapshot(ctx);
-      return record === undefined ||
-        (record.specification === undefined && record.leadPlan?.draft == null)
+      const record = !scope.snapshot ? db.get(id) : scope.snapshot(ctx);
+      return record === undefined || (!record.specification && record.leadPlan?.draft == null)
         ? undefined
         : {
             ...record,
@@ -153,47 +140,25 @@ export function registerSocratesControls<T extends SocratesState>(
   let commandPrompt: string | undefined;
   let preparedInput: { owner: string; session: string } | false | undefined;
   pi.on("input", (event) => {
-    if (event.streamingBehavior === undefined)
-      commandPrompt = event.source === "extension" ? event.text : undefined;
+    if (event.streamingBehavior === undefined) commandPrompt = event.source === "extension" ? event.text : undefined;
   });
-  const retainReviewInput = (
-    ctx: ExtensionContext,
-    record: T,
-    input: ReviewInput,
-  ): void => {
+  const retainReviewInput = (ctx: ExtensionContext, record: T, input: ReviewInput): void => {
     if (
-      record.specification === undefined ||
+      !record.specification ||
       record.leadPlan?.mode !== LeadMode.Planning ||
-      (scope.discovery !== true &&
-        record.specification.status === SpecStatus.Frozen) ||
+      (scope.discovery !== true && record.specification.status === SpecStatus.Frozen) ||
       record.approved !== undefined ||
-      record.handoff !== undefined
+      record.handoff
     )
       return;
     db.change(scope.identity(record), (row) => {
-      if (
-        row.specification !== undefined &&
-        row.approved === undefined &&
-        row.handoff === undefined &&
-        row.leadPlan?.mode === LeadMode.Planning
-      )
-        row.specification.pendingReview = pendingCoverageReview(
-          row.specification,
-          input,
-        );
+      if (row.specification && row.approved === undefined && !row.handoff && row.leadPlan?.mode === LeadMode.Planning)
+        row.specification.pendingReview = pendingCoverageReview(row.specification, input);
     });
     presentation.refresh(ctx);
   };
-  const preparePrompt = (
-    prompt: string,
-    admitted: boolean,
-    feedback: boolean,
-    ctx: ExtensionContext,
-  ): void => {
-    const record =
-      admitted && (feedback || commandPrompt !== prompt)
-        ? scope.snapshot?.(ctx)
-        : undefined;
+  const preparePrompt = (prompt: string, admitted: boolean, feedback: boolean, ctx: ExtensionContext): void => {
+    const record = admitted && (feedback || commandPrompt !== prompt) ? scope.snapshot?.(ctx) : undefined;
     preparedInput =
       record === undefined
         ? false
@@ -203,14 +168,13 @@ export function registerSocratesControls<T extends SocratesState>(
           };
     commandPrompt = undefined;
   };
-  if (documents !== undefined)
+  if (documents)
     documents.onPromptAdmission((event, ctx) => {
       preparePrompt(event.prompt, event.admitted, event.feedback, ctx);
     });
   else
     pi.on("before_agent_start", (event, ctx) => {
-      if (event.messageType === "user")
-        preparePrompt(event.prompt, true, false, ctx);
+      if (event.messageType === "user") preparePrompt(event.prompt, true, false, ctx);
     });
   pi.on("agent_settled", () => {
     preparedInput = undefined;
@@ -223,44 +187,30 @@ export function registerSocratesControls<T extends SocratesState>(
     const internal = commandPrompt;
     commandPrompt = undefined;
     const content = event.message.content;
-    const text =
-      typeof content === "string"
-        ? content
-        : content.find((part) => part.type === "text")?.text;
-    if (binding === undefined && internal !== undefined && internal === text)
-      return;
+    const text = typeof content === "string" ? content : content.find((part) => part.type === "text")?.text;
+    if (!binding && internal !== undefined && internal === text) return;
     try {
       const record = scope.snapshot?.(ctx);
       if (
-        binding !== undefined &&
+        binding &&
         (record === undefined ||
           binding.owner !== scope.identity(record) ||
           binding.session !== ctx.sessionManager.getSessionId())
       )
-        throw new Error(
-          "The planning owner changed before operator input was delivered",
-        );
-      if (record !== undefined)
-        retainReviewInput(ctx, record, reviewInput.parse(event.message));
+        throw new Error("The planning owner changed before operator input was delivered");
+      if (record !== undefined) retainReviewInput(ctx, record, reviewInput.parse(event.message));
     } catch (error) {
       ctx.abort();
       throw error;
     }
   });
-  const checkCurrent = async (
-    record: T,
-    revision: string,
-    ctx: ExtensionContext,
-  ) => {
+  const checkCurrent = async (record: T, revision: string, ctx: ExtensionContext) => {
     try {
       await scope.check(record, revision);
     } catch (error) {
       if (error instanceof BeadChanged) {
         db.change(scope.identity(record), (row) => {
-          if (
-            row.revision === revision &&
-            row.specification?.acceptedRevision === revision
-          )
+          if (row.revision === revision && row.specification?.acceptedRevision === revision)
             row.specification = {
               ...row.specification,
               coverageRevision: undefined,
@@ -277,15 +227,14 @@ export function registerSocratesControls<T extends SocratesState>(
     signal?: AbortSignal,
   ) {
     const exchange = spec.exchange;
-    if (exchange === undefined || exchange.answer !== undefined)
-      throw new Error("There is no unanswered Socrates question");
+    if (!exchange || exchange.answer) throw new Error("There is no unanswered Socrates question");
     if (!ctx.hasUI) throw new Error("Open the Pi TUI to answer");
     const record = await requireBinding(ctx);
     await checkCurrent(record, spec.acceptedRevision, ctx);
     approvalPending(true);
     try {
       const answer = await ask(ctx, exchange.prompt, signal);
-      if (answer === undefined) return undefined;
+      if (!answer) return undefined;
       await requireBinding(ctx);
       await checkCurrent(record, spec.acceptedRevision, ctx);
       db.change(scope.identity(record), (row) => {
@@ -295,9 +244,7 @@ export function registerSocratesControls<T extends SocratesState>(
           !isDeepStrictEqual(row.leadPlan.draft, record.leadPlan?.draft) ||
           !isDeepStrictEqual(row.specification, spec)
         )
-          throw new Error(
-            "This Socrates question changed before the answer was saved",
-          );
+          throw new Error("This Socrates question changed before the answer was saved");
         row.specification = { ...spec, exchange: { ...exchange, answer } };
       });
       presentation.refresh(ctx);
@@ -314,19 +261,14 @@ export function registerSocratesControls<T extends SocratesState>(
       "Ask one open Socrates decision from the saved draft. Use an empty options list for free text. A cancelled dialog leaves the question open until the operator invokes /socrates.",
     executionMode: "sequential",
     renderCall(_args, theme) {
-      return new Text(
-        theme.fg("toolTitle", theme.bold("Ask a question")),
-        0,
-        0,
-      );
+      return new Text(theme.fg("toolTitle", theme.bold("Ask a question")), 0, 0);
     },
     parameters: Type.Object({
       decisionId: Type.String(),
       question: Type.String(),
       context: Type.Optional(
         Type.String({
-          description:
-            "Optional question context, rendered as Markdown in the detail view",
+          description: "Optional question context, rendered as Markdown in the detail view",
         }),
       ),
       evidence: questionEvidenceParameter,
@@ -338,8 +280,7 @@ export function registerSocratesControls<T extends SocratesState>(
           }),
           details: Type.Optional(
             Type.String({
-              description:
-                "Longer Markdown explanation shown in the preview and detail view",
+              description: "Longer Markdown explanation shown in the preview and detail view",
             }),
           ),
           evidence: questionEvidenceParameter,
@@ -356,15 +297,10 @@ export function registerSocratesControls<T extends SocratesState>(
         spec?.status !== SpecStatus.Interrogating ||
         record.leadPlan?.mode !== LeadMode.Planning ||
         spec.acceptedRevision !== record.revision ||
-        spec.exchange !== undefined
+        spec.exchange
       )
-        throw new Error(
-          "Resolve the saved Socrates question before asking another",
-        );
-      if (
-        !coverageFresh(spec, record.revision) ||
-        !assessedSpecDraft.safeParse(spec.draft).success
-      )
+        throw new Error("Resolve the saved Socrates question before asking another");
+      if (!coverageFresh(spec, record.revision) || !assessedSpecDraft.safeParse(spec.draft).success)
         throw new Error(
           "Save current assessments before asking a new question. Review recent changes and update the affected properties.",
         );
@@ -377,9 +313,7 @@ export function registerSocratesControls<T extends SocratesState>(
             entry.disposition === DecisionDisposition.Open,
         )
       )
-        throw new Error(
-          "Save this exact question and its open decision in the draft first",
-        );
+        throw new Error("Save this exact question and its open decision in the draft first");
       await checkCurrent(record, spec.acceptedRevision, ctx);
       const pending = { ...spec, exchange: { prompt } };
       db.change(scope.identity(record), (row) => {
@@ -399,10 +333,9 @@ export function registerSocratesControls<T extends SocratesState>(
         content: [
           {
             type: "text",
-            text:
-              answer === undefined
-                ? "Question remains open. Wait for the operator to resume with /socrates."
-                : `Operator answer for ${prompt.decisionId}: ${answer.text}`,
+            text: !answer
+              ? "Question remains open. Wait for the operator to resume with /socrates."
+              : `Operator answer for ${prompt.decisionId}: ${answer.text}`,
           },
         ],
         details: { answer, decisionId: prompt.decisionId },
@@ -417,40 +350,32 @@ export function registerSocratesControls<T extends SocratesState>(
       await scope.select?.(_argument, ctx);
       const record = await requireBinding(ctx);
       const spec = record.specification;
-      if (spec !== undefined) presentation.open(ctx);
+      if (spec) presentation.open(ctx);
       if (spec?.status === SpecStatus.Interrogating) {
         await socratesGuidance();
-        if (record.revision !== spec.acceptedRevision)
-          throw new Error("Refresh the Socrates brief before resuming");
+        if (record.revision !== spec.acceptedRevision) throw new Error("Refresh the Socrates brief before resuming");
         await checkCurrent(record, spec.acceptedRevision, ctx);
-        if (spec.exchange !== undefined) {
-          if (
-            spec.exchange.answer !== undefined ||
-            (await showQuestion(ctx, spec)) !== undefined
-          )
-            pi.sendUserMessage(
-              "Resume Socrates discovery using the recorded operator answer.",
-            );
+        if (spec.exchange) {
+          if (spec.exchange.answer || (await showQuestion(ctx, spec)) !== undefined)
+            pi.sendUserMessage("Resume Socrates discovery using the recorded operator answer.");
           return;
         }
         if (
           spec.draft === null ||
           spec.draft.blockingQuestions.length > 0 ||
           !specDraft.safeParse(spec.draft).success ||
-          (scope.discovery === true
-            ? specificationGaps(spec, record.revision)
-            : propertyGaps(spec, record.revision)
-          ).length > 0
+          (scope.discovery === true ? specificationGaps(spec, record.revision) : propertyGaps(spec, record.revision))
+            .length > 0
         ) {
           pi.sendUserMessage(`Resume Socrates discovery for ${scope.subject}.`);
           return;
         }
       }
-      if (spec !== undefined) {
+      if (spec) {
         if (
           scope.discovery === true &&
           record.approved === undefined &&
-          record.handoff === undefined &&
+          !record.handoff &&
           spec.status === SpecStatus.Frozen &&
           propertyGaps(spec, record.revision).length > 0
         ) {
@@ -462,20 +387,13 @@ export function registerSocratesControls<T extends SocratesState>(
         if (scope.discovery !== true) await viewSpecification(ctx);
         return;
       }
-      if (
-        record.revision === null ||
-        record.leadPlan?.mode !== LeadMode.Planning
-      )
+      if (record.revision === null || record.leadPlan?.mode !== LeadMode.Planning)
         throw new Error("Start Socrates before approving implementation");
       await socratesGuidance();
       const acceptedRevision = record.revision;
       await checkCurrent(record, acceptedRevision, ctx);
       db.change(scope.identity(record), (row) => {
-        if (
-          row.specification !== undefined ||
-          row.leadPlan?.mode !== LeadMode.Planning ||
-          row.revision !== acceptedRevision
-        )
+        if (row.specification || row.leadPlan?.mode !== LeadMode.Planning || row.revision !== acceptedRevision)
           throw new Error("The planning session changed");
         row.specification = {
           status: SpecStatus.Interrogating,
@@ -483,13 +401,10 @@ export function registerSocratesControls<T extends SocratesState>(
           draft: null,
           acceptedRevision,
         };
-        if (scope.discovery !== true)
-          row.leadPlan = { ...row.leadPlan, draft: null };
+        if (scope.discovery !== true) row.leadPlan = { ...row.leadPlan, draft: null };
       });
       presentation.open(ctx);
-      pi.sendUserMessage(
-        `Begin Socrates discovery for ${scope.subject} using the shared procedure.`,
-      );
+      pi.sendUserMessage(`Begin Socrates discovery for ${scope.subject} using the shared procedure.`);
     },
   });
   pi.registerTool({
@@ -523,15 +438,10 @@ export function registerSocratesControls<T extends SocratesState>(
             decision: Type.String(),
             disposition: Type.Enum(DecisionDisposition),
             uncertainty: Type.String({
-              description:
-                "Remaining uncertainty, consequence, and check, or None",
+              description: "Remaining uncertainty, consequence, and check, or None",
             }),
             supersedes: Type.Optional(Type.String()),
-            basis: Type.Union([
-              Type.Literal("observed"),
-              Type.Literal("decided"),
-              Type.Literal("assumed"),
-            ]),
+            basis: Type.Union([Type.Literal("observed"), Type.Literal("decided"), Type.Literal("assumed")]),
             evidence: Type.String(),
           }),
         ),
@@ -540,19 +450,11 @@ export function registerSocratesControls<T extends SocratesState>(
       deliveryPolicy: deliveryPolicyParameter,
       coverage: Type.Object(
         {
-          domains: Type.Optional(
-            Type.Array(
-              Type.Union(coverageDomains.map((domain) => Type.Literal(domain))),
-            ),
-          ),
+          domains: Type.Optional(Type.Array(Type.Union(coverageDomains.map((domain) => Type.Literal(domain))))),
           assessments: Type.Array(
             Type.Object({
-              propertyId: Type.Union(
-                coveragePropertyIds.map((property) => Type.Literal(property)),
-              ),
-              status: Type.Union(
-                coverageStatuses.map((status) => Type.Literal(status)),
-              ),
+              propertyId: Type.Union(coveragePropertyIds.map((property) => Type.Literal(property))),
+              status: Type.Union(coverageStatuses.map((status) => Type.Literal(status))),
               reason: Type.String({
                 description:
                   "Evidence or concrete rationale for every assessed property. For partial, name what holds and what is missing. Reference requirements, decisions, or sources where relevant.",
@@ -560,11 +462,7 @@ export function registerSocratesControls<T extends SocratesState>(
             }),
             { maxItems: coveragePropertyIds.length },
           ),
-          focus: Type.Optional(
-            Type.Union(
-              coveragePropertyIds.map((property) => Type.Literal(property)),
-            ),
-          ),
+          focus: Type.Optional(Type.Union(coveragePropertyIds.map((property) => Type.Literal(property)))),
         },
         {
           description:
@@ -575,48 +473,30 @@ export function registerSocratesControls<T extends SocratesState>(
     async execute(_call, params, _signal, _update, ctx) {
       const record = await requireBinding(ctx);
       const { expectedRevision, ...candidate } = params;
-      if (record.revision === null)
-        throw new Error("The accepted revision is missing");
+      if (record.revision === null) throw new Error("The accepted revision is missing");
       await checkCurrent(record, record.revision, ctx);
       db.change(scope.identity(record), (row) => {
         const specification = row.specification;
         if (
-          specification === undefined ||
-          (specification.status === SpecStatus.Frozen &&
-            scope.discovery !== true) ||
+          !specification ||
+          (specification.status === SpecStatus.Frozen && scope.discovery !== true) ||
           row.approved !== undefined ||
-          row.handoff !== undefined ||
+          row.handoff ||
           specification.acceptedRevision !== row.revision ||
           record.revision !== row.revision ||
           row.leadPlan?.mode !== LeadMode.Planning
         )
           throw new Error("Start or refresh Socrates before drafting");
-        if (
-          specification.exchange !== undefined &&
-          specification.exchange.answer === undefined
-        )
-          throw new Error(
-            "Resume /socrates to resolve the open question before replacing the draft",
-          );
+        if (specification.exchange && !specification.exchange.answer)
+          throw new Error("Resume /socrates to resolve the open question before replacing the draft");
         if (
           !isDeepStrictEqual(record.specification, specification) ||
           !isDeepStrictEqual(record.leadPlan?.draft, row.leadPlan.draft)
         )
-          throw new Error(
-            "The specification or work breakdown changed. Reassess the current draft before saving.",
-          );
+          throw new Error("The specification or work breakdown changed. Reassess the current draft before saving.");
         checkReview?.(row, ctx);
-        documents?.assertAgent(
-          DocumentKind.Specification,
-          { ...row, id: scope.identity(row) },
-          ctx,
-          expectedRevision,
-        );
-        const draft = applyDraftUpdate(
-          specification,
-          specification.acceptedRevision,
-          candidate,
-        );
+        documents?.assertAgent(DocumentKind.Specification, { ...row, id: scope.identity(row) }, ctx, expectedRevision);
+        const draft = applyDraftUpdate(specification, specification.acceptedRevision, candidate);
         preserveDecisions(specification.draft, draft);
         const next = {
           ...specification,
@@ -626,18 +506,12 @@ export function registerSocratesControls<T extends SocratesState>(
         };
         if (specification.status === SpecStatus.Frozen) {
           // The freeze protects the brief, requirements, decisions, delivery policy and applicable domains.
-          const previousDomains =
-            draftCoverage(specification.draft)?.domains ?? [];
+          const previousDomains = draftCoverage(specification.draft)?.domains ?? [];
           if (
             specificationToken(next) !== specificationToken(specification) ||
-            !isDeepStrictEqual(
-              new Set(draft.coverage.domains),
-              new Set(previousDomains),
-            )
+            !isDeepStrictEqual(new Set(draft.coverage.domains), new Set(previousDomains))
           )
-            throw new Error(
-              "Use /spec-reopen to change the frozen specification or its property domains",
-            );
+            throw new Error("Use /spec-reopen to change the frozen specification or its property domains");
         }
         row.specification = {
           ...next,
@@ -648,20 +522,15 @@ export function registerSocratesControls<T extends SocratesState>(
       presentation.refresh(ctx);
       const saved = db.get(id);
       const spec = saved.specification;
-      const gaps =
-        spec === undefined
-          ? []
-          : scope.discovery === true
-            ? specificationGaps(spec, saved.revision)
-            : propertyGaps(spec, saved.revision);
+      const gaps = !spec
+        ? []
+        : scope.discovery === true
+          ? specificationGaps(spec, saved.revision)
+          : propertyGaps(spec, saved.revision);
       const [firstGap] = gaps;
       let message: string;
-      if (
-        scope.discovery !== true &&
-        (spec?.draft?.blockingQuestions.length ?? 0) > 0
-      )
-        message =
-          "Draft saved. Resolve the blocking questions with the operator.";
+      if (scope.discovery !== true && (spec?.draft?.blockingQuestions.length ?? 0) > 0)
+        message = "Draft saved. Resolve the blocking questions with the operator.";
       else if (firstGap !== undefined)
         message =
           spec?.status === SpecStatus.Frozen
@@ -690,35 +559,21 @@ export function registerSocratesControls<T extends SocratesState>(
       const spec = record.specification;
       if (spec?.status === SpecStatus.Interrogating) {
         const gaps =
-          scope.discovery === true
-            ? specificationGaps(spec, record.revision)
-            : propertyGaps(spec, record.revision);
-        if (gaps.length > 0)
-          throw new Error(
-            `Continue /socrates before freezing: ${gaps.join(", ")}`,
-          );
+          scope.discovery === true ? specificationGaps(spec, record.revision) : propertyGaps(spec, record.revision);
+        if (gaps.length > 0) throw new Error(`Continue /socrates before freezing: ${gaps.join(", ")}`);
       }
       if (
         spec?.status !== SpecStatus.Interrogating ||
         spec.draft === null ||
         spec.draft.blockingQuestions.length > 0 ||
-        spec.exchange !== undefined ||
+        spec.exchange ||
         !specDraft.safeParse(spec.draft).success ||
         record.revision !== spec.acceptedRevision
       )
-        throw new Error(
-          `Resolve the blocking questions and draft against ${scope.subject}`,
-        );
+        throw new Error(`Resolve the blocking questions and draft against ${scope.subject}`);
       approvalPending(true);
       try {
-        if (
-          !(await reviewPlan(
-            ctx,
-            `Freeze specification for ${scope.label(record)}`,
-            specText(spec),
-            "freeze spec",
-          ))
-        )
+        if (!(await reviewPlan(ctx, `Freeze specification for ${scope.label(record)}`, specText(spec), "freeze spec")))
           return;
         await checkCurrent(record, spec.acceptedRevision, ctx);
         db.change(scope.identity(record), (row) => {
@@ -749,34 +604,26 @@ export function registerSocratesControls<T extends SocratesState>(
   return { ...presentation, checkReview };
 }
 
-async function ask(
-  ctx: ExtensionContext,
-  prompt: SpecQuestion,
-  signal?: AbortSignal,
-) {
+async function ask(ctx: ExtensionContext, prompt: SpecQuestion, signal?: AbortSignal) {
   const aborted = () => signal?.aborted === true;
-  const options = signal === undefined ? undefined : { signal };
+  const options = !signal ? undefined : { signal };
   if (aborted()) return undefined;
   if (prompt.options.length > 0) {
     const selected = await chooseQuestion(ctx, prompt, signal);
-    if (selected === undefined || aborted()) return undefined;
+    if (!selected || aborted()) return undefined;
     if (selected.kind === QuestionSelectionKind.Choice) {
       const choice = prompt.options[selected.index];
-      if (choice === undefined)
-        throw new Error("Pi returned an unknown choice");
+      if (!choice) throw new Error("Pi returned an unknown choice");
       return { kind: "option" as const, text: choice.label };
     }
   }
   const title = [
     questionLinks(prompt.question),
     ...(prompt.context === undefined ? [] : [questionLinks(prompt.context)]),
-    ...(prompt.evidence ?? []).map((item) =>
-      renderQuestionEvidence(item, ctx.cwd),
-    ),
+    ...(prompt.evidence ?? []).map((item) => renderQuestionEvidence(item, ctx.cwd)),
   ].join("\n\n");
   const text = (await ctx.ui.input(title, undefined, options))?.trim();
   if (text === undefined || text.length === 0 || aborted()) return undefined;
-  if (text.length > 2000)
-    throw new Error("Use at most 2000 characters in a Socrates answer");
+  if (text.length > 2000) throw new Error("Use at most 2000 characters in a Socrates answer");
   return { kind: "custom" as const, text };
 }

@@ -13,10 +13,7 @@ import type { CodingOperation } from "./policy.ts";
 type RendererHost = Pick<ExtensionAPI, "registerToolRenderer">;
 const studioRenderers = new WeakMap<RendererHost, ToolRendererResolver[]>();
 
-export function registerCodingRenderer(
-  pi: RendererHost,
-  renderer: ToolRendererResolver,
-) {
+export function registerCodingRenderer(pi: RendererHost, renderer: ToolRendererResolver) {
   pi.registerToolRenderer(renderer);
   const existing = studioRenderers.get(pi) ?? [];
   existing.push(renderer);
@@ -57,19 +54,13 @@ export function modelToolRenderers(
   const native = nativeRenderers[operation]();
   const base: ToolRenderers = native;
   const chain = studioRenderers.get(pi) ?? [];
-  const renderer = chain.reduceRight<ToolRenderers>(
-    (next, resolve) => resolve(native.name, () => next) ?? next,
-    base,
-  );
-  if (display?.compose !== undefined)
-    return display.compose(renderer, tool.name);
+  const renderer = chain.reduceRight<ToolRenderers>((next, resolve) => resolve(native.name, () => next) ?? next, base);
+  if (display?.compose) return display.compose(renderer, tool.name);
   const call = renderer.renderCall;
   const result = renderer.renderResult;
   return {
-    ...(renderer.renderShell === undefined
-      ? {}
-      : { renderShell: renderer.renderShell }),
-    ...(call === undefined
+    ...(renderer.renderShell === undefined ? {} : { renderShell: renderer.renderShell }),
+    ...(!call
       ? {}
       : {
           renderCall(args, theme, ctx) {
@@ -81,7 +72,7 @@ export function modelToolRenderers(
             });
           },
         }),
-    ...(result === undefined
+    ...(!result
       ? {}
       : {
           renderResult(outcome, options, theme, ctx) {
@@ -89,7 +80,7 @@ export function modelToolRenderers(
             const [first] = outcome.content;
             const formatText = display?.resultText;
             const displayResult =
-              formatText !== undefined &&
+              formatText &&
               !ctx.isError &&
               outcome.isError !== true &&
               outcome.content.length === 1 &&
@@ -110,9 +101,7 @@ export function modelToolRenderers(
               // The shell header shows Pi's translated command. Its usage
               // estimate needs the arguments the model actually sent.
               args:
-                operation === "shell" &&
-                mapped !== null &&
-                typeof mapped === "object"
+                operation === "shell" && mapped !== null && typeof mapped === "object"
                   ? { ...mapped, invocationArgs }
                   : mapped,
               displayToolName: tool.name,

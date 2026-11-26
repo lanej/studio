@@ -22,10 +22,7 @@ import {
   specificationGaps,
   type DeliveryPolicy,
 } from "../socrates/spec.ts";
-import {
-  pendingCoverageReview,
-  specificationToken,
-} from "../socrates/assessment.ts";
+import { pendingCoverageReview, specificationToken } from "../socrates/assessment.ts";
 import {
   commitOperation,
   initializeOperationWitnesses,
@@ -55,9 +52,7 @@ export const discoverySchema = z.object({
       revision: z.string(),
       phase: z.enum(HandoffPhase),
       workers: planWorkersSchema.optional(),
-      owner: z
-        .object({ pid: z.number().int().positive(), started: z.string() })
-        .optional(),
+      owner: z.object({ pid: z.number().int().positive(), started: z.string() }).optional(),
       target: runtimeProjectSchema
         .extend({ id: z.uuid() })
         .refine(
@@ -72,14 +67,10 @@ export const discoverySchema = z.object({
 export type Discovery = z.infer<typeof discoverySchema>;
 
 /** Resolve each proposed bead against the same publication decision shown at freeze. */
-export function applyDeliveryPolicy(
-  draft: LeadDraft,
-  policy: DeliveryPolicy,
-): LeadDraft {
+export function applyDeliveryPolicy(draft: LeadDraft, policy: DeliveryPolicy): LeadDraft {
   const tasks = draft.tasks.map((task) => {
     const publishes =
-      policy.pullRequests === "per-bead" ||
-      (policy.pullRequests === "selected" && policy.publish.includes(task.key));
+      policy.pullRequests === "per-bead" || (policy.pullRequests === "selected" && policy.publish.includes(task.key));
     const delivery = publishes ? TaskDelivery.PullRequest : TaskDelivery.Local;
     if (task.delivery !== undefined && task.delivery !== delivery)
       throw new Error(
@@ -88,13 +79,8 @@ export function applyDeliveryPolicy(
     return { ...task, delivery };
   });
   const { pullRequestMerge: previousMerge, ...proposal } = draft;
-  if (
-    previousMerge !== undefined &&
-    (policy.pullRequests === "none" || previousMerge !== policy.merge)
-  )
-    throw new Error(
-      "The proposed merge rule conflicts with the Socrates delivery decision",
-    );
+  if (previousMerge !== undefined && (policy.pullRequests === "none" || previousMerge !== policy.merge))
+    throw new Error("The proposed merge rule conflicts with the Socrates delivery decision");
   return policy.pullRequests === "none"
     ? { ...proposal, tasks }
     : { ...proposal, tasks, pullRequestMerge: policy.merge };
@@ -102,49 +88,27 @@ export function applyDeliveryPolicy(
 
 /** Persist a proposal against its current specification without certifying the old assessment. */
 export function saveDiscoveryPlan(
-  row: Pick<
-    Discovery,
-    "specification" | "leadPlan" | "planSpecificationRevision"
-  >,
+  row: Pick<Discovery, "specification" | "leadPlan" | "planSpecificationRevision">,
   proposal: LeadDraft,
   linkSpecification = true,
 ): void {
-  const existing = new Map(
-    row.leadPlan.draft?.tasks.map((task) => [task.key, task]),
-  );
+  const existing = new Map(row.leadPlan.draft?.tasks.map((task) => [task.key, task]));
   const unassigned = proposal.tasks.find((task) => {
     const previous = existing.get(task.key);
-    return (
-      task.assignment === undefined &&
-      (previous === undefined || previous.assignment !== undefined)
-    );
+    return task.assignment === undefined && (previous === undefined || previous.assignment !== undefined);
   });
-  if (unassigned !== undefined)
-    throw new Error(
-      `Specify worker capability and reasoning for task ${unassigned.key}`,
-    );
+  if (unassigned) throw new Error(`Specify worker capability and reasoning for task ${unassigned.key}`);
 
   const spec = row.specification;
-  if (spec !== undefined) {
+  if (spec) {
     const requirements = spec.draft?.requirements.map(({ id }) => id) ?? [];
-    if (
-      proposal.tasks.some((task) =>
-        task.requirements.some((id) => !requirements.includes(id)),
-      )
-    )
-      throw new Error(
-        "Link proposed tasks only to requirements in the current specification",
-      );
-    if (linkSpecification)
-      row.planSpecificationRevision = specificationToken(spec);
+    if (proposal.tasks.some((task) => task.requirements.some((id) => !requirements.includes(id))))
+      throw new Error("Link proposed tasks only to requirements in the current specification");
+    if (linkSpecification) row.planSpecificationRevision = specificationToken(spec);
   }
   const policy = draftDeliveryPolicy(spec?.draft ?? null);
-  const draft =
-    policy === undefined ? proposal : applyDeliveryPolicy(proposal, policy);
-  if (
-    spec?.coverageRevision !== undefined &&
-    !isDeepStrictEqual(draft, row.leadPlan.draft)
-  )
+  const draft = !policy ? proposal : applyDeliveryPolicy(proposal, policy);
+  if (spec?.coverageRevision !== undefined && !isDeepStrictEqual(draft, row.leadPlan.draft))
     spec.pendingReview = pendingCoverageReview(spec, "plan");
   row.leadPlan = { ...row.leadPlan, mode: LeadMode.Planning, draft };
 }
@@ -152,65 +116,38 @@ export function saveDiscoveryPlan(
 /** A proposal is editable throughout discovery. Only this reviewed form may reach the runtime. */
 export function handoffDraft(record: Discovery): LeadDraft {
   const draft = record.leadPlan.draft;
-  if (draft === null || draft.tasks.length === 0)
-    throw new Error("Draft at least one executable task first");
+  if (draft === null || draft.tasks.length === 0) throw new Error("Draft at least one executable task first");
   const retained = record.handoff;
-  if (retained !== undefined) {
-    if (
-      retained.digest !== planDigest(draft) ||
-      retained.revision !== record.revision
-    )
-      throw new Error(
-        "Reconcile the original handoff with its recorded draft and revision",
-      );
+  if (retained) {
+    if (retained.digest !== planDigest(draft) || retained.revision !== record.revision)
+      throw new Error("Reconcile the original handoff with its recorded draft and revision");
     return draft;
   }
   const spec = record.specification;
-  if (
-    spec?.status !== SpecStatus.Frozen ||
-    spec.approvalAt === undefined ||
-    spec.draft === null
-  )
+  if (spec?.status !== SpecStatus.Frozen || spec.approvalAt === undefined || spec.draft === null)
     throw new Error(
       "Start /socrates and freeze the reviewed specification with /spec-freeze before handing work to the runtime",
     );
   const gaps = specificationGaps(spec, record.revision);
   if (gaps.length > 0) throw new Error(gaps.join("\n"));
   if (record.planSpecificationRevision !== specificationToken(spec))
-    throw new Error(
-      "Update the work breakdown against the current frozen specification before approval",
-    );
+    throw new Error("Update the work breakdown against the current frozen specification before approval");
   const policy = draftDeliveryPolicy(spec.draft);
-  if (
-    policy === undefined ||
-    !isDeepStrictEqual(draft, applyDeliveryPolicy(draft, policy))
-  )
-    throw new Error(
-      "Update the proposed beads to match the settled delivery policy",
-    );
+  if (!policy || !isDeepStrictEqual(draft, applyDeliveryPolicy(draft, policy)))
+    throw new Error("Update the proposed beads to match the settled delivery policy");
   if (policy.pullRequests === "selected") {
-    const missing = policy.publish.filter(
-      (key) => !draft.tasks.some((task) => task.key === key),
-    );
+    const missing = policy.publish.filter((key) => !draft.tasks.some((task) => task.key === key));
     if (missing.length > 0)
-      throw new Error(
-        `The delivery decision names missing publishing beads: ${missing.join(", ")}`,
-      );
+      throw new Error(`The delivery decision names missing publishing beads: ${missing.join(", ")}`);
   }
   const requirements = spec.draft.requirements.map(({ id }) => id);
   if (
     draft.tasks.some(
-      (task) =>
-        task.requirements.length === 0 ||
-        task.requirements.some((id) => !requirements.includes(id)),
+      (task) => task.requirements.length === 0 || task.requirements.some((id) => !requirements.includes(id)),
     ) ||
-    requirements.some(
-      (id) => !draft.tasks.some((task) => task.requirements.includes(id)),
-    )
+    requirements.some((id) => !draft.tasks.some((task) => task.requirements.includes(id)))
   )
-    throw new Error(
-      "Cover every frozen requirement and link each task to known requirement IDs",
-    );
+    throw new Error("Cover every frozen requirement and link each task to known requirement IDs");
   return draft;
 }
 
@@ -235,8 +172,7 @@ export class Discoveries {
     recoverPending = false,
     workers?: PlanWorkers,
   ): Discovery {
-    if (expected.leadPlan.draft === null)
-      throw new Error("No displayed draft to approve");
+    if (expected.leadPlan.draft === null) throw new Error("No displayed draft to approve");
     const digest = planDigest(expected.leadPlan.draft);
     return this.change(
       expected.id,
@@ -248,13 +184,11 @@ export class Discoveries {
           row.leadPlan.draft === null ||
           planDigest(row.leadPlan.draft) !== digest
         )
-          throw new Error(
-            "The displayed draft changed before approval; review it again",
-          );
+          throw new Error("The displayed draft changed before approval; review it again");
         handoffDraft(row);
         const retained = row.handoff;
         if (
-          retained !== undefined &&
+          retained &&
           (!isDeepStrictEqual(retained.target, target) ||
             !isDeepStrictEqual(retained.workers, workers) ||
             retained.digest !== digest ||
@@ -265,18 +199,11 @@ export class Discoveries {
           );
         if (
           retained?.phase === HandoffPhase.Pending &&
-          (!recoverPending ||
-            owner === undefined ||
-            !isDeepStrictEqual(retained, expected.handoff))
+          (!recoverPending || !owner || !isDeepStrictEqual(retained, expected.handoff))
         )
-          throw new Error(
-            "This exact handoff is already in progress; inspect its outcome before retrying",
-          );
+          throw new Error("This exact handoff is already in progress; inspect its outcome before retrying");
         row.handoff = {
-          operation:
-            retained !== undefined && retained.phase !== HandoffPhase.Complete
-              ? retained.operation
-              : randomUUID(),
+          operation: retained && retained.phase !== HandoffPhase.Complete ? retained.operation : randomUUID(),
           digest,
           revision: row.revision,
           target,
@@ -293,21 +220,17 @@ export class Discoveries {
   }
   list(project: string): Discovery[] {
     return this.db
-      .query(
-        "SELECT record FROM discoveries WHERE project=? ORDER BY rowid DESC",
-      )
+      .query("SELECT record FROM discoveries WHERE project=? ORDER BY rowid DESC")
       .all(realpathSync(project))
       .map(decode);
   }
   find(id: string): Discovery | undefined {
-    const row = this.db
-      .query("SELECT record FROM discoveries WHERE id=?")
-      .get(id);
+    const row = this.db.query("SELECT record FROM discoveries WHERE id=?").get(id);
     return row === null ? undefined : decode(row);
   }
   get(id: string): Discovery {
     const record = this.find(id);
-    if (record === undefined) throw new Error(`Unknown discovery: ${id}`);
+    if (!record) throw new Error(`Unknown discovery: ${id}`);
     return record;
   }
   create(project: string, conversation: string, title: string): Discovery {
@@ -320,16 +243,10 @@ export class Discoveries {
       history: [],
       leadPlan: { mode: LeadMode.Planning, draft: null },
     };
-    this.db
-      .query("INSERT INTO discoveries VALUES (?,?,?)")
-      .run(record.id, record.project, JSON.stringify(record));
+    this.db.query("INSERT INTO discoveries VALUES (?,?,?)").run(record.id, record.project, JSON.stringify(record));
     return record;
   }
-  change(
-    id: string,
-    update: (record: Discovery) => void,
-    handoff = false,
-  ): Discovery {
+  change(id: string, update: (record: Discovery) => void, handoff = false): Discovery {
     return transaction(this.db, () => this.update(id, update, handoff));
   }
   changeWithWitness(
@@ -339,34 +256,19 @@ export class Discoveries {
     update: (record: Discovery) => void,
     result: (record: Discovery) => string,
   ): OperationWitness {
-    return commitOperation(this.db, id, operationId, command, () =>
-      result(this.update(id, update)),
-    );
+    return commitOperation(this.db, id, operationId, command, () => result(this.update(id, update)));
   }
-  private update(
-    id: string,
-    update: (record: Discovery) => void,
-    handoff = false,
-  ): Discovery {
+  private update(id: string, update: (record: Discovery) => void, handoff = false): Discovery {
     const record = this.get(id);
-    if (
-      !handoff &&
-      record.handoff !== undefined &&
-      record.handoff.phase !== HandoffPhase.Complete
-    )
-      throw new Error(
-        "The approved handoff is pending or uncertain; reconcile it before editing this discovery",
-      );
+    if (!handoff && record.handoff && record.handoff.phase !== HandoffPhase.Complete)
+      throw new Error("The approved handoff is pending or uncertain; reconcile it before editing this discovery");
     update(record);
     const checked = discoverySchema.parse(record);
-    this.db
-      .query("UPDATE discoveries SET record=? WHERE id=?")
-      .run(JSON.stringify(checked), id);
+    this.db.query("UPDATE discoveries SET record=? WHERE id=?").run(JSON.stringify(checked), id);
     return checked;
   }
 }
+
 function decode(value: unknown): Discovery {
-  return discoverySchema.parse(
-    JSON.parse(z.object({ record: z.string() }).parse(value).record),
-  );
+  return discoverySchema.parse(JSON.parse(z.object({ record: z.string() }).parse(value).record));
 }

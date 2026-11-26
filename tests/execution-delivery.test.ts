@@ -7,11 +7,7 @@ import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { resumeReviewedAssignment } from "../execution/worker.ts";
-import {
-  deliverAssignment,
-  type DeliveryDependencies,
-  type OctoCall,
-} from "../execution/delivery.ts";
+import { deliverAssignment, type DeliveryDependencies, type OctoCall } from "../execution/delivery.ts";
 import {
   type Execution,
   ExecutionStore,
@@ -145,11 +141,7 @@ async function fixture() {
   });
   const call: OctoCall = async (cwd, ...args) => {
     await Promise.resolve(); // Preserve the real CLI boundary between intents and receipts.
-    assert.equal(
-      cwd,
-      project.root,
-      "Octo must run from trusted source, never mutable checkout",
-    );
+    assert.equal(cwd, project.root, "Octo must run from trusted source, never mutable checkout");
     calls.push(args);
     const command = args.slice(0, 2).join(" ");
     if (command === "agent register")
@@ -173,8 +165,7 @@ async function fixture() {
       }
       return { id: publicationId, state: "pending" };
     }
-    if (command === "publication show")
-      return { id: publicationId, state: "published", url, tracking: "active" };
+    if (command === "publication show") return { id: publicationId, state: "published", url, tracking: "active" };
     if (command === "pr show")
       return {
         pr: {
@@ -194,10 +185,7 @@ async function fixture() {
       return { enabled: false };
     }
     if (command === "agent inbox") {
-      assert.ok(
-        args.includes("--include-acknowledged"),
-        "Restart must recover between read receipt and assessment",
-      );
+      assert.ok(args.includes("--include-acknowledged"), "Restart must recover between read receipt and assessment");
       const after = Number(args[args.indexOf("--after") + 1]);
       if (after === 0)
         return {
@@ -256,8 +244,7 @@ async function fixture() {
       assert.ok(args.includes("--full"));
       return { action: action() };
     }
-    if (command === "action ack")
-      return { action: { ...action(), state: "acknowledged" } };
+    if (command === "action ack") return { action: { ...action(), state: "acknowledged" } };
     if (command === "pr ready") {
       ready = true;
       return { state: "waiting_checks" };
@@ -268,15 +255,8 @@ async function fixture() {
         operations: [{ entryId, kind: "merge", state: "running" }],
       };
     if (args[0] === "merge") {
-      assert.equal(
-        args[1],
-        readyId,
-        "Pi merges use native inbox receipt identity",
-      );
-      assert.equal(
-        args[args.indexOf("--expected-head") + 1],
-        store.attempt(id).head,
-      );
+      assert.equal(args[1], readyId, "Pi merges use native inbox receipt identity");
+      assert.equal(args[args.indexOf("--expected-head") + 1], store.attempt(id).head);
       assert.equal(store.attempt(id).review, "Independent exact-head approval");
       const attempt = store.attempt(id);
       if (attempt.bead?.metadata["studio.pullRequestMerge"] === "manual") {
@@ -315,25 +295,18 @@ async function fixture() {
       assert.equal(root, project.root);
       gitCalls.push(args);
       return Promise.resolve(
-        args[0] === "remote"
-          ? "git@github.com:fixture/studio.git\n"
-          : args[0] === "rev-parse"
-            ? mergedHead
-            : "",
+        args[0] === "remote" ? "git@github.com:fixture/studio.git\n" : args[0] === "rev-parse" ? mergedHead : "",
       );
     },
     safeGit: (root, cwd, args) => {
       assert.equal(root, project.root);
       assert.equal(cwd, initial.checkout?.path);
       gitCalls.push(args);
-      return Promise.resolve(
-        args.includes("--name-only") ? "accepted.txt\0" : "",
-      );
+      return Promise.resolve(args.includes("--name-only") ? "accepted.txt\0" : "");
     },
     mergePolicy: () => Promise.resolve({ enabled }),
     requireManualMergeAuthority: () => {
-      if (!manualAuthority)
-        throw new Error("Manual merge project authority disabled");
+      if (!manualAuthority) throw new Error("Manual merge project authority disabled");
       return Promise.resolve();
     },
     wait: () => {
@@ -468,29 +441,18 @@ await test("unattended delivery corrects acknowledged feedback once, independent
   try {
     f.configure({ finding: true });
     await f.run();
-    assert.equal(
-      f.corrections,
-      1,
-      "A duplicate notice/ACK state cannot repeat the same assessment",
-    );
+    assert.equal(f.corrections, 1, "A duplicate notice/ACK state cannot repeat the same assessment");
     assert.equal(f.calls.filter((call) => call[0] === "merge").length, 1);
     assert.equal(
-      f.calls.filter((call) => call[0] === "read" && call[1] === f.otherId)
-        .length,
+      f.calls.filter((call) => call[0] === "read" && call[1] === f.otherId).length,
       0,
       "Other PR delivery must not be consumed",
     );
     assert.equal(f.store.attempt(f.initial.id).merged, mergedHead);
-    const evidenceFiles = await readdir(
-      join(f.directory, "delivery", f.initial.id),
-    );
+    const evidenceFiles = await readdir(join(f.directory, "delivery", f.initial.id));
     assert.ok(evidenceFiles.some((file) => /^[a-f0-9]{64}\.json$/u.test(file)));
-    const ack = f.calls.findIndex(
-      (call) => call[0] === "action" && call[1] === "ack",
-    );
-    const correctionPush = f.gitCalls.findIndex(
-      (call) => call[0] === "push" && call[2]?.startsWith(nextHead) === true,
-    );
+    const ack = f.calls.findIndex((call) => call[0] === "action" && call[1] === "ack");
+    const correctionPush = f.gitCalls.findIndex((call) => call[0] === "push" && call[2]?.startsWith(nextHead) === true);
     assert.ok(ack > 0 && correctionPush > 0);
   } finally {
     await f.close();
@@ -513,27 +475,17 @@ await test("a manual plan publishes and processes readiness but never sends or r
       }
       f.configure({ planMerge: "manual", merge: true, maxWaits: 4 });
       await assert.rejects(f.run(), /Delivery interrupted/u);
-      assert.ok(
-        f.calls.some((call) => call[0] === "pr" && call[1] === "publish"),
-      );
+      assert.ok(f.calls.some((call) => call[0] === "pr" && call[1] === "publish"));
       if (!replay) {
-        assert.ok(
-          f.calls.some((call) => call[0] === "pr" && call[1] === "ready"),
-        );
-        assert.equal(
-          f.store.attempt(f.initial.id).readyNotice?.head,
-          firstHead,
-        );
+        assert.ok(f.calls.some((call) => call[0] === "pr" && call[1] === "ready"));
+        assert.equal(f.store.attempt(f.initial.id).readyNotice?.head, firstHead);
       }
       assert.equal(
         f.calls.some((call) => call[0] === "merge"),
         false,
       );
       assert.equal(f.store.attempt(f.initial.id).merged, undefined);
-      assert.equal(
-        f.store.attempt(f.initial.id).phase,
-        ExecutionPhase.Delivery,
-      );
+      assert.equal(f.store.attempt(f.initial.id).phase, ExecutionPhase.Delivery);
     } finally {
       await f.close();
     }
@@ -543,16 +495,8 @@ await test("a manual plan publishes and processes readiness but never sends or r
 // The CLI's guarded write and remote ownership checks are exercised by the command tests.
 function consentToReady(row: Execution): void {
   const target = row.readyNotice;
-  assert.ok(
-    target !== undefined && row.pr !== undefined && row.agent !== undefined,
-  );
-  assert.match(
-    row.message,
-    new RegExp(
-      `studio runtime approve-merge ${row.id} --head ${target.head}`,
-      "u",
-    ),
-  );
+  assert.ok(target !== undefined && row.pr !== undefined && row.agent !== undefined);
+  assert.match(row.message, new RegExp(`studio runtime approve-merge ${row.id} --head ${target.head}`, "u"));
   row.manualMergeApproval = {
     head: target.head,
     notice: target.id,
@@ -572,18 +516,11 @@ await test("one manual approval can merge with automatic merging off and survive
       lostQueuedMerge: true,
       onWait() {
         const row = f.store.attempt(f.initial.id);
-        if (
-          row.readyNotice !== undefined &&
-          row.manualMergeApproval === undefined
-        )
-          f.store.change(row.id, consentToReady);
+        if (row.readyNotice && !row.manualMergeApproval) f.store.change(row.id, consentToReady);
       },
     });
     await assert.rejects(f.run(), /Queued merge response lost/u);
-    assert.match(
-      f.store.attempt(f.initial.id).mergeReceipt ?? "",
-      /requested/u,
-    );
+    assert.match(f.store.attempt(f.initial.id).mergeReceipt ?? "", /requested/u);
     f.configure({ manualAuthority: false });
     await assert.rejects(f.run(), /Manual merge project authority disabled/u);
     assert.equal(f.calls.filter((call) => call[0] === "merge").length, 1);
@@ -611,7 +548,7 @@ await test("manual approval does not carry over to a fresh corrected head or a r
         maxWaits: 8,
         onWait() {
           const row = f.store.attempt(f.initial.id);
-          if (row.readyNotice !== undefined && !approved) {
+          if (row.readyNotice && !approved) {
             f.store.change(row.id, consentToReady);
             approved = true;
             if (correction) f.configure({ finding: true });
@@ -623,10 +560,7 @@ await test("manual approval does not carry over to a fresh corrected head or a r
       assert.equal(row.manualMergeApproval, undefined);
       assert.equal(row.readyNotice?.head, correction ? nextHead : firstHead);
       assert.match(row.message, /studio runtime approve-merge/u);
-      assert.equal(
-        f.calls.filter((call) => call[0] === "merge").length,
-        correction ? 0 : 1,
-      );
+      assert.equal(f.calls.filter((call) => call[0] === "merge").length, correction ? 0 : 1);
       assert.equal(row.merged, undefined);
     } finally {
       await f.close();
@@ -652,21 +586,9 @@ await test("policy-off retains the reviewed PR, and unfinished checks never atte
       f.configure({ merge: false, pending, maxWaits: 3 });
       await assert.rejects(f.run(), /Delivery interrupted/u);
       assert.equal(f.calls.filter((call) => call[0] === "merge").length, 0);
-      assert.equal(
-        f.calls.filter((call) => call[0] === "action" && call[1] === "ack")
-          .length,
-        pending ? 0 : 1,
-      );
-      if (pending)
-        assert.equal(
-          f.calls.filter((call) => call[0] === "pr" && call[1] === "ready")
-            .length,
-          0,
-        );
-      assert.equal(
-        f.store.attempt(f.initial.id).phase,
-        ExecutionPhase.Delivery,
-      );
+      assert.equal(f.calls.filter((call) => call[0] === "action" && call[1] === "ack").length, pending ? 0 : 1);
+      if (pending) assert.equal(f.calls.filter((call) => call[0] === "pr" && call[1] === "ready").length, 0);
+      assert.equal(f.store.attempt(f.initial.id).phase, ExecutionPhase.Delivery);
     } finally {
       await f.close();
     }
@@ -678,12 +600,7 @@ await test("failed corrective assessment preserves full evidence without ACK, ow
   try {
     f.configure({ finding: true, failedCorrection: true });
     await assert.rejects(f.run(), /Unresolved accepted-scope feedback/u);
-    assert.equal(
-      f.calls.filter((call) =>
-        ["ack", "ready", "merge"].includes(call[1] ?? call[0] ?? ""),
-      ).length,
-      0,
-    );
+    assert.equal(f.calls.filter((call) => ["ack", "ready", "merge"].includes(call[1] ?? call[0] ?? "")).length, 0);
     assert.equal(f.store.attempt(f.initial.id).mergeReceipt, undefined);
   } finally {
     await f.close();
@@ -695,23 +612,10 @@ await test("a lost publication response replays its durable request and exact ca
   try {
     f.configure({ lostPublish: true });
     await assert.rejects(f.run(), /Publication response lost/u);
-    const input = await readFile(
-      join(f.directory, "delivery", f.initial.id, "publication.json"),
-      "utf8",
-    );
+    const input = await readFile(join(f.directory, "delivery", f.initial.id, "publication.json"), "utf8");
     await f.run();
-    assert.equal(
-      f.calls.filter((call) => call[0] === "pr" && call[1] === "publish")
-        .length,
-      2,
-    );
-    assert.equal(
-      await readFile(
-        join(f.directory, "delivery", f.initial.id, "publication.json"),
-        "utf8",
-      ),
-      input,
-    );
+    assert.equal(f.calls.filter((call) => call[0] === "pr" && call[1] === "publish").length, 2);
+    assert.equal(await readFile(join(f.directory, "delivery", f.initial.id, "publication.json"), "utf8"), input);
     assert.equal(f.calls.filter((call) => call[0] === "merge").length, 1);
   } finally {
     await f.close();
@@ -751,10 +655,7 @@ await test("a lost merge response reconciles remote acceptance without a second 
   try {
     f.configure({ lostMerge: true });
     await assert.rejects(f.run(), /Merge response lost/u);
-    assert.match(
-      f.store.attempt(f.initial.id).mergeReceipt ?? "",
-      /"state":"requested"/u,
-    );
+    assert.match(f.store.attempt(f.initial.id).mergeReceipt ?? "", /"state":"requested"/u);
     await f.run();
     assert.equal(f.calls.filter((call) => call[0] === "merge").length, 1);
     assert.equal(f.store.attempt(f.initial.id).merged, mergedHead);
@@ -785,9 +686,7 @@ await test("a changed-base rejection is retained and only a fresh Ready offer ca
     assert.notEqual(merges[0]?.[1], merges[1]?.[1]);
     assert.equal(f.store.attempt(f.initial.id).merged, mergedHead);
     assert.ok(
-      (await readdir(join(f.directory, "delivery", f.initial.id))).some(
-        (file) => file.startsWith("merge-blocked-"),
-      ),
+      (await readdir(join(f.directory, "delivery", f.initial.id))).some((file) => file.startsWith("merge-blocked-")),
     );
   } finally {
     await f.close();
@@ -802,9 +701,7 @@ await test("an already published branch with unproven ancestry cannot merge or r
       const blockAncestry = () => {
         f.dependencies.safeGit = (...args) =>
           args[2][0] === "merge-base"
-            ? Promise.reject(
-                Object.assign(new Error("Not an ancestor"), { code: 1 }),
-              )
+            ? Promise.reject(Object.assign(new Error("Not an ancestor"), { code: 1 }))
             : suppliedGit(...args);
       };
       if (replay) {
@@ -816,10 +713,7 @@ await test("an already published branch with unproven ancestry cannot merge or r
       }
       await assert.rejects(f.run(), /PR publication ancestry/u);
       assert.ok(f.store.attempt(f.initial.id).publication !== undefined);
-      assert.equal(
-        f.calls.filter((call) => call[0] === "merge").length,
-        replay ? 1 : 0,
-      );
+      assert.equal(f.calls.filter((call) => call[0] === "merge").length, replay ? 1 : 0);
     } finally {
       await f.close();
     }
@@ -835,11 +729,7 @@ await test("an unknown queued merge reconciles the same native receipt identity 
     const requests = f.calls.filter((call) => call[0] === "merge");
     assert.equal(requests.length, 2);
     assert.deepEqual(requests[0], requests[1]);
-    assert.equal(
-      f.mergeRequests.size,
-      1,
-      "Native receipt replay cannot create a second merge identity",
-    );
+    assert.equal(f.mergeRequests.size, 1, "Native receipt replay cannot create a second merge identity");
     assert.equal(f.store.attempt(f.initial.id).merged, mergedHead);
   } finally {
     await f.close();
@@ -853,9 +743,7 @@ await test("a possibly running merge fences new worker corrections even when fee
     await assert.rejects(f.run(), /Delivery interrupted/u);
     assert.equal(f.corrections, 0);
     assert.equal(f.calls.filter((call) => call[0] === "merge").length, 0);
-    assert.ok(
-      f.calls.some((call) => call[0] === "chain" && call[1] === "show"),
-    );
+    assert.ok(f.calls.some((call) => call[0] === "chain" && call[1] === "show"));
     assert.equal(f.store.attempt(f.initial.id).head, firstHead);
   } finally {
     await f.close();
@@ -881,40 +769,27 @@ gitTest(
   async () => {
     const f = await fixture();
     try {
-      const environment = Object.fromEntries(
-        Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
-      );
+      const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
       const git = (...args: string[]) => {
-        const result = spawnSync(
-          "/usr/bin/git",
-          ["-c", "core.hooksPath=/dev/null", ...args],
-          {
-            cwd: f.directory,
-            encoding: "utf8",
-            timeout: process.env["CI"] === "true" ? 10_000 : 2_000,
-            env: {
-              ...environment,
-              GIT_CONFIG_GLOBAL: "/dev/null",
-              GIT_CONFIG_NOSYSTEM: "1",
-              GIT_AUTHOR_NAME: "Fixture",
-              GIT_AUTHOR_EMAIL: "fixture@example.invalid",
-              GIT_COMMITTER_NAME: "Fixture",
-              GIT_COMMITTER_EMAIL: "fixture@example.invalid",
-            },
+        const result = spawnSync("/usr/bin/git", ["-c", "core.hooksPath=/dev/null", ...args], {
+          cwd: f.directory,
+          encoding: "utf8",
+          timeout: process.env["CI"] === "true" ? 10_000 : 2_000,
+          env: {
+            ...environment,
+            GIT_CONFIG_GLOBAL: "/dev/null",
+            GIT_CONFIG_NOSYSTEM: "1",
+            GIT_AUTHOR_NAME: "Fixture",
+            GIT_AUTHOR_EMAIL: "fixture@example.invalid",
+            GIT_COMMITTER_NAME: "Fixture",
+            GIT_COMMITTER_EMAIL: "fixture@example.invalid",
           },
-        );
+        });
         assert.equal(result.status, 0, result.stderr);
         return result.stdout.trim();
       };
       git("init", "--quiet");
-      git(
-        "-c",
-        "core.hooksPath=/dev/null",
-        "commit",
-        "--allow-empty",
-        "-m",
-        "Approved work",
-      );
+      git("-c", "core.hooksPath=/dev/null", "commit", "--allow-empty", "-m", "Approved work");
       const head = git("rev-parse", "HEAD");
       const tree = git("rev-parse", "HEAD^{tree}");
       f.initial.head = head;
@@ -938,14 +813,7 @@ gitTest(
           f.store.attempt(f.initial.id),
           () => {
             implementations++;
-            git(
-              "-c",
-              "core.hooksPath=/dev/null",
-              "commit",
-              "--allow-empty",
-              "-m",
-              "Unnecessary new implementation",
-            );
+            git("-c", "core.hooksPath=/dev/null", "commit", "--allow-empty", "-m", "Unnecessary new implementation");
             f.store.change(f.initial.id, (row) => {
               row.head = git("rev-parse", "HEAD");
             });
@@ -957,12 +825,7 @@ gitTest(
         );
       f.configure({ lostPublish: true });
       await assert.rejects(f.run(), /Publication response lost/u);
-      const path = join(
-        f.directory,
-        "delivery",
-        f.initial.id,
-        "publication.json",
-      );
+      const path = join(f.directory, "delivery", f.initial.id, "publication.json");
       const retained = await readFile(path, "utf8");
       await resume();
       await f.run();
@@ -972,11 +835,7 @@ gitTest(
       assert.equal(git("rev-list", "--count", "HEAD"), "1");
       assert.equal(await readFile(path, "utf8"), retained);
       assert.equal(f.store.attempt(f.initial.id).head, head);
-      assert.equal(
-        f.calls.filter((call) => call[0] === "pr" && call[1] === "publish")
-          .length,
-        2,
-      );
+      assert.equal(f.calls.filter((call) => call[0] === "pr" && call[1] === "publish").length, 2);
       assert.equal(f.calls.filter((call) => call[0] === "merge").length, 1);
     } finally {
       await f.close();

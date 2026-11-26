@@ -1,11 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import {
-  selection,
-  taskAssignmentSchema,
-  type ModelSelection,
-  type TaskAssignment,
-} from "./config.ts";
+import { selection, taskAssignmentSchema, type ModelSelection, type TaskAssignment } from "./config.ts";
 import { taskWaves } from "./smart-plan-graph.ts";
 import { worktreeRelativePath } from "./worktree-path.ts";
 
@@ -21,9 +16,7 @@ export enum TaskDelivery {
 }
 
 export function deliveryOutcome(delivery?: TaskDelivery): string {
-  return delivery === TaskDelivery.PullRequest
-    ? "Opens a PR"
-    : "Local integration only — no PR";
+  return delivery === TaskDelivery.PullRequest ? "Opens a PR" : "Local integration only — no PR";
 }
 
 export function reviseDelivery(draft: LeadDraft, argument: string): LeadDraft {
@@ -35,23 +28,17 @@ export function reviseDelivery(draft: LeadDraft, argument: string): LeadDraft {
     (mode !== TaskDelivery.Local && mode !== TaskDelivery.PullRequest)
   )
     throw new Error("Usage: /plan-delivery <task-key> <local|pull-request>");
-  if (!draft.tasks.some((task) => task.key === key))
-    throw new Error(`No task named ${key} in the draft`);
+  if (!draft.tasks.some((task) => task.key === key)) throw new Error(`No task named ${key} in the draft`);
   return {
     ...draft,
-    tasks: draft.tasks.map((task) =>
-      task.key === key ? { ...task, delivery: mode } : task,
-    ),
+    tasks: draft.tasks.map((task) => (task.key === key ? { ...task, delivery: mode } : task)),
   };
 }
 
 export const taskKey = z
   .string()
   .regex(/^[a-z][a-z0-9-]{0,31}$/u)
-  .refine(
-    (key) => key !== "root",
-    "The root task key is reserved for the graph container",
-  );
+  .refine((key) => key !== "root", "The root task key is reserved for the graph container");
 export const pullRequestMergeSchema = z.enum(["manual", "project-policy"]);
 export const draftSchema = z
   .strictObject({
@@ -88,12 +75,7 @@ export const draftSchema = z
         message: error instanceof Error ? error.message : String(error),
       });
     }
-    if (
-      1 +
-        2 * draft.tasks.length +
-        draft.tasks.reduce((count, task) => count + task.blockedBy.length, 0) >
-      100
-    )
+    if (1 + 2 * draft.tasks.length + draft.tasks.reduce((count, task) => count + task.blockedBy.length, 0) > 100)
       ctx.addIssue({
         code: "custom",
         path: ["tasks"],
@@ -124,9 +106,7 @@ export const leadPlanSchema = z.discriminatedUnion("mode", [
     digest: z.string(),
     specificationVersion: z.number().int().positive().optional(),
     // Beads stamp added by applyPlan after verifying the original brief at both revisions.
-    briefRevisionAdvance: z
-      .strictObject({ from: z.string().min(1), to: z.string().min(1) })
-      .optional(),
+    briefRevisionAdvance: z.strictObject({ from: z.string().min(1), to: z.string().min(1) }).optional(),
     children: childBeads,
   }),
 ]);
@@ -138,17 +118,11 @@ export function planDigest(draft: LeadDraft): string {
 // Wave grouping adapts Smart Plan's src/render.ts at 3e51e33acd63a7743391e21598042438746aafa0.
 export function orderedTasks(draft: LeadDraft): LeadDraft["tasks"] {
   const waves = taskWaves(draft.tasks);
-  return [...draft.tasks].sort(
-    (left, right) => (waves.get(left.key) ?? 0) - (waves.get(right.key) ?? 0),
-  );
+  return [...draft.tasks].sort((left, right) => (waves.get(left.key) ?? 0) - (waves.get(right.key) ?? 0));
 }
 
-export function describeWorkerAssignment(
-  assignment: TaskAssignment,
-  worker?: ModelSelection,
-): string {
-  const model =
-    worker === undefined ? "" : ` · ${worker.provider}/${worker.model}`;
+export function describeWorkerAssignment(assignment: TaskAssignment, worker?: ModelSelection): string {
+  const model = !worker ? "" : ` · ${worker.provider}/${worker.model}`;
   return `${assignment.capability}${model} · ${assignment.reasoning} reasoning`;
 }
 
@@ -163,26 +137,21 @@ export function taskReviewFields(
       ? "To be decided"
       : `${deliveryOutcome(task.delivery)}${task.delivery === undefined ? " (default)" : ""}`;
   const verification =
-    task.check === undefined || task.check.length === 0
+    !task.check || task.check.length === 0
       ? "independent criterion review; no executable agreed"
       : JSON.stringify(task.check);
   return [
     { label: "Acceptance", value: task.acceptance },
-    ...(task.requirements.length > 0
-      ? [{ label: "Requirements", value: task.requirements.join(", ") }]
-      : []),
+    ...(task.requirements.length > 0 ? [{ label: "Requirements", value: task.requirements.join(", ") }] : []),
     {
       label: "Owns",
-      value:
-        task.owns.length === 0
-          ? "the entire isolated checkout"
-          : task.owns.join(", "),
+      value: task.owns.length === 0 ? "the entire isolated checkout" : task.owns.join(", "),
     },
     {
       label: "Admission",
       value: task.hold === true ? "on hold" : "when ready",
     },
-    ...(task.assignment === undefined
+    ...(!task.assignment
       ? []
       : [
           {
@@ -192,17 +161,12 @@ export function taskReviewFields(
         ]),
     { label: "Delivery", value: deliveryLabel ?? delivery },
     { label: "Verification", value: verification },
-    ...(task.blockedBy.length > 0
-      ? [{ label: "Blocked by", value: task.blockedBy.join(", ") }]
-      : []),
+    ...(task.blockedBy.length > 0 ? [{ label: "Blocked by", value: task.blockedBy.join(", ") }] : []),
   ];
 }
 
 /** An already merged prerequisite carries its own ancestors on the target branch. */
-export function publicationPrerequisites(
-  draft: LeadDraft,
-  publisher: LeadDraft["tasks"][number],
-): LeadDraft["tasks"] {
+export function publicationPrerequisites(draft: LeadDraft, publisher: LeadDraft["tasks"][number]): LeadDraft["tasks"] {
   const ordered = orderedTasks(draft);
   const required = new Set(publisher.blockedBy);
   const includedByPullRequest = new Set<string>();
@@ -210,16 +174,11 @@ export function publicationPrerequisites(
     if (!required.has(task.key)) continue;
     for (const key of task.blockedBy) {
       required.add(key);
-      if (
-        task.delivery === TaskDelivery.PullRequest ||
-        includedByPullRequest.has(task.key)
-      )
+      if (task.delivery === TaskDelivery.PullRequest || includedByPullRequest.has(task.key))
         includedByPullRequest.add(key);
     }
   }
-  return ordered.filter(
-    (task) => required.has(task.key) && !includedByPullRequest.has(task.key),
-  );
+  return ordered.filter((task) => required.has(task.key) && !includedByPullRequest.has(task.key));
 }
 
 export function publicationGroups(draft: LeadDraft) {
@@ -237,18 +196,10 @@ export function taskReviewLines(
   task: LeadDraft["tasks"][number],
   intent: "proposal" | "execution" = "execution",
 ): string[] {
-  return [
-    task.description,
-    ...taskReviewFields(task, intent).map(
-      ({ label, value }) => `${label} · ${value}`,
-    ),
-  ];
+  return [task.description, ...taskReviewFields(task, intent).map(({ label, value }) => `${label} · ${value}`)];
 }
 
-export function describePlan(
-  draft: LeadDraft,
-  intent: "proposal" | "execution" = "execution",
-): string {
+export function describePlan(draft: LeadDraft, intent: "proposal" | "execution" = "execution"): string {
   const waves = taskWaves(draft.tasks);
   let displayedWave = 0;
   return [
@@ -256,15 +207,9 @@ export function describePlan(
     "Change a proposal before approval: /plan-delivery <task-key> <local|pull-request>",
     ...orderedTasks(draft).flatMap((task) => {
       const wave = waves.get(task.key) ?? 0;
-      const heading =
-        wave === displayedWave ? [] : ["", `Wave ${String(wave)}`];
+      const heading = wave === displayedWave ? [] : ["", `Wave ${String(wave)}`];
       displayedWave = wave;
-      return [
-        ...heading,
-        "",
-        `├─ ${task.key} · ${task.title}`,
-        ...taskReviewLines(task, intent),
-      ];
+      return [...heading, "", `├─ ${task.key} · ${task.title}`, ...taskReviewLines(task, intent)];
     }),
   ].join("\n");
 }

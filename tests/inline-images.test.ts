@@ -1,11 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
-import {
-  initTheme,
-  SettingsManager,
-  ToolExecutionComponent,
-} from "@earendil-works/pi-coding-agent";
+import { initTheme, SettingsManager, ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
 import {
   getCapabilities,
   getCellDimensions,
@@ -24,10 +20,7 @@ await test("inline screenshots fit their source and pane, with explicit magnific
   });
   initTheme("dark", false);
   setCellDimensions({ widthPx: 9, heightPx: 18 });
-  const screenshot = await readFile(
-    new URL("../docs/assets/tasks-100.png", import.meta.url),
-    "base64",
-  );
+  const screenshot = await readFile(new URL("../docs/assets/tasks-100.png", import.meta.url), "base64");
   const settings = SettingsManager.inMemory();
   assert.equal(settings.getImageWidthCells(), "auto");
   const ui = new TuiMainScreen(new ProcessTerminal());
@@ -50,23 +43,11 @@ await test("inline screenshots fit their source and pane, with explicit magnific
       const image = preview.render(width).join("\n");
       return Number(/(?:,c=|;width=)(\d+)/u.exec(image)?.[1]);
     };
-    assert.equal(
-      columns(162),
-      100,
-      "900 source pixels at nine pixels per cell",
-    );
-    assert.equal(
-      columns(42),
-      40,
-      "resize leaves the two terminal padding cells",
-    );
+    assert.equal(columns(162), 100, "900 source pixels at nine pixels per cell");
+    assert.equal(columns(42), 40, "resize leaves the two terminal padding cells");
     setCellDimensions({ widthPx: 13, heightPx: 26 });
     preview.invalidate();
-    assert.equal(
-      columns(162),
-      69,
-      "a font change chooses the nearest cell to 900 source pixels",
-    );
+    assert.equal(columns(162), 69, "a font change chooses the nearest cell to 900 source pixels");
     setCellDimensions({ widthPx: 9, heightPx: 18 });
     preview.invalidate();
     preview.setExpanded(true);

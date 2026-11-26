@@ -1,27 +1,13 @@
 import assert from "node:assert/strict";
-import {
-  mkdtemp,
-  readFile,
-  realpath,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { LspClient, ServerState } from "../code-intelligence/client.ts";
-import {
-  Lookup,
-  CodeIntelligence,
-  offset,
-  safePath,
-} from "../code-intelligence/service.ts";
+import { Lookup, CodeIntelligence, offset, safePath } from "../code-intelligence/service.ts";
 
-const fixtureServer = fileURLToPath(
-  new URL("fixtures/lsp-server.ts", import.meta.url),
-);
+const fixtureServer = fileURLToPath(new URL("fixtures/lsp-server.ts", import.meta.url));
 
 await test("LSP synchronizes edits, rejects stale diagnostics, cancels requests and shuts down", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "pi-lsp-client-")));
@@ -50,11 +36,7 @@ await test("LSP synchronizes edits, rejects stale diagnostics, cancels requests 
     await writeFile(unrelated, "unrelated");
     await client.sync(unrelated);
     const retained = await client.getDiagnostics(path, 20);
-    assert.deepEqual(
-      retained?.items,
-      [],
-      "opening another file must preserve diagnostics for an unchanged document",
-    );
+    assert.deepEqual(retained?.items, [], "opening another file must preserve diagnostics for an unchanged document");
     await rm(unrelated);
     await client.refresh();
     assert.deepEqual(
@@ -111,15 +93,11 @@ await test("LSP reports failed startup and unsupported position encoding", async
     const client = new LspClient(root, {
       name: "fixture",
       languageId: "typescript",
-      command:
-        args.length === 0 ? join(root, "not-installed") : process.execPath,
+      command: args.length === 0 ? join(root, "not-installed") : process.execPath,
       args,
     });
     try {
-      await assert.rejects(
-        client.sync(join(root, "test.ts")),
-        args.length === 0 ? /ENOENT/u : /UTF-16/u,
-      );
+      await assert.rejects(client.sync(join(root, "test.ts")), args.length === 0 ? /ENOENT/u : /UTF-16/u);
       assert.equal(client.state, ServerState.Failed);
     } finally {
       await client.stop();
@@ -147,42 +125,22 @@ await test("semantic rename rejects unsafe edits and stale previews before any w
       await assert.rejects(intelligence.preview(root, path, 1, 1, newName));
       assert.equal(await readFile(path, "utf8"), "old value\n");
     }
-    await assert.rejects(
-      intelligence.lookup(root, Lookup.Implementation, path, 1, 1, ""),
-      /does not support/u,
-    );
-    const navigation = await intelligence.lookup(
-      root,
-      Lookup.Definition,
-      path,
-      1,
-      1,
-      "",
-    );
+    await assert.rejects(intelligence.lookup(root, Lookup.Implementation, path, 1, 1, ""), /does not support/u);
+    const navigation = await intelligence.lookup(root, Lookup.Definition, path, 1, 1, "");
     assert.match(JSON.stringify(navigation), /"line":1,"column":1/u);
     const stale = await intelligence.preview(root, path, 1, 1, "new");
-    assert.match(
-      intelligence.describe(stale).files[0]?.diff ?? "",
-      /-old value\n\+new value/u,
-    );
+    assert.match(intelligence.describe(stale).files[0]?.diff ?? "", /-old value\n\+new value/u);
     await writeFile(path, "operator edit\n");
     await assert.rejects(intelligence.consume(root, stale.token), /stale/u);
     await assert.rejects(intelligence.consume(root, stale.token), /expired/u);
     const fresh = await intelligence.preview(root, path, 1, 1, "new");
     const change = await intelligence.consume(root, fresh.token);
     assert.equal(change.files[0]?.after, "newrator edit\n");
-    assert.equal(
-      await readFile(path, "utf8"),
-      "operator edit\n",
-      "preview and validation are read-only",
-    );
+    assert.equal(await readFile(path, "utf8"), "operator edit\n", "preview and validation are read-only");
     await intelligence.stop();
     await assert.rejects(intelligence.consume(root, fresh.token), /expired/u);
     process.env["PATH"] = "";
-    await assert.rejects(
-      new CodeIntelligence().client(root, path),
-      /not installed/u,
-    );
+    await assert.rejects(new CodeIntelligence().client(root, path), /not installed/u);
   } finally {
     if (previousPath === undefined) delete process.env["PATH"];
     else process.env["PATH"] = previousPath;

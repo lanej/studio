@@ -1,14 +1,7 @@
 import { stringify } from "yaml";
 import assert from "node:assert/strict";
 import { test } from "bun:test";
-import {
-  mkdtemp,
-  writeFile,
-  mkdir,
-  rm,
-  readFile,
-  access,
-} from "node:fs/promises";
+import { mkdtemp, writeFile, mkdir, rm, readFile, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,9 +20,7 @@ const gitFixtureDeadline = process.env["CI"] === "true" ? 30_000 : 5_000;
 const gitCommandDeadline = process.env["CI"] === "true" ? 10_000 : 2_000;
 
 function fixtureGit(cwd: string) {
-  const environment = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
-  );
+  const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
   return (...args: string[]) =>
     execFileSync("/usr/bin/git", ["-c", "core.hooksPath=/dev/null", ...args], {
       timeout: gitCommandDeadline,
@@ -48,48 +39,24 @@ function fixtureGit(cwd: string) {
     }).trim();
 }
 
-const selected = async (...paths: string[]) =>
-  (await selectedChecks(paths)).map((item) => item.workflow);
+const selected = async (...paths: string[]) => (await selectedChecks(paths)).map((item) => item.workflow);
 
 test("workflow file filters select consumers without duplicate branch-push suites", async () => {
   for (const file of workflowFiles) {
     const value = await readWorkflow(file);
     assert.deepEqual(value.on.push.branches, ["main"]);
     assert.deepEqual(value.on.push.paths, value.on.pull_request.paths);
-    assert(
-      matchesPaths(value.on.pull_request.paths, [`.github/workflows/${file}`]),
-    );
+    assert(matchesPaths(value.on.pull_request.paths, [`.github/workflows/${file}`]));
     assert.equal(value.on.workflow_dispatch, null);
   }
-  assert.deepEqual(
-    await selected(
-      "README.md",
-      "docs/assets/transcript.png",
-      ".github/workflows/README.md",
-    ),
-    [],
-  );
+  assert.deepEqual(await selected("README.md", "docs/assets/transcript.png", ".github/workflows/README.md"), []);
   assert.deepEqual(await selected("tests/lsp.test.ts"), ["check.yml"]);
-  assert.deepEqual(await selected("acceptance/lsp.ts"), [
-    "check.yml",
-    "lsp.yml",
-  ]);
-  assert.deepEqual(await selected("execution/worker.ts"), [
-    "check.yml",
-    "beads.yml",
-  ]);
-  assert.deepEqual(await selected("acceptance/beads-control.ts"), [
-    "check.yml",
-    "beads.yml",
-  ]);
-  assert.deepEqual(await selected(".github/workflows/lsp.yml"), [
-    "check.yml",
-    "lsp.yml",
-  ]);
-  assert.deepEqual(await selected(".github/workflows/beads.yml"), [
-    "check.yml",
-    "beads.yml",
-  ]);
+  assert.deepEqual(await selected(".prettierrc.json"), ["check.yml"]);
+  assert.deepEqual(await selected("acceptance/lsp.ts"), ["check.yml", "lsp.yml"]);
+  assert.deepEqual(await selected("execution/worker.ts"), ["check.yml", "beads.yml"]);
+  assert.deepEqual(await selected("acceptance/beads-control.ts"), ["check.yml", "beads.yml"]);
+  assert.deepEqual(await selected(".github/workflows/lsp.yml"), ["check.yml", "lsp.yml"]);
+  assert.deepEqual(await selected(".github/workflows/beads.yml"), ["check.yml", "beads.yml"]);
 });
 
 test("shared runtime inputs and the full CLI integration retain their consumers", async () => {
@@ -108,10 +75,7 @@ test("shared runtime inputs and the full CLI integration retain their consumers"
   ])
     assert.deepEqual(await selected(path), [...workflowFiles], path);
   await access(fileURLToPath(new URL("../socrates/host.md", import.meta.url)));
-  assert.deepEqual(await selected("socrates/host.md"), [
-    "check.yml",
-    "beads.yml",
-  ]);
+  assert.deepEqual(await selected("socrates/host.md"), ["check.yml", "beads.yml"]);
   assert.deepEqual(
     (await selectedChecks(["socrates/host.md"])).flatMap((item) => item.checks),
     [
@@ -135,23 +99,11 @@ test("shared runtime inputs and the full CLI integration retain their consumers"
     await access(fileURLToPath(new URL(`../${path}`, import.meta.url)));
     assert.deepEqual(await selected(path), ["check.yml", "beads.yml"]);
   }
-  await access(
-    fileURLToPath(new URL("../acceptance/task-recovery.py", import.meta.url)),
-  );
-  assert.deepEqual(await selected("acceptance/task-recovery.py"), [
-    "check.yml",
-    "beads.yml",
-  ]);
-  assert.deepEqual(await selected("vendor/task-runtime/beads.ts"), [
-    "check.yml",
-    "beads.yml",
-  ]);
-  assert.deepEqual(await selected(".typescript-quality/eslint.config.mjs"), [
-    "check.yml",
-  ]);
-  const gates = (await selectedChecks(["package.json"])).flatMap(
-    (item) => item.checks,
-  );
+  await access(fileURLToPath(new URL("../acceptance/task-recovery.py", import.meta.url)));
+  assert.deepEqual(await selected("acceptance/task-recovery.py"), ["check.yml", "beads.yml"]);
+  assert.deepEqual(await selected("vendor/task-runtime/beads.ts"), ["check.yml", "beads.yml"]);
+  assert.deepEqual(await selected(".typescript-quality/eslint.config.mjs"), ["check.yml"]);
+  const gates = (await selectedChecks(["package.json"])).flatMap((item) => item.checks);
   assert.deepEqual(gates, [
     "check (ubuntu-latest, minimum)",
     "check (macos-latest, minimum)",
@@ -167,39 +119,25 @@ test("shared runtime inputs and the full CLI integration retain their consumers"
 
 test("selection detects a removed consumer edge and rejects unsupported filter syntax", async () => {
   const guidanceConsumer = await readWorkflow("check.yml");
-  assert(
-    matchesPaths(guidanceConsumer.on.pull_request.paths, ["socrates/host.md"]),
-  );
+  assert(matchesPaths(guidanceConsumer.on.pull_request.paths, ["socrates/host.md"]));
   assert.equal(
     matchesPaths(
-      guidanceConsumer.on.pull_request.paths.filter(
-        (path) => path !== "socrates/host.md",
-      ),
+      guidanceConsumer.on.pull_request.paths.filter((path) => path !== "socrates/host.md"),
       ["socrates/host.md"],
     ),
     false,
     "Removing the native Socrates guidance dependency must lose selection",
   );
   const definition = await readWorkflow("lsp.yml");
-  assert(
-    matchesPaths(definition.on.pull_request.paths, [
-      "code-intelligence/client.ts",
-    ]),
-  );
+  assert(matchesPaths(definition.on.pull_request.paths, ["code-intelligence/client.ts"]));
   assert.equal(
     matchesPaths(
-      definition.on.pull_request.paths.filter(
-        (path) => path !== "code-intelligence/**",
-      ),
+      definition.on.pull_request.paths.filter((path) => path !== "code-intelligence/**"),
       ["code-intelligence/client.ts"],
     ),
     false,
   );
-  assert.throws(
-    () =>
-      matchesPaths(["resources/**", "!resources/**"], ["resources/test.md"]),
-    /Unsupported/u,
-  );
+  assert.throws(() => matchesPaths(["resources/**", "!resources/**"], ["resources/test.md"]), /Unsupported/u);
 });
 
 test(
@@ -237,24 +175,15 @@ test(
       await mkdir(join(directory, ".github/workflows"), { recursive: true });
       for (const file of workflowFiles) {
         const definition = await readWorkflow(file);
-        await writeFile(
-          join(directory, ".github/workflows", file),
-          stringify(definition),
-        );
+        await writeFile(join(directory, ".github/workflows", file), stringify(definition));
       }
       await mkdir(join(directory, "code-intelligence"));
-      await writeFile(
-        join(directory, "code-intelligence/client.ts"),
-        "before\n",
-      );
+      await writeFile(join(directory, "code-intelligence/client.ts"), "before\n");
       git("add", ".");
       git("commit", "-qm", "Before");
       const base = git("rev-parse", "HEAD");
       await rm(join(directory, ".github/workflows/lsp.yml"));
-      await writeFile(
-        join(directory, "code-intelligence/client.ts"),
-        "after\n",
-      );
+      await writeFile(join(directory, "code-intelligence/client.ts"), "after\n");
       git("add", "-A");
       git("commit", "-qm", "Remove LSP workflow");
       const checks = revisionChecks(base, "HEAD", directory);
@@ -262,33 +191,17 @@ test(
         checks.map((item) => item.workflow),
         ["check.yml", "beads.yml"],
       );
-      assert(
-        checks.every((item) =>
-          item.checks.every((name) => !name.startsWith("lsp-native")),
-        ),
-      );
+      assert(checks.every((item) => item.checks.every((name) => !name.startsWith("lsp-native"))));
       assert.throws(() => revisionChecks(base, "missing-revision", directory));
-      await writeFile(
-        join(directory, ".github/workflows/check.yml"),
-        "invalid: [",
-      );
+      await writeFile(join(directory, ".github/workflows/check.yml"), "invalid: [");
       git("add", ".");
       git("commit", "-qm", "Invalid definition");
       assert.throws(() => revisionChecks(base, "HEAD", directory));
-      await writeFile(
-        join(directory, ".github/workflows/check.yml"),
-        stringify(await readWorkflow("check.yml")),
-      );
-      await writeFile(
-        join(directory, ".github/workflows/unmapped.yml"),
-        "name: New workflow\non: push\njobs: {}\n",
-      );
+      await writeFile(join(directory, ".github/workflows/check.yml"), stringify(await readWorkflow("check.yml")));
+      await writeFile(join(directory, ".github/workflows/unmapped.yml"), "name: New workflow\non: push\njobs: {}\n");
       git("add", ".");
       git("commit", "-qm", "Unmapped workflow");
-      assert.throws(
-        () => revisionChecks(base, "HEAD", directory),
-        /Unmapped CI workflow/u,
-      );
+      assert.throws(() => revisionChecks(base, "HEAD", directory), /Unmapped CI workflow/u);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -331,24 +244,17 @@ test("native workflow filters cover static imports and literal process inputs", 
         `${item.workflow} does not select consumed ${local}`,
       );
       const source = await readFile(file, "utf8");
-      const syntax = ts.createSourceFile(
-        file,
-        source,
-        ts.ScriptTarget.Latest,
-        true,
-      );
+      const syntax = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
       const processInput = (node: import("typescript").Node): void => {
         if (
           ts.isCallExpression(node) &&
-          ((ts.isIdentifier(node.expression) &&
-            node.expression.text === "join") ||
-            (ts.isPropertyAccessExpression(node.expression) &&
-              node.expression.name.text === "join"))
+          ((ts.isIdentifier(node.expression) && node.expression.text === "join") ||
+            (ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === "join"))
         ) {
           const base = node.arguments[0];
           const parts = node.arguments.slice(1);
           if (
-            base !== undefined &&
+            base &&
             ts.isIdentifier(base) &&
             ["root", "packageRoot"].includes(base.text) &&
             parts.length > 0 &&
@@ -361,8 +267,7 @@ test("native workflow filters cover static imports and literal process inputs", 
         ts.forEachChild(node, processInput);
       };
       processInput(syntax);
-      for (const imported of ts.preProcessFile(source, true, true)
-        .importedFiles) {
+      for (const imported of ts.preProcessFile(source, true, true).importedFiles) {
         if (!imported.fileName.startsWith(".")) continue;
         const exact = resolve(dirname(file), imported.fileName);
         if (
@@ -378,10 +283,7 @@ test("native workflow filters cover static imports and literal process inputs", 
             { moduleResolution: ts.ModuleResolutionKind.Bundler },
             ts.sys,
           ).resolvedModule?.resolvedFileName;
-          assert(
-            resolved !== undefined,
-            `Unresolved local import: ${imported.fileName}`,
-          );
+          assert(resolved !== undefined, `Unresolved local import: ${imported.fileName}`);
           pending.push(resolved);
         }
       }
@@ -394,10 +296,7 @@ test("native workflow filters cover static imports and literal process inputs", 
       );
     }
     if (item.workflow === "beads.yml") {
-      assert(
-        processInputs.has("scripts/prepare-delegation.mjs"),
-        "The real preparation invocation must be detected",
-      );
+      assert(processInputs.has("scripts/prepare-delegation.mjs"), "The real preparation invocation must be detected");
       const missingPreparation = definition.on.pull_request.paths.filter(
         (path) => path !== "scripts/prepare-delegation.mjs",
       );
@@ -419,42 +318,23 @@ test(
       git("init", "-q");
       await mkdir(join(directory, ".github/workflows"), { recursive: true });
       for (const file of workflowFiles)
-        await writeFile(
-          join(directory, ".github/workflows", file),
-          stringify(await readWorkflow(file)),
-        );
+        await writeFile(join(directory, ".github/workflows", file), stringify(await readWorkflow(file)));
       await mkdir(join(directory, "code-intelligence"));
-      await writeFile(
-        join(directory, "code-intelligence/client.ts"),
-        "before\n",
-      );
+      await writeFile(join(directory, "code-intelligence/client.ts"), "before\n");
       git("add", ".");
       git("commit", "-qm", "Common base");
       const common = git("rev-parse", "HEAD");
       git("checkout", "-qb", "feature");
-      await writeFile(
-        join(directory, "code-intelligence/client.ts"),
-        "after\n",
-      );
+      await writeFile(join(directory, "code-intelligence/client.ts"), "after\n");
       git("add", ".");
       git("commit", "-qm", "Feature");
       const head = git("rev-parse", "HEAD");
       git("checkout", "-qb", "target-ci", common);
-      git(
-        "mv",
-        ".github/workflows/lsp.yml",
-        ".github/workflows/language-server.yml",
-      );
+      git("mv", ".github/workflows/lsp.yml", ".github/workflows/language-server.yml");
       git("commit", "-qm", "Base renamed workflow");
-      assert.throws(
-        () => revisionChecks("HEAD", head, directory),
-        /Sync current CI definitions/u,
-      );
+      assert.throws(() => revisionChecks("HEAD", head, directory), /Sync current CI definitions/u);
       git("checkout", "-qb", "target-docs", common);
-      await writeFile(
-        join(directory, "README.md"),
-        "Unrelated base documentation\n",
-      );
+      await writeFile(join(directory, "README.md"), "Unrelated base documentation\n");
       git("add", ".");
       git("commit", "-qm", "Base documentation");
       assert.deepEqual(

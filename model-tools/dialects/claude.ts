@@ -2,17 +2,11 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Assert } from "typebox/value";
 import { z } from "zod";
-import {
-  editReason,
-  requireEditReason,
-} from "../../code-intelligence/edit-tool.ts";
+import { editReason, requireEditReason } from "../../code-intelligence/edit-tool.ts";
 import { readFile, replaceText, runShell, writeFile } from "../operations.ts";
 import { piShellArguments, type ShellRequest } from "../shell.ts";
 
-export function claudeShellRequest(
-  command: string,
-  timeout?: number,
-): ShellRequest {
+export function claudeShellRequest(command: string, timeout?: number): ShellRequest {
   return { command, timeoutMs: Math.min(timeout ?? 120_000, 600_000) };
 }
 
@@ -33,20 +27,15 @@ const read = defineTool({
   parameters: Type.Object(
     {
       file_path: filePath,
-      offset: Type.Optional(
-        Type.Integer({ minimum: 0, description: "First line, starting at 1." }),
-      ),
-      limit: Type.Optional(
-        Type.Integer({ minimum: 1, description: "Maximum number of lines." }),
-      ),
+      offset: Type.Optional(Type.Integer({ minimum: 0, description: "First line, starting at 1." })),
+      limit: Type.Optional(Type.Integer({ minimum: 1, description: "Maximum number of lines." })),
     },
     { additionalProperties: false },
   ),
   async execute(_id, { file_path, offset, limit }, _signal, _update, ctx) {
     const result = await readFile(ctx, { path: file_path, offset, limit });
     const [first] = result.content;
-    if (result.isError || result.content.length !== 1 || first?.type !== "text")
-      return result;
+    if (result.isError || result.content.length !== 1 || first?.type !== "text") return result;
     if (first.text === "")
       return {
         ...result,
@@ -65,8 +54,7 @@ const read = defineTool({
     const lines = first.text.split("\n");
     const text = lines
       .map((line, i) =>
-        (count !== undefined && i >= count) ||
-        (i === lines.length - 1 && line === "")
+        (count !== undefined && i >= count) || (i === lines.length - 1 && line === "")
           ? line
           : `${String(start + i)}\t${line}`,
       )
@@ -83,10 +71,7 @@ const write = defineTool({
   name: "Write",
   label: "Write",
   description: "Create or overwrite a text file with the provided content.",
-  parameters: Type.Object(
-    { file_path: filePath, content: Type.String() },
-    { additionalProperties: false },
-  ),
+  parameters: Type.Object({ file_path: filePath, content: Type.String() }, { additionalProperties: false }),
   execute(_id, { file_path, content }, _signal, onUpdate, ctx) {
     return writeFile(ctx, file_path, content, onUpdate);
   },
@@ -137,9 +122,7 @@ const bash = defineTool({
   parameters: Type.Object(
     {
       command: Type.String({ minLength: 1 }),
-      description: Type.Optional(
-        Type.String({ description: "Short description of the command." }),
-      ),
+      description: Type.Optional(Type.String({ description: "Short description of the command." })),
       timeout: Type.Optional(
         Type.Integer({
           minimum: 1,
@@ -166,10 +149,7 @@ const streamedFile = z
   })
   .partial()
   .catch({});
-const streamedShell = z
-  .object({ command: z.string(), timeout: z.number() })
-  .partial()
-  .catch({});
+const streamedShell = z.object({ command: z.string(), timeout: z.number() }).partial().catch({});
 
 function fileArguments(raw: unknown) {
   const input = streamedFile.parse(raw);
@@ -196,9 +176,7 @@ export const claudeTools = [
         return {
           path: input.file_path,
           reason: input.reason,
-          ...(input.replace_all === true
-            ? {}
-            : { oldText: input.old_string, newText: input.new_string }),
+          ...(input.replace_all === true ? {} : { oldText: input.old_string, newText: input.new_string }),
         };
       },
     },
@@ -209,10 +187,7 @@ export const claudeTools = [
     display: {
       arguments(raw: unknown, cwd: string) {
         const { command, timeout } = streamedShell.parse(raw);
-        const shell = piShellArguments(
-          cwd,
-          claudeShellRequest(command ?? "", timeout),
-        );
+        const shell = piShellArguments(cwd, claudeShellRequest(command ?? "", timeout));
         return {
           command,
           timeout: timeout === undefined ? undefined : shell.timeout,

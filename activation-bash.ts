@@ -13,14 +13,13 @@ let installed = false;
 let intact = () => false;
 
 function admitted(): void {
-  if (fenced())
-    throw new Error("Studio is checkpointed; user Bash admission is suspended");
+  if (fenced()) throw new Error("Studio is checkpointed; user Bash admission is suspended");
 }
 
 function finish(runner: ExtensionRunner, dispatch: Dispatch): void {
   pending.delete(dispatch);
   const queue = owners.get(runner);
-  if (queue !== undefined)
+  if (queue)
     owners.set(
       runner,
       queue.filter((entry) => entry !== dispatch),
@@ -40,24 +39,15 @@ export function registerNativeBashAdmission(isFenced: () => boolean): void {
   fenced = isFenced;
   if (installed) return;
   installed = true;
-  const originalDispatch = Reflect.get(
-    ExtensionRunner.prototype,
-    "emitUserBash",
-  );
+  const originalDispatch = Reflect.get(ExtensionRunner.prototype, "emitUserBash");
   const originalExecute = Reflect.get(AgentSession.prototype, "executeBash");
-  const originalRecord = Reflect.get(
-    AgentSession.prototype,
-    "recordBashResult",
-  );
-  const dispatch = async function (
-    this: ExtensionRunner,
-    ...args: Parameters<ExtensionRunner["emitUserBash"]>
-  ) {
+  const originalRecord = Reflect.get(AgentSession.prototype, "recordBashResult");
+  const dispatch = async function (this: ExtensionRunner, ...args: Parameters<ExtensionRunner["emitUserBash"]>) {
     const operation = begin(this, args[0].command);
     try {
       const result = await originalDispatch.apply(this, args);
       admitted();
-      if (result?.result !== undefined) {
+      if (result?.result) {
         operation.state = "record";
         operation.result = result.result;
       } else operation.state = "execute";
@@ -69,18 +59,12 @@ export function registerNativeBashAdmission(isFenced: () => boolean): void {
       throw error;
     }
   };
-  const execute = async function (
-    this: AgentSession,
-    ...args: Parameters<AgentSession["executeBash"]>
-  ) {
+  const execute = async function (this: AgentSession, ...args: Parameters<AgentSession["executeBash"]>) {
     admitted();
     const runner = this.extensionRunner;
     const operation =
-      owners
-        .get(runner)
-        ?.find(
-          (entry) => entry.command === args[0] && entry.state === "execute",
-        ) ?? begin(runner, args[0]);
+      owners.get(runner)?.find((entry) => entry.command === args[0] && entry.state === "execute") ??
+      begin(runner, args[0]);
     operation.state = "executing";
     try {
       const result = await originalExecute.apply(this, args);
@@ -91,25 +75,17 @@ export function registerNativeBashAdmission(isFenced: () => boolean): void {
       throw error;
     }
   };
-  const record = function (
-    this: AgentSession,
-    ...args: Parameters<AgentSession["recordBashResult"]>
-  ) {
+  const record = function (this: AgentSession, ...args: Parameters<AgentSession["recordBashResult"]>) {
     admitted();
     const runner = this.extensionRunner;
     const operation = owners
       .get(runner)
-      ?.find(
-        (entry) =>
-          entry.command === args[0] &&
-          entry.state === "record" &&
-          entry.result === args[1],
-      );
+      ?.find((entry) => entry.command === args[0] && entry.state === "record" && entry.result === args[1]);
     try {
       originalRecord.apply(this, args);
-      if (operation !== undefined) finish(runner, operation);
+      if (operation) finish(runner, operation);
     } catch (error) {
-      if (operation !== undefined) operation.state = "uncertain";
+      if (operation) operation.state = "uncertain";
       throw error;
     }
   };
@@ -130,8 +106,6 @@ export function nativeBashAdmission(): {
   return {
     intact: intact(),
     pending: pending.size,
-    uncertain: [...pending].some(
-      (operation) => operation.state === "uncertain",
-    ),
+    uncertain: [...pending].some((operation) => operation.state === "uncertain"),
   };
 }

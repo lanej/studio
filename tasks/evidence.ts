@@ -17,15 +17,9 @@ export function readTaskEvidence(
   interactiveEvidenceError?: string;
 } {
   // The sidebar polls only the current owners. The task inspector also reads history.
-  const owners = attemptIds === undefined ? [] : [JSON.stringify(attemptIds)];
-  const filter =
-    owners.length > 0 ? " AND id IN (SELECT value FROM json_each(?))" : "";
-  const interactive = readInteractiveEvidence(
-    project,
-    directory,
-    filter,
-    owners,
-  );
+  const owners = !attemptIds ? [] : [JSON.stringify(attemptIds)];
+  const filter = owners.length > 0 ? " AND id IN (SELECT value FROM json_each(?))" : "";
+  const interactive = readInteractiveEvidence(project, directory, filter, owners);
   if (project === undefined) return { attempts: [], ...interactive };
   const path = join(directory, "runtime.sqlite");
   let db: Database | undefined;
@@ -41,14 +35,11 @@ export function readTaskEvidence(
     return {
       ...interactive,
       attempts: rows.map((row) =>
-        executionSchema.parse(
-          JSON.parse(z.object({ record: z.string() }).parse(row).record),
-        ),
+        executionSchema.parse(JSON.parse(z.object({ record: z.string() }).parse(row).record)),
       ),
     };
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT")
-      return { attempts: [], ...interactive };
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return { attempts: [], ...interactive };
     return {
       attempts: [],
       ...interactive,
@@ -74,32 +65,21 @@ function readInteractiveEvidence(
     db = new Database(path, { readonly: true });
     db.run("PRAGMA busy_timeout=1000");
     const attempts = db
-      .query(
-        `SELECT bead,record FROM attempts WHERE project=?${filter} ORDER BY rowid`,
-      )
+      .query(`SELECT bead,record FROM attempts WHERE project=?${filter} ORDER BY rowid`)
       .all(project, ...owners)
       .map((row) => {
-        const stored = z
-          .object({ bead: z.string(), record: z.string() })
-          .parse(row);
+        const stored = z.object({ bead: z.string(), record: z.string() }).parse(row);
         const attempt = attemptSchema.parse(JSON.parse(stored.record));
-        if (attempt.bead.id !== stored.bead)
-          throw new Error(
-            "Interactive receipt task differs from its stored task",
-          );
+        if (attempt.bead.id !== stored.bead) throw new Error("Interactive receipt task differs from its stored task");
         return attempt;
       });
     if (attempts.some((attempt) => attempt.source.projectId !== project))
-      throw new Error(
-        "Interactive receipt project differs from its stored project",
-      );
+      throw new Error("Interactive receipt project differs from its stored project");
     return { interactiveAttempts: attempts };
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT")
-      return {};
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return {};
     return {
-      interactiveEvidenceError:
-        error instanceof Error ? error.message : String(error),
+      interactiveEvidenceError: error instanceof Error ? error.message : String(error),
     };
   } finally {
     db?.close();

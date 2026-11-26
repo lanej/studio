@@ -14,28 +14,19 @@ const failureSchema = z.object({
 export function processFailure(error: unknown): z.infer<typeof failureSchema> {
   if (error instanceof CommandError) return error.failure;
   const parsed = failureSchema.safeParse(error);
-  return parsed.success
-    ? parsed.data
-    : { message: error instanceof Error ? error.message : String(error) };
+  return parsed.success ? parsed.data : { message: error instanceof Error ? error.message : String(error) };
 }
 
-export function processGroupHasLiveMembers(
-  group: number,
-  snapshot: string,
-): boolean {
+export function processGroupHasLiveMembers(group: number, snapshot: string): boolean {
   for (const row of snapshot.trim().split("\n")) {
     const fields = /^(\d+)\s+(\S+)$/u.exec(row.trim());
-    if (fields === null)
-      throw new Error("Unable to read process group state from ps");
+    if (fields === null) throw new Error("Unable to read process group state from ps");
     if (Number(fields[1]) === group && fields[2]?.[0] !== "Z") return true;
   }
   return false;
 }
 
-export function signalProcessGroup(
-  group: number,
-  signal: NodeJS.Signals,
-): void {
+export function signalProcessGroup(group: number, signal: NodeJS.Signals): void {
   try {
     process.kill(-group, signal);
   } catch (error) {

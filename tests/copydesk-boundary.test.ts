@@ -9,14 +9,12 @@ import { z } from "zod";
 const root = fileURLToPath(new URL("../", import.meta.url));
 
 function sources(directory: string): string[] {
-  return readdirSync(resolve(root, directory), { withFileTypes: true }).flatMap(
-    (entry) => {
-      if (["node_modules", "dist", ".git"].includes(entry.name)) return [];
-      const filename = `${directory}/${entry.name}`;
-      if (entry.isDirectory()) return sources(filename);
-      return entry.isFile() && /\.[cm]?ts$/.test(entry.name) ? [filename] : [];
-    },
-  );
+  return readdirSync(resolve(root, directory), { withFileTypes: true }).flatMap((entry) => {
+    if (["node_modules", "dist", ".git"].includes(entry.name)) return [];
+    const filename = `${directory}/${entry.name}`;
+    if (entry.isDirectory()) return sources(filename);
+    return entry.isFile() && /\.[cm]?ts$/.test(entry.name) ? [filename] : [];
+  });
 }
 
 function moduleReferences(filename: string): string[] {
@@ -28,24 +26,17 @@ function moduleReferences(filename: string): string[] {
     true,
   );
   const record = (node: ts.Node | undefined): void => {
-    if (node !== undefined && ts.isStringLiteralLike(node))
-      references.push(node.text);
+    if (node && ts.isStringLiteralLike(node)) references.push(node.text);
   };
   const visit = (node: ts.Node): void => {
-    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
-      record(node.moduleSpecifier);
-    else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument))
-      record(node.argument.literal);
-    else if (
-      ts.isImportEqualsDeclaration(node) &&
-      ts.isExternalModuleReference(node.moduleReference)
-    )
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) record(node.moduleSpecifier);
+    else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) record(node.argument.literal);
+    else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference))
       record(node.moduleReference.expression);
     else if (
       ts.isCallExpression(node) &&
       (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
-        (ts.isIdentifier(node.expression) &&
-          node.expression.text === "require"))
+        (ts.isIdentifier(node.expression) && node.expression.text === "require"))
     )
       record(node.arguments[0]);
     ts.forEachChild(node, visit);
@@ -55,28 +46,18 @@ function moduleReferences(filename: string): string[] {
 }
 
 function modulePath(filename: string, specifier: string): string {
-  return specifier.startsWith(".")
-    ? relative(root, resolve(root, dirname(filename), specifier))
-    : specifier;
+  return specifier.startsWith(".") ? relative(root, resolve(root, dirname(filename), specifier)) : specifier;
 }
 
 await test("planning and task runtime retain authority without importing editor adapters", () => {
-  for (const filename of [
-    ...sources("planning"),
-    ...sources("vendor/task-runtime"),
-    "socrates/controls.ts",
-  ]) {
+  for (const filename of [...sources("planning"), ...sources("vendor/task-runtime"), "socrates/controls.ts"]) {
     for (const specifier of moduleReferences(filename)) {
       const target = modulePath(filename, specifier);
       assert.ok(
-        !target.startsWith("documents/") &&
-          !target.startsWith("@lanej/copydesk"),
+        !target.startsWith("documents/") && !target.startsWith("@lanej/copydesk"),
         `${filename} imports editor implementation ${specifier}`,
       );
-      if (
-        filename === "socrates/controls.ts" ||
-        filename === "planning/document-hooks.ts"
-      ) {
+      if (filename === "socrates/controls.ts" || filename === "planning/document-hooks.ts") {
         assert.ok(
           !target.startsWith("planning/documents"),
           `${filename} depends on the concrete document authority rather than its hooks`,

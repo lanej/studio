@@ -13,9 +13,7 @@ export async function gitState(
   execute?: (args: string[], env?: NodeJS.ProcessEnv) => Promise<string>,
 ) {
   const command =
-    execute ??
-    ((args: string[], env?: NodeJS.ProcessEnv) =>
-      run("git", args, { cwd, ...(env === undefined ? {} : { env }) }));
+    execute ?? ((args: string[], env?: NodeJS.ProcessEnv) => run("git", args, { cwd, ...(!env ? {} : { env }) }));
   const git = async (...args: string[]) => (await command(args)).trim();
   if ((await git("symbolic-ref", "--short", "HEAD")) !== branch)
     throw new Error("The managed checkout changed branches");
@@ -24,8 +22,7 @@ export async function gitState(
   const temporary = await mkdtemp(join(tmpdir(), "studio-index-"));
   try {
     const env = { ...process.env, GIT_INDEX_FILE: join(temporary, "index") };
-    const indexed = async (...args: string[]) =>
-      (await command(args, env)).trim();
+    const indexed = async (...args: string[]) => (await command(args, env)).trim();
     await indexed("read-tree", head);
     await indexed("add", "-A", "--", ".");
     return { gitHead: head, gitState: await indexed("write-tree") };
@@ -42,13 +39,12 @@ export async function runCheck(
   environment?: NodeJS.ProcessEnv,
 ): Promise<{ exitCode: number | null; output: string }> {
   const [program, ...args] = argv;
-  if (program === undefined || program.length === 0)
-    throw new Error("A verification executable is required");
+  if (program === undefined || program.length === 0) throw new Error("A verification executable is required");
   signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
     const child = spawn(program, args, {
       cwd,
-      ...(environment === undefined ? {} : { env: environment }),
+      ...(!environment ? {} : { env: environment }),
       stdio: ["ignore", "pipe", "pipe"],
       shell: false,
       detached: true,
@@ -79,7 +75,7 @@ export async function runCheck(
     };
     let receiptError: unknown;
     const receipt =
-      child.pid === undefined || onSpawn === undefined
+      child.pid === undefined || !onSpawn
         ? Promise.resolve()
         : onSpawn(child.pid).catch((error: unknown) => {
             receiptError = error;
@@ -94,7 +90,7 @@ export async function runCheck(
       void receipt
         .then(() => {
           signal?.removeEventListener("abort", cancel);
-          if (escalation !== undefined) {
+          if (escalation) {
             clearTimeout(escalation);
           }
           terminate("SIGKILL");
@@ -117,10 +113,7 @@ export async function runCheck(
           const output = tail.toString("utf8");
           resolve({
             exitCode: code,
-            output:
-              termination === null
-                ? output
-                : `${output}\nTerminated by ${termination}`,
+            output: termination === null ? output : `${output}\nTerminated by ${termination}`,
           });
         })
         .catch((error: unknown) => {
@@ -130,18 +123,12 @@ export async function runCheck(
   });
 }
 
-export async function submitResult(
-  db: Attempts,
-  id: string,
-  summary: string,
-  signal?: AbortSignal,
-): Promise<string> {
+export async function submitResult(db: Attempts, id: string, summary: string, signal?: AbortSignal): Promise<string> {
   if (summary.trim().length === 0 || summary.length > 4000)
     throw new Error("Supply a result summary of 1–4000 characters");
   const previous = db.get(id);
   const service = new TaskBeads(previous.source);
-  if (previous.phase === Phase.Closed)
-    return "This result is already recorded and the bead is closed";
+  if (previous.phase === Phase.Closed) return "This result is already recorded and the bead is closed";
   if (
     (previous.phase === Phase.Reconcile || previous.phase === Phase.Checking) &&
     previous.verification !== null &&
@@ -155,19 +142,10 @@ export async function submitResult(
     return "Beads confirmed the previous result and closure";
   }
   const current = db.change(id, (row) => {
-    if (
-      row.leadPlan !== undefined &&
-      row.leadPlan.mode !== LeadMode.Implementing
-    )
+    if (row.leadPlan && row.leadPlan.mode !== LeadMode.Implementing)
       throw new Error("Approve the lead plan before submitting a result");
-    if (
-      row.phase !== Phase.Running &&
-      row.phase !== Phase.CheckFailed &&
-      row.phase !== Phase.Verified
-    )
-      throw new Error(
-        `Result submission requires a running worker. Current state: ${row.phase}. ${row.message}`,
-      );
+    if (row.phase !== Phase.Running && row.phase !== Phase.CheckFailed && row.phase !== Phase.Verified)
+      throw new Error(`Result submission requires a running worker. Current state: ${row.phase}. ${row.message}`);
     row.phase = Phase.Checking;
     row.message = "Verifying the accepted result";
     row.verification = null;
@@ -187,39 +165,25 @@ export async function submitResult(
     const { path, branch } = current.checkout;
     await service.requireCurrent(current.bead, current.revision, id);
     Object.assign(verification, await gitState(path, branch));
-    if (
-      current.check.length === 0 ||
-      current.bead.acceptance_criteria.trim().length === 0
-    ) {
-      throw new Error(
-        "Human review is required because the accepted task has no complete machine-verifiable criteria",
-      );
+    if (current.check.length === 0 || current.bead.acceptance_criteria.trim().length === 0) {
+      throw new Error("Human review is required because the accepted task has no complete machine-verifiable criteria");
     }
     phase = Phase.CheckFailed;
     Object.assign(verification, await runCheck(current.check, path, signal));
-    if (verification.exitCode !== 0)
-      throw new Error(
-        `The agreed check exited with ${String(verification.exitCode)}`,
-      );
+    if (verification.exitCode !== 0) throw new Error(`The agreed check exited with ${String(verification.exitCode)}`);
     phase = Phase.NeedsReview;
     if (current.source.reviewOnly === true)
-      throw new Error(
-        "The agreed check passed. This Beads service requires human review",
-      );
+      throw new Error("The agreed check passed. This Beads service requires human review");
     const after = await gitState(path, branch);
-    if (
-      after.gitState !== verification.gitState ||
-      after.gitHead !== verification.gitHead
-    )
+    if (after.gitState !== verification.gitState || after.gitHead !== verification.gitHead)
       throw new Error("The tested Git state changed while the check ran");
     await service.requireCurrent(current.bead, current.revision, id);
     signal?.throwIfAborted();
-    if (current.leadPlan !== undefined) {
+    if (current.leadPlan) {
       db.change(id, (row) => {
         row.phase = Phase.Verified;
         row.verification = verification;
-        row.message =
-          "Verification passed. Waiting for Octo delivery and confirmed merge";
+        row.message = "Verification passed. Waiting for Octo delivery and confirmed merge";
       });
       return "Verification passed. The bead remains in progress until delivery is confirmed.";
     }
@@ -229,27 +193,15 @@ export async function submitResult(
       row.message = "Confirming the result in Beads";
     });
     phase = Phase.Reconcile;
-    await service.complete(
-      current.bead,
-      current.revision,
-      id,
-      verification,
-      signal,
-    );
+    await service.complete(current.bead, current.revision, id, verification, signal);
     db.change(id, (row) => {
       row.phase = Phase.Closed;
       row.message = "Beads confirmed the evidence and closure";
     });
-    return (
-      "Agreed check passed. Beads recorded the evidence and closed " +
-      current.bead.id
-    );
+    return "Agreed check passed. Beads recorded the evidence and closed " + current.bead.id;
   } catch (cause) {
     const reason = cause instanceof Error ? cause.message : String(cause);
-    if (
-      cause instanceof BeadChanged ||
-      (signal?.aborted === true && cause === signal.reason)
-    )
+    if (cause instanceof BeadChanged || (signal?.aborted === true && cause === signal.reason))
       phase = Phase.NeedsReview;
     if (phase !== Phase.Reconcile) verification.reason = reason;
     db.change(id, (row) => {

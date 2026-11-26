@@ -5,12 +5,7 @@ import { resolveDiffScopes } from "../code-intelligence/scopes.ts";
 
 await test("scope labels come from an enclosing declaration outside the hunk", () => {
   const declaration = "function retry(attempt: number) {";
-  const source = [
-    declaration,
-    "  return attempt + 2;",
-    "}",
-    "const limit = 4;",
-  ].join("\n");
+  const source = [declaration, "  return attempt + 2;", "}", "const limit = 4;"].join("\n");
   const symbols = [
     {
       name: "retry",
@@ -27,20 +22,13 @@ await test("scope labels come from an enclosing declaration outside the hunk", (
   ];
   const inside = "-2   return attempt + 1;\n+2   return attempt + 2;";
   const outside = "-4 const limit = 2;\n+4 const limit = 4;";
-  const scopes = resolveDiffScopes(
-    `   ...\n${inside}\n   ...\n${outside}`,
-    source,
-    symbols,
-  );
+  const scopes = resolveDiffScopes(`   ...\n${inside}\n   ...\n${outside}`, source, symbols);
   assert.deepEqual(
     scopes.map(({ row }) => row),
     [1],
   );
   assert.match(scopes[0]?.label ?? "", /retry\(attempt: number\)/u);
-  assert.deepEqual(
-    resolveDiffScopes(` 1 ${declaration}\n${inside}`, source, symbols),
-    [],
-  );
+  assert.deepEqual(resolveDiffScopes(` 1 ${declaration}\n${inside}`, source, symbols), []);
   assert.deepEqual(resolveDiffScopes(inside, source, []), []);
 });
 
@@ -65,10 +53,7 @@ await test("class and type context requires an unambiguous declaration", () => {
         end: { line: 0, character: nameStart + "Policy".length },
       },
     };
-    assert.deepEqual(
-      resolveDiffScopes(diff, source, [symbol]),
-      label === undefined ? [] : [{ row: 0, label }],
-    );
+    assert.deepEqual(resolveDiffScopes(diff, source, [symbol]), label === undefined ? [] : [{ row: 0, label }]);
     assert.deepEqual(resolveDiffScopes(diff, source, [symbol, symbol]), []);
   }
 });

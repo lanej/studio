@@ -1,10 +1,5 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import {
-  matchesKey,
-  truncateToWidth,
-  visibleWidth,
-  wrapTextWithAnsi,
-} from "@earendil-works/pi-tui";
+import { matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { selectorText } from "@lanej/pi-components";
 import {
   orderedTasks,
@@ -32,44 +27,26 @@ interface HandoffReview {
 type ReviewTheme = Pick<Theme, "fg" | "bg" | "bold">;
 const sections = ["Overview", "Specification", "Bead details"] as const;
 
-function beadDetails(
-  draft: LeadDraft,
-  theme: ReviewTheme,
-  width: number,
-  workers?: PlanWorkers,
-): string[] {
+function beadDetails(draft: LeadDraft, theme: ReviewTheme, width: number, workers?: PlanWorkers): string[] {
   const groups = publicationGroups(draft);
   const tasks = orderedTasks(draft).flatMap((task) => {
-    const memberships = groups.filter(({ local }) =>
-      local.some(({ key }) => key === task.key),
-    );
+    const memberships = groups.filter(({ local }) => local.some(({ key }) => key === task.key));
     const delivery =
       task.delivery === TaskDelivery.PullRequest
         ? "Opens a PR"
         : memberships.length > 0
-          ? "Included in PR · " +
-            memberships.map(({ publisher }) => publisher.key).join(", ")
+          ? "Included in PR · " + memberships.map(({ publisher }) => publisher.key).join(", ")
           : "Stays local";
-    const fields = taskReviewFields(
-      task,
-      "execution",
-      delivery,
-      workers?.[task.key],
-    );
+    const fields = taskReviewFields(task, "execution", delivery, workers?.[task.key]);
     return [
       "",
       ...wrapTextWithAnsi(
-        theme.bold(selectorText(task.title)) +
-          "  " +
-          theme.fg("muted", selectorText(task.key)),
+        theme.bold(selectorText(task.title)) + "  " + theme.fg("muted", selectorText(task.key)),
         width,
       ),
       ...wrapTextWithAnsi(selectorText(task.description), width),
       ...fields.flatMap(({ label, value }) =>
-        wrapTextWithAnsi(
-          theme.fg("muted", label + "  ") + selectorText(value),
-          width,
-        ),
+        wrapTextWithAnsi(theme.fg("muted", label + "  ") + selectorText(value), width),
       ),
     ];
   });
@@ -78,12 +55,7 @@ function beadDetails(
 
 type ReviewSection = (typeof sections)[number];
 
-function sectionLines(
-  sectionName: ReviewSection,
-  input: HandoffReview,
-  theme: ReviewTheme,
-  inner: number,
-): string[] {
+function sectionLines(sectionName: ReviewSection, input: HandoffReview, theme: ReviewTheme, inner: number): string[] {
   switch (sectionName) {
     case "Overview":
       return [
@@ -97,21 +69,13 @@ function sectionLines(
             reviewContextValue(input.profile),
           inner,
         ),
-        ...wrapTextWithAnsi(
-          theme.fg("muted", "Project  ") + reviewContextValue(input.project),
-          inner,
-        ),
-        ...wrapTextWithAnsi(
-          theme.fg("muted", "Beads  ") + reviewContextValue(input.sourceId),
-          inner,
-        ),
+        ...wrapTextWithAnsi(theme.fg("muted", "Project  ") + reviewContextValue(input.project), inner),
+        ...wrapTextWithAnsi(theme.fg("muted", "Beads  ") + reviewContextValue(input.sourceId), inner),
       ];
     case "Specification":
       return wrapTextWithAnsi(
         selectorText(
-          input.specification === undefined
-            ? "Recovery of the previously approved handoff"
-            : specText(input.specification),
+          !input.specification ? "Recovery of the previously approved handoff" : specText(input.specification),
         ),
         inner,
       );
@@ -131,9 +95,7 @@ export function createHandoffReview(
   let offset = 0;
   let maximum = 0;
   let page = 1;
-  let content:
-    | { section: ReviewSection; width: number; lines: string[] }
-    | undefined;
+  let content: { section: ReviewSection; width: number; lines: string[] } | undefined;
   let displayed = false;
   let settled = false;
   const close = (confirmed: boolean) => {
@@ -161,28 +123,18 @@ export function createHandoffReview(
       const inner = width - 4;
       const frame = (text: string) => theme.fg("border", text);
       const framed = (line: string) =>
-        theme.bg(
-          "customMessageBg",
-          frame("│ ") + truncateToWidth(line, inner, "", true) + frame(" │"),
-        );
+        theme.bg("customMessageBg", frame("│ ") + truncateToWidth(line, inner, "", true) + frame(" │"));
       const title = truncateToWidth(
-        theme.bold(
-          "Approve " + selectorText(input.title).replace(/\s+/gu, " "),
-        ),
+        theme.bold("Approve " + selectorText(input.title).replace(/\s+/gu, " ")),
         width - 6,
       );
-      const header =
-        frame("╭─ ") +
-        title +
-        frame(" " + "─".repeat(width - 5 - visibleWidth(title)) + "╮");
+      const header = frame("╭─ ") + title + frame(" " + "─".repeat(width - 5 - visibleWidth(title)) + "╮");
       const steps = sections
-        .map((name, i) =>
-          i === section ? theme.bold("▸ " + name) : theme.fg("muted", name),
-        )
+        .map((name, i) => (i === section ? theme.bold("▸ " + name) : theme.fg("muted", name)))
         .join("   ");
       const sectionName = sections[section] ?? "Overview";
       if (content?.width !== inner || content.section !== sectionName) {
-        if (content !== undefined && content.width !== inner) offset = 0;
+        if (content && content.width !== inner) offset = 0;
         content = {
           width: inner,
           section: sectionName,
@@ -190,21 +142,11 @@ export function createHandoffReview(
         };
       }
       const body = content.lines;
-      const progress =
-        visibleWidth(steps) <= inner
-          ? steps
-          : theme.bold(sections[section] ?? "");
+      const progress = visibleWidth(steps) <= inner ? steps : theme.bold(sections[section] ?? "");
       const nextSection = sections[section + 1];
-      const lastAction =
-        nextSection === undefined
-          ? "Enter create tasks and implement"
-          : "Enter " + nextSection;
-      const hints = theme.fg(
-        "muted",
-        section === 0 ? "  ·  Esc cancel" : "  ·  ← back  ·  Esc cancel",
-      );
-      const footer = (action: string) =>
-        wrapTextWithAnsi(theme.bold(action) + hints, inner);
+      const lastAction = nextSection === undefined ? "Enter create tasks and implement" : "Enter " + nextSection;
+      const hints = theme.fg("muted", section === 0 ? "  ·  Esc cancel" : "  ·  ← back  ·  Esc cancel");
+      const footer = (action: string) => wrapTextWithAnsi(theme.bold(action) + hints, inner);
       const finalFooter = footer(lastAction);
       const moreFooter = footer("Enter more");
       // Both footers share a page height so wrapping the final action cannot
@@ -241,13 +183,10 @@ export function createHandoffReview(
           close(true);
           return;
         }
-      } else if (matchesKey(input, "pageDown"))
-        offset = Math.min(maximum, offset + page);
+      } else if (matchesKey(input, "pageDown")) offset = Math.min(maximum, offset + page);
       else if (matchesKey(input, "pageUp")) offset = Math.max(0, offset - page);
-      else if (matchesKey(input, "down") || input === "j")
-        offset = Math.min(maximum, offset + 1);
-      else if (matchesKey(input, "up") || input === "k")
-        offset = Math.max(0, offset - 1);
+      else if (matchesKey(input, "down") || input === "j") offset = Math.min(maximum, offset + 1);
+      else if (matchesKey(input, "up") || input === "k") offset = Math.max(0, offset - 1);
       else if (matchesKey(input, "left") && section > 0) go(section - 1);
       else return;
       displayed = false;
@@ -259,10 +198,7 @@ export function createHandoffReview(
   };
 }
 
-export function reviewHandoff(
-  ctx: ExtensionContext,
-  input: HandoffReview,
-): Promise<boolean> {
+export function reviewHandoff(ctx: ExtensionContext, input: HandoffReview): Promise<boolean> {
   return ctx.ui.custom<boolean>(
     (tui, theme, _keys, done) =>
       createHandoffReview(

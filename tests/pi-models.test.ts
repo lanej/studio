@@ -40,10 +40,7 @@ await test("Mantle generation follows declared APIs for new IDs and preserves Pi
   assert.ok(model !== undefined);
   assert.equal(model.id, "future.model");
   assert.equal(model.api, "openai-responses");
-  assert.equal(
-    model.baseUrl,
-    "https://bedrock-mantle.eu-west-3.api.aws/future/v1",
-  );
+  assert.equal(model.baseUrl, "https://bedrock-mantle.eu-west-3.api.aws/future/v1");
   for (const field of [
     "name",
     "cost",
@@ -57,10 +54,7 @@ await test("Mantle generation follows declared APIs for new IDs and preserves Pi
     assert.deepEqual(model[field], future[field], field);
   assert.doesNotMatch(JSON.stringify(generated), /fixture-private-header/);
   assert.deepEqual(model.compat, { supportsStrictMode: false });
-  assert.equal(
-    generated.providers["bedrock-mantle"].apiKey,
-    "$AWS_BEARER_TOKEN_BEDROCK",
-  );
+  assert.equal(generated.providers["bedrock-mantle"].apiKey, "$AWS_BEARER_TOKEN_BEDROCK");
 });
 
 await test("Mantle generation supports chat and Anthropic SDK endpoint conventions", () => {
@@ -79,10 +73,7 @@ await test("Mantle generation supports chat and Anthropic SDK endpoint conventio
     ).providers["bedrock-mantle"].models[0];
     assert.ok(model !== undefined);
     assert.equal(model.api, api);
-    assert.equal(
-      model.baseUrl,
-      `https://bedrock-mantle.us-west-2.api.aws${sdkPath}`,
-    );
+    assert.equal(model.baseUrl, `https://bedrock-mantle.us-west-2.api.aws${sdkPath}`);
   }
 });
 
@@ -90,10 +81,7 @@ await test("Mantle generation rejects invalid regions and excludes untrusted end
   const source = catalog({
     responses: { base_url: `https://bedrock-mantle.\${AWS_REGION}.api.aws/v1` },
   });
-  assert.throws(
-    () => mantleModels(models, source, "us-east-1/invalid"),
-    /valid AWS region/,
-  );
+  assert.throws(() => mantleModels(models, source, "us-east-1/invalid"), /valid AWS region/);
   for (const api of [
     { responses: { base_url: "https://other.example/v1" } },
     {

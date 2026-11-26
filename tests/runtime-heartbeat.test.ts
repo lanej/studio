@@ -6,11 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { runtimeProjectSchema, StudioProfile } from "../config.ts";
 import { beadSchema } from "../task-service.ts";
-import {
-  ExecutionPhase,
-  ExecutionStore,
-  executionSchema,
-} from "../execution/store.ts";
+import { ExecutionPhase, ExecutionStore, executionSchema } from "../execution/store.ts";
 import { maintainAttempt } from "../execution/supervisor.ts";
 import { startAssignmentHeartbeat } from "../execution/worker.ts";
 
@@ -65,16 +61,11 @@ await test("supervisor lease maintenance preserves completion and new owners acr
     });
     await maintainAttempt(store, project, live.id, {
       reconcile: async () => {},
-      heartbeat: () =>
-        Promise.reject(new Error("duplicate control-host heartbeat")),
+      heartbeat: () => Promise.reject(new Error("duplicate control-host heartbeat")),
     });
     assert.equal(store.attempt(live.id).phase, ExecutionPhase.Running);
 
-    for (const outcome of [
-      ExecutionPhase.Complete,
-      ExecutionPhase.Launching,
-      ExecutionPhase.Uncertain,
-    ]) {
+    for (const outcome of [ExecutionPhase.Complete, ExecutionPhase.Launching, ExecutionPhase.Uncertain]) {
       const record = create();
       const entered = deferred();
       const pending = deferred();
@@ -90,12 +81,9 @@ await test("supervisor lease maintenance preserves completion and new owners acr
         peer.change(record.id, (row) => {
           row.phase = outcome;
           row.message = "new lifecycle decision";
-          if (outcome === ExecutionPhase.Launching)
-            row.launchToken = randomUUID();
+          if (outcome === ExecutionPhase.Launching) row.launchToken = randomUUID();
         });
-      pending.reject(
-        new Error("heartbeat rejected: task closed or ownership changed"),
-      );
+      pending.reject(new Error("heartbeat rejected: task closed or ownership changed"));
       await maintenance;
       const current = store.attempt(record.id);
       assert.equal(current.phase, outcome);

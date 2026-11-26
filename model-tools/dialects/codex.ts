@@ -6,11 +6,7 @@ import { patchEditRenderers } from "../codex-rendering.ts";
 import { applyPatch, runShell } from "../operations.ts";
 import { piShellArguments, type ShellRequest } from "../shell.ts";
 
-export function codexShellRequest(
-  command: string,
-  workdir?: string,
-  timeoutMs?: number,
-): ShellRequest {
+export function codexShellRequest(command: string, workdir?: string, timeoutMs?: number): ShellRequest {
   return { command, workdir, timeoutMs };
 }
 
@@ -24,18 +20,12 @@ const shell = defineTool({
     {
       command: Type.String(),
       workdir: Type.Optional(Type.String({ minLength: 1 })),
-      timeout_ms: Type.Optional(
-        Type.Integer({ minimum: 1, maximum: 2147483647 }),
-      ),
+      timeout_ms: Type.Optional(Type.Integer({ minimum: 1, maximum: 2147483647 })),
     },
     { additionalProperties: false },
   ),
   execute(_id, args, _signal, onUpdate, ctx) {
-    return runShell(
-      ctx,
-      codexShellRequest(args.command, args.workdir, args.timeout_ms),
-      onUpdate,
-    );
+    return runShell(ctx, codexShellRequest(args.command, args.workdir, args.timeout_ms), onUpdate);
   },
 });
 
@@ -48,8 +38,7 @@ const patch = defineTool({
   parameters: Type.Object(
     {
       patch: Type.String({
-        description:
-          "The complete patch, including a *** Reason: line for each file.",
+        description: "The complete patch, including a *** Reason: line for each file.",
       }),
     },
     { additionalProperties: false },
@@ -79,21 +68,12 @@ export const codexTools = [
     display: {
       arguments(raw: unknown, cwd: string) {
         const input = streamedShell.parse(raw);
-        const args = piShellArguments(
-          cwd,
-          codexShellRequest(
-            input.command ?? "",
-            input.workdir,
-            input.timeout_ms,
-          ),
-        );
+        const args = piShellArguments(cwd, codexShellRequest(input.command ?? "", input.workdir, input.timeout_ms));
         return {
           ...args,
           command: input.command === undefined ? undefined : args.command,
           // Result styling needs the source command before Pi's workdir preamble.
-          ...(input.workdir === undefined
-            ? {}
-            : { sourceCommand: input.command }),
+          ...(input.workdir === undefined ? {} : { sourceCommand: input.command }),
         };
       },
     },
@@ -102,7 +82,6 @@ export const codexTools = [
 ] as const;
 
 export const codexDialect = {
-  matches:
-    /^(?:(?:[a-z]{2}|global)\.)?(?:openai[./])?(?:gpt-\d|codex(?:-|$)|o[134](?:-|$))/iu,
+  matches: /^(?:(?:[a-z]{2}|global)\.)?(?:openai[./])?(?:gpt-\d|codex(?:-|$)|o[134](?:-|$))/iu,
   tools: codexTools,
 };

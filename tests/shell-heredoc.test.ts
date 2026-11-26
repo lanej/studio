@@ -4,8 +4,7 @@ import { shellHeredocs, prepareShellHeredoc } from "../shell-heredoc.ts";
 
 await test("a quoted gh issue body keeps its Markdown source and subsequent shell commands", async () => {
   await prepareShellHeredoc();
-  const header =
-    "gh issue create --repo example/cli --title 'Support per-user CLI credentials' --body-file -";
+  const header = "gh issue create --repo example/cli --title 'Support per-user CLI credentials' --body-file -";
   const body = [
     "",
     "## Problem",
@@ -32,12 +31,10 @@ await test("Markdown detection follows the stdin flag and the chosen delimiter",
   await prepareShellHeredoc();
   const header = "gh pr comment 42 -F -";
   const body = "## Review\n  - Nested item\nEOF\n";
-  assert.deepEqual(
-    shellHeredocs(
-      `${header} <<-"NOTE"\n\t## Review\n\t  - Nested item\n\tEOF\n\tNOTE`,
-    ),
-    { documents: [{ header, body, language: "markdown" }], following: "" },
-  );
+  assert.deepEqual(shellHeredocs(`${header} <<-"NOTE"\n\t## Review\n\t  - Nested item\n\tEOF\n\tNOTE`), {
+    documents: [{ header, body, language: "markdown" }],
+    following: "",
+  });
   const edit = "gh issue edit 42 --body-file=-";
   assert.deepEqual(shellHeredocs(`${edit} <<BODY_END\nPlain body\nBODY_END`), {
     documents: [{ header: edit, body: "Plain body\n", language: "markdown" }],
@@ -99,16 +96,13 @@ await test("an unquoted language tag displays authored templates and takes prece
   const body = "SELECT $id, `column` FROM records;\n";
   const markdown = "cat <<-Md";
   const mdBody = "Here is `$HOME`.\n";
-  assert.deepEqual(
-    shellHeredocs(`${sql}\n${body}SQL\n${markdown}\n\t${mdBody}\tMd`),
-    {
-      documents: [
-        { header: sql, body, language: "sql" },
-        { header: markdown, body: mdBody, language: "markdown" },
-      ],
-      following: "",
-    },
-  );
+  assert.deepEqual(shellHeredocs(`${sql}\n${body}SQL\n${markdown}\n\t${mdBody}\tMd`), {
+    documents: [
+      { header: sql, body, language: "sql" },
+      { header: markdown, body: mdBody, language: "markdown" },
+    ],
+    following: "",
+  });
 });
 
 await test("output redirects before and after a marker remain visible with the tagged body", async () => {
@@ -132,18 +126,7 @@ await test("raw documents, shell commands and final output boundaries survive mi
   const raw = "cat <<'EOF'\n# Still raw\nEOF";
   const first = "cat <<'MD'";
   const second = "cat <<'PY'";
-  const source = [
-    raw,
-    first,
-    "## Hello",
-    "MD",
-    raw,
-    "echo between",
-    second,
-    "print(1)",
-    "PY",
-    "echo after",
-  ].join("\n");
+  const source = [raw, first, "## Hello", "MD", raw, "echo between", second, "print(1)", "PY", "echo after"].join("\n");
   assert.deepEqual(shellHeredocs(source), {
     documents: [
       { header: raw + "\n" + first, body: "## Hello\n", language: "markdown" },

@@ -6,11 +6,7 @@ import nord from "../resources/theme.json" with { type: "json" };
 import { handoffOverview } from "../discovery/handoff-overview.ts";
 import { createHandoffReview } from "../discovery/handoff-review.ts";
 import { draftSchema } from "../lead-plan.ts";
-import {
-  coveragePropertyCatalog,
-  coverageToken,
-  pendingCoverageReview,
-} from "../socrates/assessment.ts";
+import { coveragePropertyCatalog, coverageToken, pendingCoverageReview } from "../socrates/assessment.ts";
 import { specRecord, SpecStatus } from "../socrates/spec.ts";
 
 const theme = new Theme(nord.colors, nord.colors, "truecolor");
@@ -114,8 +110,7 @@ await test("the handoff opens on the dependency graph and PR contents in the Stu
   assert.ok(rows.length <= 35 && rows.every((row) => visibleWidth(row) <= 122));
   const plain = rows.map(stripTerminalSequences).join("\n");
   assert.match(plain, /Approve Handbook/u);
-  for (const task of draft.tasks)
-    assert.ok(plain.includes(task.title), task.key);
+  for (const task of draft.tasks) assert.ok(plain.includes(task.title), task.key);
   assert.match(plain, /├─╮/u);
   assert.match(plain, /◆ Frozen.*13 satisfied/u);
   const heading = rows
@@ -127,19 +122,13 @@ await test("the handoff opens on the dependency graph and PR contents in the Stu
     .map((row) => stripTerminalSequences(row).slice(deliveryStart, -1).trim())
     .filter(Boolean)
     .join("\n");
-  assert.match(
-    contents,
-    /guide\nAlso includes terms\nindex\nAlso includes terms\nStays local\nnotes\n/u,
-  );
+  assert.match(contents, /guide\nAlso includes terms\nindex\nAlso includes terms\nStays local\nnotes\n/u);
   assert.ok(
     rows.some((row) => row.includes(theme.getFgAnsi("syntaxNumber"))),
     "branch lanes retain separate Nord colors",
   );
   assert.match(plain, /manual/iu);
-  assert.doesNotMatch(
-    plain,
-    /Verify notes independently|Enter create tasks and implement/u,
-  );
+  assert.doesNotMatch(plain, /Verify notes independently|Enter create tasks and implement/u);
 });
 
 await test("a follow-up keeps the existing property evidence visible in the handoff overview", () => {
@@ -150,9 +139,7 @@ await test("a follow-up keeps the existing property evidence visible in the hand
       content: "Which PR will contain the glossary?",
     }),
   };
-  const overview = handoffOverview(theme, 110, draft, pending)
-    .map(stripTerminalSequences)
-    .join("\n");
+  const overview = handoffOverview(theme, 110, draft, pending).map(stripTerminalSequences).join("\n");
   assert.match(overview, /13 satisfied/u);
   assert.doesNotMatch(overview, /recheck/u);
 });
@@ -174,19 +161,13 @@ await test("paging a narrow handoff exposes the full reviewed scope before an ex
   const width = 51;
   for (let page = 0; page < 100; page++) {
     const rows = component.render(width);
-    assert.ok(
-      rows.length <= 17 && rows.every((row) => visibleWidth(row) <= width),
-    );
+    assert.ok(rows.length <= 17 && rows.every((row) => visibleWidth(row) <= width));
     const frame = rows.map(stripTerminalSequences).join("\n");
     pages.push(frame);
     if (frame.includes("Enter create tasks and implement")) break;
     component.handleInput("\r");
     component.handleInput("\r");
-    assert.deepEqual(
-      decisions,
-      [],
-      "queued input cannot approve an unseen page",
-    );
+    assert.deepEqual(decisions, [], "queued input cannot approve an unseen page");
   }
   assert.match(pages.at(-1) ?? "", /Enter create tasks and implement/u);
   const transcript = pages.join("\n");
@@ -215,10 +196,7 @@ await test("Escape can cancel both the first page and the final confirmation", (
   for (const atEnd of [false, true]) {
     const { component, decisions } = review(30);
     for (let page = 0; page < 100; page++) {
-      const frame = component
-        .render(100)
-        .map(stripTerminalSequences)
-        .join("\n");
+      const frame = component.render(100).map(stripTerminalSequences).join("\n");
       if (!atEnd || frame.includes("Enter create tasks and implement")) break;
       component.handleInput("\r");
     }
@@ -233,9 +211,7 @@ await test("a wrapped action hint never strands approval in a narrow split", () 
   for (let page = 0; page < 100 && decisions.length === 0; page++) {
     const rows = component.render(35);
     last = rows.map(stripTerminalSequences).join("\n");
-    assert.ok(
-      rows.length <= 15 && rows.every((row) => visibleWidth(row) <= 35),
-    );
+    assert.ok(rows.length <= 15 && rows.every((row) => visibleWidth(row) <= 35));
     component.handleInput("\r");
   }
   assert.deepEqual(decisions, [true], last);

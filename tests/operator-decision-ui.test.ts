@@ -2,28 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { randomUUID } from "node:crypto";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import {
-  ExecutionPhase,
-  ExecutionStore,
-  executionSchema,
-  pendingDecision,
-} from "../execution/store.ts";
+import { ExecutionPhase, ExecutionStore, executionSchema, pendingDecision } from "../execution/store.ts";
 import { StudioProfile } from "../config.ts";
-import {
-  CURSOR_MARKER,
-  ProcessTerminal,
-  getKeybindings,
-  TuiMainScreen,
-  visibleWidth,
-} from "@earendil-works/pi-tui";
+import { CURSOR_MARKER, ProcessTerminal, getKeybindings, TuiMainScreen, visibleWidth } from "@earendil-works/pi-tui";
 import { paneKeybindingsSchema } from "../pane-keybindings-config.ts";
 import { DecisionEditor } from "../tasks/decision-editor.ts";
 import { TaskBrowser } from "../tasks/browser.ts";
-import {
-  decisionDetails,
-  taskNarrative,
-  type TaskSnapshot,
-} from "../tasks/model.ts";
+import { decisionDetails, taskNarrative, type TaskSnapshot } from "../tasks/model.ts";
 import { recordDecision } from "../execution/decisions.ts";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -41,10 +26,7 @@ await test("long questions scroll independently of multiline answers, and Escape
   }
   const tui = new TestTui(new ProcessTerminal());
   const results: (string | undefined)[] = [];
-  const question =
-    "Question begins " +
-    "Which contract should be kept? ".repeat(56) +
-    "Final option?";
+  const question = "Question begins " + "Which contract should be kept? ".repeat(56) + "Final option?";
   const editor = new DecisionEditor(tui, theme, question, (answer) => {
     results.push(answer);
   });
@@ -52,9 +34,7 @@ await test("long questions scroll independently of multiline answers, and Escape
   const render = () => editor.render(36).join("\n");
   const frame = editor.render(36);
   assert.match(frame[0] ?? "", /^╭─ Worker question .*╮$/u);
-  assert.ok(
-    frame.slice(1, -1).every((row) => row.startsWith("│") && row.endsWith("│")),
-  );
+  assert.ok(frame.slice(1, -1).every((row) => row.startsWith("│") && row.endsWith("│")));
   assert.match(frame.at(-1) ?? "", /^╰─ Enter submit .*╯$/u);
   assert.match(render(), /Question begins/u);
   assert.equal(
@@ -105,12 +85,7 @@ await test("the reply cursor stays inside the drawer when the terminal shrinks",
   }
   const terminal = new ResizableTerminal();
   const tui = new TestTui(terminal);
-  const editor = new DecisionEditor(
-    tui,
-    theme,
-    "A long question ".repeat(10),
-    () => {},
-  );
+  const editor = new DecisionEditor(tui, theme, "A long question ".repeat(10), () => {});
   editor.focused = true;
   for (let i = 0; i < 10; i++) {
     editor.handleInput("Wrapped answer ".repeat(3));
@@ -121,9 +96,7 @@ await test("the reply cursor stays inside the drawer when the terminal shrinks",
     terminal.rowCount = height;
     for (const width of [1, 2, 3, 4, 6, 7, 8, 16, 60, 80]) {
       const rows = editor.render(width);
-      assert.ok(
-        rows.length <= Math.max(1, Math.min(12, Math.floor(height / 3))),
-      );
+      assert.ok(rows.length <= Math.max(1, Math.min(12, Math.floor(height / 3))));
       assert.ok(
         rows.every((row) => visibleWidth(row) === width),
         `Width ${String(width)} at ${String(height)} rows`,
@@ -152,9 +125,7 @@ await test("the answer editor follows Pi text bindings and keeps pane mnemonics 
     new DecisionEditor(
       tui,
       theme,
-      "First option? " +
-        "Which contract should we keep? ".repeat(100) +
-        "Last option?",
+      "First option? " + "Which contract should we keep? ".repeat(100) + "Last option?",
       (answer) => {
         results.push(answer);
       },
@@ -224,14 +195,8 @@ await test("only explicit owned decisions offer Answer and capture the original 
       focusable: new Set(),
       limitReached: false,
     };
-    assert.match(
-      decisionDetails(task, snapshot) ?? "",
-      /Which accepted marker/u,
-    );
-    assert.match(
-      taskNarrative(task, snapshot),
-      /awaiting an explicit operator decision/u,
-    );
+    assert.match(decisionDetails(task, snapshot) ?? "", /Which accepted marker/u);
+    assert.match(taskNarrative(task, snapshot), /awaiting an explicit operator decision/u);
     assert.equal(
       decisionDetails(task, {
         ...snapshot,
@@ -286,9 +251,7 @@ await test("only explicit owned decisions offer Answer and capture the original 
     for (let i = 0; i < 16; i++) {
       browser.render(100);
       browser.handleInput("n");
-      if (
-        browser.render(100).join("\n").includes("› ↗ Answer operator decision")
-      ) {
+      if (browser.render(100).join("\n").includes("› ↗ Answer operator decision")) {
         selected = true;
         break;
       }
@@ -314,9 +277,7 @@ await test("only explicit owned decisions offer Answer and capture the original 
       attempts: [
         {
           ...waiting,
-          operatorDecisions: [
-            { ...request, id: randomUUID(), question: "Changed question" },
-          ],
+          operatorDecisions: [{ ...request, id: randomUUID(), question: "Changed question" }],
         },
       ],
     };
@@ -343,10 +304,7 @@ await test("only explicit owned decisions offer Answer and capture the original 
         () => {},
         task.id,
       );
-      assert.doesNotMatch(
-        view.render(100).join("\n"),
-        /↗ Answer operator decision/u,
-      );
+      assert.doesNotMatch(view.render(100).join("\n"), /↗ Answer operator decision/u);
       view.dispose();
     }
     browser.dispose();

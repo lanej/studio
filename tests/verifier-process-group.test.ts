@@ -15,28 +15,18 @@ await test("exit and close signal a finished verifier group only once", async (c
   let group: number | undefined;
   let kills = 0;
   const original = process.kill.bind(process);
-  context.mock.method(
-    process,
-    "kill",
-    (pid: number, signal?: NodeJS.Signals | number) => {
-      if (group === undefined || pid !== -group || signal !== "SIGKILL")
-        return original(pid, signal);
-      if (++kills > 1)
-        throw Object.assign(new Error("kill() failed: EPERM"), {
-          code: "EPERM",
-        });
-      return true;
-    },
-  );
-  const result = await runCheck(
-    [process.execPath, "-e", "process.exit(0)"],
-    process.cwd(),
-    undefined,
-    (pid) => {
-      group = pid;
-      return Promise.resolve();
-    },
-  );
+  context.mock.method(process, "kill", (pid: number, signal?: NodeJS.Signals | number) => {
+    if (group === undefined || pid !== -group || signal !== "SIGKILL") return original(pid, signal);
+    if (++kills > 1)
+      throw Object.assign(new Error("kill() failed: EPERM"), {
+        code: "EPERM",
+      });
+    return true;
+  });
+  const result = await runCheck([process.execPath, "-e", "process.exit(0)"], process.cwd(), undefined, (pid) => {
+    group = pid;
+    return Promise.resolve();
+  });
   assert.equal(result.exitCode, 0);
   assert.equal(kills, 1);
 });

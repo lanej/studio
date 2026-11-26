@@ -56,9 +56,7 @@ export class LspClient {
   private readonly documents = new Map<string, Document>();
   private readonly diagnostics = new Map<string, Diagnostics>();
   private readonly listeners = new Set<() => void>();
-  private readonly observers = new Set<
-    (path: string, diagnostics: Diagnostics) => void
-  >();
+  private readonly observers = new Set<(path: string, diagnostics: Diagnostics) => void>();
   private readonly ready: Promise<void>;
   private capabilities: ServerCapabilities = {};
   private stderr = "";
@@ -85,39 +83,28 @@ export class LspClient {
       this.fail(error.message);
     });
     this.process.on("exit", (code) => {
-      if (this.state !== ServerState.Stopped)
-        this.fail(`Server exited (${String(code)}). ${this.stderr}`);
+      if (this.state !== ServerState.Stopped) this.fail(`Server exited (${String(code)}). ${this.stderr}`);
     });
     this.connection.onError(([error]) => {
       this.fail(error.message);
     });
     this.connection.onClose(() => {
-      if (this.state !== ServerState.Stopped)
-        this.fail("Server connection closed");
+      if (this.state !== ServerState.Stopped) this.fail("Server connection closed");
     });
-    this.connection.onNotification(
-      PublishDiagnosticsNotification.type,
-      (event) => {
-        const document = this.documents.get(event.uri);
-        if (
-          document === undefined ||
-          (event.version !== undefined && event.version !== document.version)
-        )
-          return;
-        const diagnostics: Diagnostics = {
-          version: document.version,
-          freshness: event.version === undefined ? "unversioned" : "versioned",
-          items: event.diagnostics,
-        };
-        this.diagnostics.set(event.uri, diagnostics);
-        for (const observer of this.observers)
-          observer(fileURLToPath(event.uri), diagnostics);
-        for (const listener of this.listeners) listener();
-      },
-    );
-    this.connection.onRequest(
-      "workspace/configuration",
-      (params: { items: unknown[] }) => params.items.map(() => ({})),
+    this.connection.onNotification(PublishDiagnosticsNotification.type, (event) => {
+      const document = this.documents.get(event.uri);
+      if (!document || (event.version !== undefined && event.version !== document.version)) return;
+      const diagnostics: Diagnostics = {
+        version: document.version,
+        freshness: event.version === undefined ? "unversioned" : "versioned",
+        items: event.diagnostics,
+      };
+      this.diagnostics.set(event.uri, diagnostics);
+      for (const observer of this.observers) observer(fileURLToPath(event.uri), diagnostics);
+      for (const listener of this.listeners) listener();
+    });
+    this.connection.onRequest("workspace/configuration", (params: { items: unknown[] }) =>
+      params.items.map(() => ({})),
     );
     this.connection.onRequest("workspace/applyEdit", () => ({
       applied: false,
@@ -129,9 +116,7 @@ export class LspClient {
     this.ready.catch(() => undefined);
   }
 
-  onDiagnostics(
-    observer: (path: string, diagnostics: Diagnostics) => void,
-  ): () => void {
+  onDiagnostics(observer: (path: string, diagnostics: Diagnostics) => void): () => void {
     this.observers.add(observer);
     return () => {
       this.observers.delete(observer);
@@ -149,8 +134,7 @@ export class LspClient {
   }
 
   private fail(message: string): void {
-    if (this.state === ServerState.Stopped || this.state === ServerState.Failed)
-      return;
+    if (this.state === ServerState.Stopped || this.state === ServerState.Failed) return;
     this.state = ServerState.Failed;
     this.failure = `${this.spec.command}: ${message}`;
     this.connection.dispose();
@@ -170,9 +154,7 @@ export class LspClient {
             processId: process.pid,
             // eslint-disable-next-line @typescript-eslint/no-deprecated -- Required by InitializeParams and older installed servers.
             rootUri: pathToFileURL(this.root).href,
-            workspaceFolders: [
-              { uri: pathToFileURL(this.root).href, name: this.root },
-            ],
+            workspaceFolders: [{ uri: pathToFileURL(this.root).href, name: this.root }],
             capabilities: {
               general: { positionEncodings: ["utf-16"] },
               textDocument: {
@@ -185,13 +167,9 @@ export class LspClient {
           token,
         ),
       );
-      if (
-        response.capabilities.positionEncoding !== undefined &&
-        response.capabilities.positionEncoding !== "utf-16"
-      )
+      if (response.capabilities.positionEncoding !== undefined && response.capabilities.positionEncoding !== "utf-16")
         throw new Error("Server did not negotiate UTF-16 positions");
-      if (this.state === ServerState.Stopped)
-        throw new Error("Server stopped during initialization");
+      if (this.state === ServerState.Stopped) throw new Error("Server stopped during initialization");
       this.capabilities = response.capabilities;
       await this.connection.sendNotification(InitializedNotification.type, {});
       this.state = ServerState.Ready;
@@ -219,9 +197,7 @@ export class LspClient {
           };
           timer = setTimeout(() => {
             cancellation.cancel();
-            reject(
-              new Error(`LSP request timed out after ${String(timeoutMs)}ms`),
-            );
+            reject(new Error(`LSP request timed out after ${String(timeoutMs)}ms`));
           }, timeoutMs);
           signal?.addEventListener("abort", abort, { once: true });
           if (signal?.aborted === true) abort();
@@ -229,44 +205,37 @@ export class LspClient {
       ]);
     } finally {
       clearTimeout(timer);
-      if (abort !== undefined) signal?.removeEventListener("abort", abort);
+      if (abort) signal?.removeEventListener("abort", abort);
       cancellation.dispose();
     }
   }
 
   async sync(path: string): Promise<{ uri: string; version: number }> {
     await this.ready;
-    if (this.state !== ServerState.Ready)
-      throw new Error(this.failure ?? "Server stopped");
+    if (this.state !== ServerState.Ready) throw new Error(this.failure ?? "Server stopped");
     const uri = pathToFileURL(path).href;
     const text = await readFile(path, "utf8");
     const previous = this.documents.get(uri);
     if (previous?.text === text) return { uri, version: previous.version };
     const sync = this.capabilities.textDocumentSync;
     const kind = typeof sync === "number" ? sync : sync?.change;
-    if (
-      previous !== undefined &&
-      (kind === TextDocumentSyncKind.None || kind === undefined)
-    )
+    if (previous && (kind === TextDocumentSyncKind.None || kind === undefined))
       throw new Error("Server does not support document synchronization");
     const version = (previous?.version ?? 0) + 1;
     this.documents.set(uri, { text, version });
     this.diagnostics.delete(uri);
-    if (previous === undefined) {
-      await this.connection.sendNotification(
-        DidOpenTextDocumentNotification.type,
-        {
-          textDocument: {
-            uri,
-            version,
-            languageId:
-              this.spec.command === "typescript-language-server"
-                ? (scriptLanguages[extname(path)] ?? this.spec.languageId)
-                : this.spec.languageId,
-            text,
-          },
+    if (!previous) {
+      await this.connection.sendNotification(DidOpenTextDocumentNotification.type, {
+        textDocument: {
+          uri,
+          version,
+          languageId:
+            this.spec.command === "typescript-language-server"
+              ? (scriptLanguages[extname(path)] ?? this.spec.languageId)
+              : this.spec.languageId,
+          text,
         },
-      );
+      });
     } else {
       const lines = previous.text.split("\n");
       const contentChanges =
@@ -284,28 +253,16 @@ export class LspClient {
               },
             ]
           : [{ text }];
-      await this.connection.sendNotification(
-        DidChangeTextDocumentNotification.type,
-        {
-          textDocument: { uri, version },
-          contentChanges,
-        },
-      );
+      await this.connection.sendNotification(DidChangeTextDocumentNotification.type, {
+        textDocument: { uri, version },
+        contentChanges,
+      });
     }
-    if (
-      typeof sync === "object" &&
-      sync.save !== undefined &&
-      sync.save !== false
-    )
-      await this.connection.sendNotification(
-        DidSaveTextDocumentNotification.type,
-        {
-          textDocument: { uri },
-          ...(typeof sync.save === "object" && sync.save.includeText === true
-            ? { text }
-            : {}),
-        },
-      );
+    if (typeof sync === "object" && sync.save !== undefined && sync.save !== false)
+      await this.connection.sendNotification(DidSaveTextDocumentNotification.type, {
+        textDocument: { uri },
+        ...(typeof sync.save === "object" && sync.save.includeText === true ? { text } : {}),
+      });
     return { uri, version };
   }
 
@@ -313,40 +270,21 @@ export class LspClient {
     for (const uri of this.documents.keys()) {
       const path = fileURLToPath(uri);
       try {
-        if ((await realpath(path)) !== path)
-          throw new Error("An opened LSP document became a symbolic link");
+        if ((await realpath(path)) !== path) throw new Error("An opened LSP document became a symbolic link");
         await this.sync(path);
       } catch (error) {
-        if (
-          !(
-            error instanceof Error &&
-            "code" in error &&
-            error.code === "ENOENT"
-          )
-        )
-          throw error;
+        if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
         this.documents.delete(uri);
         this.diagnostics.delete(uri);
-        await this.connection.sendNotification(
-          DidCloseTextDocumentNotification.type,
-          { textDocument: { uri } },
-        );
+        await this.connection.sendNotification(DidCloseTextDocumentNotification.type, { textDocument: { uri } });
       }
     }
   }
 
-  async request(
-    method: string,
-    params: unknown,
-    signal?: AbortSignal,
-  ): Promise<unknown> {
+  async request(method: string, params: unknown, signal?: AbortSignal): Promise<unknown> {
     await this.ready;
-    if (this.state !== ServerState.Ready)
-      throw new Error(this.failure ?? "Server stopped");
-    return this.bounded(
-      (token) => this.connection.sendRequest<unknown>(method, params, token),
-      signal,
-    );
+    if (this.state !== ServerState.Ready) throw new Error(this.failure ?? "Server stopped");
+    return this.bounded((token) => this.connection.sendRequest<unknown>(method, params, token), signal);
   }
 
   supports(capability: keyof ServerCapabilities): boolean {
@@ -354,17 +292,10 @@ export class LspClient {
     return value !== undefined && value !== false && value !== null;
   }
 
-  async documentOutline(
-    path: string,
-  ): Promise<{ text: string; symbols: unknown } | undefined> {
+  async documentOutline(path: string): Promise<{ text: string; symbols: unknown } | undefined> {
     const uri = pathToFileURL(path).href;
     const document = this.documents.get(uri);
-    if (
-      document === undefined ||
-      document.text.length > 1024 * 1024 ||
-      !this.supports("documentSymbolProvider")
-    )
-      return undefined;
+    if (!document || document.text.length > 1024 * 1024 || !this.supports("documentSymbolProvider")) return undefined;
     const symbols = await this.request(
       "textDocument/documentSymbol",
       { textDocument: { uri } },
@@ -374,10 +305,7 @@ export class LspClient {
     return { text: document.text, symbols };
   }
 
-  async getDiagnostics(
-    path: string,
-    waitMs = 1000,
-  ): Promise<Diagnostics | undefined> {
+  async getDiagnostics(path: string, waitMs = 1000): Promise<Diagnostics | undefined> {
     const { uri, version } = await this.sync(path);
     if (!this.diagnostics.has(uri)) {
       await new Promise<void>((resolve) => {
@@ -403,11 +331,7 @@ export class LspClient {
     this.state = ServerState.Stopped;
     try {
       if (ready) {
-        await this.bounded(
-          (token) => this.connection.sendRequest(ShutdownRequest.type, token),
-          undefined,
-          2000,
-        );
+        await this.bounded((token) => this.connection.sendRequest(ShutdownRequest.type, token), undefined, 2000);
         await this.connection.sendNotification(ExitNotification.type);
       }
     } catch {
@@ -415,11 +339,7 @@ export class LspClient {
     } finally {
       this.connection.dispose();
       this.terminate("SIGTERM");
-      if (
-        this.process.pid !== undefined &&
-        this.process.exitCode === null &&
-        this.process.signalCode === null
-      ) {
+      if (this.process.pid !== undefined && this.process.exitCode === null && this.process.signalCode === null) {
         await new Promise<void>((resolve) => {
           const finished = () => {
             clearTimeout(timer);

@@ -37,24 +37,18 @@ export function decisionContract(record: Execution): string {
     )
     .digest("hex");
 }
-export function recordDecision(
-  store: ExecutionStore,
-  id: string,
-  question: string,
-): void {
+
+export function recordDecision(store: ExecutionStore, id: string, question: string): void {
   const before = store.attempt(id);
   if (
     before.phase !== ExecutionPhase.Running ||
-    before.interactive !== undefined ||
-    before.bead === undefined ||
+    before.interactive ||
+    !before.bead ||
     before.revision === undefined ||
     before.launchToken === undefined
   )
-    throw new Error(
-      "Operator decisions require an admitted background worker launch",
-    );
-  if (pendingDecision(before) !== undefined)
-    throw new Error("An operator decision is already pending");
+    throw new Error("Operator decisions require an admitted background worker launch");
+  if (pendingDecision(before) !== undefined) throw new Error("An operator decision is already pending");
   const request = operatorDecisionSchema.parse({
     id: randomUUID(),
     question,
@@ -68,22 +62,17 @@ export function recordDecision(
     },
   });
   store.change(id, (row) => {
-    if (!isDeepStrictEqual(row, before))
-      throw new Error("Attempt changed before recording the operator decision");
+    if (!isDeepStrictEqual(row, before)) throw new Error("Attempt changed before recording the operator decision");
     row.operatorDecisions = z
       .array(operatorDecisionSchema)
       .max(8)
       .parse([...(row.operatorDecisions ?? []), request]);
     row.phase = ExecutionPhase.AwaitingDecision;
-    row.message =
-      "Worker requested an operator decision; claim and checkout remain retained";
+    row.message = "Worker requested an operator decision; claim and checkout remain retained";
   });
 }
 /** An answer is context, never permission to replace a retained publication identity. */
-export function requireDecisionPublicationReconciled(
-  record: Execution,
-  directory: string,
-): void {
+export function requireDecisionPublicationReconciled(record: Execution, directory: string): void {
   if (
     hasUnappliedAnswer(record) &&
     (record.publication !== undefined ||
@@ -94,20 +83,19 @@ export function requireDecisionPublicationReconciled(
       "Operator answer retained but the prior publication must be reconciled before revising its approved head",
     );
 }
+
 const answerText = z
   .string()
   .min(1)
   .max(4000)
   .refine((value) => /\S/u.test(value), "Enter a nonblank answer");
+
 function receipt(attempt: string, request: OperatorDecision) {
-  if (request.answer === undefined) throw new Error("No answer receipt");
+  if (!request.answer) throw new Error("No answer receipt");
   return { attempt, request: request.id, answeredAt: request.answer.at };
 }
-export async function answerDecision(
-  id: string,
-  requestId: string,
-  input: string,
-) {
+
+export async function answerDecision(id: string, requestId: string, input: string) {
   const text = answerText.parse(input);
   z.uuid().parse(requestId);
   const store = new ExecutionStore();
@@ -115,24 +103,15 @@ export async function answerDecision(
   try {
     const before = store.attempt(id);
     const request = latestDecision(before);
-    if (request?.id !== requestId)
-      throw new Error(
-        "This decision request is stale or superseded; refresh the task",
-      );
-    if (request.answer !== undefined) {
-      if (request.answer.text !== text)
-        throw new Error("This request already has a different answer");
+    if (request?.id !== requestId) throw new Error("This decision request is stale or superseded; refresh the task");
+    if (request.answer) {
+      if (request.answer.text !== text) throw new Error("This request already has a different answer");
       return receipt(id, request); // Lost acknowledgements have no second queue or scheduler effect.
     }
+    if (before.phase !== ExecutionPhase.AwaitingDecision || before.interactive)
+      throw new Error("The pending decision is not settled for answering; inspect its writer and authority first");
     if (
-      before.phase !== ExecutionPhase.AwaitingDecision ||
-      before.interactive !== undefined
-    )
-      throw new Error(
-        "The pending decision is not settled for answering; inspect its writer and authority first",
-      );
-    if (
-      before.bead === undefined ||
+      !before.bead ||
       before.revision === undefined ||
       request.binding.project !== before.project ||
       request.binding.bead !== before.bead.id ||
@@ -140,14 +119,10 @@ export async function answerDecision(
       request.binding.launchToken !== before.launchToken ||
       request.binding.contract !== decisionContract(before)
     )
-      throw new Error(
-        "The admitted decision binding or scope changed; reconcile before answering",
-      );
+      throw new Error("The admitted decision binding or scope changed; reconcile before answering");
     requireUnattendedTask(before.bead);
     if (await retryWriterFence(before))
-      throw new Error(
-        "The prior host/verifier may still be live or uncertain; answer was not queued",
-      );
+      throw new Error("The prior host/verifier may still be live or uncertain; answer was not queued");
     const project = store.project(before.project);
     const configuration = await loadConfig();
     if (
@@ -158,16 +133,9 @@ export async function answerDecision(
           configured.source.reviewOnly !== true,
       )
     )
-      throw new Error(
-        "This project's configured task authority changed; reconcile before answering",
-      );
-    await new ExecutionBeads(project.source).requireCurrent(
-      before.bead,
-      before.revision,
-      id,
-    );
-    if (await retryWriterFence(before))
-      throw new Error("A prior writer appeared during answer validation");
+      throw new Error("This project's configured task authority changed; reconcile before answering");
+    await new ExecutionBeads(project.source).requireCurrent(before.bead, before.revision, id);
+    if (await retryWriterFence(before)) throw new Error("A prior writer appeared during answer validation");
     const answered = {
       ...request,
       answer: { text, at: new Date().toISOString() },
@@ -175,9 +143,8 @@ export async function answerDecision(
     const accepted = store.transaction(() => {
       const row = store.attempt(id);
       const current = latestDecision(row);
-      if (current?.id === requestId && current.answer !== undefined) {
-        if (current.answer.text !== text)
-          throw new Error("This request already has a different answer");
+      if (current?.id === requestId && current.answer) {
+        if (current.answer.text !== text) throw new Error("This request already has a different answer");
         return { queued: false, receipt: receipt(id, current) };
       }
       // The supervisor can renew the paused attempt's lease during the Beads read.
@@ -185,20 +152,14 @@ export async function answerDecision(
         !isDeepStrictEqual(row, { ...before, heartbeatAt: row.heartbeatAt }) ||
         !isDeepStrictEqual(store.project(before.project), project)
       )
-        throw new Error(
-          "The attempt or project changed during answer validation; refresh and retry",
-        );
-      row.operatorDecisions = [
-        ...(row.operatorDecisions ?? []).slice(0, -1),
-        answered,
-      ];
+        throw new Error("The attempt or project changed during answer validation; refresh and retry");
+      row.operatorDecisions = [...(row.operatorDecisions ?? []).slice(0, -1), answered];
       row.phase = ExecutionPhase.Queued;
       row.launchToken = undefined;
       row.launchSettled = true;
       row.pid = undefined;
       row.started = undefined;
-      row.message =
-        "Operator answer recorded; same attempt queued with verification and review still required";
+      row.message = "Operator answer recorded; same attempt queued with verification and review still required";
       store.saveAttempt(row);
       return { queued: true, receipt: receipt(id, answered) };
     });

@@ -24,10 +24,7 @@ interface ReviewInput {
 /** Each exact revision gets a fresh reader. Only the reader's first account unlocks author context. */
 export async function reviewRevision(
   input: ReviewInput,
-  runReviewer: (
-    prompt: string,
-    contextTool: ToolDefinition,
-  ) => Promise<unknown>,
+  runReviewer: (prompt: string, contextTool: ToolDefinition) => Promise<unknown>,
 ) {
   let reading: z.infer<typeof coldRead> | undefined;
   const response = await runReviewer(
@@ -48,8 +45,7 @@ export async function reviewRevision(
         behavior: Type.String({
           minLength: 1,
           maxLength: 3000,
-          description:
-            "The traced behavior and decision location, or the concrete obstacle to tracing them.",
+          description: "The traced behavior and decision location, or the concrete obstacle to tracing them.",
         }),
         changeSite: Type.String({
           minLength: 1,
@@ -59,10 +55,7 @@ export async function reviewRevision(
         }),
       }),
       execute: (_id, params) => {
-        if (reading !== undefined)
-          throw new Error(
-            "The independent reading is already recorded in this session",
-          );
+        if (reading) throw new Error("The independent reading is already recorded in this session");
         reading = coldRead.parse(params);
         return Promise.resolve({
           content: [
@@ -80,10 +73,7 @@ export async function reviewRevision(
     },
   );
   const result = verdict.parse(response);
-  if (reading === undefined)
-    throw new Error(
-      "The reviewer returned a verdict without recording an independent reading",
-    );
+  if (!reading) throw new Error("The reviewer returned a verdict without recording an independent reading");
   return {
     ...result,
     readback: `Behavior: ${reading.behavior}\nChange site: ${reading.changeSite}`,

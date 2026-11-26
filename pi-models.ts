@@ -13,9 +13,7 @@ const capabilitiesSchema = z.object({
   reasoning: z
     .object({
       effort: z.array(z.string().nullable()).optional(),
-      budget: z
-        .object({ min: z.number().optional(), max: z.number().optional() })
-        .optional(),
+      budget: z.object({ min: z.number().optional(), max: z.number().optional() }).optional(),
     })
     .optional(),
   temperature: z.boolean().optional(),
@@ -45,11 +43,7 @@ const protocols = [
   { source: "chat-completions", pi: "openai-completions" },
 ];
 
-export function mantleModels(
-  models: readonly PiModel[],
-  catalog: unknown,
-  region: string,
-) {
+export function mantleModels(models: readonly PiModel[], catalog: unknown, region: string) {
   if (!/^[a-z]{2}(?:-[a-z]+)+-\d+$/u.test(region))
     throw new Error("Specify a valid AWS region with --region or AWS_REGION");
   const source = sourceSchema.parse(catalog)["amazon-bedrock"].models;
@@ -57,16 +51,12 @@ export function mantleModels(
   for (const model of models) {
     if (model.provider !== "amazon-bedrock") continue;
     const entry = source[model.id];
-    if (entry === undefined) continue;
-    if (entry.id !== model.id)
-      throw new Error(`Catalog ID mismatch for ${model.id}`);
+    if (!entry) continue;
+    if (entry.id !== model.id) throw new Error(`Catalog ID mismatch for ${model.id}`);
     for (const protocol of protocols) {
       const declaration = entry.api[protocol.source];
-      if (declaration === undefined) continue;
-      const baseUrl = declaration.base_url.replaceAll(
-        /\$\{AWS_REGION\}/gu,
-        region,
-      );
+      if (!declaration) continue;
+      const baseUrl = declaration.base_url.replaceAll(/\$\{AWS_REGION\}/gu, region);
       const url = new URL(baseUrl);
       if (url.hostname !== `bedrock-mantle.${region}.api.aws`) continue;
       if (
@@ -79,21 +69,14 @@ export function mantleModels(
       )
         throw new Error(`Invalid Mantle endpoint for ${model.id}`);
       const strict = declaration.capabilities?.tools?.strict ?? false;
-      const reasoning =
-        declaration.capabilities?.reasoning ?? entry.capabilities?.reasoning;
-      const temperature =
-        declaration.capabilities?.temperature ??
-        entry.capabilities?.temperature;
+      const reasoning = declaration.capabilities?.reasoning ?? entry.capabilities?.reasoning;
+      const temperature = declaration.capabilities?.temperature ?? entry.capabilities?.temperature;
       const compat =
         protocol.source === "messages"
           ? {
               supportsStrictTools: strict,
-              forceAdaptiveThinking:
-                (reasoning?.effort?.length ?? 0) > 0 &&
-                reasoning?.budget === undefined,
-              ...(temperature === undefined
-                ? {}
-                : { supportsTemperature: temperature }),
+              forceAdaptiveThinking: (reasoning?.effort?.length ?? 0) > 0 && reasoning?.budget === undefined,
+              ...(temperature === undefined ? {} : { supportsTemperature: temperature }),
             }
           : { supportsStrictMode: strict };
       definitions.push({
@@ -103,18 +86,12 @@ export function mantleModels(
         api: protocol.pi,
         compat,
         // Anthropic's SDK appends /v1/messages; the source declares the API root.
-        baseUrl:
-          protocol.source === "messages"
-            ? baseUrl.replace(/\/v1\/?$/u, "")
-            : baseUrl,
+        baseUrl: protocol.source === "messages" ? baseUrl.replace(/\/v1\/?$/u, "") : baseUrl,
       });
       break;
     }
   }
-  if (definitions.length === 0)
-    throw new Error(
-      "Pi's catalog contains no models with supported Mantle APIs",
-    );
+  if (definitions.length === 0) throw new Error("Pi's catalog contains no models with supported Mantle APIs");
   return {
     providers: {
       [DefaultProvider.BedrockMantle]: {
@@ -130,9 +107,7 @@ export async function generatePiModels(
   catalogPath?: string,
 ) {
   if (region === undefined || region === "")
-    throw new Error(
-      "Set --region, AWS_REGION or AWS_DEFAULT_REGION for --pi-models",
-    );
+    throw new Error("Set --region, AWS_REGION or AWS_DEFAULT_REGION for --pi-models");
   const temporary = await mkdtemp(join(tmpdir(), "studio-models-"));
   try {
     // Use Pi's bundled/cached metadata without loading user models or credentials.
@@ -149,10 +124,7 @@ export async function generatePiModels(
       const response = await fetch(modelsDevUrl, {
         signal: AbortSignal.timeout(10_000),
       });
-      if (!response.ok)
-        throw new Error(
-          `Cannot read model API declarations: HTTP ${String(response.status)}`,
-        );
+      if (!response.ok) throw new Error(`Cannot read model API declarations: HTTP ${String(response.status)}`);
       catalog = await response.json();
     }
     return mantleModels(registry.getModels("amazon-bedrock"), catalog, region);

@@ -13,13 +13,7 @@ import {
   ToolExecutionComponent,
   type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
-import {
-  Text,
-  stripTerminalSequences,
-  visibleWidth,
-  ProcessTerminal,
-  TuiMainScreen,
-} from "@earendil-works/pi-tui";
+import { Text, stripTerminalSequences, visibleWidth, ProcessTerminal, TuiMainScreen } from "@earendil-works/pi-tui";
 import { claudeTools } from "../model-tools/dialects/claude.ts";
 import { modelToolRenderers } from "../model-tools/rendering.ts";
 import { registerSkillRendering } from "../skill-renderer.ts";
@@ -90,10 +84,7 @@ await test("registered renderer formats actual builtin skill reads and retains n
     await session.bindExtensions({ mode: "rpc" });
     const native = session.getToolDefinition("read");
     assert.ok(native !== undefined);
-    const rendered = session.extensionRunner.resolveToolRenderers(
-      "read",
-      () => native,
-    );
+    const rendered = session.extensionRunner.resolveToolRenderers("read", () => native);
     assert.ok(rendered !== undefined);
     const rawResult = await createReadTool(cwd).execute("fixture", {
       path: "example/SKILL.md",
@@ -104,34 +95,17 @@ await test("registered renderer formats actual builtin skill reads and retains n
     const before = JSON.stringify(outcome.result);
     const ui = new TuiMainScreen(new ProcessTerminal());
     const component = (args: object, renderers = rendered) =>
-      new ToolExecutionComponent(
-        "read",
-        "fixture",
-        args,
-        { showImages: false },
-        renderers,
-        ui,
-        cwd,
-      );
-    for (const args of [
-      { path: "example/SKILL.md" },
-      { file_path: "example/SKILL.md" },
-    ]) {
+      new ToolExecutionComponent("read", "fixture", args, { showImages: false }, renderers, ui, cwd);
+    for (const args of [{ path: "example/SKILL.md" }, { file_path: "example/SKILL.md" }]) {
       const actual = component(args);
       const original = component(args, native);
       actual.updateResult(result);
       original.updateResult(result);
       assert.deepEqual(actual.render(100), original.render(100));
-      assert.match(
-        stripTerminalSequences(actual.render(100).join("\n")),
-        /\[skill\] example/u,
-      );
+      assert.match(stripTerminalSequences(actual.render(100).join("\n")), /\[skill\] example/u);
       actual.setExpanded(true);
       original.setExpanded(true);
-      assert.match(
-        stripTerminalSequences(original.render(100).join("\n")),
-        /# Skill heading/u,
-      );
+      assert.match(stripTerminalSequences(original.render(100).join("\n")), /# Skill heading/u);
       for (const width of [100, 60, 40, 100]) {
         const rows = actual.render(width);
         const plain = stripTerminalSequences(rows.join("\n"));
@@ -235,9 +209,7 @@ await test("Claude's numbered Read renders the same expanded skill Markdown as a
   );
   const numbered = document
     .split("\n")
-    .map((line, i, lines) =>
-      i === lines.length - 1 ? line : `${String(i + 1)}\t${line}`,
-    )
+    .map((line, i, lines) => (i === lines.length - 1 ? line : `${String(i + 1)}\t${line}`))
     .join("\n");
   read.updateResult({
     content: [{ type: "text", text: numbered }],

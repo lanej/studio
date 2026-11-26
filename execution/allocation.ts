@@ -22,9 +22,7 @@ export async function withAllocation<T>(
     await check();
     const previous = store.allocationOwner();
     if (
-      (previous === undefined ||
-        (!(await alive(previous.pid, previous.started)) &&
-          !groupExists(previous.pid))) &&
+      (!previous || (!(await alive(previous.pid, previous.started)) && !groupExists(previous.pid))) &&
       store.reserveAllocation(owner, previous?.id)
     )
       break;

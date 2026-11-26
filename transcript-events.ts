@@ -1,7 +1,4 @@
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { z } from "zod";
 import { prUrl } from "./delivery-record.ts";
@@ -88,18 +85,14 @@ export function appendOctoEvents(
 ): void {
   const seen = new Set(
     ctx.sessionManager.getBranch().flatMap((entry) => {
-      if (!isEntry(entry, PiEntryType.Custom) || entry.customType !== entryType)
-        return [];
+      if (!isEntry(entry, PiEntryType.Custom) || entry.customType !== entryType) return [];
       const parsed = eventSchema.safeParse(entry.data);
-      return parsed.success &&
-        parsed.data.kind === TranscriptEventKind.Octo &&
-        parsed.data.url === url
+      return parsed.success && parsed.data.kind === TranscriptEventKind.Octo && parsed.data.url === url
         ? [parsed.data.notice]
         : [];
     }),
   );
-  if (!seen.has(undefined))
-    pi.appendEntry(entryType, { kind: TranscriptEventKind.Octo, url });
+  if (!seen.has(undefined)) pi.appendEntry(entryType, { kind: TranscriptEventKind.Octo, url });
   for (const { id, body } of receipts) {
     if (seen.has(id)) continue;
     pi.appendEntry(entryType, {

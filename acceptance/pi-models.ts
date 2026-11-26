@@ -37,9 +37,7 @@ const server = createServer((request, response) => {
     });
     response.writeHead(200, { "Content-Type": "text/event-stream" });
     const send = (type: string, data: object) =>
-      response.write(
-        `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`,
-      );
+      response.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`);
     if (path.endsWith("/responses")) {
       send("response.output_item.done", {
         output_index: 0,
@@ -178,15 +176,8 @@ try {
     AWS_DEFAULT_REGION: "us-east-2",
     AWS_BEARER_TOKEN_BEDROCK: "fixture-token",
   };
-  const driver = (...args: string[]) =>
-    execute(join(root, "scripts/studio"), args, { env, timeout: 15_000 });
-  const emitted = await driver(
-    "config",
-    "--pi-models",
-    catalogPath,
-    "--region",
-    "eu-west-3",
-  );
+  const driver = (...args: string[]) => execute(join(root, "scripts/studio"), args, { env, timeout: 15_000 });
+  const emitted = await driver("config", "--pi-models", catalogPath, "--region", "eu-west-3");
   assert.doesNotMatch(emitted.stdout, /fixture-token/);
   await writeFile(join(agent, "models.json"), emitted.stdout);
   const runtime = await ModelRuntime.create({
@@ -198,8 +189,7 @@ try {
   assert.equal(generated.length, declarations.length);
   for (const { id, protocol, path } of declarations) {
     const model = runtime.getModel("bedrock-mantle", id);
-    const original =
-      id === newer.id ? newer : bundled.getModel("amazon-bedrock", id);
+    const original = id === newer.id ? newer : bundled.getModel("amazon-bedrock", id);
     assert.ok(model !== undefined);
     assert.ok(original !== undefined);
     assert.equal(
@@ -213,25 +203,16 @@ try {
     assert.equal(model.reasoning, original.reasoning);
   }
   for (const selection of Object.values(exampleConfig.profiles.work))
-    assert.ok(
-      runtime.getModel(selection.provider, selection.model) !== undefined,
-    );
-  assert.equal(
-    runtime.getModel("amazon-bedrock", "us.openai.gpt-6.1-sol")?.api,
-    "bedrock-converse-stream",
-  );
+    assert.ok(runtime.getModel(selection.provider, selection.model) !== undefined);
+  assert.equal(runtime.getModel("amazon-bedrock", "us.openai.gpt-6.1-sol")?.api, "bedrock-converse-stream");
   assert.equal(await readFile(join(agent, "models-store.json"), "utf8"), cache);
   const envOutput = await driver("config", "--pi-models", catalogPath);
   assert.match(envOutput.stdout, /bedrock-mantle\.us-west-2\.api\.aws/u);
   await assert.rejects(
-    execute(
-      join(root, "scripts/studio"),
-      ["config", "--pi-models", catalogPath],
-      {
-        env: { ...env, AWS_REGION: "", AWS_DEFAULT_REGION: "" },
-        timeout: 10_000,
-      },
-    ),
+    execute(join(root, "scripts/studio"), ["config", "--pi-models", catalogPath], {
+      env: { ...env, AWS_REGION: "", AWS_DEFAULT_REGION: "" },
+      timeout: 10_000,
+    }),
     /Set --region/,
   );
 
@@ -239,11 +220,7 @@ try {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   assert.ok(address !== null && typeof address !== "string");
-  const fixture = mantleModels(
-    [...bundled.getModels("amazon-bedrock"), newer],
-    source,
-    "eu-west-3",
-  );
+  const fixture = mantleModels([...bundled.getModels("amazon-bedrock"), newer], source, "eu-west-3");
   fixture.providers["bedrock-mantle"].apiKey = "fixture-token";
   for (const model of fixture.providers["bedrock-mantle"].models)
     model.baseUrl = `http://127.0.0.1:${String(address.port)}${new URL(model.baseUrl).pathname}`;
@@ -263,39 +240,26 @@ try {
             parameters: Type.Object({ value: Type.String() }),
           },
         ],
-        messages: [
-          { role: "user", content: "Reply OK", timestamp: Date.now() },
-        ],
+        messages: [{ role: "user", content: "Reply OK", timestamp: Date.now() }],
       },
       { reasoning: "low", maxTokens: 8, signal: AbortSignal.timeout(10_000) },
     );
     assert.equal(result.stopReason, "stop", result.errorMessage);
-    assert.equal(
-      result.content.find((block) => block.type === "text")?.text,
-      "OK",
-    );
+    assert.equal(result.content.find((block) => block.type === "text")?.text, "OK");
   }
   for (const { id, protocol, path } of declarations)
     assert.deepEqual(
-      received
-        .filter(({ model }) => model === id)
-        .map(({ path: actual }) => actual),
-      [
-        `${path}/${protocol === "responses" ? "responses" : protocol === "messages" ? "messages" : "chat/completions"}`,
-      ],
+      received.filter(({ model }) => model === id).map(({ path: actual }) => actual),
+      [`${path}/${protocol === "responses" ? "responses" : protocol === "messages" ? "messages" : "chat/completions"}`],
     );
   assert.ok(
-    received
-      .filter(({ path }) => !path.endsWith("/messages"))
-      .every(({ bearer }) => bearer === "Bearer fixture-token"),
+    received.filter(({ path }) => !path.endsWith("/messages")).every(({ bearer }) => bearer === "Bearer fixture-token"),
   );
   const chat = received.find(({ path }) => path.endsWith("/chat/completions"));
   assert.ok(chat !== undefined);
   const tools = z
     .object({
-      tools: z.array(
-        z.object({ function: z.object({ strict: z.boolean().optional() }) }),
-      ),
+      tools: z.array(z.object({ function: z.object({ strict: z.boolean().optional() }) })),
     })
     .parse(chat.payload).tools;
   assert.ok(tools.length > 0);
@@ -313,7 +277,7 @@ try {
   if (server.listening)
     await new Promise<void>((resolve, reject) =>
       server.close((error) => {
-        if (error === undefined) resolve();
+        if (!error) resolve();
         else reject(error);
       }),
     );

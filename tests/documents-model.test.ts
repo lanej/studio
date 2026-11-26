@@ -16,23 +16,10 @@ import {
   type WritableSpecificationDraft,
 } from "../planning/model.ts";
 import { documentRevision } from "../planning/revisions.ts";
-import {
-  TaskDelivery,
-  draftSchema,
-  pullRequestMergeSchema,
-} from "../lead-plan.ts";
-import {
-  coverageDomains,
-  coveragePropertyCatalog,
-  coverageStatuses,
-} from "../socrates/assessment.ts";
+import { TaskDelivery, draftSchema, pullRequestMergeSchema } from "../lead-plan.ts";
+import { coverageDomains, coveragePropertyCatalog, coverageStatuses } from "../socrates/assessment.ts";
 import { deliveryPolicySchema } from "../socrates/delivery-policy.ts";
-import {
-  DecisionDisposition,
-  assessedSpecDraft,
-  specDraft,
-  specRecord,
-} from "../socrates/spec.ts";
+import { DecisionDisposition, assessedSpecDraft, specDraft, specRecord } from "../socrates/spec.ts";
 
 const prose = [
   "Preserve **unsaved** work.",
@@ -119,20 +106,11 @@ const plan = draftSchema.parse({
 await test("the complete specification remains readable and round-trips embedded Markdown", () => {
   const markdown = renderSpecification(specification);
   assert.match(markdown, /## Objective\n\nReview detailed documents/u);
-  assert.match(
-    markdown,
-    /### Evidence\n\nThe operator selected direct updates/u,
-  );
+  assert.match(markdown, /### Evidence\n\nThe operator selected direct updates/u);
   assert.match(markdown, /## Assessment robustness/u);
   assert.deepEqual(parseSpecification(markdown), specification);
-  const edited = markdown.replace(
-    "Save operator edits",
-    "Save the latest operator edits",
-  );
-  assert.equal(
-    parseSpecification(edited).requirements[0]?.outcome,
-    "Save the latest operator edits",
-  );
+  const edited = markdown.replace("Save operator edits", "Save the latest operator edits");
+  assert.equal(parseSpecification(edited).requirements[0]?.outcome, "Save the latest operator edits");
   assert.equal(
     renderSpecification({
       ...specification,
@@ -147,17 +125,10 @@ await test("plan prose edits and task metadata preserve every supported plan fie
   const markdown = renderPlan(plan);
   assert.deepEqual(parsePlan(markdown), plan);
   assert.match(markdown, /blockedBy = \[ "documents" \]/u);
-  const edited = markdown.replace(
-    "Define the documents",
-    "Implement editable documents",
-  );
+  const edited = markdown.replace("Define the documents", "Implement editable documents");
   const decoded = parsePlan(edited);
   assert.equal(decoded.tasks[0]?.title, "Implement editable documents");
-  assert.deepEqual(decoded.tasks[0].check, [
-    "bun",
-    "test",
-    "tests/documents-model.test.ts",
-  ]);
+  assert.deepEqual(decoded.tasks[0].check, ["bun", "test", "tests/documents-model.test.ts"]);
   assert.deepEqual(decoded.tasks[1]?.blockedBy, ["documents"]);
 });
 
@@ -185,10 +156,7 @@ await test("all delivery policy arrangements round-trip and survive ordinary spe
     assert.deepEqual(parseSpecification(markdown), draft);
     assert.deepEqual(
       parseSpecification(
-        markdown.replace(
-          "Review detailed documents in Neovim",
-          "Review the delivery decision in Neovim",
-        ),
+        markdown.replace("Review detailed documents in Neovim", "Review the delivery decision in Neovim"),
       ),
       { ...draft, objective: "Review the delivery decision in Neovim" },
     );
@@ -201,15 +169,9 @@ await test("plan merge policy is editable and preserves both supported rules", (
     const markdown = renderPlan(draft);
     assert.match(markdown, /## Pull request merge policy\n\n```toml/u);
     assert.deepEqual(parsePlan(markdown), draft);
-    const replacement =
-      pullRequestMerge === "manual" ? "project-policy" : "manual";
+    const replacement = pullRequestMerge === "manual" ? "project-policy" : "manual";
     assert.deepEqual(
-      parsePlan(
-        markdown.replace(
-          `pullRequestMerge = "${pullRequestMerge}"`,
-          `pullRequestMerge = "${replacement}"`,
-        ),
-      ),
+      parsePlan(markdown.replace(`pullRequestMerge = "${pullRequestMerge}"`, `pullRequestMerge = "${replacement}"`)),
       { ...draft, pullRequestMerge: replacement },
     );
   }
@@ -234,12 +196,7 @@ await test("saved sparse coverage remains lossless while writable coverage retai
   const decoded = parseSpecification(renderSpecification(writable));
   assert.deepEqual(assessedSpecDraft.parse(decoded), writable);
   assert.throws(() =>
-    parseSpecification(
-      renderSpecification(specification).replace(
-        'status = "unknown"',
-        'status = "satisfied"',
-      ),
-    ),
+    parseSpecification(renderSpecification(specification).replace('status = "unknown"', 'status = "satisfied"')),
   );
 });
 
@@ -248,18 +205,9 @@ await test("delivery and merge metadata reject unsupported, contradictory, and h
     ...specification,
     deliveryPolicy: { decisionId: "D2", pullRequests: "none" },
   });
-  for (const addition of [
-    'merge = "manual"',
-    'publish = [ "documents" ]',
-    "approved = true",
-  ]) {
+  for (const addition of ['merge = "manual"', 'publish = [ "documents" ]', "approved = true"]) {
     assert.throws(() =>
-      parseSpecification(
-        local.replace(
-          'pullRequests = "none"',
-          `pullRequests = "none"\n${addition}`,
-        ),
-      ),
+      parseSpecification(local.replace('pullRequests = "none"', `pullRequests = "none"\n${addition}`)),
     );
   }
   const selected = renderSpecification({
@@ -273,10 +221,7 @@ await test("delivery and merge metadata reject unsupported, contradictory, and h
   });
   for (const changed of [
     selected.replace('publish = [ "documents" ]', "publish = []"),
-    selected.replace(
-      'publish = [ "documents" ]',
-      'publish = [ "documents", "documents" ]',
-    ),
+    selected.replace('publish = [ "documents" ]', 'publish = [ "documents", "documents" ]'),
     selected.replace('merge = "manual"', 'merge = "automatic"'),
     selected.replace('decisionId = "D2"', 'decisionId = "untracked"'),
   ]) {
@@ -284,15 +229,9 @@ await test("delivery and merge metadata reject unsupported, contradictory, and h
   }
   const merge = renderPlan({ ...plan, pullRequestMerge: "manual" });
   for (const changed of [
-    merge.replace(
-      'pullRequestMerge = "manual"',
-      'pullRequestMerge = "automatic"',
-    ),
+    merge.replace('pullRequestMerge = "manual"', 'pullRequestMerge = "automatic"'),
     merge.replace('pullRequestMerge = "manual"', ""),
-    merge.replace(
-      'pullRequestMerge = "manual"',
-      'pullRequestMerge = "manual"\napproved = true',
-    ),
+    merge.replace('pullRequestMerge = "manual"', 'pullRequestMerge = "manual"\napproved = true'),
   ]) {
     assert.throws(() => parsePlan(changed));
   }
@@ -302,66 +241,32 @@ await test("legacy specifications and empty optional collections do not acquire 
   const legacy = specRecord.shape.draft.unwrap().parse({
     objective: "Keep the original brief",
     scope: ["One document"],
-    requirements: [
-      { id: "R1", outcome: "Keep the brief", acceptance: "Same fields" },
-    ],
-    decisions: [
-      { decision: "Use an editor", basis: "decided", evidence: "Operator" },
-    ],
+    requirements: [{ id: "R1", outcome: "Keep the brief", acceptance: "Same fields" }],
+    decisions: [{ decision: "Use an editor", basis: "decided", evidence: "Operator" }],
     blockingQuestions: [],
   });
   assert.deepEqual(parseSpecification(renderSpecification(legacy)), legacy);
   const empty = draftSchema.parse({ summary: "No tasks drafted", tasks: [] });
-  assert.deepEqual(
-    parseDocument(
-      DocumentKind.Plan,
-      renderDocument({ kind: DocumentKind.Plan, draft: empty }),
-    ),
-    {
-      kind: DocumentKind.Plan,
-      draft: empty,
-    },
-  );
+  assert.deepEqual(parseDocument(DocumentKind.Plan, renderDocument({ kind: DocumentKind.Plan, draft: empty })), {
+    kind: DocumentKind.Plan,
+    draft: empty,
+  });
 });
 
 await test("invalid metadata, unknown prose, and broken field boundaries are rejected", () => {
   const markdown = renderPlan(plan);
   assert.throws(
-    () =>
-      parsePlan(
-        markdown.replace(
-          'key = "documents"',
-          'key = "documents"\napproved = true',
-        ),
-      ),
+    () => parsePlan(markdown.replace('key = "documents"', 'key = "documents"\napproved = true')),
     /Unrecognized key/u,
   );
+  assert.throws(() => parsePlan(`${markdown}\nNotes that would otherwise disappear`), /outside a document field/u);
+  assert.throws(() => parsePlan(markdown.replace(/<!-- \/studio:[a-f0-9]+ -->/u, "")), /Missing|Unknown|metadata/u);
   assert.throws(
-    () => parsePlan(`${markdown}\nNotes that would otherwise disappear`),
-    /outside a document field/u,
-  );
-  assert.throws(
-    () => parsePlan(markdown.replace(/<!-- \/studio:[a-f0-9]+ -->/u, "")),
-    /Missing|Unknown|metadata/u,
-  );
-  assert.throws(
-    () =>
-      parsePlan(
-        markdown.replace(
-          'blockedBy = [ "documents" ]',
-          'blockedBy = [ "missing" ]',
-        ),
-      ),
+    () => parsePlan(markdown.replace('blockedBy = [ "documents" ]', 'blockedBy = [ "missing" ]')),
     /unknown|Unknown|missing/u,
   );
   assert.throws(
-    () =>
-      parseSpecification(
-        renderSpecification(specification).replace(
-          'supersedes = "D1"',
-          'supersedes = "D7"',
-        ),
-      ),
+    () => parseSpecification(renderSpecification(specification).replace('supersedes = "D1"', 'supersedes = "D7"')),
     /superseded decisions/u,
   );
 });
@@ -369,27 +274,15 @@ await test("invalid metadata, unknown prose, and broken field boundaries are rej
 await test("edited metadata cannot silently replace prose or introduce approval fields", () => {
   const markdown = renderSpecification(specification);
   assert.throws(
-    () =>
-      parseSpecification(
-        markdown.replace(
-          'id = "R1"',
-          'id = "R1"\noutcome = "Hidden replacement"',
-        ),
-      ),
+    () => parseSpecification(markdown.replace('id = "R1"', 'id = "R1"\noutcome = "Hidden replacement"')),
     /Unrecognized key/u,
   );
   assert.throws(
-    () =>
-      parseSpecification(
-        markdown.replace("## Objective", "## A new objective"),
-      ),
+    () => parseSpecification(markdown.replace("## Objective", "## A new objective")),
     /Keep the field heading/u,
   );
   assert.throws(
-    () =>
-      parseSpecification(
-        markdown.replace("domains = [", 'approvalAt = "now"\ndomains = ['),
-      ),
+    () => parseSpecification(markdown.replace("domains = [", 'approvalAt = "now"\ndomains = [')),
     /Unrecognized key/u,
   );
 });
@@ -407,26 +300,12 @@ await test("revisions bind content and workflow state to the full owner identity
     frozen: false,
     revision: "brief-a",
   });
-  assert.equal(
-    base,
-    documentRevision(
-      { ...ref },
-      { ...specification },
-      { revision: "brief-a", frozen: false },
-    ),
-  );
+  assert.equal(base, documentRevision({ ...ref }, { ...specification }, { revision: "brief-a", frozen: false }));
   assert.notEqual(
     base,
-    documentRevision(
-      ref,
-      { ...specification, objective: "A changed brief" },
-      { frozen: false, revision: "brief-a" },
-    ),
+    documentRevision(ref, { ...specification, objective: "A changed brief" }, { frozen: false, revision: "brief-a" }),
   );
-  assert.notEqual(
-    base,
-    documentRevision(ref, specification, { frozen: true, revision: "brief-a" }),
-  );
+  assert.notEqual(base, documentRevision(ref, specification, { frozen: true, revision: "brief-a" }));
   assert.notEqual(
     base,
     documentRevision({ ...ref, ownerId: "discovery-b" }, specification, {
@@ -436,11 +315,10 @@ await test("revisions bind content and workflow state to the full owner identity
   );
   assert.notEqual(
     base,
-    documentRevision(
-      { ...ref, conversationId: "conversation-b" },
-      specification,
-      { frozen: false, revision: "brief-a" },
-    ),
+    documentRevision({ ...ref, conversationId: "conversation-b" }, specification, {
+      frozen: false,
+      revision: "brief-a",
+    }),
   );
   assert.notEqual(
     base,
@@ -449,13 +327,8 @@ await test("revisions bind content and workflow state to the full owner identity
       revision: "brief-a",
     }),
   );
-  assert.equal(
-    documentRefSchema.safeParse({ ...ref, project: "relative" }).success,
-    false,
-  );
-  assert.throws(() =>
-    documentRevision(ref, specification, { count: Number.NaN }),
-  );
+  assert.equal(documentRefSchema.safeParse({ ...ref, project: "relative" }).success, false);
+  assert.throws(() => documentRevision(ref, specification, { count: Number.NaN }));
 });
 
 await test("delivery policy, merge authority, and coverage changes invalidate document revisions", () => {
@@ -482,9 +355,7 @@ await test("delivery policy, merge authority, and coverage changes invalidate do
       merge: "project-policy",
     }),
   };
-  const revisions = [specification, local, manual, policy].map((draft) =>
-    documentRevision(ref, draft, null),
-  );
+  const revisions = [specification, local, manual, policy].map((draft) => documentRevision(ref, draft, null));
   assert.equal(new Set(revisions).size, revisions.length);
   assert.notEqual(
     documentRevision(ref, specification, null),

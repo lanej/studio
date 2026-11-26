@@ -1,7 +1,4 @@
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { realpathSync } from "node:fs";
 import { Type } from "typebox";
 import { z } from "zod";
@@ -10,23 +7,21 @@ import { ExecutionStore, type RuntimeProject } from "./store.ts";
 
 export async function mergePolicy(project: string) {
   const config = await loadConfig();
-  const configured = config.runtime.projects.find(
-    (item) => item.source.projectId === project,
-  );
+  const configured = config.runtime.projects.find((item) => item.source.projectId === project);
   const store = new ExecutionStore();
   try {
     const override = store.override(project);
     return {
       project,
-      enabled:
-        configured !== undefined && (override?.enabled ?? configured.merge),
-      origin: override === undefined ? "configuration" : "lead override",
+      enabled: configured !== undefined && (override?.enabled ?? configured.merge),
+      origin: !override ? "configuration" : "lead override",
       override: override ?? null,
     };
   } finally {
     store.close();
   }
 }
+
 export function registerProjectPolicy(
   pi: ExtensionAPI,
   selectedProject: (ctx: ExtensionContext) => RuntimeProject | undefined,
@@ -37,13 +32,7 @@ export function registerProjectPolicy(
     description:
       "Inspect or override this project's automatic-merge default. Only the lead can change this project-scoped policy; mandatory independent review and current-head checks remain required. Supply a reason for a change.",
     parameters: Type.Object({
-      merge: Type.Optional(
-        Type.Union([
-          Type.Literal("on"),
-          Type.Literal("off"),
-          Type.Literal("default"),
-        ]),
-      ),
+      merge: Type.Optional(Type.Union([Type.Literal("on"), Type.Literal("off"), Type.Literal("default")])),
       reason: Type.Optional(Type.String()),
     }),
     async execute(_id, params, _signal, _update, ctx) {
@@ -54,10 +43,7 @@ export function registerProjectPolicy(
         })
         .parse(params);
       const approved = selectedProject(ctx);
-      if (approved === undefined)
-        throw new Error(
-          "Approve a Socrates plan before using its runtime merge policy",
-        );
+      if (!approved) throw new Error("Approve a Socrates plan before using its runtime merge policy");
       const config = await loadConfig();
       const project = config.runtime.projects.find(
         (item) =>
@@ -65,15 +51,10 @@ export function registerProjectPolicy(
           item.source.url === approved.source.url &&
           realpathSync(item.root) === realpathSync(ctx.cwd),
       );
-      if (project === undefined)
-        throw new Error(
-          "Configure this runtime project before changing merge policy",
-        );
+      if (!project) throw new Error("Configure this runtime project before changing merge policy");
       if (parsed.merge !== undefined) {
         if (parsed.reason === undefined)
-          throw new Error(
-            "Explain why this project's merge default is being overridden or restored",
-          );
+          throw new Error("Explain why this project's merge default is being overridden or restored");
         const store = new ExecutionStore();
         try {
           store.setOverride(

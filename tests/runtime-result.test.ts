@@ -49,10 +49,7 @@ await test("PR results retain publication metadata validation and optional-field
   assert.deepEqual(parseWorkerResult({ summary }, TaskDelivery.PullRequest), {
     summary,
   });
-  assert.deepEqual(
-    parseWorkerResult({ summary, body: "" }, TaskDelivery.PullRequest),
-    { summary, body: "" },
-  );
+  assert.deepEqual(parseWorkerResult({ summary, body: "" }, TaskDelivery.PullRequest), { summary, body: "" });
   for (const publication of [
     { title: "" },
     { title: null },
@@ -62,7 +59,5 @@ await test("PR results retain publication metadata validation and optional-field
     { body: [] },
     { body: "x".repeat(20001) },
   ])
-    assert.throws(() =>
-      parseWorkerResult({ summary, ...publication }, TaskDelivery.PullRequest),
-    );
+    assert.throws(() => parseWorkerResult({ summary, ...publication }, TaskDelivery.PullRequest));
 });

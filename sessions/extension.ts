@@ -1,7 +1,4 @@
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { stateDirectory } from "../attempts.ts";
@@ -30,9 +27,7 @@ export function registerSessionForks(pi: ExtensionAPI): void {
     if (path !== undefined)
       forkPoints.set(
         path,
-        event.position === "at"
-          ? event.entryId
-          : (ctx.sessionManager.getEntry(event.entryId)?.parentId ?? null),
+        event.position === "at" ? event.entryId : (ctx.sessionManager.getEntry(event.entryId)?.parentId ?? null),
       );
   });
   pi.on("session_start", (event, ctx) => {
@@ -44,26 +39,16 @@ export function registerSessionForks(pi: ExtensionAPI): void {
           ? forkPoints.get(event.previousSessionFile)
           : ctx.sessionManager.getLeafId(),
       });
-    if (event.previousSessionFile !== undefined)
-      forkPoints.delete(event.previousSessionFile);
+    if (event.previousSessionFile !== undefined) forkPoints.delete(event.previousSessionFile);
     const relationship = ctx.sessionManager.getEntries().findLast((entry) => {
-      if (
-        !isEntry(entry, PiEntryType.Custom) ||
-        entry.customType !== relationshipType
-      )
-        return false;
+      if (!isEntry(entry, PiEntryType.Custom) || entry.customType !== relationshipType) return false;
       const parsed = relationshipSchema.safeParse(entry.data);
-      return (
-        parsed.success &&
-        parsed.data.session === ctx.sessionManager.getSessionId()
-      );
+      return parsed.success && parsed.data.session === ctx.sessionManager.getSessionId();
     });
     const parent = ctx.sessionManager.getHeader()?.parentSession;
     if (parent !== undefined) {
       const parsed = relationshipSchema.safeParse(
-        relationship !== undefined && isEntry(relationship, PiEntryType.Custom)
-          ? relationship.data
-          : undefined,
+        relationship && isEntry(relationship, PiEntryType.Custom) ? relationship.data : undefined,
       );
       ctx.ui.setWidget("studio-fork", [
         `Fork parent: ${parent}`,
@@ -73,10 +58,7 @@ export function registerSessionForks(pi: ExtensionAPI): void {
   });
 }
 
-export function registerPromptLoops(
-  pi: ExtensionAPI,
-  blocked: (ctx: ExtensionContext) => boolean,
-): void {
+export function registerPromptLoops(pi: ExtensionAPI, blocked: (ctx: ExtensionContext) => boolean): void {
   let removeTerminalInput: (() => void) | undefined;
   let controller: PromptLoop | undefined;
   let store: LoopStore | undefined;
@@ -84,16 +66,9 @@ export function registerPromptLoops(
   let dialogs = 0;
   const uncertainChildren = (ctx: ExtensionContext): boolean =>
     ctx.sessionManager.getEntries().some((entry) => {
-      if (
-        !isEntry(entry, PiEntryType.Custom) ||
-        entry.customType !== childWorkType
-      )
-        return false;
+      if (!isEntry(entry, PiEntryType.Custom) || entry.customType !== childWorkType) return false;
       const marker = childWorkSchema.safeParse(entry.data);
-      return (
-        marker.success &&
-        marker.data.session === ctx.sessionManager.getSessionId()
-      );
+      return marker.success && marker.data.session === ctx.sessionManager.getSessionId();
     });
   let inspected: number | undefined;
   const eligible = (ctx: ExtensionContext, command = false): boolean =>
@@ -134,29 +109,25 @@ export function registerPromptLoops(
       throw new Error(
         "Loops require an ordinary foreground persistent Studio conversation without active task or activation fences",
       );
-    if (controller !== undefined) return controller;
+    if (controller) return controller;
     const storage = store ?? new LoopStore();
     store = storage;
     const session = ctx.sessionManager.getSessionId();
     const previous = storage.get(session);
-    if (previous?.owner !== null && previous?.owner !== undefined) {
+    if (previous?.owner !== null && previous?.owner) {
       let live = true;
       try {
-        live =
-          (await processStart(previous.owner.pid)) === previous.owner.started;
+        live = (await processStart(previous.owner.pid)) === previous.owner.started;
       } catch (error) {
         try {
           process.kill(previous.owner.pid, 0);
         } catch (cause) {
-          if (z.object({ code: z.literal("ESRCH") }).safeParse(cause).success)
-            live = false;
+          if (z.object({ code: z.literal("ESRCH") }).safeParse(cause).success) live = false;
           else throw error;
         }
       }
       if (live)
-        throw new Error(
-          `Loop already owned by live process ${String(previous.owner.pid)}; stop it there first`,
-        );
+        throw new Error(`Loop already owned by live process ${String(previous.owner.pid)}; stop it there first`);
     }
     const identity = {
       pid: process.pid,
@@ -165,7 +136,7 @@ export function registerPromptLoops(
     };
     const record =
       previous ??
-      (definition === undefined
+      (!definition
         ? undefined
         : {
             session,
@@ -181,8 +152,7 @@ export function registerPromptLoops(
             reason: "Configured",
             owner: null,
           });
-    if (record === undefined)
-      throw new Error("Configure first: /loop configure SECONDS PROMPT");
+    if (!record) throw new Error("Configure first: /loop configure SECONDS PROMPT");
     const claimed = storage.save(
       {
         ...record,
@@ -230,9 +200,7 @@ export function registerPromptLoops(
       // Pi's built-in selectors expose no public prompt lifecycle. Pause before
       // any native input handler can replace the editor, including remapped keys.
       if (controller?.current.state === "running")
-        controller.pause(
-          "Paused for session interaction; inspect /loop status and resume",
-        );
+        controller.pause("Paused for session interaction; inspect /loop status and resume");
       return undefined;
     });
     if (!existsSync(join(stateDirectory(), "prompt-loops.sqlite"))) return;
@@ -240,15 +208,12 @@ export function registerPromptLoops(
     const storage = new LoopStore();
     try {
       const record = storage.get(ctx.sessionManager.getSessionId());
-      if (record !== undefined) {
+      if (record) {
         display(record);
         if (!blocked(ctx)) await claim(ctx);
       }
     } catch (error) {
-      ctx.ui.notify(
-        error instanceof Error ? error.message : String(error),
-        "warning",
-      );
+      ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning");
     } finally {
       storage.close();
     }
@@ -265,12 +230,9 @@ export function registerPromptLoops(
       dialogs > 0 ||
       blocked(ctx) ||
       uncertainChildren(ctx) ||
-      (saved?.intent !== null && saved?.intent !== undefined) ||
-      (saved?.owner !== null &&
-        saved?.owner !== undefined &&
-        controller === undefined) ||
-      (controller?.current.intent !== null &&
-        controller?.current.intent !== undefined)
+      (saved?.intent !== null && saved?.intent) ||
+      (saved?.owner !== null && saved?.owner && !controller) ||
+      (controller?.current.intent !== null && controller?.current.intent)
       ? { cancel: true }
       : undefined;
   });
@@ -288,9 +250,7 @@ export function registerPromptLoops(
         pi.appendEntry(childWorkType, {
           session: ctx.sessionManager.getSessionId(),
         });
-      controller?.pause(
-        "Child work may remain active; start a new session before looping",
-      );
+      controller?.pause("Child work may remain active; start a new session before looping");
     }
   });
   pi.on("input", (event) => {
@@ -309,18 +269,13 @@ export function registerPromptLoops(
     dialogs = Math.max(0, dialogs - 1);
   });
   pi.registerCommand("loop", {
-    description:
-      "/loop configure SECONDS PROMPT | start | status | stop | resume inspected",
+    description: "/loop configure SECONDS PROMPT | start | status | stop | resume inspected",
     async handler(argument, ctx) {
       const text = argument.trim();
       if (text === "status" || text === "") {
-        const record =
-          controller?.current ?? store?.get(ctx.sessionManager.getSessionId());
-        if (record === undefined) {
-          ctx.ui.notify(
-            "No loop configured. /loop configure SECONDS PROMPT",
-            "info",
-          );
+        const record = controller?.current ?? store?.get(ctx.sessionManager.getSessionId());
+        if (!record) {
+          ctx.ui.notify("No loop configured. /loop configure SECONDS PROMPT", "info");
           return;
         }
         inspected = record.revision;
@@ -334,43 +289,26 @@ export function registerPromptLoops(
       if (configuration !== null) {
         const cadenceMs = Number(configuration[1]) * 1000;
         const prompt = configuration[2]?.trim() ?? "";
-        if (
-          !Number.isSafeInteger(cadenceMs) ||
-          cadenceMs <= 0 ||
-          cadenceMs > 2_147_483_647 ||
-          prompt.length === 0
-        )
-          throw new Error(
-            "Use a nonempty prompt and positive cadence in seconds (maximum 2147483)",
-          );
+        if (!Number.isSafeInteger(cadenceMs) || cadenceMs <= 0 || cadenceMs > 2_147_483_647 || prompt.length === 0)
+          throw new Error("Use a nonempty prompt and positive cadence in seconds (maximum 2147483)");
         const loop = await claim(ctx, { prompt, cadenceMs });
         loop.configure(prompt, cadenceMs);
         return;
       }
-      if (text === "stop" && controller !== undefined) {
+      if (text === "stop" && controller) {
         controller.stop();
         return;
       }
       const loop = await claim(ctx);
       if (text === "start") loop.start();
       else if (text === "resume inspected") {
-        if (
-          loop.current.intent !== null &&
-          (!ctx.isIdle() || ctx.hasPendingMessages() || dialogs > 0)
-        )
-          throw new Error(
-            "Wait for current work and queued input to settle before inspecting and resuming",
-          );
+        if (loop.current.intent !== null && (!ctx.isIdle() || ctx.hasPendingMessages() || dialogs > 0))
+          throw new Error("Wait for current work and queued input to settle before inspecting and resuming");
         if (inspected !== loop.current.revision)
-          throw new Error(
-            "Read /loop status immediately before /loop resume inspected",
-          );
+          throw new Error("Read /loop status immediately before /loop resume inspected");
         loop.resume();
         inspected = undefined;
-      } else
-        throw new Error(
-          "Use /loop configure SECONDS PROMPT | start | status | stop | resume inspected",
-        );
+      } else throw new Error("Use /loop configure SECONDS PROMPT | start | status | stop | resume inspected");
     },
   });
 }

@@ -1,7 +1,4 @@
-import type {
-  ExtensionAPI,
-  ExtensionUIContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import * as tui from "@earendil-works/pi-tui";
 
 type Listen = ExtensionUIContext["onTerminalInput"];
@@ -20,8 +17,7 @@ export function queryPaneGraphics(
       resolve(false);
     }, timeoutMs);
     const unsubscribe = listen((data) => {
-      if (!data.startsWith(prefix) || !data.endsWith("\x1b\\"))
-        return undefined;
+      if (!data.startsWith(prefix) || !data.endsWith("\x1b\\")) return undefined;
       clearTimeout(timer);
       resolve(data === prefix + "OK\x1b\\");
       unsubscribe();

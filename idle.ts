@@ -34,12 +34,7 @@ export class IdleSession {
     this.childWork = false;
   }
 
-  initialize(
-    host: IdleSessionHost,
-    idleMs: number,
-    minimumPercent: number,
-    restoredHistory: string | null,
-  ): void {
+  initialize(host: IdleSessionHost, idleMs: number, minimumPercent: number, restoredHistory: string | null): void {
     this.stop();
     this.settled = host.snapshot().settled;
     this.dialogs = 0;
@@ -173,9 +168,7 @@ export class IdleCompactor {
         });
       } catch (error) {
         finish();
-        this.host.notify(
-          error instanceof Error ? error : new Error(String(error)),
-        );
+        this.host.notify(error instanceof Error ? error : new Error(String(error)));
       }
     }, this.idleMs);
   }
