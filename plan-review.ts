@@ -31,6 +31,16 @@ function oneLine(value: string): string {
   return clean(value).replace(/\s+/gu, " ").trim();
 }
 
+export function reviewContextValue(value: string): string {
+  return value
+    .replaceAll("\\", "\\\\")
+    .replace(
+      /\p{Cc}/gu,
+      (character) =>
+        `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
+    );
+}
+
 function renderFields(
   fields: readonly ReviewField[],
   theme: ReviewTheme,
@@ -45,15 +55,7 @@ function renderFields(
     const label = labels[index] ?? "";
     const name = theme.fg("muted", label);
     const [first = "", ...rest] = wrapTextWithAnsi(
-      exact
-        ? value
-            .replaceAll("\\", "\\\\")
-            .replace(
-              /\p{Cc}/gu,
-              (character) =>
-                `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
-            )
-        : clean(value),
+      exact ? reviewContextValue(value) : clean(value),
       valueWidth,
     ).map((line) => theme.fg(tone ?? "text", line));
     if (!inline) return [...wrapTextWithAnsi(name, width), first, ...rest];
