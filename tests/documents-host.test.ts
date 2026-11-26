@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { Database } from "bun:sqlite";
-import { HOST_CONFORMANCE_CASES } from "@lanej/editor-interop/testing";
+import { HOST_CONFORMANCE_CASES } from "@lanej/copydesk/testing";
 import {
   DefaultResourceLoader,
   ExtensionRunner,

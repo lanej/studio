@@ -21,7 +21,7 @@ import {
   type HostProvider,
   type SnapshotItem,
   type SnapshotReader,
-} from "@lanej/editor-interop";
+} from "@lanej/copydesk";
 import {
   CallContextSchema,
   DocumentRefSchema,
@@ -39,7 +39,7 @@ import {
   type FeedbackCommand,
   type SaveCommand,
   type SaveResult,
-} from "@lanej/editor-interop/protocol";
+} from "@lanej/copydesk/protocol";
 import { z } from "zod";
 import { OperationIdReused } from "../operation-witness.ts";
 import {

@@ -123,7 +123,7 @@ await test("manifest-only source exports preserve extension modules and the inst
     assert.ok(
       (await Promise.all(report.paths.map((path) => realpath(path)))).includes(
         await realpath(
-          fileURLToPath(import.meta.resolve("@lanej/editor-interop/neovim")),
+          fileURLToPath(import.meta.resolve("@lanej/copydesk/neovim")),
         ),
       ),
       "the exported Studio resource check resolves the installed editor package's public runtime",

@@ -4,8 +4,8 @@ import type {
   AttachmentState,
   EditorLauncher,
   LaunchRequest,
-} from "@lanej/editor-interop";
-import type { EditorRegistration } from "@lanej/editor-interop/protocol";
+} from "@lanej/copydesk";
+import type { EditorRegistration } from "@lanej/copydesk/protocol";
 import type { StudioConfig } from "../config.ts";
 import { requireIntegration } from "../integrations.ts";
 import { processStart, run } from "../process.ts";
@@ -163,11 +163,11 @@ export class StudioEditorLauncher implements EditorLauncher {
         this.name,
         request.workingDirectory,
         [
-          `EDITOR_INTEROP_RUNTIME=${request.runtimePath}`,
-          `EDITOR_INTEROP_CONNECTION=${request.manifestPath}`,
+          `COPYDESK_RUNTIME=${request.runtimePath}`,
+          `COPYDESK_CONNECTION=${request.manifestPath}`,
           executable,
           "-c",
-          "lua dofile(vim.env.EDITOR_INTEROP_RUNTIME .. '/bootstrap.lua')",
+          "lua dofile(vim.env.COPYDESK_RUNTIME .. '/bootstrap.lua')",
         ],
         "pinned-floating",
       );
@@ -202,7 +202,7 @@ export class StudioEditorLauncher implements EditorLauncher {
             "--server",
             registration.rpcAddress,
             "--remote-expr",
-            "json_encode({'pid':getpid(),'pane':$ZELLIJ_PANE_ID,'session':$ZELLIJ_SESSION_NAME,'connection':$EDITOR_INTEROP_CONNECTION})",
+            "json_encode({'pid':getpid(),'pane':$ZELLIJ_PANE_ID,'session':$ZELLIJ_SESSION_NAME,'connection':$COPYDESK_CONNECTION})",
           ],
           { timeout: 3000 },
         ),
