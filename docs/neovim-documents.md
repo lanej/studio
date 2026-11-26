@@ -61,6 +61,6 @@ The migration uses an exact Git commit rather than a GitHub archive checksum so 
 
 ## Development acceptance
 
-Studio consumes a pinned [Copydesk](https://github.com/lanej/editor-interop) package. The independent repository owns the protocol, local transport, Neovim runtime and host-independent editor acceptance. Studio owns document codecs, revision and approval policy, atomic persistence, conversation attribution and Zellij launching. Planning controls stay active when the editor integration is disabled.
+Studio consumes a pinned [Copydesk](https://github.com/lanej/copydesk) package. The independent repository owns the protocol, local transport, Neovim runtime and host-independent editor acceptance. Studio owns document codecs, revision and approval policy, atomic persistence, conversation attribution and Zellij launching. Planning controls stay active when the editor integration is disabled.
 
 `bun test tests/documents-model.test.ts tests/documents-host.test.ts tests/documents-admission.test.ts` exercises Studio document round trips, guarded writes and request attribution. `bun run test:documents-native` runs the installed package with real Studio, Zellij and Neovim using a deterministic local provider and isolated state. The macOS/Linux CI job uses Neovim 0.12.6 and builds the custom Zellij revision pinned in `zellij-revision`; upstream Zellij does not supply this control protocol. The provider fixture establishes behavior and attribution, not live-model response quality.

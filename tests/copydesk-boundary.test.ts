@@ -92,6 +92,6 @@ await test("Studio consumes an immutable independent package revision", () => {
     .parse(JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")));
   assert.match(
     manifest.dependencies["@lanej/copydesk"] ?? "",
-    /^git\+https:\/\/github\.com:443\/lanej\/editor-interop\.git#[0-9a-f]{40}$/,
+    /^git\+https:\/\/github\.com:443\/lanej\/copydesk\.git#[0-9a-f]{40}$/,
   );
 });
