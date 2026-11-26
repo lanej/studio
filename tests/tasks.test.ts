@@ -999,14 +999,16 @@ await test("the worker answer drawer owns focus above the lead draft and restore
   const replyField = aboveEditor.children[0];
   assert.ok(replyField !== undefined);
   tui.setFocus(lead);
-  const y = replyField.render(68).findIndex((row) => row.includes("edit me"));
-  assert.ok(y >= 0);
+  const replyRows = replyField.render(68).map(stripAnsi);
+  const y = replyRows.findIndex((row) => row.includes("edit me"));
+  const x = replyRows[y]?.indexOf(" me");
+  assert.ok(x !== undefined && x >= 0);
   const click = replyField.handleMouse?.({
     type: "click",
     button: "left",
-    x: 7,
+    x,
     y,
-    screenX: 7,
+    screenX: x,
     screenY: y,
     width: 68,
     height: 12,

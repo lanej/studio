@@ -359,17 +359,32 @@ class Terminal:
                 x = line.find(text, x + 1)
         raise AssertionError(f"Missing {text!r} with fg={fg} bg={bg} bold={bold}\n{self.text()}")
 
+    def worker_frame(self, title):
+        """Find the full-width, attached frame in the chat column and check its live border cells."""
+        rail = self.rail_start()
+        width = self.screen.columns
+        if rail is not None:
+            title_row = next(line for line in self.screen.display if line[rail:].startswith("Specification"))
+            width = title_row.rindex("│", 0, rail)
+        rows = [line[:width] for line in self.screen.display]
+        header = next(i for i, row in enumerate(rows)
+                      if title in row and row.startswith("╭") and row.endswith("╮"))
+        footer = next(i for i in range(header + 1, len(rows)) if rows[i].startswith("╰"))
+        assert rows[footer].endswith("╯"), self.text()
+        assert all(row.startswith("│") and row.endswith("│") for row in rows[header + 1:footer]), self.text()
+        for y in (header, footer):
+            for corner in (rows[y][0], rows[y][-1]):
+                self.assert_styled_text(corner, fg="border", lines=[y])
+        return rows, header, footer
+
     def answer_drawer(self, question, draft=None):
-        """The response owns its own rows in the chat column, above the lead editor."""
-        width = self.rail_start() or self.screen.columns
-        rows = [line[:width].rstrip(" │┃") for line in self.screen.display]
-        header = next(y for y, line in enumerate(rows) if "Worker question" in line)
-        footer = next(y for y in range(header + 1, len(rows)) if "Esc cancel" in rows[y])
+        """The response owns its own framed rows in the chat column, above the lead editor."""
+        rows, header, footer = self.worker_frame("Worker question")
         assert header > 0 and any(line.strip() for line in rows[:header]), self.text()
-        assert all("Brief & acceptance" not in line and "↗ Answer operator decision" not in line
-                   for line in rows), self.text()
-        assert rows[header].index("Worker question") <= 3, self.text()
-        assert question in " ".join(" ".join(rows[header:footer + 1]).split()), self.text()
+        assert all("Brief & acceptance" not in row and "↗ Answer operator decision" not in row
+                   for row in rows), self.text()
+        body = " ".join(row[1:-1] for row in rows[header + 1:footer])
+        assert question in " ".join(body.split()), self.text()
         if draft is not None:
             assert rows[footer + 1].startswith("─"), self.text()
             assert " ".join(" ".join(rows[footer + 2:]).split()).startswith(draft), self.text()

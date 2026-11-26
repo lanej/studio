@@ -1,8 +1,10 @@
 import type { Theme, ThemeBg } from "@earendil-works/pi-coding-agent";
-import type {
-  OverlayOptions,
-  TuiMouseEvent,
-  TuiMouseEventResult,
+import {
+  truncateToWidth,
+  visibleWidth,
+  type OverlayOptions,
+  type TuiMouseEvent,
+  type TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
 
 const verticalInset = 1;
@@ -26,6 +28,42 @@ export function floatingPaneHeight(terminalRows: number): number {
       ),
     ),
   );
+}
+
+/** Frame an inline pane. A title and optional key hints share the horizontal borders. */
+export function framePaneRows({
+  title,
+  body,
+  footer,
+  width,
+  border,
+}: {
+  title: string;
+  body: readonly string[];
+  footer?: string | undefined;
+  width: number;
+  border: (text: string) => string;
+}): string[] {
+  const edge = (left: string, right: string, label: string | undefined) => {
+    if (label === undefined || label.length === 0)
+      return border(left + "─".repeat(width - 2) + right);
+    const text = truncateToWidth(label, width - 6, "…");
+    return (
+      border(left + "─ ") +
+      text +
+      border(" " + "─".repeat(width - 5 - visibleWidth(text)) + right)
+    );
+  };
+  return [
+    edge("╭", "╮", title),
+    ...body.map(
+      (line) =>
+        border("│ ") +
+        truncateToWidth(line, width - 4, "…", true) +
+        border(" │"),
+    ),
+    edge("╰", "╯", footer),
+  ];
 }
 
 /** Keep the pane's fill across embedded ANSI resets and selected rows. */

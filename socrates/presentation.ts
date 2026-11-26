@@ -54,9 +54,9 @@ import {
 import {
   renderSocratesDock,
   renderStatusSidebar,
-  renderWorkerCompact,
   type WorkerSidebarView,
 } from "./sidebar.ts";
+import { renderWorkerDock } from "./worker-section.ts";
 import { createImplementationWatch } from "./implementation-watch.ts";
 
 export interface SocratesObservation extends ImplementationSource {
@@ -431,29 +431,32 @@ export function registerSocratesPresentation(
           },
           render(width) {
             if (snapshot === undefined || usesSidebar()) return [];
+            const hasWorkers =
+              workers.rows.length > 0 || workers.evidenceError !== undefined;
+            const limit = (dockExpanded ? 8 : 3) + Number(hasWorkers);
             const maxRows = Math.max(
               1,
-              Math.min(dockExpanded ? 8 : 3, Math.floor(tui.terminal.rows / 3)),
+              Math.min(limit, Math.floor(tui.terminal.rows / 3)),
             );
-            const inner = Math.max(0, width - 3);
             const colors = statusTheme(theme);
-            const roster = renderWorkerCompact(
+            // In a very short terminal the pending question takes priority over the plan.
+            const roster = renderWorkerDock(
               workers,
               colors,
-              inner,
-              Math.max(1, maxRows - 1),
+              width,
+              maxRows >= 4 ? maxRows - 1 : maxRows,
               dockExpanded,
+              (text) => theme.fg("border", text),
             );
-            const statusRows = maxRows - roster.length;
             const rows = renderSocratesDock(
               snapshot,
               { ...colors, lane: planGraphColor(theme) },
-              inner,
-              statusRows,
+              Math.max(0, width - 3),
+              maxRows - roster.length,
               dockExpanded,
             );
-            return [...rows, ...roster].map((line) =>
-              surface(theme, `  ${line}`, width),
+            return [...rows.map((row) => `  ${row}`), ...roster].map((line) =>
+              surface(theme, line, width),
             );
           },
         };

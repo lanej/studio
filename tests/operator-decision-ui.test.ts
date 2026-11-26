@@ -50,6 +50,12 @@ await test("long questions scroll independently of multiline answers, and Escape
   });
   editor.focused = true;
   const render = () => editor.render(36).join("\n");
+  const frame = editor.render(36);
+  assert.match(frame[0] ?? "", /^╭─ Worker question .*╮$/u);
+  assert.ok(
+    frame.slice(1, -1).every((row) => row.startsWith("│") && row.endsWith("│")),
+  );
+  assert.match(frame.at(-1) ?? "", /^╰─ Enter submit .*╯$/u);
   assert.match(render(), /Question begins/u);
   assert.equal(
     editor.handleMouse({
@@ -113,7 +119,7 @@ await test("the reply cursor stays inside the drawer when the terminal shrinks",
   editor.handleInput("Last line");
   for (const height of [1, 6, 9, 12, 24, 60]) {
     terminal.rowCount = height;
-    for (const width of [1, 2, 3, 4, 16, 80]) {
+    for (const width of [1, 2, 3, 4, 6, 7, 8, 16, 60, 80]) {
       const rows = editor.render(width);
       assert.ok(
         rows.length <= Math.max(1, Math.min(12, Math.floor(height / 3))),

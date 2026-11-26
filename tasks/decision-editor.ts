@@ -19,7 +19,7 @@ import {
   paneKeyPair,
 } from "../pane-keybindings.ts";
 import { selectorText } from "@lanej/pi-components";
-import { paintPaneLine, paneMouse } from "../floating-pane.ts";
+import { framePaneRows, paintPaneLine, paneMouse } from "../floating-pane.ts";
 
 export class DecisionEditor {
   readonly capturesViewportInput = true;
@@ -29,7 +29,7 @@ export class DecisionEditor {
   private offset = 0;
   private questionHeight = 1;
   private maxOffset = 0;
-  private replyArea = { top: 0, start: 0, rows: 0, prefix: 0 };
+  private replyArea = { top: 0, start: 0, rows: 0, left: 0, width: 0 };
 
   constructor(
     private readonly tui: TUI,
@@ -76,11 +76,13 @@ export class DecisionEditor {
     const showHeading = height >= 3;
     const showHints = height >= 4;
     const contentHeight = height - Number(showHeading) - Number(showHints);
-    const prefix = width >= 4 ? " ›" : "";
-    const inner = width - prefix.length;
+    const framed = showHints && width >= 7;
+    const bodyWidth = framed ? width - 4 : width;
+    const prefix = bodyWidth >= 4 ? " ›" : "";
+    const inner = bodyWidth - prefix.length;
     // Use the editor's wrapped, cursor-aware rows inside the drawer's own surface.
     const editing = this.editor.render(inner).slice(1, -1);
-    const prompt = this.question.render(width);
+    const prompt = this.question.render(bodyWidth);
     this.questionHeight = Math.min(
       contentHeight - 1,
       Math.max(1, contentHeight - editing.length),
@@ -99,7 +101,8 @@ export class DecisionEditor {
       top: Number(showHeading) + visibleQuestion.length,
       start,
       rows: reply.length,
-      prefix: prefix.length,
+      left: (framed ? 2 : 0) + prefix.length,
+      width: inner,
     };
     const keys = getKeybindings();
     const submit = keys.getKeys("tui.input.submit");
@@ -126,16 +129,15 @@ export class DecisionEditor {
         ? this.theme.fg("muted", `  ${scroll} scroll question`)
         : "";
     const header =
-      this.theme.fg("warning", this.theme.bold(" Worker question")) +
+      this.theme.fg("warning", this.theme.bold("Worker question")) +
       questionScroll +
       (title.length === 0 ? "" : this.theme.fg("muted", `  ·  ${title}`));
-    const rows = [
-      ...(showHeading ? [header] : []),
+    const body = [
       ...visibleQuestion.map((line) => this.theme.fg("text", line)),
       ...reply.map((line, index) => {
         // At one column Pi can render the end-of-line cursor just past the text.
         if (
-          width === 1 &&
+          bodyWidth === 1 &&
           line.includes(CURSOR_MARKER) &&
           visibleWidth(line) > 1
         )
@@ -146,29 +148,40 @@ export class DecisionEditor {
             : " ".repeat(prefix.length)) + line
         );
       }),
-      ...(showHints ? [this.theme.fg("muted", ` ${instructions}`)] : []),
     ];
-    return rows.map((line) =>
-      paintPaneLine(
-        this.theme,
-        "userMessageBg",
-        visibleWidth(line) > width
-          ? truncateToWidth(line, width, "…")
-          : line + " ".repeat(width - visibleWidth(line)),
-      ),
-    );
+    const footer = this.theme.fg("muted", instructions);
+    const rows = framed
+      ? framePaneRows({
+          title: header,
+          body,
+          footer,
+          width,
+          border: (text) => this.theme.fg("border", text),
+        })
+      : [
+          ...(showHeading ? [header] : []),
+          ...body,
+          ...(showHints ? [footer] : []),
+        ].map((line) => truncateToWidth(line, width, "…", true));
+    return rows.map((line) => paintPaneLine(this.theme, "userMessageBg", line));
   }
 
   handleMouse(event: TuiMouseEvent) {
     if (event.type === "click" && event.button === "left") {
       const row = event.y - this.replyArea.top;
-      if (row >= 0 && row < this.replyArea.rows) {
+      const x = event.x - this.replyArea.left;
+      if (
+        row >= 0 &&
+        row < this.replyArea.rows &&
+        x >= 0 &&
+        x < this.replyArea.width
+      ) {
         // Pi's editor includes its top border and may have more visible rows than the drawer.
         this.editor.handleMouse({
           ...event,
-          x: event.x - this.replyArea.prefix,
+          x,
           y: row + this.replyArea.start + 1,
-          width: event.width - this.replyArea.prefix,
+          width: this.replyArea.width,
         });
       }
       return { handled: true, focus: true };

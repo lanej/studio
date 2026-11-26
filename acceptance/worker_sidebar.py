@@ -139,6 +139,13 @@ discoveries.close();
             assert "› " not in rail and "Enter inspect" not in rail and "Space fold" not in rail, rail
             return rail
 
+        def check_worker_dock():
+            rows, top, bottom = console.worker_frame("Workers")
+            assert "Beads" in rows[top - 1], console.text()
+            assert "1 needs you" in rows[top], console.text()
+            assert bottom == top + 2 and question[:42] in rows[top + 1], console.text()
+            return bottom
+
         def open_picker():
             console.send("\x1b[59;5u")  # Ctrl+;
             console.contains("Studio panes")
@@ -244,7 +251,7 @@ discoveries.close();
         assert "Enter inspect" not in console.text(), console.text()
         bead_line = next(line.strip() for line in console.screen.display if line.strip().startswith("Beads  "))
         assert bead_line.endswith(" +2"), bead_line
-        console.contains(question[:42])
+        check_worker_dock()
         console.capture("worker-dock")
         open_workers()
         select_first()
@@ -307,6 +314,8 @@ discoveries.close();
                 console.resize(width, height)
             console.contains(second)
             top, bottom = console.answer_drawer(question, preserved_draft)
+            if console.rail_start() is None:
+                assert check_worker_dock() + 1 == top, console.text()
             console.assert_styled_text("Restore the selected graph node", bg="surface.raised", lines=[top])
             console.assert_styled_text("›", fg="accent", bg="surface.raised", lines=range(top, bottom))
             console.assert_styled_text(first, bg="surface.raised", lines=range(top, bottom))

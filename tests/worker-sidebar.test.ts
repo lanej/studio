@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { stripVTControlCharacters } from "node:util";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { implementationColumn } from "../socrates/columns.ts";
 import {
@@ -12,6 +13,7 @@ import {
   renderWorkerCompact,
   type WorkerSidebarView,
 } from "../socrates/sidebar.ts";
+import { renderWorkerDock } from "../socrates/worker-section.ts";
 import type { WorkerAssignment } from "../tasks/workers.ts";
 
 const plain = (text: string) => text;
@@ -119,6 +121,51 @@ await test("compact workers prioritize operator questions, respect bounds and di
       const rows = renderWorkerCompact(view, theme, width, height, true);
       assert.ok(rows.length <= height);
       assert.ok(rows.every((line) => visibleWidth(line) <= width));
+    }
+  }
+});
+
+await test("the passive worker dock fits its counts and question inside a compact frame", () => {
+  const dock = (
+    workers: WorkerSidebarView,
+    width: number,
+    height: number,
+    expanded = false,
+  ) => renderWorkerDock(workers, theme, width, height, expanded, plain);
+  const question = "Focus 根 after refreshing the selection?";
+  const assignments: WorkerSidebarView = {
+    rows: [{ ...worker, question }, review],
+  };
+  const rows = dock(assignments, 48, 3);
+  assert.match(rows[0] ?? "", /^╭─ Workers ─+ 1 active · 1 needs you ─╮$/u);
+  assert.equal(rows[1]?.startsWith("│ " + question), true);
+  assert.equal(rows[1].endsWith(" │"), true);
+  assert.equal(rows[2], "╰" + "─".repeat(46) + "╯");
+  assert.ok(rows.every((line) => visibleWidth(line) === 48));
+  assert.deepEqual(dock({ rows: [] }, 48, 3), []);
+  const unavailable = dock(
+    { rows: [], evidenceError: "invalid record" },
+    48,
+    3,
+  );
+  assert.equal(unavailable.length, 2);
+  assert.match(unavailable[0] ?? "", /Worker status unavailable/u);
+  const short = dock(assignments, 48, 2, true);
+  assert.equal(short.length, 2);
+  assert.equal(short[1]?.startsWith("╰─ " + question), true);
+  assert.equal(visibleWidth(short[1]), 48);
+  const clipped = dock(assignments, 30, 3);
+  assert.match(clipped[0] ?? "", /1 needs you/u);
+  assert.match(stripVTControlCharacters(clipped[1] ?? ""), /…\s*│$/u);
+  for (const width of [1, 6, 7, 24, 60]) {
+    for (const height of [1, 2, 3, 7]) {
+      const lines = dock(assignments, width, height, true);
+      assert.ok(lines.length <= height);
+      assert.ok(lines.every((line) => visibleWidth(line) <= width));
+      if (width >= 7 && height >= 2) {
+        assert.equal(lines[0]?.startsWith("╭"), true);
+        assert.equal(lines.at(-1)?.endsWith("╯"), true);
+      }
     }
   }
 });
