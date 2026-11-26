@@ -13,11 +13,12 @@ export {
 } from "./delivery-policy.ts";
 import { questionEvidence } from "./evidence.ts";
 import {
-  coverageFresh,
+  coverageBasisCurrent,
   coverageProperties,
   savedCoverageSchema,
   coverageSchema,
   draftCoverage,
+  mergeCoverage,
 } from "./assessment.ts";
 
 export enum SpecStatus {
@@ -109,6 +110,67 @@ export const assessedSpecDraft = specDraft.safeExtend({
   coverage: coverageSchema,
 });
 
+const draftUpdate = specDraft.safeExtend({ coverage: savedCoverageSchema });
+const coverageOnly = z.strictObject({
+  coverage: z.strictObject({
+    ...savedCoverageSchema.shape,
+    domains: savedCoverageSchema.shape.domains.optional(),
+  }),
+});
+
+/** The tool accepts a delta. Storage, freeze and handoff always see the complete draft. */
+export function applyDraftUpdate(
+  spec: LeadSpecification,
+  revision: string,
+  input: unknown,
+): z.infer<typeof assessedSpecDraft> {
+  const review = coverageOnly.safeParse(input);
+  const saved = draftCoverage(spec.draft);
+  if (review.success && review.data.coverage.domains !== undefined) {
+    const domains = review.data.coverage.domains;
+    if (saved?.domains.some((domain) => !domains.includes(domain)) === true)
+      throw new Error(
+        "Supply the revised specification when removing a property domain",
+      );
+  }
+  const draft = draftUpdate.parse(
+    review.success
+      ? {
+          ...spec.draft,
+          coverage: {
+            ...review.data.coverage,
+            domains: review.data.coverage.domains ?? saved?.domains,
+          },
+        }
+      : input,
+  );
+  if (spec.exchange?.answer !== undefined) {
+    const id = spec.exchange.prompt.decisionId;
+    const prior = trackedDecision(spec.draft, id);
+    const updated = draft.decisions.find((entry) => entry.id === id);
+    if (
+      updated === undefined ||
+      (updated.disposition === prior?.disposition &&
+        updated.evidence === prior.evidence &&
+        updated.uncertainty === prior.uncertainty)
+    )
+      throw new Error(
+        `Incorporate the recorded answer in decision ${id}'s evidence, uncertainty, or disposition before saving`,
+      );
+  }
+  const baseline = coverageBasisCurrent(spec, revision) ? spec.draft : null;
+  const previous = draftCoverage(baseline);
+  const coverage = mergeCoverage(baseline, draft);
+  if (
+    review.success &&
+    coverage.focus === undefined &&
+    previous?.focus !== undefined &&
+    coverage.assessments.some(({ propertyId }) => propertyId === previous.focus)
+  )
+    coverage.focus = previous.focus;
+  return { ...draft, coverage };
+}
+
 export const specQuestion = z
   .strictObject({
     decisionId,
@@ -137,6 +199,25 @@ export const specQuestion = z
   });
 export type SpecQuestion = z.infer<typeof specQuestion>;
 
+/** Keep delivered guidance available across sessions and transcript compaction until incorporated. */
+export const reviewInput = z.object({
+  timestamp: z.number(),
+  content: z.union([
+    z.string(),
+    z.array(
+      z.discriminatedUnion("type", [
+        z.object({ type: z.literal("text"), text: z.string() }),
+        z.object({
+          type: z.literal("image"),
+          mimeType: z.string(),
+          data: z.string(),
+        }),
+      ]),
+    ),
+  ]),
+});
+export type ReviewInput = z.infer<typeof reviewInput>;
+
 export const specRecord = z.strictObject({
   status: z.enum(SpecStatus),
   version: z.number().int().positive(),
@@ -154,6 +235,14 @@ export const specRecord = z.strictObject({
     .optional(),
   acceptedRevision: z.string(),
   approvalAt: z.string().optional(),
+  pendingReview: z
+    .strictObject({
+      id: z.uuid(),
+      cause: z.enum(["input", "plan", "input-and-plan"]),
+      inputs: z.array(reviewInput).optional(),
+      missingInput: z.literal(true).optional(),
+    })
+    .optional(),
   coverageRevision: z
     .string()
     .regex(/^[a-f0-9]{64}$/u)
@@ -161,15 +250,18 @@ export const specRecord = z.strictObject({
 });
 export type LeadSpecification = z.infer<typeof specRecord>;
 
-function deliveryDecision(
+function trackedDecision(
   draft: LeadSpecification["draft"],
+  id: string | undefined,
 ): z.infer<typeof decision> | undefined {
-  const policy = draftDeliveryPolicy(draft);
   for (const entry of draft?.decisions ?? []) {
-    if (isTrackedDecision(entry) && entry.id === policy?.decisionId)
-      return entry;
+    if (isTrackedDecision(entry) && entry.id === id) return entry;
   }
   return undefined;
+}
+
+function deliveryDecision(draft: LeadSpecification["draft"]) {
+  return trackedDecision(draft, draftDeliveryPolicy(draft)?.decisionId);
 }
 
 function resolvedDeliveryDecision(
@@ -234,10 +326,14 @@ export function propertyGaps(
   const gaps: string[] = [];
   if (
     draftCoverage(spec.draft) !== undefined &&
-    !coverageFresh(spec, currentRevision)
+    !coverageBasisCurrent(spec, currentRevision)
   )
     gaps.push(
       "Reassess properties against the current specification and plan with /socrates",
+    );
+  if (spec.pendingReview !== undefined)
+    gaps.push(
+      "Review recent changes with /socrates and update any affected property assessments",
     );
   for (const property of coverageProperties(spec.draft)) {
     if (property.status !== "satisfied" && property.status !== "not-applicable")
@@ -291,11 +387,14 @@ export function specText(spec: LeadSpecification): string {
       : ["Pull request policy", deliveryPolicyText(policy), ""]),
     "Property assessments",
     ...(properties.some(({ recorded }) => recorded) &&
-    !coverageFresh(spec, spec.acceptedRevision)
+    !coverageBasisCurrent(spec, spec.acceptedRevision)
       ? [
           "Needs review · Reassess the saved evidence against the current brief, specification, plan, and answers.",
         ]
       : []),
+    ...(spec.pendingReview === undefined
+      ? []
+      : ["Recent changes are pending review."]),
     ...properties.map(
       ({ label, status, reason }) => `${label} · ${status} · ${reason}`,
     ),

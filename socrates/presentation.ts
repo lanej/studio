@@ -20,7 +20,7 @@ import {
   type StatusTheme,
 } from "@lanej/pi-components";
 import {
-  coverageFresh,
+  coverageBasisCurrent,
   coverageProperties,
   draftCoverage,
   type CoverageStatus,
@@ -117,26 +117,27 @@ export function socratesPresentation(
       dockColumns: [column, implementationColumn(implementation, true)],
     };
   }
-  const fresh = coverageFresh(spec, revision);
+  const basisCurrent = coverageBasisCurrent(spec, revision);
   const properties = coverageProperties(spec.draft);
   const conditions = properties.map(
     (property): AssessedCondition => ({
       id: property.id,
       label: property.label,
       state: conditionStates[property.status],
-      stale: property.recorded && !fresh,
+      stale: property.recorded && !basisCurrent,
       details: property.reason,
     }),
   );
   const counts = conditionCounts(conditions);
   const outstanding =
     counts.satisfied + counts.notApplicable < conditions.length;
+  const needsReview = outstanding || spec.pendingReview !== undefined;
   const reviewBeforeHandoff =
     spec.status === SpecStatus.Frozen &&
     observation.bead === undefined &&
     observation.approved === undefined &&
     observation.handoff === undefined &&
-    outstanding;
+    needsReview;
   const summary = [
     `${String(counts.satisfied)} satisfied`,
     ...(counts.partial > 0 ? [`${String(counts.partial)} partial`] : []),
@@ -170,6 +171,23 @@ export function socratesPresentation(
         detail: "Awaiting incorporation into the draft",
       };
     }
+    if (
+      spec.pendingReview !== undefined &&
+      (spec.status !== SpecStatus.Frozen || reviewBeforeHandoff)
+    ) {
+      const labels = {
+        input: ["Reviewing new input", "New input pending review"],
+        plan: ["Reviewing plan changes", "Plan changes pending review"],
+        "input-and-plan": [
+          "Reviewing recent changes",
+          "Changes pending review",
+        ],
+      } as const;
+      const [active, pending] = labels[spec.pendingReview.cause];
+      return live.working
+        ? { state: ActivityState.Working, label: active }
+        : { state: ActivityState.Waiting, label: pending };
+    }
     if (spec.status === SpecStatus.Frozen) {
       if (reviewBeforeHandoff)
         return {
@@ -184,11 +202,11 @@ export function socratesPresentation(
         state: ActivityState.Working,
         label: "Reviewing specification",
         ...(live.tool === undefined
-          ? focusLabel === undefined || !fresh
+          ? focusLabel === undefined || !basisCurrent
             ? {}
             : { detail: `Focus · ${focusLabel}` }
           : { detail: `Tool · ${live.tool}` }),
-        ...(focus === undefined || !fresh ? {} : { focusId: focus }),
+        ...(focus === undefined || !basisCurrent ? {} : { focusId: focus }),
       };
     if (live.paused)
       return {
@@ -239,7 +257,7 @@ export function socratesPresentation(
       spec.acceptedRevision !== revision ||
       reviewBeforeHandoff ||
       (spec.status !== SpecStatus.Frozen &&
-        (outstanding ||
+        (needsReview ||
           (observation.bead === undefined &&
             specificationGaps(spec, revision).length > 0))),
     activity: currentActivity,

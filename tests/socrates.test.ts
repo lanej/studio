@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  applyDraftUpdate,
   assessedSpecDraft,
   DecisionDisposition,
   SpecStatus,
@@ -236,7 +237,7 @@ await test("assessments require evidence and cannot hide outside the selected pr
   );
 });
 
-await test("new draft writes require every universal and selected-domain property, with a rationale", () => {
+await test("complete coverage requires every universal and selected-domain property, with a rationale", () => {
   const ready = readySpecification("brief-v1").draft;
   assert.ok(assessedSpecDraft.safeParse(ready).success);
   assert.ok(
@@ -271,6 +272,137 @@ await test("new draft writes require every universal and selected-domain propert
         }).success,
       );
   }
+});
+
+await test("a substantive draft edit updates affected evidence and preserves other properties", () => {
+  const spec = readySpecification("brief-v1");
+  const [requirement] = spec.draft.requirements;
+  const initial = spec.draft.coverage;
+  assert.ok(requirement !== undefined && initial !== undefined);
+  const timeRequirement = {
+    ...requirement,
+    id: "R2",
+    acceptance: "The transcript exists.",
+  };
+  spec.draft.requirements.push(timeRequirement);
+  const original = initial.assessments.find(
+    ({ propertyId }) => propertyId === "verification",
+  );
+  assert.ok(original !== undefined);
+  original.reason = "R1/R2 verify transcript recovery.";
+  spec.coverageRevision = coverageToken(spec);
+  const verification = {
+    propertyId: "verification",
+    status: "partial",
+    reason:
+      "R2 now includes timestamps. The test only compares transcript bytes.",
+  };
+  const draft = {
+    ...spec.draft,
+    requirements: [
+      requirement,
+      {
+        ...timeRequirement,
+        acceptance: "Both timestamps and transcript bytes match.",
+      },
+    ],
+    coverage: { domains: initial.domains, assessments: [verification] },
+  };
+  assert.throws(
+    () =>
+      applyDraftUpdate(spec, spec.acceptedRevision, {
+        ...draft,
+        coverage: { domains: initial.domains, assessments: [] },
+      }),
+    /verification \(R2\)/u,
+  );
+  const updated = applyDraftUpdate(spec, spec.acceptedRevision, draft);
+  assert.deepEqual(updated.requirements, draft.requirements);
+  assert.deepEqual(
+    updated.coverage.assessments,
+    initial.assessments.map((item) =>
+      item.propertyId === "verification" ? verification : item,
+    ),
+  );
+  for (const baseline of [
+    { ...spec, version: spec.version + 1 },
+    { ...spec, coverageRevision: undefined },
+    assessedSpecification(),
+  ])
+    assert.throws(
+      () => applyDraftUpdate(baseline, spec.acceptedRevision, draft),
+      /Assess every property/u,
+    );
+});
+
+await test("deleted requirements and superseded decisions require targeted updates even inside citation ranges", () => {
+  const spec = readySpecification("brief-v1");
+  const initial = spec.draft.coverage;
+  const [requirement] = spec.draft.requirements;
+  const [decision] = spec.draft.decisions;
+  assert.ok(
+    initial !== undefined &&
+      requirement !== undefined &&
+      decision !== undefined,
+  );
+  for (const id of ["R2", "R3", "R4", "R5"])
+    spec.draft.requirements.push({ ...requirement, id });
+  const predecessor = { ...decision, id: "D1" };
+  spec.draft.decisions.push(predecessor);
+  function withReason(propertyId: string, reason: string) {
+    const item = initial?.assessments.find(
+      (entry) => entry.propertyId === propertyId,
+    );
+    assert.ok(item !== undefined);
+    item.reason = reason;
+    return item;
+  }
+  const clarity = withReason("clarity", "R2–R5 define the exchange.");
+  const success = withReason("success", "R2-R5 specify observable outcomes.");
+  const scope = withReason("scope", "D1/D20 define the milestone.");
+  withReason("risk", "Issue #3 and the external MR3 report document the risk.");
+  spec.coverageRevision = coverageToken(spec);
+  const draft = {
+    ...spec.draft,
+    requirements: spec.draft.requirements.filter(({ id }) => id !== "R3"),
+    decisions: [
+      decision,
+      { ...predecessor, disposition: "superseded" },
+      { ...predecessor, id: "D21", supersedes: "D1" },
+    ],
+  };
+  const apply = (assessments: unknown[]) =>
+    applyDraftUpdate(spec, spec.acceptedRevision, {
+      ...draft,
+      coverage: { domains: initial.domains, assessments },
+    });
+  assert.throws(
+    () => apply([]),
+    /clarity \(R3\).*scope \(D1\).*success \(R3\)/u,
+  );
+  const revisions = [
+    { ...clarity, reason: "R2/R4 define the remaining exchange." },
+    {
+      ...success,
+      status: "open",
+      reason: "R3 was dropped. Confirm the acceptance test.",
+    },
+  ];
+  for (const reason of [scope.reason, "D1 settles the milestone."])
+    assert.throws(
+      () => apply([...revisions, { ...scope, reason }]),
+      /scope.*D1/u,
+    );
+  assert.throws(
+    () =>
+      apply([...revisions, { ...scope, reason: "R3 defines the milestone." }]),
+    /scope.*R3/u,
+  );
+  const updated = apply([
+    ...revisions,
+    { ...scope, reason: "D21 superseded D1 and defines the new milestone." },
+  ]);
+  assert.equal(updated.coverage.assessments.length, initial.assessments.length);
 });
 
 await test("coverage follows the draft and brief instead of a reusable lifecycle version", () => {
@@ -331,7 +463,7 @@ await test("coverage follows the draft and brief instead of a reusable lifecycle
   );
 });
 
-await test("an answer invalidates assessments until it is incorporated in a saved draft", () => {
+await test("a recorded answer blocks readiness until it is incorporated in a saved draft", () => {
   const spec = assessedSpecification();
   const exchange = {
     prompt: {
@@ -350,7 +482,17 @@ await test("an answer invalidates assessments until it is incorporated in a save
     },
   });
   assert.equal(coverageFresh(answered, "brief-v1"), false);
-  assert.match(specText(answered), /Needs review/u);
+  assert.throws(
+    () =>
+      applyDraftUpdate(answered, "brief-v1", {
+        coverage: { domains: ["engineering"], assessments: [] },
+      }),
+    /recorded answer/u,
+  );
+  assert.match(
+    specText(answered),
+    /Operator answer · The original session transcript/u,
+  );
   assert.match(specText(answered), /R1 needs an observable check/u);
   assert.match(specText(answered), /Harmony · open · Check/u);
 
