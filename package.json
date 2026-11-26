@@ -58,7 +58,7 @@
     "lovely-mermaid": "0.3.3",
     "smol-toml": "1.9.1",
     "vscode-languageserver-protocol": "3.18.6",
-    "@lanej/copydesk": "git+https://github.com:443/lanej/copydesk.git#cdf7a22ee992434ba978fc8845cdcb244f9a274c"
+    "@lanej/copydesk": "git+https://github.com:443/lanej/copydesk.git#e1c9803b304d250d2c0eb8697e0392172a85c97d"
   },
   "devDependencies": {
     "@bufbuild/buf": "1.75.0",

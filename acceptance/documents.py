@@ -246,15 +246,7 @@ def run(output: Path | None):
             'default_layout "compact"\n')
         (home / ".config/nvim/init.lua").write_text("""
 vim.g.documents_fixture_init = 'configuration preserved'
-vim.api.nvim_create_autocmd("User", {
-    pattern = "CopydeskAttach",
-    callback = function(event)
-        local copydesk = require("copydesk")
-        local opts = { buffer = event.data.buf }
-        vim.keymap.set("x", ",sc", copydesk.comment_selection, opts)
-        vim.keymap.set("n", ",sd", copydesk.changes, opts)
-    end,
-})
+vim.g.maplocalleader = ","
 vim.opt.swapfile = false
 vim.opt.shadafile = 'NONE'
 vim.opt.termguicolors = true
@@ -432,7 +424,16 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                 capture.save("narrow")
                 print("PASS dirty edits retained; incoming update held; stale save rejected; narrow rendering captured", flush=True)
 
-                ex('lua require("copydesk").reload(true)')
+                keys(editor, ",sl")
+                terminal.until("reload confirmation", lambda: "discard local edits?" in terminal.capture_pane(editor))
+                keys(editor, "\r")
+                terminal.until("cancelled reload retains unsaved edits", lambda:
+                               "discard local edits?" not in terminal.capture_pane(editor)
+                               and "Local unsaved proposal survives." in lines() and lua("vim.bo.modified"))
+                keys(editor, ",sl")
+                terminal.until("reload confirmation again", lambda:
+                               "discard local edits?" in terminal.capture_pane(editor))
+                keys(editor, "r")
                 terminal.until("explicit reload resolved conflict", lambda: not lua("vim.bo.modified") and "conflict" not in lua("vim.wo.winbar"))
                 before_explanation = saved()
                 objective_line = lines().index("Review the complete proposal in Neovim.") + 1
