@@ -825,7 +825,8 @@ def check_publication_review(terminal_type, project, env, output, source_url):
         "integrations": {name: {"enabled": True, "executable": "/usr/bin/false"} for name in ("worktrees", "octo")},
     }))
     source = """
-import { Discoveries, applyDeliveryPolicy, handoffDraft } from './discovery/store.ts';
+import { applyDeliveryPolicy, handoffDraft } from './discovery/plan.ts';
+import { Discoveries } from './discovery/store.ts';
 import { directoryProfileType } from './directory.ts';
 import { coverageToken, specificationToken } from './socrates/assessment.ts';
 import { SpecStatus } from './socrates/spec.ts';
