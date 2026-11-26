@@ -88,7 +88,7 @@ export async function chooseQuestion(
         },
         handleInput(input) {
           if (choicesVisible && tui.terminal.rows >= 7) {
-            selector.handleInput?.(input);
+            selector.handleInput(input);
           } else if (
             matchesKey(input, NavigationKey.Escape) ||
             matchesKey(input, NavigationKey.Cancel)
