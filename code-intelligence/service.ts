@@ -60,6 +60,11 @@ const aliases: Record<string, string> = {
   mts: "ts",
   cts: "ts",
 };
+export function serverForPath(path: string) {
+  const extension = extname(path).slice(1);
+  return servers[aliases[extension] ?? extension];
+}
+
 const positionSchema = z.object({
   line: z.number().int().nonnegative(),
   character: z.number().int().nonnegative(),
@@ -224,10 +229,9 @@ export class CodeIntelligence {
   ): Promise<{ client: LspClient; path: string }> {
     if (!this.enabled) throw new Error("LSP disabled by lsp.enabled");
     const target = await safePath(cwd, path);
-    const extension = extname(target).slice(1);
-    const spec = servers[aliases[extension] ?? extension];
+    const spec = serverForPath(target);
     if (spec === undefined)
-      throw new Error(`LSP unavailable for .${extension}`);
+      throw new Error(`LSP unavailable for ${extname(target)}`);
     const checkout = await realpath(cwd);
     let root = dirname(target);
     for (;;) {

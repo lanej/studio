@@ -13,6 +13,7 @@ import {
   TaskDelivery,
   type LeadDraft,
 } from "../lead-plan.ts";
+import { reviewContextValue } from "../plan-review.ts";
 import { specText, type LeadSpecification } from "../socrates/spec.ts";
 import { handoffOverview } from "./handoff-overview.ts";
 
@@ -56,7 +57,7 @@ function beadDetails(
         width,
       ),
       ...wrapTextWithAnsi(selectorText(task.description), width),
-      ...fields.flatMap(([label, value]) =>
+      ...fields.flatMap(({ label, value }) =>
         wrapTextWithAnsi(
           theme.fg("muted", label + "  ") + selectorText(value),
           width,
@@ -82,18 +83,18 @@ function sectionLines(
         "",
         ...wrapTextWithAnsi(
           theme.fg("muted", "Execution  ") +
-            selectorText(input.execution) +
+            reviewContextValue(input.execution) +
             "   " +
             theme.fg("muted", "Profile  ") +
-            selectorText(input.profile),
+            reviewContextValue(input.profile),
           inner,
         ),
         ...wrapTextWithAnsi(
-          theme.fg("muted", "Project  ") + selectorText(input.project),
+          theme.fg("muted", "Project  ") + reviewContextValue(input.project),
           inner,
         ),
         ...wrapTextWithAnsi(
-          theme.fg("muted", "Beads  ") + selectorText(input.sourceId),
+          theme.fg("muted", "Beads  ") + reviewContextValue(input.sourceId),
           inner,
         ),
       ];

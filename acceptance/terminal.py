@@ -6,7 +6,7 @@
 import argparse
 import atexit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from threading import Thread
+from threading import Event, Thread
 import fcntl
 import gzip
 import json
@@ -83,6 +83,7 @@ class DiscoveryProvider(BaseHTTPRequestHandler):
         }
         if path == "/v0/beads/issues":
             self.server.issue_reads += 1
+            self.server.allow_issue_reads.wait(15)
             status, body = self.server.issue_listing
         else:
             status, body = (200, pages[path]) if path in pages else (404, {})
@@ -119,6 +120,8 @@ class DiscoveryProvider(BaseHTTPRequestHandler):
 
 with tempfile.TemporaryDirectory(prefix="studio-terminal-") as directory, ThreadingHTTPServer(("127.0.0.1", 0), DiscoveryProvider) as provider:
     provider.issue_listing = (200, {"items": review_tasks, "has_more": False})
+    provider.allow_issue_reads = Event()
+    provider.allow_issue_reads.set()
     Thread(target=provider.serve_forever, daemon=True).start()
     atexit.register(provider.shutdown)
     home = Path(directory).resolve()
@@ -158,8 +161,14 @@ elif 'show' in sys.argv: print(json.dumps([next(task for task in tasks if task['
     boundary.chmod(0o755)
     if args.task_review:
         # The default source is unrelated. The panel must use the handed-off project's source.
-        config = {"beadsService": {"projectId": "11e82880-80f1-4f5a-8939-c29914929522", "url": "http://127.0.0.1:1"}}
+        config = {
+            "beadsService": {"projectId": "11e82880-80f1-4f5a-8939-c29914929522", "url": "http://127.0.0.1:1"},
+            "keybindings": {"lead": {"openTasks": "ctrl+,"}, "tasks": {"refresh": "z"}},
+        }
     else:
+        (agent / "keybindings.json").write_text(json.dumps({
+            "tui.editor.cursorLineStart": ["home", "ctrl+a", "ctrl+space"],
+        }))
         config = {"beads": {"workspace": str(workspace), "database": "fixture", "branch": "main", "executable": str(boundary)}}
     (home / "config.json").write_text(json.dumps(config))
     env = {**os.environ, "HOME": str(home), "PI_CODING_AGENT_DIR": str(agent), "STUDIO_CONFIG": str(home / "config.json"), "STUDIO_STATE_DIR": str(home / "studio-state"), "TERM": "xterm-256color", "COLORTERM": "truecolor", "PI_TELEMETRY": "0", "PI_SKIP_VERSION_CHECK": "1"}
@@ -365,44 +374,65 @@ interactive.close();
                 os.write(master, b"/tasks\r")
                 wait_text("No tasks yet")
                 empty_view = "\n".join(screen.display)
-                for label in ["Tasks", "Tasks added in Beads", "Alt+T inspect"]:
+                for label in ["Tasks", "Tasks added in Beads", "Esc close"]:
                     assert label in empty_view, empty_view
                 assert review_project not in empty_view, empty_view
                 assert "Tasks · Beads" in empty_view, empty_view
                 assert "Review finding" not in empty_view and "Changes requested" not in empty_view, empty_view
                 assert all(task["title"] not in empty_view for task in review_tasks), empty_view
                 capture("task-empty")
-                os.write(master, b"/tasks close\r")
+                os.write(master, b"\x1b")
                 pump(.35)
                 assert "No tasks yet" not in "\n".join(screen.display), screen.display
 
                 provider.issue_listing = (200, {"items": review_tasks, "has_more": False})
-                os.write(master, b"/tasks\r")
-                wait_text("Diff presentation")
-                os.write(master, b"jk background draft")
+                os.write(master, b"preserved lead draft")
                 pump(.2)
-                passive = "\n".join(screen.display)
+                before_response = provider.responses
+                before_read = provider.issue_reads
+                provider.allow_issue_reads.clear()
+                try:
+                    os.write(master, b"\x1b[44;5u")  # Configured Ctrl+, opens Tasks.
+                    wait_text("Loading…")
+                    wait_until(lambda: provider.issue_reads > before_read)
+                    os.write(master, b"j\r")
+                    pump(.2)
+                    os.write(master, b"\x1b")
+                    wait_until(lambda: "Loading…" not in "\n".join(screen.display))
+                finally:
+                    provider.allow_issue_reads.set()
+                pump(.3)
+                assert "preserved lead draft" in "\n".join(screen.display), screen.display
+                assert provider.responses == before_response
+                assert "Enter inspect" not in "\n".join(screen.display), screen.display
+                os.write(master, b"\x1b[44;5u")  # Configured Ctrl+, opens Tasks.
+                wait_text("Diff presentation")
+                wait_text("Enter inspect")
                 assert any("›" in line and "Diff presentation" in line for line in screen.display), screen.display
-                assert "jk background draft" in passive, passive
                 capture("task-status-panel")
+                os.write(master, b"\x1bt")
+                pump(.1)
+                assert "Enter inspect" in "\n".join(screen.display), screen.display
                 completed = [dict(task, status="closed") if task["id"] == "ui-12.1" else task for task in review_tasks]
                 provider.issue_listing = (200, {"items": completed, "has_more": False})
                 wait_until(lambda: any("● Inline replacements" in line for line in screen.display), timeout=8)
-                assert "jk background draft" in "\n".join(screen.display), screen.display
-                assert "Alt+T inspect" in "\n".join(screen.display), screen.display
                 capture("task-status-updated")
-                # A provider response confirms the lead accepts submissions with the panel open.
+                os.write(master, b"\x1b")
+                wait_text("preserved lead draft")
+                wait_until(lambda: "Enter inspect" not in "\n".join(screen.display))
                 os.write(master, b"\x15")
                 before_response = provider.responses
                 os.write(master, (review_question + "\r").encode())
                 wait_until(lambda: provider.responses > before_response)
                 pump(.5)
-                assert "Alt+T inspect" in "\n".join(screen.display), screen.display
                 provider.issue_listing = (200, {"items": review_tasks, "has_more": False})
-                os.write(master, b"\x1bt")
-                wait_text("Esc lead")
-                os.write(master, b"r")
-                pump(.4)
+                os.write(master, b"/tasks\r")
+                wait_text("Enter inspect")
+                wait_text("z refresh")
+                assert "r refresh" not in "\n".join(screen.display), screen.display
+                before_refresh = provider.issue_reads
+                os.write(master, b"z")
+                wait_until(lambda: provider.issue_reads > before_refresh)
                 os.write(master, b"j\r")
                 pump(.5)
                 text = "\n".join(screen.display)
@@ -422,8 +452,6 @@ interactive.close();
                 pump(.2)
                 os.write(master, b"/tasks ui-12.2\r")
                 wait_text("Enclosing declarations")
-                os.write(master, b"\x1bt")
-                wait_text("Esc lead")
                 os.write(master, b"\t\t\t\r")
                 for _ in range(24):
                     if "example/studio#7" in "\n".join(screen.display): break
@@ -437,34 +465,23 @@ interactive.close();
                 pump(.2)
                 os.write(master, b"/tasks ui-12.1\r")
                 wait_text("The reviewer found:")
-                os.write(master, b"\x1bt")
-                wait_text("Esc lead")
-                os.write(master, b"\x1b")
-                wait_text("Alt+T inspect")
-                os.write(master, b"preserved lead draft")
-                pump(.2)
-                os.write(master, b"\x1bt")
-                wait_text("Esc lead")
-                assert "Inline replacements" in "\n".join(screen.display), screen.display
                 os.write(master, b"\x1b[D")
                 pump(.2)
                 assert any("›" in line and "Inline replacements" in line for line in screen.display), screen.display
-                os.write(master, b"q")
+                os.write(master, b"\x1b")
                 pump(.3)
-                assert "Alt+T inspect" not in "\n".join(screen.display), screen.display
-                assert "preserved lead draft" in "\n".join(screen.display), screen.display
-                os.write(master, b"\x15")
-                # A direct lookup opens passively too; focus must still be explicit.
+                assert "Enter inspect" not in "\n".join(screen.display), screen.display
                 os.write(master, b"/tasks ui-12.1\r")
                 wait_text("The reviewer found:")
-                assert "Alt+T inspect" in "\n".join(screen.display), screen.display
                 provider.issue_listing = (503, {"code": "unavailable", "reason": "Service unavailable"})
+                reads_before_failure = provider.issue_reads
+                wait_until(lambda: provider.issue_reads > reads_before_failure, timeout=12)
                 wait_text("Beads HTTP 503", timeout=8)
                 assert "Inline replacements" in "\n".join(screen.display), screen.display
                 capture("task-status-unavailable")
                 provider.issue_listing = (200, {"items": review_tasks, "has_more": False})
                 wait_until(lambda: "Beads HTTP 503" not in "\n".join(screen.display), timeout=8)
-                os.write(master, b"/tasks close\r")
+                os.write(master, b"\x1b")
                 pump(.3)
                 reads = provider.issue_reads
                 pump(5.3)
@@ -550,6 +567,21 @@ interactive.close();
             assert footer and len(footer) == columns, screen.display
             assert "↱ main" in footer, screen.display
             capture("daily-driver")
+            os.write(master, b"/panes\r")
+            wait_text("Studio panes")
+            os.write(master, b"\x1b")
+            wait_until(lambda: "Studio panes" not in "\n".join(screen.display))
+            # With no Studio shortcuts configured, Pi keeps the operator's Ctrl+Space.
+            os.write(master, b"cursor")
+            wait_text("cursor")
+            # Terminals send either CSI-u or the legacy NUL for this chord.
+            os.write(master, b"\x1b[32;5u")
+            os.write(master, b"saved-")
+            wait_text("saved-cursor")
+            os.write(master, b"\x00")
+            os.write(master, b"still-")
+            wait_text("still-saved-cursor")
+            os.write(master, b"\x05\x15")  # Move to the end, then clear the draft.
             os.write(master, b"/discoveries\r")
             wait_text("Select a saved discovery")
             listing = "\n".join(screen.display)
@@ -602,13 +634,13 @@ interactive.close();
             os.write(master, b"/socrates\r")
             wait_text("Specification")
             os.write(master, b"/socrates-status spec\r")
+            wait_text("Socrates v1")
             wait_text("Keep the lead free for research")
             os.write(master, b"\x1b")
-            pump(.2)
+            wait_until(lambda: "Socrates v1" not in "\n".join(screen.display))
             if columns == wide_viewport[0]:
                 os.write(master, b"/spec-freeze\r")
-                pump(.3)
-                assert "Freeze specification" in "\n".join(screen.display), screen.display
+                wait_text("Freeze specification")
                 for _ in range(12):
                     os.write(master, b"\r")
                     pump(.2)
@@ -643,10 +675,9 @@ interactive.close();
             assert "├─ ○ Idle compaction" in view and "│  └─ ● Check idle guard" in view, screen.display
             if columns == 80:
                 selected_row = next(y for y, line in enumerate(screen.display) if "›" in line and "◐ Studio" in line)
-                assert screen.buffer[selected_row][columns-3].bg.upper() == theme["userMessageBg"].lstrip("#"), screen.display
+                assert screen.buffer[selected_row][columns-4].bg.upper() == theme["userMessageBg"].lstrip("#"), screen.display
             capture("tasks")
-            os.write(master, b"\x1bt")
-            wait_text("Esc lead")
+            wait_text("Enter inspect")
             os.write(master, b"j\r")
             pump(.5)
             view = "\n".join(screen.display)
@@ -673,34 +704,30 @@ interactive.close();
             assert any("›" in line and "Idle compaction" in line for line in screen.display), screen.display
             os.write(master, b"\x1b")
             pump(.2)
-            os.write(master, b"/tasks close\r")
-            pump(.2)
             os.write(master, b"/archives\r")
             wait_text("Search archives")
             wait_text("Damaged entry")
             for char in "Archive run":
                 os.write(master, char.encode())
                 pump(.03)
-            wait_until(lambda: "Archive run" in "\n".join(screen.display) and
+            wait_until(lambda: any("→ Archive run" in line for line in screen.display) and
                        "Damaged entry" not in "\n".join(screen.display))
             capture("archives")
             os.write(master, b"\r")
-            pump(.5)
-            assert "Preserved dialogue" in "\n".join(screen.display), screen.display
+            wait_text("Preserved dialogue")
             capture("archive-preview")
             os.write(master, b"\x1b")
-            pump(.35)
+            wait_text("→ Archive run")
             os.write(master, b"\x1b")
-            pump(.35)
+            wait_until(lambda: "→ Archive run" not in "\n".join(screen.display))
             os.write(master, b"/archives Damaged\r")
-            pump(.5)
+            wait_text("→ Damaged entry")
             os.write(master, b"\r")
-            pump(.5)
-            assert "corrupt" in "\n".join(screen.display), screen.display
+            wait_text("corrupt")
             os.write(master, b"\x1b")
-            pump(.35)
+            wait_text("→ Damaged entry")
             os.write(master, b"\x1b")
-            pump(.35)
+            wait_until(lambda: "→ Damaged entry" not in "\n".join(screen.display))
             assert archive_file.read_bytes() == archive_before
             os.write(master, b"!echo remember-cobalt\r")
             wait_text("remember-cobalt")
@@ -723,7 +750,7 @@ interactive.close();
             except subprocess.TimeoutExpired: process.kill(); process.wait(timeout=5)
     provider.shutdown()
 if args.task_review:
-    print("Native passive task updates, retained lead input, deliberate focus/return, review details, close cleanup, and service recovery passed at 80x24 and 60x20.")
+    print("Native floating task updates, retained lead input, keyboard navigation and focus return, review details, close cleanup, and service recovery passed at 80x24 and 60x20.")
 else:
     print(f"Native Pi discovery title entry, project picker, cancellation, saved-answer resume, and breakdown review passed at {wide_viewport[0]} and 60 columns.")
     if not args.discovery_only:

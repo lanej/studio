@@ -134,6 +134,43 @@ export function orderedTasks(draft: LeadDraft): LeadDraft["tasks"] {
   );
 }
 
+export function taskReviewFields(
+  task: LeadDraft["tasks"][number],
+  intent: "proposal" | "execution" = "execution",
+  deliveryLabel?: string,
+): { label: string; value: string }[] {
+  const delivery =
+    task.delivery === undefined && intent === "proposal"
+      ? "To be decided"
+      : `${deliveryOutcome(task.delivery)}${task.delivery === undefined ? " (default)" : ""}`;
+  const verification =
+    task.check === undefined || task.check.length === 0
+      ? "independent criterion review; no executable agreed"
+      : JSON.stringify(task.check);
+  return [
+    { label: "Acceptance", value: task.acceptance },
+    ...(task.requirements.length > 0
+      ? [{ label: "Requirements", value: task.requirements.join(", ") }]
+      : []),
+    {
+      label: "Owns",
+      value:
+        task.owns.length === 0
+          ? "the entire isolated checkout"
+          : task.owns.join(", "),
+    },
+    {
+      label: "Admission",
+      value: task.hold === true ? "on hold" : "when ready",
+    },
+    { label: "Delivery", value: deliveryLabel ?? delivery },
+    { label: "Verification", value: verification },
+    ...(task.blockedBy.length > 0
+      ? [{ label: "Blocked by", value: task.blockedBy.join(", ") }]
+      : []),
+  ];
+}
+
 /** An already merged prerequisite carries its own ancestors on the target branch. */
 export function publicationPrerequisites(
   draft: LeadDraft,
@@ -169,41 +206,6 @@ export function publicationGroups(draft: LeadDraft) {
     }));
 }
 
-export function taskReviewFields(
-  task: LeadDraft["tasks"][number],
-  intent: "proposal" | "execution" = "execution",
-  deliveryLabel?: string,
-): [string, string][] {
-  const fields: [string, string][] = [["Acceptance", task.acceptance]];
-  if (task.requirements.length > 0)
-    fields.push(["Requirements", task.requirements.join(", ")]);
-  const delivery =
-    deliveryLabel ??
-    (task.delivery === undefined && intent === "proposal"
-      ? "To be decided"
-      : deliveryOutcome(task.delivery) +
-        (task.delivery === undefined ? " (default)" : ""));
-  fields.push(
-    [
-      "Owns",
-      task.owns.length === 0
-        ? "the entire isolated checkout"
-        : task.owns.join(", "),
-    ],
-    ["Admission", task.hold === true ? "on hold" : "when ready"],
-    ["Delivery", delivery],
-    [
-      "Verification",
-      task.check === undefined || task.check.length === 0
-        ? "independent criterion review; no executable agreed"
-        : JSON.stringify(task.check),
-    ],
-  );
-  if (task.blockedBy.length > 0)
-    fields.push(["Blocked by", task.blockedBy.join(", ")]);
-  return fields;
-}
-
 export function taskReviewLines(
   task: LeadDraft["tasks"][number],
   intent: "proposal" | "execution" = "execution",
@@ -211,7 +213,7 @@ export function taskReviewLines(
   return [
     task.description,
     ...taskReviewFields(task, intent).map(
-      ([label, value]) => `${label} · ${value}`,
+      ({ label, value }) => `${label} · ${value}`,
     ),
   ];
 }

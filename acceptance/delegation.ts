@@ -262,7 +262,6 @@ process.exit(lose ? 1 : (result.status ?? 1));
     await writeFile(
       config,
       JSON.stringify({
-        delegation: { enabled: true },
         integrations: { worktrees: { enabled: true } },
         profiles: {
           [StudioProfile.Personal]: Object.fromEntries(
@@ -376,6 +375,16 @@ process.exit(lose ? 1 : (result.status ?? 1));
       const [lead] = provider.requests;
       assert.ok(lead !== undefined);
       assert.ok(toolNames(lead).includes("studio_delegate"));
+      const instructions = lead.messages
+        .flatMap((message) =>
+          (message.role === "system" || message.role === "developer") &&
+          typeof message.content === "string"
+            ? [message.content]
+            : [],
+        )
+        .join("\n");
+      assert.match(instructions, /Use studio_delegate/u);
+      assert.match(instructions, /Do not launch.*Codex.*Claude/iu);
       assert.ok(
         !toolNames(lead).some((name) =>
           ["Agent", "SubagentWorkflow", "subagent"].includes(name),

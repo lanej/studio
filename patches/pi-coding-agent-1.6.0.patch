@@ -12,10 +12,65 @@ index f61225f2da158f995127d6df58161937aa47afb3..2ba3724e92ea3c8c3804075fc0389385
      source?: InputSource;
      /** Internal hook used by RPC mode to observe how an accepted prompt was dispatched. Not called if the prompt is rejected. */
 diff --git a/dist/core/agent-session.js b/dist/core/agent-session.js
-index 009632bb5679380e48ec2473c6128163d9cde7eb..5fb413801b7e5bedae36fe8f28acce0f93979f23 100644
+index 009632bb5679380e48ec2473c6128163d9cde7eb..d4cb634faf39b86c90cd571ecac87f0eede049a5 100644
 --- a/dist/core/agent-session.js
 +++ b/dist/core/agent-session.js
-@@ -1754,6 +1754,10 @@ export class AgentSession {
+@@ -443,11 +443,11 @@ export class AgentSession {
+      * Run a call that the tool call `parentToolCallId` made through `ctx.executeTool()`. It goes
+      * through the agent's tool pipeline with the session's hooks, against the callable tools.
+      */
+-    async _executeNestedToolCall(parentToolCallId, name, args, options) {
++    async _executeNestedToolCall(parentToolCallId, name, args, options, caller) {
+         this._nestedToolCalls ??= new NestedToolCallRunner({
+             getTools: () => this._getCallableTools(),
+             isSequential: () => this.agent.toolExecution === "sequential",
+-            runToolCall: (toolCall, parentId, signal, onUpdate) => {
++            runToolCall: (toolCall, parentId, signal, onUpdate, tools) => {
+                 const assistantMessage = this._findLastAssistantMessage();
+                 if (!assistantMessage) {
+                     return Promise.resolve({
+@@ -457,7 +457,7 @@ export class AgentSession {
+                     });
+                 }
+                 return runToolCall(toolCall, {
+-                    tools: this._getCallableTools(),
++                    tools,
+                     assistantMessage,
+                     context: { messages: this.agent.state.messages, tools: this.agent.state.tools },
+                     beforeToolCall: (context) => this._beforeToolCall(context, parentId),
+@@ -471,7 +471,22 @@ export class AgentSession {
+                 this._emit(event);
+             },
+         });
+-        return this._nestedToolCalls.execute(parentToolCallId, name, args, options);
++        // A model-only alias may delegate to its own active canonical tool. The caller
++        // comes from Pi's registered wrapper, never the model input or executeTool options.
++        const toolsForCall = () => {
++            const tools = this._getCallableTools();
++            if (caller?.definition.exposure !== "model-only") return tools;
++            const alias = this._toolDefinitions.get(caller.definition.name);
++            const target = this._toolDefinitions.get(name);
++            if (alias?.definition !== caller.definition || alias.sourceInfo !== caller.sourceInfo ||
++                target?.definition.exposure !== "model-only" || target.sourceInfo !== caller.sourceInfo ||
++                target.definition.parameters !== caller.definition.parameters ||
++                !target.definition.modelOnlyAliases?.includes(caller.definition.name)) return tools;
++            const active = this.agent.state.tools;
++            const canonical = active.find(tool => tool.name === name);
++            return canonical && active.some(tool => tool.name === caller.definition.name) ? [...tools, canonical] : tools;
++        };
++        return this._nestedToolCalls.execute(parentToolCallId, name, args, options, toolsForCall);
+     }
+     /** Whether `projection`, the current session projection, exceeds the compaction threshold of `model`. */
+     _exceedsCompactionThreshold(model, projection) {
+@@ -1165,6 +1180,7 @@ export class AgentSession {
+             promptGuidelines: definition.promptGuidelines,
+             exposure: this._getToolExposure(definition.name),
+             ...(definition.namespace ? { namespace: definition.namespace } : {}),
++            ...(definition.modelOnlyAliases ? { modelOnlyAliases: [...definition.modelOnlyAliases] } : {}),
+             ...(definition.annotations ? { annotations: { ...definition.annotations } } : {}),
+             ...(definition.reachesTools ? { reachesTools: definition.reachesTools } : {}),
+             sourceInfo,
+@@ -1754,6 +1770,10 @@ export class AgentSession {
              expandedText = this._expandSkillCommand(expandedText);
              expandedText = expandPromptTemplate(expandedText, [...this.promptTemplates]);
          }
@@ -26,6 +81,15 @@ index 009632bb5679380e48ec2473c6128163d9cde7eb..5fb413801b7e5bedae36fe8f28acce0f
          // If streaming, queue via steer() or followUp() based on option
          if (this.isStreaming) {
              if (!options?.streamingBehavior) {
+@@ -2948,7 +2968,7 @@ export class AgentSession {
+             },
+             getSystemPrompt: () => this.systemPrompt,
+             getSystemPromptOptions: () => this._baseSystemPromptOptions,
+-            executeTool: (callerId, name, args, options) => this._executeNestedToolCall(callerId, name, args, options),
++            executeTool: (callerId, name, args, options, caller) => this._executeNestedToolCall(callerId, name, args, options, caller),
+             getCallableTools: () => this._getCallableTools(),
+         }, {
+             registerProvider: (name, config) => {
 diff --git a/dist/core/settings-defaults.d.ts b/dist/core/settings-defaults.d.ts
 index 471f1f30bba7b4d2d725364f5bbba4dee55f42a2..427c2688cc7d8dc88fef55cee671c8332a92dedf 100644
 --- a/dist/core/settings-defaults.d.ts
@@ -514,3 +578,288 @@ index cc28afe3a71e57f933fffe7bcf9fc0ec399e5332..fce3f21553be2a671044c6510883e3ae
          },
          "clearOnShrink": {
            "type": "boolean",
+diff --git a/dist/core/extensions/types.d.ts b/dist/core/extensions/types.d.ts
+index f784e083e2644e0fb14fe023c94ec7c8605b819a..44eb9028ca2f269ee73378f833e1e578e31e94fe 100644
+--- a/dist/core/extensions/types.d.ts
++++ b/dist/core/extensions/types.d.ts
+@@ -365,6 +365,10 @@ export interface ToolRenderResultOptions {
+ }
+ /** Context passed to tool renderers. */
+ export interface ToolRenderContext<TState = any, TArgs = any> extends KeybindingHints {
++    /** Visible tool name when reusing a native renderer. An empty edit name shows only its file path. */
++    displayToolName?: string;
++    /** Format a Studio edit heading using the native styled path, including in previews and errors. */
++    renderEditHeading?: (pathLabel: string) => string;
+     /** Current tool call arguments. Shared across call/result renders for the same tool call. */
+     args: TArgs;
+     /** Unique id for this tool execution. Stable across call/result renders for the same tool call. */
+@@ -498,6 +502,8 @@ export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = un
+      * How the model reaches the tool. Default: `"direct"`. See {@link ToolExposure}.
+      */
+     exposure?: ToolExposure;
++    /** Same-extension model-only aliases allowed to invoke this active tool with its original schema and hooks. */
++    modelOnlyAliases?: readonly string[];
+     /** Group the tool belongs to, for example its MCP server. */
+     namespace?: ToolNamespace;
+     /**
+@@ -1619,7 +1625,7 @@ export type SetSessionNameHandler = (name: string) => void;
+ export type GetSessionNameHandler = () => string | undefined;
+ export type GetActiveToolsHandler = () => string[];
+ /** Tool info with name, description, parameter schema, prompt guidelines, and source metadata. */
+-export type ToolInfo = Pick<ToolDefinition, "name" | "description" | "parameters" | "promptGuidelines" | "reachesTools"> & {
++export type ToolInfo = Pick<ToolDefinition, "name" | "description" | "parameters" | "promptGuidelines" | "reachesTools" | "modelOnlyAliases"> & {
+     exposure: ToolExposure;
+     namespace?: ToolNamespace;
+     annotations?: ToolAnnotations;
+@@ -1722,7 +1728,7 @@ export interface ExtensionContextActions {
+     getSystemPrompt: () => string;
+     getSystemPromptOptions?: () => BuildSystemPromptOptions;
+     /** Backs `ExtensionToolContext.executeTool()`. Without it, nested calls fail. */
+-    executeTool?: (callerId: string, name: string, args: unknown, options: ExecuteToolOptions) => Promise<AgentToolCallOutcome>;
++    executeTool?: (callerId: string, name: string, args: unknown, options: ExecuteToolOptions, caller?: RegisteredTool) => Promise<AgentToolCallOutcome>;
+     /** Backs `ExtensionToolContext.tools`. */
+     getCallableTools?: () => readonly AgentTool[];
+ }
+diff --git a/dist/core/tools/renderers/bash.js b/dist/core/tools/renderers/bash.js
+index 43430f16caa03ec9b2c57a5e105b257f4b11416b..dabb4e6914085175b8ee4331acb3b9e0562b2824 100644
+--- a/dist/core/tools/renderers/bash.js
++++ b/dist/core/tools/renderers/bash.js
+@@ -74,7 +74,7 @@ export function createShellRenderers(prompt) {
+         renderCall(args, _theme, context) {
+             startToolTimer(context);
+             const text = context.lastComponent ?? new Text("", 0, 0);
+-            text.setText(formatShellCall(args, prompt));
++            text.setText(formatShellCall(args, context.displayToolName ?? prompt));
+             return text;
+         },
+         renderResult(result, options, _theme, context) {
+diff --git a/dist/core/tools/renderers/edit.js b/dist/core/tools/renderers/edit.js
+index a64a3d1da0d346cf6df32489c5f1346ad1e173b9..d512d874b6ab2ca6b43ec446bb42bc822fc7ddee 100644
+--- a/dist/core/tools/renderers/edit.js
++++ b/dist/core/tools/renderers/edit.js
+@@ -48,9 +48,10 @@
+     }
+     return null;
+ }
+-function formatEditCall(args, theme, cwd) {
++function formatEditCall(args, theme, cwd, toolName = "edit", renderHeading) {
+     const pathDisplay = renderToolPath(str(args?.file_path ?? args?.path), theme, cwd);
+-    return `${theme.fg("toolTitle", theme.bold("edit"))} ${pathDisplay}`;
++    if (renderHeading) return renderHeading(pathDisplay);
++    return toolName === "" ? pathDisplay : `${theme.fg("toolTitle", theme.bold(toolName))} ${pathDisplay}`;
+ }
+ function formatEditResult(args, preview, result, theme, isError) {
+     const rawPath = str(args?.file_path ?? args?.path);
+@@ -84,11 +85,11 @@
+     }
+     return (text) => theme.bg("toolPendingBg", text);
+ }
+-function buildEditCallComponent(component, args, theme, cwd, outputPad) {
++function buildEditCallComponent(component, args, theme, cwd, outputPad, toolName) {
+     component.setBgFn(getEditHeaderBg(component.preview, component.settledError, theme));
+     component.setPaddingX(outputPad);
+     component.clear();
+-    component.addChild(new Text(formatEditCall(args, theme, cwd), 0, 0));
++    component.addChild(new Text(formatEditCall(args, theme, cwd, toolName, component.renderEditHeading), 0, 0));
+     if (!component.preview) {
+         return component;
+     }
+@@ -114,6 +115,7 @@
+ export const editRenderers = {
+     renderCall(args, theme, context) {
+         const component = getEditCallRenderComponent(context.state, context.lastComponent);
++        component.renderEditHeading = context.renderEditHeading;
+         const previewInput = getRenderablePreviewInput(args);
+         const argsKey = previewInput ? JSON.stringify({ path: previewInput.path, edits: previewInput.edits }) : undefined;
+         if (component.previewArgsKey !== argsKey) {
+@@ -132,7 +134,7 @@
+                 }
+             });
+         }
+-        return buildEditCallComponent(component, args, theme, context.cwd, context.outputPad);
++        return buildEditCallComponent(component, args, theme, context.cwd, context.outputPad, context.displayToolName);
+     },
+     renderResult(result, _options, theme, context) {
+         const callComponent = context.state.callComponent;
+@@ -151,7 +153,7 @@
+                 changed = true;
+             }
+             if (changed) {
+-                buildEditCallComponent(callComponent, context.args, theme, context.cwd, context.outputPad);
++                buildEditCallComponent(callComponent, context.args, theme, context.cwd, context.outputPad, context.displayToolName);
+             }
+         }
+         const output = formatEditResult(context.args, callComponent?.preview, typedResult, theme, context.isError);
+diff --git a/dist/core/tools/renderers/read.js b/dist/core/tools/renderers/read.js
+index 1aaa89c22d5354bec15340c54011f15899c52e01..71b162f38be29c92d3c7a9073a7103275fa40a40 100644
+--- a/dist/core/tools/renderers/read.js
++++ b/dist/core/tools/renderers/read.js
+@@ -19,9 +19,9 @@ function styledReadLineRange(args, theme) {
+     const range = formatReadLineRange(args?.offset, args?.limit);
+     return range ? theme.fg("warning", range) : "";
+ }
+-function formatReadCall(args, theme, cwd) {
++function formatReadCall(args, theme, cwd, toolName = "read") {
+     const pathDisplay = renderToolPath(str(args?.file_path ?? args?.path), theme, cwd);
+-    return `${theme.fg("toolTitle", theme.bold("read"))} ${pathDisplay}${styledReadLineRange(args, theme)}`;
++    return `${theme.fg("toolTitle", theme.bold(toolName))} ${pathDisplay}${styledReadLineRange(args, theme)}`;
+ }
+ function trimTrailingEmptyLines(lines) {
+     let end = lines.length;
+@@ -65,15 +65,16 @@ function getCompactReadClassification(args, cwd) {
+     }
+     return undefined;
+ }
+-function formatCompactReadCall(classification, args, theme) {
++function formatCompactReadCall(classification, args, theme, toolName) {
+     const expandHint = theme.fg("dim", ` (${keyText("app.tools.expand")} to expand)`);
+     if (classification.kind === "skill") {
+-        return (theme.fg("customMessageLabel", `\x1b[1m[skill]\x1b[22m `) +
++        const prefix = toolName === undefined ? "" : `${theme.fg("toolTitle", theme.bold(toolName))} `;
++        return (prefix + theme.fg("customMessageLabel", `\x1b[1m[skill]\x1b[22m `) +
+             theme.fg("customMessageText", classification.label) +
+             styledReadLineRange(args, theme) +
+             expandHint);
+     }
+-    return (theme.fg("toolTitle", theme.bold(`read ${classification.kind}`)) +
++    return (theme.fg("toolTitle", theme.bold(`${toolName ?? "read"} ${classification.kind}`)) +
+         " " +
+         theme.fg("accent", classification.label) +
+         styledReadLineRange(args, theme) +
+@@ -118,7 +119,7 @@ export const readRenderers = {
+         const args = rawArgs;
+         const text = context.lastComponent ?? new Text("", 0, 0);
+         const classification = !context.expanded ? getCompactReadClassification(args, context.cwd) : undefined;
+-        text.setText(classification ? formatCompactReadCall(classification, args, theme) : formatReadCall(args, theme, context.cwd));
++        text.setText(classification ? formatCompactReadCall(classification, args, theme, context.displayToolName) : formatReadCall(args, theme, context.cwd, context.displayToolName));
+         return text;
+     },
+     renderResult(result, options, theme, context) {
+diff --git a/dist/core/tools/renderers/write.js b/dist/core/tools/renderers/write.js
+index 58828fe68da77a2aaf324e3fbfff74071e5d9ee2..77bb8fb880a7e2bb2a2983cc962d8cf877ceaab5 100644
+--- a/dist/core/tools/renderers/write.js
++++ b/dist/core/tools/renderers/write.js
+@@ -87,11 +87,11 @@ function trimTrailingEmptyLines(lines) {
+     }
+     return lines.slice(0, end);
+ }
+-function formatWriteCall(args, options, theme, cache, highlighter, cwd) {
++function formatWriteCall(args, options, theme, cache, highlighter, cwd, toolName = "write") {
+     const rawPath = str(args?.file_path ?? args?.path);
+     const fileContent = str(args?.content);
+     const pathDisplay = renderToolPath(rawPath, theme, cwd);
+-    let text = `${theme.fg("toolTitle", theme.bold("write"))} ${pathDisplay}`;
++    let text = `${theme.fg("toolTitle", theme.bold(toolName))} ${pathDisplay}`;
+     if (fileContent === null) {
+         text += `\n\n${theme.fg("error", "[invalid content arg - expected string]")}`;
+     }
+@@ -135,7 +135,7 @@ export const writeRenderers = {
+             fileContent !== null && !context.argsComplete
+                 ? updateWriteHighlightCacheIncremental(component.cache, rawPath, fileContent, component.highlighter)
+                 : undefined;
+-        component.setText(formatWriteCall(renderArgs, { expanded: context.expanded, isPartial: context.isPartial }, theme, component.cache, component.highlighter, context.cwd));
++        component.setText(formatWriteCall(renderArgs, { expanded: context.expanded, isPartial: context.isPartial }, theme, component.cache, component.highlighter, context.cwd, context.displayToolName));
+         return component;
+     },
+     renderResult(result, _options, theme, context) {
+diff --git a/dist/core/extensions/runner.d.ts b/dist/core/extensions/runner.d.ts
+index 237dcfb192e70f71fa3b7cae6e1cf6115b51d32e..bae0b74dc19434cfdaae994c618703327c53bf29 100644
+--- a/dist/core/extensions/runner.d.ts
++++ b/dist/core/extensions/runner.d.ts
+@@ -175,7 +175,7 @@ export declare class ExtensionRunner {
+      * Create the context for executing the tool call `toolCallId`: the extension context plus
+      * `tools` and `executeTool()`. `signal` is the default signal of nested calls.
+      */
+-    createToolContext(toolCallId: string, signal: AbortSignal | undefined): ExtensionToolContext;
++    createToolContext(toolCallId: string, signal: AbortSignal | undefined, caller?: RegisteredTool): ExtensionToolContext;
+     createCommandContext(): ExtensionCommandContext;
+     emitBoundary(baseEvent: BoundaryBaseEvent, buildContext: (entries: SessionBoundaryDraft[]) => BoundaryContextPreview | Promise<BoundaryContextPreview>): Promise<BoundaryDispatchResult>;
+     private isSessionBeforeEvent;
+diff --git a/dist/core/extensions/runner.js b/dist/core/extensions/runner.js
+index 2cf7fb5c0c242650b4b8d3a0a574ee5fda5a2363..9446aafd5031831bed1c0d418f95a821c76f52d5 100644
+--- a/dist/core/extensions/runner.js
++++ b/dist/core/extensions/runner.js
+@@ -706,7 +706,7 @@ export class ExtensionRunner {
+      * Create the context for executing the tool call `toolCallId`: the extension context plus
+      * `tools` and `executeTool()`. `signal` is the default signal of nested calls.
+      */
+-    createToolContext(toolCallId, signal) {
++    createToolContext(toolCallId, signal, caller) {
+         const runner = this;
+         // createContext() returns a fresh object, so adding properties does not affect other contexts.
+         return Object.defineProperties(this.createContext(), {
+@@ -729,7 +729,7 @@ export class ExtensionRunner {
+                             isError: true,
+                         };
+                     }
+-                    return runner.executeToolFn(toolCallId, name, args, { ...options, signal: options.signal ?? signal });
++                    return runner.executeToolFn(toolCallId, name, args, { ...options, signal: options.signal ?? signal }, caller);
+                 },
+             },
+         });
+diff --git a/dist/core/extensions/wrapper.js b/dist/core/extensions/wrapper.js
+index 9b663aaad23479c99dc8c4ead46fa50abd8b380a..5ca8c035ba5deae605e175233019d255fb464267 100644
+--- a/dist/core/extensions/wrapper.js
++++ b/dist/core/extensions/wrapper.js
+@@ -10,7 +10,7 @@ import { wrapToolDefinition } from "../tools/tool-definition-wrapper.js";
+  * Uses the runner's createToolContext() for consistent context across tools and event handlers.
+  */
+ export function wrapRegisteredTool(registeredTool, runner) {
+-    return wrapToolDefinition(registeredTool.definition, (toolCallId, signal) => runner.createToolContext(toolCallId, signal));
++    return wrapToolDefinition(registeredTool.definition, (toolCallId, signal) => runner.createToolContext(toolCallId, signal, registeredTool));
+ }
+ /**
+  * Wrap all registered tools into AgentTools.
+diff --git a/dist/core/nested-tool-calls.d.ts b/dist/core/nested-tool-calls.d.ts
+index 1d3adb1b412c5ecc81e2f9f68368cdfbc3234ab3..6b0188efbdf8bac76099fba5aa165b725284eacc 100644
+--- a/dist/core/nested-tool-calls.d.ts
++++ b/dist/core/nested-tool-calls.d.ts
+@@ -81,7 +81,7 @@ export interface NestedToolCallHost {
+     /** Whether every nested call runs exclusively, as when the agent executes tool calls sequentially. */
+     isSequential(): boolean;
+     /** Run the call through the tool pipeline, with hooks that report `parentToolCallId`. */
+-    runToolCall(toolCall: AgentToolCall, parentToolCallId: string, signal: AbortSignal | undefined, onUpdate: (partialResult: AgentToolResult<unknown>) => Promise<void>): Promise<AgentToolCallOutcome>;
++    runToolCall(toolCall: AgentToolCall, parentToolCallId: string, signal: AbortSignal | undefined, onUpdate: (partialResult: AgentToolResult<unknown>) => Promise<void>, tools: readonly AgentTool[]): Promise<AgentToolCallOutcome>;
+     emit(event: NestedToolExecutionEvent): Promise<void>;
+ }
+ export declare class NestedToolCallRunner {
+@@ -95,7 +95,7 @@ export declare class NestedToolCallRunner {
+      * Run `name` on behalf of the call `callerId`. The nested call gets the id `<callerId>/<n>`.
+      * Never rejects for tool failures: they come back as `isError: true`.
+      */
+-    execute(callerId: string, name: string, args: unknown, options?: NestedToolCallOptions): Promise<AgentToolCallOutcome>;
++    execute(callerId: string, name: string, args: unknown, options?: NestedToolCallOptions, getTools?: () => readonly AgentTool[]): Promise<AgentToolCallOutcome>;
+     /** Remove and return the record of the nested calls a model-issued call made. */
+     takeRecord(toolCallId: string): NestedCallSummary | undefined;
+     clear(): void;
+diff --git a/dist/core/nested-tool-calls.js b/dist/core/nested-tool-calls.js
+index be4a571d0f5ab07f482d8d634f937e0448787c1d..bcea3cb865d57c26d1f6ea24d51a0e3318ea6e91 100644
+--- a/dist/core/nested-tool-calls.js
++++ b/dist/core/nested-tool-calls.js
+@@ -95,7 +95,7 @@ export class NestedToolCallRunner {
+      * Run `name` on behalf of the call `callerId`. The nested call gets the id `<callerId>/<n>`.
+      * Never rejects for tool failures: they come back as `isError: true`.
+      */
+-    async execute(callerId, name, args, options = {}) {
++    async execute(callerId, name, args, options = {}, getTools = () => this.host.getTools()) {
+         let scope = this.scopes.get(callerId);
+         if (!scope) {
+             scope = { recorder: new NestedCallRecorder(), nextId: 1, holdsQueue: false };
+@@ -117,7 +117,7 @@ export class NestedToolCallRunner {
+         });
+         const exclusive = !scope.holdsQueue &&
+             (this.host.isSequential() ||
+-                this.host.getTools().find((tool) => tool.name === name)?.executionMode === "sequential");
++                getTools().find((tool) => tool.name === name)?.executionMode === "sequential");
+         let release;
+         if (exclusive) {
+             const previous = this.queueTail;
+@@ -143,7 +143,7 @@ export class NestedToolCallRunner {
+                     partialResult,
+                     parentToolCallId: callerId,
+                 });
+-            });
++            }, getTools());
+         }
+         finally {
+             this.scopes.delete(toolCall.id);

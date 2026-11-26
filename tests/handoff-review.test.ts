@@ -3,11 +3,13 @@ import { test } from "node:test";
 import { Theme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import nord from "../resources/theme.json" with { type: "json" };
+import { handoffOverview } from "../discovery/handoff-overview.ts";
 import { createHandoffReview } from "../discovery/handoff-review.ts";
 import { draftSchema } from "../lead-plan.ts";
 import {
   coveragePropertyCatalog,
   coverageToken,
+  pendingCoverageReview,
 } from "../socrates/assessment.ts";
 import { specRecord, SpecStatus } from "../socrates/spec.ts";
 
@@ -84,14 +86,14 @@ const specification = specRecord.parse({
 });
 specification.coverageRevision = coverageToken(specification);
 
-function review(height: number) {
+function review(height: number, project = "/work/handbook") {
   const decisions: boolean[] = [];
   const component = createHandoffReview(
     {
       title: "Handbook",
       draft,
       specification,
-      project: "/work/handbook",
+      project,
       sourceId: "handbook-source",
       profile: "personal",
       execution: "background",
@@ -138,6 +140,32 @@ await test("the handoff opens on the dependency graph and PR contents in the Stu
     plain,
     /Verify notes independently|Enter create tasks and implement/u,
   );
+});
+
+await test("a follow-up keeps the existing property evidence visible in the handoff overview", () => {
+  const pending = {
+    ...specification,
+    pendingReview: pendingCoverageReview(specification, {
+      timestamp: 1,
+      content: "Which PR will contain the glossary?",
+    }),
+  };
+  const overview = handoffOverview(theme, 110, draft, pending)
+    .map(stripTerminalSequences)
+    .join("\n");
+  assert.match(overview, /13 satisfied/u);
+  assert.doesNotMatch(overview, /recheck/u);
+});
+
+await test("the approval distinguishes exact target paths containing control characters and literal escapes", () => {
+  for (const [project, expected] of [
+    ["/work/\x1b[31mproject", "/work/\\u001b[31mproject"],
+    ["/work/\\u001b[31mproject", "/work/\\\\u001b[31mproject"],
+  ] as const) {
+    const { component } = review(35, project);
+    const frame = component.render(122).map(stripTerminalSequences).join("\n");
+    assert.ok(frame.includes(expected), frame);
+  }
 });
 
 await test("paging a narrow handoff exposes the full reviewed scope before an explicit confirmation", () => {

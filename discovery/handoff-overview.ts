@@ -7,7 +7,10 @@ import {
 } from "@lanej/pi-components";
 import { type LeadDraft, publicationGroups } from "../lead-plan.ts";
 import { planGraph, planGraphColor, renderGraphPrefix } from "../plan-graph.ts";
-import { coverageFresh, coverageProperties } from "../socrates/assessment.ts";
+import {
+  coverageBasisCurrent,
+  coverageProperties,
+} from "../socrates/assessment.ts";
 import { conditionStates } from "../socrates/columns.ts";
 import { type LeadSpecification, SpecStatus } from "../socrates/spec.ts";
 
@@ -31,7 +34,7 @@ function specificationRows(
 ): string[] {
   const badges: string[] = [];
   if (spec !== undefined) {
-    const fresh = coverageFresh(spec, spec.acceptedRevision);
+    const basisCurrent = coverageBasisCurrent(spec, spec.acceptedRevision);
     const properties = coverageProperties(spec.draft);
     const states = [
       ConditionState.Open,
@@ -43,8 +46,8 @@ function specificationRows(
       const stale = state === "recheck";
       const total = properties.filter((property) =>
         stale
-          ? property.recorded && !fresh
-          : (fresh || !property.recorded) &&
+          ? property.recorded && !basisCurrent
+          : (basisCurrent || !property.recorded) &&
             conditionStates[property.status] === state,
       ).length;
       if (total === 0) continue;

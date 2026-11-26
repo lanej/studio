@@ -203,7 +203,7 @@ export function implementationColumn(
       id: `wave-${String(wave)}`,
       label: byStatus ? "Linked beads" : `Wave ${String(wave)}`,
       items,
-      showStatusLabels: phase !== ImplementationPhase.Proposed,
+      showStatusLabels: !watching && phase !== ImplementationPhase.Proposed,
     })),
     emptyMessage: impl.detail,
   };

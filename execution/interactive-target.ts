@@ -78,6 +78,7 @@ export function hasInteractivePane(attempt: Execution): boolean {
 export async function focusInteractivePane(
   attempt: Execution,
   repository: string,
+  signal?: AbortSignal,
 ): Promise<void> {
   const { interactive, pane, launchToken, pid, started } = attempt;
   if (
@@ -98,5 +99,6 @@ export async function focusInteractivePane(
     launchToken,
     repository,
   );
+  signal?.throwIfAborted();
   await zellij.focus(pane);
 }

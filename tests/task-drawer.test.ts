@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
+import {
+  defaultPaneKeybindings,
+  paneKeybindingsSchema,
+} from "../pane-keybindings-config.ts";
 import { TaskBrowser } from "../tasks/browser.ts";
 import { currentReviewFinding, type TaskSnapshot } from "../tasks/model.ts";
 import {
@@ -54,6 +58,7 @@ function browser(
   initial?: string,
   emptyHint?: string,
   height = 24,
+  bindings = defaultPaneKeybindings,
 ) {
   const calls: string[] = [];
   const component = new TaskBrowser(
@@ -73,6 +78,7 @@ function browser(
       calls.push(id ?? "cancel");
     },
     initial,
+    bindings,
   );
   return { component, calls };
 }
@@ -101,13 +107,47 @@ await test("the compact inspector preserves the current owner's reviewer finding
 });
 
 await test("pane focus follows the selected task and wide titles remain bounded", () => {
-  const { component, calls } = browser();
-  component.render(60);
+  const bindings = paneKeybindingsSchema.parse({
+    pane: { up: [], down: [], activate: "o", focusWorker: "g", close: [] },
+    tasks: { quit: "x", refresh: [] },
+  });
+  const { component, calls } = browser(
+    snapshot,
+    undefined,
+    undefined,
+    24,
+    bindings,
+  );
+  const view = () => component.render(60).join("\n");
+  const initial = view();
+  assert.match(initial, /o inspect {2}x close/u);
+  assert.doesNotMatch(initial, /move|refresh|Esc close/u);
+  for (const key of ["j", "\x1b[B", "r", "\r", "\x1b", "q"])
+    component.handleInput(key);
+  assert.equal(view(), initial);
   component.handleInput("\x1b[C");
   assert.deepEqual(calls, []);
-  component.handleInput("j");
+  assert.equal(
+    component.handleMouse({
+      type: "wheel",
+      button: "none",
+      x: 5,
+      y: 3,
+      screenX: 7,
+      screenY: 6,
+      width: 60,
+      height: 24,
+      shift: false,
+      alt: false,
+      ctrl: false,
+      wheelDelta: 1,
+    }).handled,
+    true,
+  );
   assert.match(component.render(60).join("\n"), /Wide 漢字/u);
   component.handleInput("\x1b[C");
+  assert.deepEqual(calls, []);
+  component.handleInput("g");
   assert.deepEqual(calls, [related.id]);
 });
 

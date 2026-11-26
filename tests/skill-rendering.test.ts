@@ -20,6 +20,8 @@ import {
   ProcessTerminal,
   TuiMainScreen,
 } from "@earendil-works/pi-tui";
+import { claudeTools } from "../model-tools/dialects/claude.ts";
+import { modelToolRenderers } from "../model-tools/rendering.ts";
 import { registerSkillRendering } from "../skill-renderer.ts";
 
 const document =
@@ -207,4 +209,44 @@ await test("registered renderer formats actual builtin skill reads and retains n
   } finally {
     created.session.dispose();
   }
+});
+
+await test("Claude's numbered Read renders the same expanded skill Markdown as a Pi read", () => {
+  initTheme("dark", false);
+  let canonical: Resolver | undefined;
+  const host = {
+    registerToolRenderer(renderer: Resolver) {
+      canonical = renderer;
+    },
+  };
+  registerSkillRendering(host);
+  assert.ok(canonical !== undefined);
+  const ui = new TuiMainScreen(new ProcessTerminal());
+  const binding = claudeTools.find(({ operation }) => operation === "read");
+  assert.ok(binding !== undefined);
+  const read = new ToolExecutionComponent(
+    "Read",
+    "skill",
+    { file_path: "example/SKILL.md" },
+    { showImages: false },
+    modelToolRenderers(host, binding),
+    ui,
+    process.cwd(),
+  );
+  const numbered = document
+    .split("\n")
+    .map((line, i, lines) =>
+      i === lines.length - 1 ? line : `${String(i + 1)}\t${line}`,
+    )
+    .join("\n");
+  read.updateResult({
+    content: [{ type: "text", text: numbered }],
+    details: undefined,
+    isError: false,
+  });
+  read.setExpanded(true);
+  const plain = stripTerminalSequences(read.render(80).join("\n"));
+  assert.match(plain, /Skill heading/u);
+  assert.match(plain, /second item/u);
+  assert.doesNotMatch(plain, /# Skill heading|\*\*second item\*\*|1\t/u);
 });

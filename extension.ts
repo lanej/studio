@@ -1,12 +1,16 @@
 import {
+  defaultPaneKeybindings,
+  type PaneKeybindings,
+} from "./pane-keybindings.ts";
+import {
   registerSessionForks,
   registerPromptLoops,
 } from "./sessions/extension.ts";
 import { basename } from "node:path";
-import { selectorText } from "@lanej/pi-components";
-import { ExtensionInputComponent } from "@earendil-works/pi-coding-agent";
+import { registerModelTools } from "./model-tools/extension.ts";
 import { registerHistoryBindings } from "./keybindings.ts";
-import { TaskPanel } from "./tasks/panel.ts";
+import { TaskPanel, type OpenTasks, type PanelSource } from "./tasks/panel.ts";
+import { isDeepStrictEqual } from "node:util";
 import { readTaskEvidence } from "./tasks/evidence.ts";
 import { answerDecision } from "./execution/decisions.ts";
 import { pendingDecision, ExecutionPhase } from "./execution/store.ts";
@@ -48,6 +52,7 @@ import {
   DefaultProvider,
   StudioProfile,
   studioProfileSchema,
+  type StudioConfig,
   knownProvider,
   loadConfig,
 } from "./config.ts";
@@ -65,19 +70,40 @@ import { hasInteractivePane } from "./execution/interactive-target.ts";
 const attemptType = "studio:idle-attempt";
 const attemptSchema = z.object({ historyId: z.string() });
 
-export default function studioExtension(
+interface ManagedLead {
+  profile: StudioProfile;
+  approvalPending: () => boolean;
+  activationBlocked?: () => boolean;
+  trackedPullRequest: () => string | undefined;
+}
+
+// Pi collects extension shortcuts during loading. Invalid configuration is reported
+// by session initialization; a managed lead must still install its other controls.
+export async function loadLeadKeybindings(): Promise<PaneKeybindings> {
+  try {
+    return (await loadConfig()).keybindings;
+  } catch {
+    return defaultPaneKeybindings;
+  }
+}
+
+export default async function studioExtension(
   pi: ExtensionAPI,
-  managed?: {
-    profile: StudioProfile;
-    approvalPending: () => boolean;
-    activationBlocked?: () => boolean;
-    trackedPullRequest: () => string | undefined;
-  },
-): void {
+  managed?: ManagedLead,
+): Promise<void> {
+  registerStudio(pi, managed, await loadLeadKeybindings());
+}
+
+export function registerStudio(
+  pi: ExtensionAPI,
+  managed: ManagedLead | undefined,
+  keybindings: PaneKeybindings,
+): OpenTasks {
   registerHistoryBindings(pi);
   registerActivationAdmission(pi);
   registerSessionForks(pi);
   const intelligence = registerCodeIntelligence(pi);
+  registerModelTools(pi, { coding: managed === undefined });
   const idle = new IdleSession();
   const tasks = new TaskPanel();
   let removeInputListener: (() => void) | undefined;
@@ -92,6 +118,8 @@ export default function studioExtension(
           () => {
             tasks.close();
           },
+          openTasks,
+          keybindings,
         )
       : undefined;
   if (discovery !== undefined)
@@ -131,8 +159,8 @@ export default function studioExtension(
   registerSearchRendering(pi);
   registerSkillRendering(pi);
   if (managed !== undefined)
-    pi.on("session_start", () => {
-      delegation.activate();
+    pi.on("session_start", (_event, ctx) => {
+      delegation.syncTool(ctx);
     });
 
   const release = () => {
@@ -281,8 +309,9 @@ export default function studioExtension(
     await initialize(ctx);
   });
   pi.on(PiEvent.SessionCompact, async (_event, ctx) => initialize(ctx));
-  pi.on(PiEvent.ModelSelect, () => {
+  pi.on(PiEvent.ModelSelect, (_event, ctx) => {
     selectedProfile = managed?.profile;
+    delegation.syncTool(ctx);
   });
   pi.on(PiEvent.Input, () => {
     idle.activity();
@@ -304,225 +333,207 @@ export default function studioExtension(
     else idle.toolStart(event.toolName);
   });
 
-  pi.registerShortcut("alt+t", {
-    description: "Focus the open task panel; Escape returns to the lead",
-    handler: () => {
-      tasks.focus();
-    },
-  });
   pi.registerCommand("tasks", {
-    description:
-      "Show live Beads tasks without taking focus; use /tasks close to dismiss",
+    description: "Open the task browser or inspect a Beads task by ID",
     handler: async (argument, ctx) => {
-      if (argument.trim() === "close") {
+      const beadId = argument.trim();
+      if (beadId === "close") {
         tasks.close();
         return;
       }
-      const handoff = discovery?.runtimeHandoff(ctx);
-      if (discovery !== undefined && handoff === undefined) {
-        ctx.ui.notify(
-          "Approve a Socrates plan to open its task runtime.",
-          "info",
-        );
-        return;
-      }
-      const generation = lifecycle;
-      const config = await loadConfig();
-      if (
-        generation !== lifecycle ||
-        discovery?.runtimeHandoff(ctx)?.operation !== handoff?.operation
-      )
-        return;
-      const source = handoff?.target.source ?? config.beadsService;
-      if (config.beads === undefined && source === undefined) {
-        ctx.ui.notify(
-          "Configure a Beads service or read-only workspace in your Studio configuration. Run studio config --example for a service example.",
-          "warning",
-        );
-        return;
-      }
-      const service = source === undefined ? undefined : new TaskBeads(source);
-      const reader =
-        service !== undefined
-          ? {
-              list: async () =>
-                z.array(taskSchema).parse((await service.list()).items),
-              show: async (id: string) =>
-                taskSchema.parse(await service.get(id)),
-            }
-          : config.beads === undefined
-            ? undefined
-            : new BeadsReader(config.beads);
-      if (reader === undefined) return;
-      const projectId = source?.projectId;
-      const project = config.runtime.projects.find(
-        (item) =>
-          item.source.projectId === projectId &&
-          item.source.url === source?.url,
-      );
-      await tasks.open(
-        ctx,
-        {
-          key: JSON.stringify([
-            ctx.sessionManager.getSessionId(),
-            ctx.cwd,
-            source,
-            config.beads,
-          ]),
-          focusPane: async (id) => {
-            if (source !== undefined) await focusTaskPane(source, id);
-          },
-          label:
-            project === undefined
-              ? source === undefined
-                ? basename(config.beads?.workspace ?? ctx.cwd)
-                : "Beads"
-              : basename(project.root),
-          identity: projectId ?? config.beads?.database ?? "",
-          emptyHint: "Tasks added in Beads will appear here.",
-          show: (id) => reader.show(id),
-          ...(project === undefined
-            ? {}
-            : {
-                retry: retryAttempt,
-                answer: async (
-                  id: string,
-                  request: string,
-                  question: string,
-                ) => {
-                  const text = await ctx.ui.custom<string | undefined>(
-                    (tui, _theme, _keys, done) =>
-                      new ExtensionInputComponent(
-                        "Answer operator decision",
-                        undefined,
-                        done,
-                        () => {
-                          done(undefined);
-                        },
-                        {
-                          tui,
-                          description: selectorText(question).replace(
-                            /\p{Cc}/gu,
-                            " ",
-                          ),
-                        },
-                      ),
-                  );
-                  if (text === undefined) return false;
-                  await answerDecision(id, request, text);
-                  return true;
-                },
-                diff: async (
-                  attempt: import("./execution/store.ts").Execution,
-                ) => {
-                  if (
-                    attempt.checkout === undefined ||
-                    attempt.base === undefined
-                  )
-                    throw new Error(
-                      "Retained checkout or base receipt is unavailable.",
-                    );
-                  const diff = await safeGit(
-                    project.root,
-                    attempt.checkout.path,
-                    [
-                      "diff",
-                      "--no-ext-diff",
-                      "--no-textconv",
-                      attempt.base,
-                      "--",
-                    ],
-                  );
-                  return `${diff}\nTracked diff only; untracked files are not included.`;
-                },
-              }),
-          load: async () => {
-            const tasks = await reader.list();
-            const evidence = readTaskEvidence(projectId);
-            const retryBlocked = new Map<string, string>();
-            const answerBlocked = new Map<string, string>();
-            for (const attempt of evidence.attempts) {
-              if (pendingDecision(attempt) === undefined) continue;
-              if (
-                attempt.phase !== ExecutionPhase.AwaitingDecision ||
-                attempt.interactive !== undefined ||
-                attempt.bead === undefined ||
-                attempt.revision === undefined
-              )
-                answerBlocked.set(
-                  attempt.id,
-                  "the admitted request is not in a settled background decision wait",
-                );
-              else
-                try {
-                  if (await retryWriterFence(attempt))
-                    answerBlocked.set(
-                      attempt.id,
-                      "the prior host/verifier is live or uncertain; wait for positive settlement",
-                    );
-                } catch {
-                  answerBlocked.set(
-                    attempt.id,
-                    "writer state could not be confirmed",
-                  );
-                }
-            }
-            for (const attempt of evidence.attempts) {
-              if (!["needs-review", "uncertain"].includes(attempt.phase))
-                continue;
-              if (attempt.interactive !== undefined) {
-                retryBlocked.set(
-                  attempt.id,
-                  "interactive attempts retain their original pane binding; inspect the transcript and checkout. Automatic replacement is unavailable.",
-                );
-                continue;
-              }
-              try {
-                if (await retryWriterFence(attempt))
-                  retryBlocked.set(
-                    attempt.id,
-                    "the prior writer may still exist or its launch receipt is incomplete; reconcile it first.",
-                  );
-              } catch {
-                retryBlocked.set(
-                  attempt.id,
-                  "writer state could not be confirmed; inspect the retained execution.",
-                );
-              }
-            }
-            const live =
-              projectId === undefined
-                ? new Set<string>()
-                : await taskPaneBeads(projectId);
-            return {
-              tasks,
-              ...evidence,
-              retryBlocked,
-              answerBlocked,
-              observedAt: new Date().toLocaleTimeString(),
-              focusable: new Set(
-                tasks
-                  .filter(
-                    (task) =>
-                      knownTaskStatus(task.status) === TaskStatus.InProgress &&
-                      (live.has(task.id) ||
-                        evidence.attempts.some(
-                          (attempt) =>
-                            attempt.bead?.id === task.id &&
-                            attempt.bead.assignee === task.assignee &&
-                            hasInteractivePane(attempt),
-                        )),
-                  )
-                  .map((task) => task.id),
-              ),
-              limitReached: tasks.length === 1000,
-            };
-          },
-        },
-        argument.trim().length === 0 ? undefined : argument.trim(),
-      );
+      await openTasks(ctx, beadId.length === 0 ? undefined : beadId);
     },
   });
+  async function openTasks(
+    ctx: ExtensionContext,
+    beadId?: string,
+    authority?: StudioConfig["beadsService"],
+  ): Promise<void> {
+    const handoff = discovery?.runtimeHandoff(ctx);
+    if (
+      authority !== undefined &&
+      discovery !== undefined &&
+      !isDeepStrictEqual(authority, handoff?.target.source)
+    )
+      return;
+    if (discovery !== undefined && handoff === undefined) {
+      ctx.ui.notify(
+        "Approve a Socrates plan to open its task runtime.",
+        "info",
+      );
+      return;
+    }
+    const generation = lifecycle;
+    await tasks.open(
+      ctx,
+      (current) =>
+        taskSource(
+          ctx,
+          authority ?? handoff?.target.source,
+          () =>
+            current() &&
+            generation === lifecycle &&
+            discovery?.runtimeHandoff(ctx)?.operation === handoff?.operation,
+        ),
+      beadId,
+      keybindings,
+    );
+  }
+
+  async function taskSource(
+    ctx: ExtensionContext,
+    authority: StudioConfig["beadsService"],
+    current: () => boolean,
+  ): Promise<PanelSource | undefined> {
+    const config = await loadConfig();
+    if (!current()) return;
+    const source = authority ?? config.beadsService;
+    if (config.beads === undefined && source === undefined) {
+      ctx.ui.notify(
+        "Configure a Beads service or read-only workspace in your Studio configuration. Run studio config --example for a service example.",
+        "warning",
+      );
+      return;
+    }
+    const service = source === undefined ? undefined : new TaskBeads(source);
+    const reader =
+      service !== undefined
+        ? {
+            list: async () =>
+              z.array(taskSchema).parse((await service.list()).items),
+            show: async (id: string) => taskSchema.parse(await service.get(id)),
+          }
+        : config.beads === undefined
+          ? undefined
+          : new BeadsReader(config.beads);
+    if (reader === undefined) return;
+    const projectId = source?.projectId;
+    const project = config.runtime.projects.find(
+      (item) =>
+        item.source.projectId === projectId && item.source.url === source?.url,
+    );
+    return {
+      focusPane: async (id, attemptId, signal) => {
+        if (source !== undefined)
+          await focusTaskPane(source, id, attemptId, signal);
+      },
+      label:
+        project === undefined
+          ? source === undefined
+            ? basename(config.beads?.workspace ?? ctx.cwd)
+            : "Beads"
+          : basename(project.root),
+      identity: projectId ?? config.beads?.database ?? "",
+      emptyHint: "Tasks added in Beads will appear here.",
+      show: (id) => reader.show(id),
+      ...(project === undefined
+        ? {}
+        : {
+            retry: retryAttempt,
+            answer: async (id: string, request: string, question: string) => {
+              const text = await tasks.editAnswer(ctx, question);
+              if (text === undefined) return false;
+              await answerDecision(id, request, text);
+              return true;
+            },
+            diff: async (attempt: import("./execution/store.ts").Execution) => {
+              if (attempt.checkout === undefined || attempt.base === undefined)
+                throw new Error(
+                  "Retained checkout or base receipt is unavailable.",
+                );
+              const diff = await safeGit(project.root, attempt.checkout.path, [
+                "diff",
+                "--no-ext-diff",
+                "--no-textconv",
+                attempt.base,
+                "--",
+              ]);
+              return `${diff}\nTracked diff only; untracked files are not included.`;
+            },
+          }),
+      load: async () => {
+        const tasks = await reader.list();
+        const evidence = readTaskEvidence(projectId);
+        const retryBlocked = new Map<string, string>();
+        const answerBlocked = new Map<string, string>();
+        for (const attempt of evidence.attempts) {
+          if (pendingDecision(attempt) === undefined) continue;
+          if (
+            attempt.phase !== ExecutionPhase.AwaitingDecision ||
+            attempt.interactive !== undefined ||
+            attempt.bead === undefined ||
+            attempt.revision === undefined
+          )
+            answerBlocked.set(
+              attempt.id,
+              "the admitted request is not in a settled background decision wait",
+            );
+          else
+            try {
+              if (await retryWriterFence(attempt))
+                answerBlocked.set(
+                  attempt.id,
+                  "the prior host/verifier is live or uncertain; wait for positive settlement",
+                );
+            } catch {
+              answerBlocked.set(
+                attempt.id,
+                "writer state could not be confirmed",
+              );
+            }
+        }
+        for (const attempt of evidence.attempts) {
+          if (!["needs-review", "uncertain"].includes(attempt.phase)) continue;
+          if (attempt.interactive !== undefined) {
+            retryBlocked.set(
+              attempt.id,
+              "interactive attempts retain their original pane binding; inspect the transcript and checkout. Automatic replacement is unavailable.",
+            );
+            continue;
+          }
+          try {
+            if (await retryWriterFence(attempt))
+              retryBlocked.set(
+                attempt.id,
+                "the prior writer may still exist or its launch receipt is incomplete; reconcile it first.",
+              );
+          } catch {
+            retryBlocked.set(
+              attempt.id,
+              "writer state could not be confirmed; inspect the retained execution.",
+            );
+          }
+        }
+        const live =
+          projectId === undefined
+            ? new Set<string>()
+            : await taskPaneBeads(projectId);
+        return {
+          tasks,
+          ...evidence,
+          retryBlocked,
+          answerBlocked,
+          observedAt: new Date().toLocaleTimeString(),
+          focusable: new Set(
+            tasks
+              .filter(
+                (task) =>
+                  knownTaskStatus(task.status) === TaskStatus.InProgress &&
+                  (live.has(task.id) ||
+                    evidence.attempts.some(
+                      (attempt) =>
+                        attempt.bead?.id === task.id &&
+                        attempt.bead.assignee === task.assignee &&
+                        hasInteractivePane(attempt),
+                    )),
+              )
+              .map((task) => task.id),
+          ),
+          limitReached: tasks.length === 1000,
+        };
+      },
+    };
+  }
 
   async function selectProfile(
     argument: string,
@@ -625,7 +636,7 @@ export default function studioExtension(
     }
     pi.setThinkingLevel(reasoning);
     selectedProfile = name;
-    delegation.activate();
+    delegation.syncTool(ctx);
   }
   pi.registerCommand("studio-profile", {
     description: "Explicitly select the work or personal lead model",
@@ -648,4 +659,5 @@ export default function studioExtension(
       );
     },
   });
+  return openTasks;
 }
