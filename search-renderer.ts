@@ -75,6 +75,8 @@ type SearchFormat =
   | { kind: "excerpt" | "numbered" | "unnumbered"; language: string }
   | { kind: "filename"; language?: undefined; files?: SearchFile[] };
 
+type RipgrepOption = { type: "boolean"; short?: string; default: boolean } | { type: "string"; short?: string };
+
 // These rg switches select source lines without rewriting them. parseArgs
 // handles option values, short bundles like -nA8, long options, and --.
 const rgOptions = {
@@ -89,20 +91,20 @@ const rgOptions = {
   iglob: { type: "string" },
   type: { type: "string", short: "t" },
   "type-not": { type: "string", short: "T" },
-  "fixed-strings": { type: "boolean", short: "F" },
-  "ignore-case": { type: "boolean", short: "i" },
-  "smart-case": { type: "boolean", short: "S" },
-  "case-sensitive": { type: "boolean", short: "s" },
-  "word-regexp": { type: "boolean", short: "w" },
-  "line-regexp": { type: "boolean", short: "x" },
-  "no-heading": { type: "boolean" },
-  "no-ignore": { type: "boolean" },
-  "no-ignore-vcs": { type: "boolean" },
-  unrestricted: { type: "boolean", short: "u" },
-  follow: { type: "boolean", short: "L" },
+  "fixed-strings": { type: "boolean", short: "F", default: false },
+  "ignore-case": { type: "boolean", short: "i", default: false },
+  "smart-case": { type: "boolean", short: "S", default: false },
+  "case-sensitive": { type: "boolean", short: "s", default: false },
+  "word-regexp": { type: "boolean", short: "w", default: false },
+  "line-regexp": { type: "boolean", short: "x", default: false },
+  "no-heading": { type: "boolean", default: false },
+  "no-ignore": { type: "boolean", default: false },
+  "no-ignore-vcs": { type: "boolean", default: false },
+  unrestricted: { type: "boolean", short: "u", default: false },
+  follow: { type: "boolean", short: "L", default: false },
   color: { type: "string" },
-  hidden: { type: "boolean" },
-} as const;
+  hidden: { type: "boolean", default: false },
+} as const satisfies Record<string, RipgrepOption>;
 
 function ripgrepFormat(args: string[]): SearchFormat | undefined {
   try {
