@@ -4,13 +4,22 @@ import { estimateShellUsage } from "./shell-usage.ts";
 import { analyzeShell, prepareShellSyntax } from "./shell-syntax.ts";
 import { registerCodingRenderer } from "./model-tools/rendering.ts";
 import {
+  type ShellHeredocs,
+  shellHeredocs,
+  prepareShellHeredoc,
+} from "./shell-heredoc.ts";
+import {
   type ExtensionAPI,
   type Theme,
   getLanguageFromPath,
+  getMarkdownTheme,
   highlightCode,
 } from "@earendil-works/pi-coding-agent";
 import {
   type Component,
+  Container,
+  Markdown,
+  Spacer,
   Text,
   sliceByColumn,
   truncateToWidth,
@@ -23,6 +32,7 @@ const MAX_HIGHLIGHT_BYTES = 50_000;
 const commandArgs = z.object({ command: z.string() });
 const searchArgs = commandArgs.extend({ sourceCommand: z.string().optional() });
 const shellCallArgs = commandArgs.extend({ timeout: z.number().optional() });
+const originalArgs = z.object({ invocationArgs: z.unknown() });
 
 function highlightShellCommand(command: string, theme: Theme): string {
   const highlighted = highlightCode(command, "bash");
@@ -322,10 +332,64 @@ const outputDetails = z
   })
   .loose();
 
-const originalArgs = z.object({ invocationArgs: z.unknown() });
+// Pi invalidates terminal components after a theme change or when deferred grammars load.
+class HighlightedText extends Text {
+  constructor(private readonly highlight: () => string) {
+    super(highlight(), 0, 0);
+  }
+
+  override invalidate(): void {
+    this.setText(this.highlight());
+    super.invalidate();
+  }
+}
+
+class HeredocShellCall extends Container {
+  constructor(
+    readonly header: Text,
+    readonly command: string,
+    readonly heredocs: ShellHeredocs,
+    theme: Theme,
+  ) {
+    super();
+    this.addChild(header);
+    for (const [index, document] of heredocs.documents.entries()) {
+      if (index > 0) {
+        this.addChild(new Spacer(1));
+        this.addChild(
+          new HighlightedText(() =>
+            highlightShellCommand(document.header, theme),
+          ),
+        );
+      }
+      this.addChild(new Spacer(1));
+      if (document.language === "markdown") {
+        this.addChild(new Markdown(document.body, 0, 0, getMarkdownTheme()));
+      } else {
+        // The last newline separates the body from its closing delimiter.
+        const source = document.body.replace(/\n$/u, "");
+        this.addChild(
+          new HighlightedText(() =>
+            highlightCode(source, document.language).join("\n"),
+          ),
+        );
+      }
+    }
+    if (heredocs.following !== "") {
+      this.addChild(new Spacer(1));
+      this.addChild(
+        new HighlightedText(() =>
+          highlightShellCommand(heredocs.following, theme),
+        ),
+      );
+    }
+  }
+}
 
 export function registerSearchRendering(pi: ExtensionAPI): void {
-  pi.on("session_start", () => prepareShellSyntax());
+  pi.on("session_start", async () => {
+    await Promise.all([prepareShellSyntax(), prepareShellHeredoc()]);
+  });
   const painted = new WeakSet<Component>();
   registerCodingRenderer(pi, (name, next) => {
     const base = next();
@@ -338,14 +402,16 @@ export function registerSearchRendering(pi: ExtensionAPI): void {
       ...(name === "bash" && renderCall !== undefined
         ? {
             renderCall(args, theme, context) {
-              // Pi starts the timer here and supplies its fallback for partial arguments.
+              // Pi owns the timer and reuses the header Text when a preview expands or collapses.
+              const previous = context.lastComponent;
+              const header =
+                previous instanceof HeredocShellCall
+                  ? previous.header
+                  : previous;
               const component = renderCall(args, theme, {
                 ...context,
                 displayToolName: "$",
-                lastComponent:
-                  context.lastComponent instanceof Text
-                    ? context.lastComponent
-                    : undefined,
+                lastComponent: header instanceof Text ? header : undefined,
               });
               const parsed = shellCallArgs.safeParse(args);
               if (!parsed.success || !(component instanceof Text))
@@ -357,16 +423,36 @@ export function registerSearchRendering(pi: ExtensionAPI): void {
                 Buffer.byteLength(command) > MAX_HIGHLIGHT_BYTES
               )
                 return component;
+              const prompt = theme.fg("toolTitle", theme.bold("$"));
+              // Replayed calls receive a final result without an args-complete event.
+              const currentPreview =
+                previous instanceof HeredocShellCall &&
+                previous.command === command &&
+                previous.header === component
+                  ? previous
+                  : undefined;
+              const heredocs =
+                !context.expanded &&
+                (context.argsComplete ||
+                  context.executionStarted ||
+                  !context.isPartial)
+                  ? (currentPreview?.heredocs ?? shellHeredocs(command))
+                  : undefined;
+              const syntax = highlightShellCommand(
+                heredocs?.documents[0].header ?? command,
+                theme,
+              );
               const suffix =
                 timeout !== undefined && timeout !== 0
                   ? theme.fg("muted", ` (timeout ${timeout.toString()}s)`)
                   : "";
-              component.setText(
-                theme.fg("toolTitle", theme.bold("$")) +
-                  " " +
-                  highlightShellCommand(command, theme) +
-                  suffix,
-              );
+              component.setText(`${prompt} ${syntax}${suffix}`);
+              if (heredocs !== undefined) {
+                return (
+                  currentPreview ??
+                  new HeredocShellCall(component, command, heredocs, theme)
+                );
+              }
               return component;
             },
           }

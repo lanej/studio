@@ -53,6 +53,7 @@
     "zod": "^4.0.0",
     "@lanej/pi-components": "file:./vendor/pi-components",
     "diff": "8.0.4",
+    "highlight.js": "10.7.3",
     "lovely-mermaid": "0.3.3",
     "smol-toml": "1.9.1",
     "vscode-languageserver-protocol": "3.18.6"

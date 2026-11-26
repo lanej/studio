@@ -186,6 +186,104 @@ function plain(component: ToolExecutionComponent, width: number) {
   return stripTerminalSequences(component.render(width).join("\n"));
 }
 
+await test("shell calls preview a GitHub Markdown body and expand to the original source", async (t) => {
+  const { component } = await conversationFixture(t);
+  const command = [
+    "gh issue create --title 'Preserve drafts' --body-file - <<'EOF'",
+    "## Acceptance",
+    "",
+    "- Keep the **saved draft** in `draft.md`.",
+    "EOF",
+  ].join("\n");
+  for (const [name, args] of [
+    ["shell_command", { command, timeout_ms: 20_000, workdir: "checkout" }],
+    ["Bash", { command, timeout: 20_000 }],
+  ] as const) {
+    const call = component(name, args);
+    assert.match(plain(call, 120), /<<'EOF'/u);
+    // Restored conversations go straight from tool arguments to a final result.
+    call.updateResult({
+      content: [{ type: "text", text: "https://example.org/issues/42" }],
+      isError: false,
+      durationMs: 1400,
+    });
+    const preview = plain(call, 120);
+    assert.ok(preview.trimStart().startsWith("$ "));
+    assert.match(preview, /--body-file - \(timeout 20s\)/u);
+    assert.match(preview, /Acceptance/u);
+    assert.match(preview, /saved draft/u);
+    assert.doesNotMatch(preview, /EOF|## Acceptance|\*\*saved draft\*\*/u);
+    assert.match(preview, /≈\d+ tokens · 1\.4s/u);
+    assert.match(preview, /https:\/\/example\.org\/issues\/42/u);
+    if (name === "shell_command") assert.match(preview, /cd -- .*checkout/u);
+    assert.ok(call.render(44).every((line) => visibleWidth(line) <= 44));
+    call.setExpanded(true);
+    const source = plain(call, 120);
+    for (const line of command.split("\n")) assert.ok(source.includes(line));
+    call.setExpanded(false);
+    assert.equal(plain(call, 120), preview);
+  }
+});
+
+await test("shell tool aliases render tagged heredocs with the selected syntax and preserve the expanded source", async (t) => {
+  const { component, ctx } = await conversationFixture(t);
+  for (const name of ["shell_command", "Bash"]) {
+    const commands = [
+      "psql <<'SQL'",
+      "  SELECT 'ready';",
+      "SQL",
+      "echo checking",
+      "sh <<'SH'",
+      "  if true; then echo 'done'; fi",
+      "SH",
+      "echo finished",
+    ];
+    const tagged = component(name, { command: commands.join("\n") });
+    const expanded = plain(tagged, 100);
+    tagged.setArgsComplete();
+    const colored = tagged.render(100).join("\n");
+    const transcript = stripTerminalSequences(colored);
+    assert.match(
+      transcript,
+      /psql <<'SQL'[\s\S]+echo checking[\s\S]+sh <<'SH'[\s\S]+echo finished/u,
+    );
+    for (const [role, token] of [
+      ["syntaxKeyword", "SELECT"],
+      ["syntaxString", "'ready'"],
+      ["syntaxKeyword", "if"],
+      ["syntaxString", "'done'"],
+    ] as const)
+      assert.ok(
+        colored.includes(ctx.ui.theme.fg(role, token)),
+        `${name} ${token}`,
+      );
+    assert.ok(tagged.render(24).every((line) => visibleWidth(line) <= 24));
+    tagged.setExpanded(true);
+    assert.equal(plain(tagged, 100), expanded);
+    for (const line of commands) assert.ok(expanded.includes(line));
+
+    for (const delimiter of ["MD", "EOF"]) {
+      const command = `cat <<'${delimiter}'\n## Review\n\nKeep **this**.\n${delimiter}`;
+      const call = component(name, { command });
+      const original = plain(call, 100);
+      call.setArgsComplete();
+      const preview = plain(call, 100);
+      if (delimiter === "MD") {
+        assert.ok(preview.trimStart().startsWith("$ cat <<'MD'"));
+        assert.match(preview, /Review/u);
+        assert.match(preview, /Keep this\./u);
+        assert.doesNotMatch(preview, /## Review|\*\*this\*\*/u);
+      } else {
+        assert.equal(preview, original);
+        assert.match(preview, /## Review/u);
+        assert.match(preview, /\*\*this\*\*/u);
+      }
+      call.setExpanded(true);
+      assert.equal(plain(call, 100), original);
+    }
+  }
+});
+
 await test("shell aliases share the shell prompt and file tools keep their invoked names", async (t) => {
   const { component } = await conversationFixture(t);
   const path = "README.md";
