@@ -2,12 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { HandoffPhase } from "../discovery/model.ts";
-import {
-  DefaultProvider,
-  ReasoningLevel,
-  runtimeProjectSchema,
-  StudioProfile,
-} from "../config.ts";
+import { DefaultProvider, ReasoningLevel, runtimeProjectSchema, StudioProfile } from "../config.ts";
 import { LeadMode, draftSchema, planDigest } from "../planning/plan.ts";
 import { beadSchema, TaskBeads } from "../task-service.ts";
 import { SpecStatus, specRecord } from "../socrates/spec.ts";
@@ -22,12 +17,7 @@ import {
   type ImplementationSource,
   type ImplementationObservation,
 } from "../socrates/implementation.ts";
-import {
-  fitSidebarGraph,
-  renderSidebarGraph,
-  renderSocratesDock,
-  renderStatusSidebar,
-} from "../socrates/sidebar.ts";
+import { fitSidebarGraph, renderSidebarGraph, renderSocratesDock, renderStatusSidebar } from "../socrates/sidebar.ts";
 import { renderBeadProgress } from "../socrates/bead-progress.ts";
 import { implementationColumn } from "../socrates/columns.ts";
 import { createImplementationWatch } from "../socrates/implementation-watch.ts";
@@ -125,10 +115,7 @@ await test("a frozen specification and proposed breakdown never imply execution"
   );
   assert.match(display.rows[1]?.details ?? "", /Requirements · R1/u);
   assert.match(display.rows[1]?.details ?? "", /Depends on · restore/u);
-  assert.match(
-    display.rows[0]?.details ?? "",
-    /Worker · advanced\nReasoning · high/u,
-  );
+  assert.match(display.rows[0]?.details ?? "", /Worker · advanced\nReasoning · high/u);
 });
 
 await test("sidebar draws dependency forks and joins, clipping at task boundaries", () => {
@@ -163,15 +150,7 @@ await test("sidebar draws dependency forks and joins, clipping at task boundarie
   const graph = renderSidebarGraph(implementation, theme, 35);
   assert.deepEqual(
     graph.lines.map((line) => line.trimEnd()),
-    [
-      "◇    Prepare",
-      "├─╮",
-      "◇ │  Run on macOS",
-      "│ │",
-      "│ ◇  Run on Linux",
-      "├─╯",
-      "◇    Verify together",
-    ],
+    ["◇    Prepare", "├─╮", "◇ │  Run on macOS", "│ │", "│ ◇  Run on Linux", "├─╯", "◇    Verify together"],
   );
   assert.deepEqual(graph.nodeLines, [0, 2, 4, 6]);
   // If the next task cannot fit with its connector and overflow count,
@@ -200,10 +179,7 @@ await test("sidebar draws dependency forks and joins, clipping at task boundarie
   for (const row of implementation.rows) row.state = ImplementationState.Closed;
   const live = renderSidebarGraph(implementation, theme, 35);
   assert.equal(live.lines[2], "● │  Run on macOS");
-  assert.equal(
-    renderSidebarGraph(implementation, theme, 17).lines[2],
-    "● │  Run on macOS",
-  );
+  assert.equal(renderSidebarGraph(implementation, theme, 17).lines[2], "● │  Run on macOS");
   assert.equal(live.lines[1], graph.lines[1]);
   assert.equal(live.lines[5], graph.lines[5]);
 });
@@ -216,10 +192,7 @@ await test("linked native bead states remain independent of approval and depende
   const loading = implementationPresentation(approved);
   assert.equal(loading.phase, ImplementationPhase.Loading);
   assert.equal(loading.counts[ImplementationState.Unknown], 2);
-  assert.match(
-    loading.rows[0]?.details ?? "",
-    /Model · openai-codex\/fixture-advanced/u,
-  );
+  assert.match(loading.rows[0]?.details ?? "", /Model · openai-codex\/fixture-advanced/u);
   const display = implementationPresentation(approved, {
     key: request.key,
     state: "current",
@@ -267,23 +240,11 @@ await test("linked beads wrap in plan order within the available columns and row
       })),
     ],
   };
-  assert.deepEqual(renderBeadProgress(eleven, theme, 48, 3), [
-    "Beads  ●◐○○○○○○○○",
-    "       ○",
-  ]);
-  assert.deepEqual(renderBeadProgress(eleven, theme, 11, 3), [
-    "Beads  ●◐○○",
-    "       ○○○○",
-    "       ○○○",
-  ]);
-  assert.deepEqual(renderBeadProgress(eleven, theme, 48, 1), [
-    "Beads  ●◐○○○○○○○○ +1",
-  ]);
+  assert.deepEqual(renderBeadProgress(eleven, theme, 48, 3), ["Beads  ●◐○○○○○○○○", "       ○"]);
+  assert.deepEqual(renderBeadProgress(eleven, theme, 11, 3), ["Beads  ●◐○○", "       ○○○○", "       ○○○"]);
+  assert.deepEqual(renderBeadProgress(eleven, theme, 48, 1), ["Beads  ●◐○○○○○○○○ +1"]);
   assert.deepEqual(renderBeadProgress(eleven, theme, 11, 1), ["Beads  +11"]);
-  assert.deepEqual(
-    renderBeadProgress(implementationPresentation(approved), theme, 40, 3),
-    [],
-  );
+  assert.deepEqual(renderBeadProgress(implementationPresentation(approved), theme, 40, 3), []);
   assert.deepEqual(renderBeadProgress(eleven, theme, 0, 3), []);
   const large = { ...eleven, rows: Array.from({ length: 61 }, () => active) };
   const rows = renderBeadProgress(large, theme, 40, 20);
@@ -294,14 +255,8 @@ await test("linked beads wrap in plan order within the available columns and row
     prioritizeSpecification: false,
     dockColumns: [implementationColumn(eleven)],
   };
-  assert.deepEqual(
-    renderSocratesDock(snapshot, theme, 48, 1, false),
-    renderBeadProgress(eleven, theme, 48, 1),
-  );
-  assert.match(
-    renderStatusSidebar(snapshot, theme, 45, 14).join("\n"),
-    /Beads {2}●◐○○○○○○○○/u,
-  );
+  assert.deepEqual(renderSocratesDock(snapshot, theme, 48, 1, false), renderBeadProgress(eleven, theme, 48, 1));
+  assert.match(renderStatusSidebar(snapshot, theme, 45, 14).join("\n"), /Beads {2}●◐○○○○○○○○/u);
   const spec = {
     id: "specification",
     title: "Specification",
@@ -313,20 +268,12 @@ await test("linked beads wrap in plan order within the available columns and row
     dockColumns: [spec, implementationColumn(eleven)],
     prioritizeSpecification: true,
   };
-  assert.deepEqual(renderSocratesDock(priority, theme, 57, 2, false), [
+  assert.deepEqual(renderSocratesDock(priority, theme, 57, 2, false), ["Specification", "Beads  ●◐○○○○○○○○ +1"]);
+  assert.deepEqual(renderSocratesDock({ ...priority, implementation: impl }, theme, 57, 3, false), [
     "Specification",
-    "Beads  ●◐○○○○○○○○ +1",
+    "Beads  ●◐",
+    "Awaiting operator input",
   ]);
-  assert.deepEqual(
-    renderSocratesDock(
-      { ...priority, implementation: impl },
-      theme,
-      57,
-      3,
-      false,
-    ),
-    ["Specification", "Beads  ●◐", "Awaiting operator input"],
-  );
   const partial = implementationPresentation(approved, {
     key: request.key,
     state: "current",
@@ -360,10 +307,7 @@ await test("stale, missing and mismatched observations cannot preserve a complet
   assert.equal(unavailable.counts[ImplementationState.Unknown], 2);
   const changedPlan = { ...approved, approved: "old-digest" };
   assert.equal(implementationRead(changedPlan), undefined);
-  assert.equal(
-    implementationPresentation(changedPlan).phase,
-    ImplementationPhase.LinkChanged,
-  );
+  assert.equal(implementationPresentation(changedPlan).phase, ImplementationPhase.LinkChanged);
 });
 
 await test("pending and uncertain handoffs retain task uncertainty", () => {
@@ -435,9 +379,7 @@ await test("only the confirmed metadata revision preserves existing coverage on 
     draft: {
       objective: "Recover transcripts.",
       scope: ["Local sessions"],
-      requirements: [
-        { id: "R1", outcome: "Recover bytes", acceptance: "Byte equality" },
-      ],
+      requirements: [{ id: "R1", outcome: "Recover bytes", acceptance: "Byte equality" }],
       decisions: [],
       blockingQuestions: [],
       coverage: {
@@ -470,13 +412,7 @@ await test("only the confirmed metadata revision preserves existing coverage on 
   };
   assert.equal(coverageFresh(frozen, assessmentRevision(source)), true);
   const invalidated = { ...frozen, coverageRevision: undefined };
-  assert.equal(
-    coverageFresh(
-      invalidated,
-      assessmentRevision({ ...source, specification: invalidated }),
-    ),
-    false,
-  );
+  assert.equal(coverageFresh(invalidated, assessmentRevision({ ...source, specification: invalidated })), false);
   for (const unconfirmed of [
     { ...source, revision: "changed-after-approval" },
     { ...source, leadPlan: { ...plan, briefRevisionAdvance: undefined } },
@@ -535,20 +471,12 @@ await test("a switched graph ignores a late read and polling failure replaces co
     });
     await waitFor(() => watch.observation()?.state === "current");
     assert.equal(watch.observation()?.key, next.key);
-    assert.equal(
-      implementationPresentation(other, watch.observation()).rows[0]?.status,
-      "In progress",
-    );
+    assert.equal(implementationPresentation(other, watch.observation()).rows[0]?.status, "In progress");
     await waitFor(() => requests.length === 3);
     assert.equal(watch.observation()?.state, "current");
     requests[2]?.fail(new Error("Offline"));
     await waitFor(() => watch.observation()?.state === "unavailable");
-    assert.equal(
-      implementationPresentation(other, watch.observation()).counts[
-        ImplementationState.Unknown
-      ],
-      2,
-    );
+    assert.equal(implementationPresentation(other, watch.observation()).counts[ImplementationState.Unknown], 2);
     watch.setSource(undefined);
     assert.equal(watch.observation(), undefined);
   } finally {
@@ -568,9 +496,7 @@ await test("the worker roster distinguishes an empty plan from partial and faile
   ]);
   ctx.mock.method(TaskBeads.prototype, "get", (id: string) => {
     const row = served.get(id);
-    return row === undefined
-      ? Promise.reject(new Error("Beads unavailable"))
-      : Promise.resolve(row);
+    return !row ? Promise.reject(new Error("Beads unavailable")) : Promise.resolve(row);
   });
 
   const initial = await readImplementation(approved);

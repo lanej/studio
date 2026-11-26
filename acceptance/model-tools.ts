@@ -8,14 +8,7 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import assert from "node:assert/strict";
-import {
-  access,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,10 +18,7 @@ import { z } from "zod";
 import { Attempts, attemptSchema, Phase } from "../attempts.ts";
 import { registerCodeIntelligence } from "../code-intelligence/extension.ts";
 import { registerDiagrams } from "../diagram/extension.ts";
-import {
-  mermaidDefinition,
-  registerMermaidTool,
-} from "../diagram/mermaid-tool.ts";
+import { mermaidDefinition, registerMermaidTool } from "../diagram/mermaid-tool.ts";
 import { delegateTool, registerDelegation } from "../delegation.ts";
 import { registerLeadControls } from "../lead/extensions/managed.ts";
 import { LeadMode } from "../planning/plan.ts";
@@ -71,19 +61,17 @@ function responsesReply(
 }
 
 function messagesReply(call?: { name: string; input: object }): string {
-  const block =
-    call === undefined
-      ? { type: "text", text: "" }
-      : {
-          type: "tool_use",
-          id: `toolu_${call.name}`,
-          name: call.name,
-          input: {},
-        };
-  const delta =
-    call === undefined
-      ? { type: "text_delta", text: "Done" }
-      : { type: "input_json_delta", partial_json: JSON.stringify(call.input) };
+  const block = !call
+    ? { type: "text", text: "" }
+    : {
+        type: "tool_use",
+        id: `toolu_${call.name}`,
+        name: call.name,
+        input: {},
+      };
+  const delta = !call
+    ? { type: "text_delta", text: "Done" }
+    : { type: "input_json_delta", partial_json: JSON.stringify(call.input) };
   return (
     event("message_start", {
       message: {
@@ -98,7 +86,7 @@ function messagesReply(call?: { name: string; input: object }): string {
     event("content_block_delta", { index: 0, delta }) +
     event("content_block_stop", { index: 0 }) +
     event("message_delta", {
-      delta: { stop_reason: call === undefined ? "end_turn" : "tool_use" },
+      delta: { stop_reason: !call ? "end_turn" : "tool_use" },
       usage: { output_tokens: 1 },
     }) +
     event("message_stop", {})
@@ -134,10 +122,7 @@ function diagramToolNames(request: unknown): string[] {
   return payload
     .parse(request)
     .tools.map(({ name }) => name)
-    .filter(
-      (name) =>
-        canonicalDiagrams.includes(name) || claudeDiagrams.includes(name),
-    )
+    .filter((name) => canonicalDiagrams.includes(name) || claudeDiagrams.includes(name))
     .sort();
 }
 
@@ -223,9 +208,7 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
           api: "anthropic-messages",
           baseUrl: url,
           apiKey: "fixture",
-          models: [
-            { id: claudeId, compat: { supportsMidConvoToolChanges: false } },
-          ],
+          models: [{ id: claudeId, compat: { supportsMidConvoToolChanges: false } }],
         },
         gateway: {
           api: "openai-responses",
@@ -283,8 +266,7 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
           // A result observer may redact patch input after the real mutation.
           // The diagnostic refresh must still use the executor's receipt.
           pi.on("tool_result", (event) => {
-            if (event.toolName === "apply_patch")
-              event.input = { patch: "[redacted]" };
+            if (event.toolName === "apply_patch") event.input = { patch: "[redacted]" };
           });
           registerCodeIntelligence(pi);
           registerDiagrams(pi);
@@ -295,47 +277,29 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
           pi.registerTool({
             name: "inspect_callable_tools",
             label: "Inspect callable tools",
-            description:
-              "Report diagram tools callable by an independent extension.",
+            description: "Report diagram tools callable by an independent extension.",
             parameters: Type.Object({}),
             async execute(_id, _args, _signal, _update, ctx) {
               const names = [...canonicalDiagrams, ...claudeDiagrams];
-              const visible = ctx.tools
-                .map((tool) => tool.name)
-                .filter((name) => names.includes(name));
-              const direct = await ctx.executeTool(
-                "render_mermaid",
-                emptyRender,
-              );
+              const visible = ctx.tools.map((tool) => tool.name).filter((name) => names.includes(name));
+              const direct = await ctx.executeTool("render_mermaid", emptyRender);
               return {
-                content: [
-                  { type: "text", text: JSON.stringify(visible) },
-                  ...direct.result.content,
-                ],
+                content: [{ type: "text", text: JSON.stringify(visible) }, ...direct.result.content],
                 details: undefined,
               };
             },
           });
           pi.on("tool_call", (event) => {
-            if (
-              event.toolName === "render_mermaid" &&
-              event.input["title"] === "Restricted export"
-            ) {
+            if (event.toolName === "render_mermaid" && event.input["title"] === "Restricted export") {
               blockedExports.push(event.parentToolCallId);
               return { block: true, reason: diagramDenial };
             }
             return undefined;
           });
           pi.on("tool_result", (event) => {
-            if (
-              event.toolName === "show_diagram" &&
-              event.parentToolCallId === "toolu_ShowDiagram"
-            )
+            if (event.toolName === "show_diagram" && event.parentToolCallId === "toolu_ShowDiagram")
               return {
-                content: [
-                  ...event.content,
-                  { type: "text", text: diagramAudit },
-                ],
+                content: [...event.content, { type: "text", text: diagramAudit }],
                 usage: auditUsage,
               };
             return undefined;
@@ -410,18 +374,14 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
     .parse(codexTools.find(({ name }) => name === "apply_patch"));
   assert.match(patchTool.format.definition, /\*\*\* Begin Patch/u);
   assert.match(patchTool.format.definition, /\*\*\* Reason: /u);
-  assert.ok(
-    !codexTools.some(({ name }) => ["edit", "write", "bash"].includes(name)),
-  );
+  assert.ok(!codexTools.some(({ name }) => ["edit", "write", "bash"].includes(name)));
   assert.ok(codexTools.some(({ name }) => name === "shell_command"));
   const resultInput = z.object({
     input: z.array(z.looseObject({ type: z.string().optional() })),
   });
   const resultItems = resultInput.parse(requests[2]).input;
   const patchOutput = resultItems.find(
-    (item) =>
-      item.type === "custom_tool_call_output" &&
-      item["call_id"] === "call_patch",
+    (item) => item.type === "custom_tool_call_output" && item["call_id"] === "call_patch",
   );
   const patchFeedback = z.string().parse(patchOutput?.["output"]);
   assert.match(patchFeedback, /project trust/u);
@@ -430,9 +390,7 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
   const [saved] = session.sessionManager
     .getBranch()
     .flatMap((entry) =>
-      entry.type === "message" &&
-      entry.message.role === "toolResult" &&
-      entry.message.toolName === "apply_patch"
+      entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolName === "apply_patch"
         ? [entry.message]
         : [],
     );
@@ -449,23 +407,16 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
     ],
     studioPatchDiagnostics: {
       files: ["renamed.ts", "two.ts", "three.ts"].map((path) => ({ path })),
-      toolCallIds: [1, 2, 3].map(
-        (index) => `${saved.toolCallId}:patch:${String(index)}`,
-      ),
+      toolCallIds: [1, 2, 3].map((index) => `${saved.toolCallId}:patch:${String(index)}`),
     },
   });
   const shellResult = resultItems.find(
-    (item) =>
-      item.type === "function_call_output" && item["call_id"] === "call_shell",
+    (item) => item.type === "function_call_output" && item["call_id"] === "call_shell",
   );
   assert.ok(z.string().parse(shellResult?.["output"]).includes(workdir));
   const codexDenial = resultInput
     .parse(requests[3])
-    .input.find(
-      (item) =>
-        item.type === "function_call_output" &&
-        item["call_id"] === "call_denied",
-    );
+    .input.find((item) => item.type === "function_call_output" && item["call_id"] === "call_denied");
   assert.ok(z.string().parse(codexDenial?.["output"]).includes(shellDenial));
   assert.equal(await readFile(file, "utf8"), "hello\n");
 
@@ -535,9 +486,7 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
       claudeTools.some((tool) => tool.name === name),
       name,
     );
-  assert.ok(
-    !claudeTools.some(({ name }) => name === "apply_patch" || name === "edit"),
-  );
+  assert.ok(!claudeTools.some(({ name }) => name === "apply_patch" || name === "edit"));
   const edit = z
     .object({ input_schema: z.object({ required: z.array(z.string()) }) })
     .parse(claudeTools.find(({ name }) => name === "Edit"));
@@ -571,20 +520,14 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
   const hiddenTool = lastClaudeToolResult(requests[7], "toolu_render_mermaid");
   assert.equal(hiddenTool.is_error, true);
   assert.match(hiddenTool.content, /Use RenderMermaid/u);
-  const blockedExport = lastClaudeToolResult(
-    requests[8],
-    "toolu_RenderMermaid",
-  );
+  const blockedExport = lastClaudeToolResult(requests[8], "toolu_RenderMermaid");
   assert.equal(blockedExport.is_error, true);
   assert.ok(blockedExport.content.includes(diagramDenial));
   assert.deepEqual(blockedExports, ["toolu_RenderMermaid"]);
   await assert.rejects(access(join(state, "artifacts", "mermaid")), {
     code: "ENOENT",
   });
-  const callableTools = lastClaudeToolResult(
-    requests[9],
-    "toolu_inspect_callable_tools",
-  );
+  const callableTools = lastClaudeToolResult(requests[9], "toolu_inspect_callable_tools");
   assert.match(callableTools.content, /^\[\]/u);
   assert.match(callableTools.content, /Tool render_mermaid not found/u);
   const expectedShellInput = { command: deniedCommand, timeout: 2.5 };
@@ -613,11 +556,7 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
       }),
     });
   replies.push(
-    gatewayReply("blank", [
-      ...gatewayAdd,
-      "*** Delete File: message.txt",
-      "*** Reason:    ",
-    ]),
+    gatewayReply("blank", [...gatewayAdd, "*** Delete File: message.txt", "*** Reason:    "]),
     gatewayReply("missing", [...gatewayAdd, "*** Delete File: message.txt"]),
     responsesReply(),
   );
@@ -636,10 +575,7 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
   for (const id of ["blank", "missing"]) {
     const item = resultInput
       .parse(requests[2])
-      .input.find(
-        (entry) =>
-          entry.type === "function_call_output" && entry["call_id"] === id,
-      );
+      .input.find((entry) => entry.type === "function_call_output" && entry["call_id"] === id);
     assert.match(z.string().parse(item?.["output"]), /\*\*\* Reason:/u);
   }
   replies.push(
@@ -659,21 +595,14 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
     responsesReply(),
   );
   await session.prompt("Store the example header");
-  assert.equal(
-    await readFile(join(cwd, "first.txt"), "utf8"),
-    "*** Reason: literal source\none\ntwo\n",
-  );
+  assert.equal(await readFile(join(cwd, "first.txt"), "utf8"), "*** Reason: literal source\none\ntwo\n");
   const recorded = session.sessionManager
     .getBranch()
     .findLast(
       (entry) =>
-        entry.type === "message" &&
-        entry.message.role === "toolResult" &&
-        entry.message.toolName === "apply_patch",
+        entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolName === "apply_patch",
     );
-  assert.ok(
-    recorded?.type === "message" && recorded.message.role === "toolResult",
-  );
+  assert.ok(recorded?.type === "message" && recorded.message.role === "toolResult");
   assert.partialDeepStrictEqual(recorded.message.details, {
     studioPatchEdits: [
       { kind: "added", reason: "Preserve the example header." },
@@ -690,15 +619,11 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
   await session.prompt("Inspect the workspace");
   const restored = payload.parse(requests[0]).tools.map(({ name }) => name);
   assert.deepEqual(diagramToolNames(requests[0]), canonicalDiagrams);
-  for (const name of ["read", "edit", "write", "bash"])
-    assert.ok(restored.includes(name), name);
-  for (const name of ["Edit", "Read", "Write", "Bash", "apply_patch"])
-    assert.ok(!restored.includes(name), name);
+  for (const name of ["read", "edit", "write", "bash"]) assert.ok(restored.includes(name), name);
+  for (const name of ["Edit", "Read", "Write", "Bash", "apply_patch"]) assert.ok(!restored.includes(name), name);
 
   await session.setModel(claude);
-  session.setActiveToolsByName(
-    session.getActiveToolNames().filter((name) => name !== "render_mermaid"),
-  );
+  session.setActiveToolsByName(session.getActiveToolNames().filter((name) => name !== "render_mermaid"));
   requests.length = 0;
   replies.push(
     messagesReply({
@@ -709,10 +634,7 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
   );
   await session.prompt("Inspect the restricted diagram tools");
   assert.deepEqual(diagramToolNames(requests[0]), ["ShowDiagram"]);
-  const disabledRender = lastClaudeToolResult(
-    requests[1],
-    "toolu_RenderMermaid",
-  );
+  const disabledRender = lastClaudeToolResult(requests[1], "toolu_RenderMermaid");
   assert.equal(disabledRender.is_error, true);
   assert.notEqual(disabledRender.content, emptyDraft.content);
 
@@ -728,9 +650,7 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
   await restricted.session.bindExtensions({ mode: "rpc" });
   requests.length = 0;
   replies.push(
-    patchReply(
-      "*** Begin Patch\n*** Delete File: message.txt\n*** Reason: Remove the fixture.\n*** End Patch",
-    ),
+    patchReply("*** Begin Patch\n*** Delete File: message.txt\n*** Reason: Remove the fixture.\n*** End Patch"),
     responsesReply(),
   );
   await restricted.session.prompt("Inspect this read-only workspace");
@@ -763,18 +683,14 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
   requests.length = 0;
   replies.push(responsesReply());
   await governed.session.prompt("Inspect the approved tools");
-  const governedCodex = payload
-    .parse(requests[0])
-    .tools.map(({ name }) => name);
+  const governedCodex = payload.parse(requests[0]).tools.map(({ name }) => name);
   assert.ok(governedCodex.includes("edit"));
   assert.ok(!governedCodex.includes("apply_patch"));
   await governed.session.setModel(claude);
   requests.length = 0;
   replies.push(messagesReply());
   await governed.session.prompt("Inspect the approved tools under Claude");
-  const governedClaude = payload
-    .parse(requests[0])
-    .tools.map(({ name }) => name);
+  const governedClaude = payload.parse(requests[0]).tools.map(({ name }) => name);
   assert.ok(governedClaude.includes("edit"));
   assert.ok(!governedClaude.includes("Edit"));
 
@@ -854,9 +770,7 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
         noSkills: true,
         noPromptTemplates: true,
         noThemes: true,
-        extensionFactories: foreignAlias
-          ? [managedExtension, foreignExtension]
-          : [managedExtension],
+        extensionFactories: foreignAlias ? [managedExtension, foreignExtension] : [managedExtension],
       },
     });
     const managed = await createAgentSessionFromServices({
@@ -875,13 +789,8 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
       messagesReply(),
     );
     await managed.session.prompt("Inspect the managed planning tools");
-    assert.deepEqual(
-      diagramToolNames(requests[0]),
-      foreignAlias ? ["ShowDiagram", "render_mermaid"] : claudeDiagrams,
-    );
-    const managedTools = payload
-      .parse(requests[0])
-      .tools.map(({ name }) => name);
+    assert.deepEqual(diagramToolNames(requests[0]), foreignAlias ? ["ShowDiagram", "render_mermaid"] : claudeDiagrams);
+    const managedTools = payload.parse(requests[0]).tools.map(({ name }) => name);
     const socratesTools = ["ask_user_question", "draft_socrates_specification"];
     assert.deepEqual(
       managed.session
@@ -894,13 +803,7 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
     assert.ok(!managedTools.some((name) => socratesTools.includes(name)));
     assert.ok(managedTools.includes("read"));
     assert.ok(!managedTools.includes(delegateTool));
-    assert.ok(
-      !managedTools.some((name) =>
-        ["Read", "Bash", "Edit", "Write", "write", "edit", "bash"].includes(
-          name,
-        ),
-      ),
-    );
+    assert.ok(!managedTools.some((name) => ["Read", "Bash", "Edit", "Write", "write", "edit", "bash"].includes(name)));
     const alias = lastClaudeToolResult(requests[1], "toolu_RenderMermaid");
     const canonical = lastClaudeToolResult(requests[2], "toolu_render_mermaid");
     const admitted = foreignAlias ? canonical : alias;

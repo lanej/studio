@@ -57,13 +57,7 @@ await test("task containment stays separate from blockers, including missing par
   assert.equal(rows.length, 6);
   assert.match(rows[3]?.warning ?? "", /outside/);
   assert.match(rows[4]?.warning ?? "", /Cyclic/);
-  assert.match(
-    taskDetails(
-      rows[1]?.task ?? { id: "", title: "", status: "" },
-      "/authority",
-    ),
-    /Blocked by: blocker/,
-  );
+  assert.match(taskDetails(rows[1]?.task ?? { id: "", title: "", status: "" }, "/authority"), /Blocked by: blocker/);
   assert.doesNotMatch(
     taskLabel({
       task: { id: "bad", title: "escape\x1b[31m\nnewline", status: "open" },
@@ -77,12 +71,7 @@ await test("search rendering highlights only identifiable source, preserving pre
   await prepareShellSyntax();
   const color = (text: string, language: string) => [`[${language}]${text}`];
   assert.equal(
-    highlightSearchOutput(
-      "bash",
-      { command: "sed -n '1,4p' 'src/a file.ts'" },
-      "const a = 1;",
-      color,
-    ),
+    highlightSearchOutput("bash", { command: "sed -n '1,4p' 'src/a file.ts'" }, "const a = 1;", color),
     "[typescript]const a = 1;",
   );
   const hits = "src/a.ts:9:const a = 1;\nsrc/b.py-8-print(a)\nunknown:2:plain";
@@ -94,54 +83,28 @@ await test("search rendering highlights only identifiable source, preserving pre
     highlightSearchOutput("grep", {}, hits, color),
     "src/a.ts:9:[typescript]const a = 1;\nsrc/b.py-8-[python]print(a)\nunknown:2:plain",
   );
-  assert.equal(
-    highlightSearchOutput(
-      "bash",
-      { command: "rg --json needle src" },
-      hits,
-      color,
-    ),
-    hits,
-  );
-  assert.equal(
-    highlightSearchOutput(
-      "bash",
-      { command: "sed -n '1,4p' a.ts | wc" },
-      "4",
-      color,
-    ),
-    "4",
-  );
+  assert.equal(highlightSearchOutput("bash", { command: "rg --json needle src" }, hits, color), hits);
+  assert.equal(highlightSearchOutput("bash", { command: "sed -n '1,4p' a.ts | wc" }, "4", color), "4");
 });
 
 await test("CDPATH output is kept separate from discovered source", async () => {
   await prepareShellSyntax();
   const color = (text: string, language: string) => [`[${language}]${text}`];
-  const render = (command: string, text: string) =>
-    highlightSearchOutput("bash", { command }, text, color);
+  const render = (command: string, text: string) => highlightSearchOutput("bash", { command }, text, color);
   const cd = "cd -- project";
   const unnumbered = "rg value src.ts";
   const numbered = "rg -n value src.ts";
   const source = "const value = 1;";
   const directory = "/work/project";
   const combined = `${directory}\n${source}`;
-  assert.equal(
-    render(`${cd} && ${unnumbered}`, source),
-    `[typescript]${source}`,
-  );
+  assert.equal(render(`${cd} && ${unnumbered}`, source), `[typescript]${source}`);
   assert.equal(render(`${cd} && ${unnumbered}`, combined), combined);
   assert.equal(render(`${cd} && sed -n '1p' src.ts`, combined), combined);
-  assert.equal(
-    render(`${cd} && ${numbered}`, `${directory}\n2:${source}`),
-    `${directory}\n2:[typescript]${source}`,
-  );
+  assert.equal(render(`${cd} && ${numbered}`, `${directory}\n2:${source}`), `${directory}\n2:[typescript]${source}`);
   const ambiguous = `/work/nested.ts:4:path\n2:${source}`;
   assert.equal(render(`${cd} && ${numbered}`, ambiguous), ambiguous);
   for (const path of ["./project", "../project", "/work/project"])
-    assert.equal(
-      render(`cd ${path} && ${unnumbered}`, "// value"),
-      "[typescript]// value",
-    );
+    assert.equal(render(`cd ${path} && ${unnumbered}`, "// value"), "[typescript]// value");
   for (const option of ["-", "-P project", '"$target"'])
     assert.equal(render(`cd ${option} && ${unnumbered}`, combined), combined);
 });
@@ -160,144 +123,98 @@ await test("compact model names preserve versions, variants, and unknown IDs", (
 await test("inline GitHub references retain their exact destinations and line anchors", () => {
   const code = "https://github.com/owner/repo/blob/main/src/driver.ts#L4-L9";
   const issue = "https://github.com/owner/repo/issues/12";
-  const rendered = renderReferences(
-    `See [source](${code}) and ${issue}. Local src/driver.ts:4.`,
-    (text) => text,
-  );
+  const rendered = renderReferences(`See [source](${code}) and ${issue}. Local src/driver.ts:4.`, (text) => text);
   assert.ok(rendered.includes(`\x1b]8;;${code}\x1b\\‹› driver.ts:4–9`));
   assert.ok(rendered.includes(`\x1b]8;;${issue}\x1b\\! owner/repo#12`));
   assert.ok(rendered.endsWith("Local src/driver.ts:4."));
-  assert.equal(
-    githubLink("https://github.com.example.test/owner/repo/pull/1"),
-    undefined,
-  );
-  assert.equal(
-    githubLink("https://github.com/owner/repo/pull/1\x1b]8;;malicious"),
-    undefined,
-  );
+  assert.equal(githubLink("https://github.com.example.test/owner/repo/pull/1"), undefined);
+  assert.equal(githubLink("https://github.com/owner/repo/pull/1\x1b]8;;malicious"), undefined);
 });
 
-await test(
-  "CLI reads the explicitly configured source and dispatch never allocates",
-  { timeout: 30_000 },
-  async () => {
-    const temporary = await mkdtemp(join(tmpdir(), "studio-workflow-"));
-    try {
-      const workspace = join(temporary, "authority with spaces");
-      await mkdir(join(workspace, ".beads"), { recursive: true });
-      await writeFile(
-        join(workspace, ".beads/metadata.json"),
-        JSON.stringify({ dolt_mode: "server", dolt_database: "fixture" }),
-      );
-      const capture = join(temporary, "calls.jsonl");
-      const boundary = join(temporary, "native-bd");
-      await writeFile(
-        boundary,
-        `#!/usr/bin/env bun\nimport fs from 'node:fs';\nconst args=process.argv.slice(2); fs.appendFileSync(${JSON.stringify(capture)},JSON.stringify(args)+'\\n');\nif (!args.includes('--readonly') || !args.includes('--sandbox')) process.exit(31);\nif(process.env.BEADS_DIR || process.env.BEADS_DOLT_SERVER_PORT) process.exit(32);\nif(args.includes('sql')) console.log(JSON.stringify([{branch:'main'}]));\nelse if(args.includes('list')) console.log(JSON.stringify([{id:'fixture-1',title:'Task tree',status:'open'}]));\nelse if(args.includes('show')) console.log(JSON.stringify([{id:'fixture-1',title:'Task tree',status:'open',description:'Keep state'}]));\nelse process.exit(33);\n`,
-        { mode: 0o755 },
-      );
-      const config = join(temporary, "config.json");
-      await writeFile(
-        config,
-        JSON.stringify({
-          beads: {
-            workspace,
-            database: "fixture",
-            branch: "main",
-            executable: boundary,
-          },
-        }),
-      );
-      const env = {
-        ...process.env,
-        STUDIO_CONFIG: config,
-        BEADS_DIR: "/wrong-workspace",
-        BEADS_DOLT_SERVER_PORT: "1",
-      };
-      const driver = (...args: string[]) =>
-        execute(join(root, "scripts/studio"), args, {
-          cwd: workspace,
-          env,
-          timeout: 10_000,
-        });
-      assert.match((await driver("--help")).stdout, /^Usage: studio /);
-      const listing = z
-        .object({ workspace: z.string(), tasks: z.array(taskSchema) })
-        .parse(JSON.parse((await driver("tasks", "--json")).stdout));
-      assert.equal(listing.workspace, workspace);
-      assert.equal(listing.tasks[0]?.id, "fixture-1");
-      assert.match((await driver("tasks", "fixture-1")).stdout, /Keep state/);
-      const before = await readFile(capture, "utf8");
-      await assert.rejects(
-        driver("start", "--profile", "personal"),
-        /missing required argument/,
-      );
-      assert.equal(
-        await readFile(capture, "utf8"),
-        before,
-        "gated start must not call Beads",
-      );
-      await writeFile(config, "invalid config");
-      assert.match((await driver("skill")).stdout, /Studio/);
-      await assert.rejects(
-        driver("config", "--example", "--pi-models"),
-        /cannot be used with option/,
-      );
-      await assert.rejects(driver("tasks"), /Cannot load/);
-    } finally {
-      await rm(temporary, { recursive: true, force: true });
-    }
-  },
-);
+await test("CLI reads the explicitly configured source and dispatch never allocates", { timeout: 30_000 }, async () => {
+  const temporary = await mkdtemp(join(tmpdir(), "studio-workflow-"));
+  try {
+    const workspace = join(temporary, "authority with spaces");
+    await mkdir(join(workspace, ".beads"), { recursive: true });
+    await writeFile(
+      join(workspace, ".beads/metadata.json"),
+      JSON.stringify({ dolt_mode: "server", dolt_database: "fixture" }),
+    );
+    const capture = join(temporary, "calls.jsonl");
+    const boundary = join(temporary, "native-bd");
+    await writeFile(
+      boundary,
+      `#!/usr/bin/env bun\nimport fs from 'node:fs';\nconst args=process.argv.slice(2); fs.appendFileSync(${JSON.stringify(capture)},JSON.stringify(args)+'\\n');\nif (!args.includes('--readonly') || !args.includes('--sandbox')) process.exit(31);\nif(process.env.BEADS_DIR || process.env.BEADS_DOLT_SERVER_PORT) process.exit(32);\nif(args.includes('sql')) console.log(JSON.stringify([{branch:'main'}]));\nelse if(args.includes('list')) console.log(JSON.stringify([{id:'fixture-1',title:'Task tree',status:'open'}]));\nelse if(args.includes('show')) console.log(JSON.stringify([{id:'fixture-1',title:'Task tree',status:'open',description:'Keep state'}]));\nelse process.exit(33);\n`,
+      { mode: 0o755 },
+    );
+    const config = join(temporary, "config.json");
+    await writeFile(
+      config,
+      JSON.stringify({
+        beads: {
+          workspace,
+          database: "fixture",
+          branch: "main",
+          executable: boundary,
+        },
+      }),
+    );
+    const env = {
+      ...process.env,
+      STUDIO_CONFIG: config,
+      BEADS_DIR: "/wrong-workspace",
+      BEADS_DOLT_SERVER_PORT: "1",
+    };
+    const driver = (...args: string[]) =>
+      execute(join(root, "scripts/studio"), args, {
+        cwd: workspace,
+        env,
+        timeout: 10_000,
+      });
+    assert.match((await driver("--help")).stdout, /^Usage: studio /);
+    const listing = z
+      .object({ workspace: z.string(), tasks: z.array(taskSchema) })
+      .parse(JSON.parse((await driver("tasks", "--json")).stdout));
+    assert.equal(listing.workspace, workspace);
+    assert.equal(listing.tasks[0]?.id, "fixture-1");
+    assert.match((await driver("tasks", "fixture-1")).stdout, /Keep state/);
+    const before = await readFile(capture, "utf8");
+    await assert.rejects(driver("start", "--profile", "personal"), /missing required argument/);
+    assert.equal(await readFile(capture, "utf8"), before, "gated start must not call Beads");
+    await writeFile(config, "invalid config");
+    assert.match((await driver("skill")).stdout, /Studio/);
+    await assert.rejects(driver("config", "--example", "--pi-models"), /cannot be used with option/);
+    await assert.rejects(driver("tasks"), /Cannot load/);
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
 
 await test(
   "environment-backed entrypoints preserve directory, Pi arguments and exit status",
   { timeout: 60_000 },
   async () => {
-    const temporary = await realpath(
-      await mkdtemp(join(tmpdir(), "studio-session-")),
-    );
+    const temporary = await realpath(await mkdtemp(join(tmpdir(), "studio-session-")));
     try {
       const bundle = join(temporary, "bundle");
       const checkout = join(temporary, "project with spaces");
-      const host = join(
-        bundle,
-        "node_modules/@earendil-works/pi-coding-agent/dist",
-      );
-      for (const path of [
-        host,
-        checkout,
-        join(bundle, "scripts"),
-        join(bundle, "resources"),
-      ])
+      const host = join(bundle, "node_modules/@earendil-works/pi-coding-agent/dist");
+      for (const path of [host, checkout, join(bundle, "scripts"), join(bundle, "resources")])
         await mkdir(path, { recursive: true });
       await execute(process.execPath, ["scripts/prepare-delegation.mjs"], {
         cwd: root,
         timeout: 10_000,
       });
-      await execute(
-        process.execPath,
-        [
-          "build",
-          "--target=bun",
-          "cli.ts",
-          "--outfile",
-          join(bundle, "cli.ts"),
-        ],
-        { cwd: root, timeout: 30_000 },
-      );
+      await execute(process.execPath, ["build", "--target=bun", "cli.ts", "--outfile", join(bundle, "cli.ts")], {
+        cwd: root,
+        timeout: 30_000,
+      });
       for (const name of ["pi", "studio", "runtime.mjs"]) {
-        await copyFile(
-          join(root, "scripts", name),
-          join(bundle, "scripts", name),
-        );
+        await copyFile(join(root, "scripts", name), join(bundle, "scripts", name));
         await chmod(join(bundle, "scripts", name), 0o755);
       }
       await copyFile(join(root, "package.json"), join(bundle, "package.json"));
-      await copyFile(
-        join(root, "resources/bunfig.toml"),
-        join(bundle, "resources/bunfig.toml"),
-      );
+      await copyFile(join(root, "resources/bunfig.toml"), join(bundle, "resources/bunfig.toml"));
       await writeFile(
         join(host, "cli.js"),
         'console.log(JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2)})); process.exit(Number(process.env["STUDIO_FIXTURE_EXIT"] ?? 0));',
@@ -348,9 +265,7 @@ await test("the shared Bun gate accepts newer stable runtimes and rejects old or
 });
 
 await test("opt-in registration preserves local settings and is idempotent", async () => {
-  const temporary = await realpath(
-    await mkdtemp(join(tmpdir(), "studio-install-")),
-  );
+  const temporary = await realpath(await mkdtemp(join(tmpdir(), "studio-install-")));
   try {
     const agent = join(temporary, "agent");
     await mkdir(agent);
@@ -369,10 +284,7 @@ await test("opt-in registration preserves local settings and is idempotent", asy
       });
     await install();
     await install();
-    assert.equal(
-      (await stat(join(agent, "settings.json"))).mode & 0o777,
-      0o600,
-    );
+    assert.equal((await stat(join(agent, "settings.json"))).mode & 0o777, 0o600);
     const settings = z
       .object({
         theme: z.string(),
@@ -383,15 +295,9 @@ await test("opt-in registration preserves local settings and is idempotent", asy
       .parse(JSON.parse(await readFile(join(agent, "settings.json"), "utf8")));
     assert.equal(settings.theme, "dark");
     assert.equal(settings.quietStartup, true);
-    assert.equal(
-      await readlink(join(agent, "themes/dotfiles.json")),
-      join(root, "resources/theme.json"),
-    );
+    assert.equal(await readlink(join(agent, "themes/dotfiles.json")), join(root, "resources/theme.json"));
     assert.equal(settings.defaultModel, "keep-model");
-    assert.deepEqual(settings.packages, [
-      "keep-package",
-      root.replace(/\/$/, ""),
-    ]);
+    assert.deepEqual(settings.packages, ["keep-package", root.replace(/\/$/, "")]);
     const saved = await readFile(join(agent, "settings.json"), "utf8");
     const linked = join(temporary, "linked-settings.json");
     await writeFile(linked, saved);
@@ -413,67 +319,40 @@ await test("opt-in registration preserves local settings and is idempotent", asy
     await mkdir(join(upgradeAgent, "themes"), { recursive: true });
     await mkdir(join(previous, "resources"), { recursive: true });
     await writeFile(join(previous, "resources/theme.json"), "{}");
-    await symlink(
-      join(previous, "resources/theme.json"),
-      join(upgradeAgent, "themes/dotfiles.json"),
-    );
+    await symlink(join(previous, "resources/theme.json"), join(upgradeAgent, "themes/dotfiles.json"));
     const upgradeSettings = {
       theme: "dotfiles",
       defaultModel: "keep-model",
       packages: ["keep-package", previous],
     };
-    await writeFile(
-      join(upgradeAgent, "settings.json"),
-      JSON.stringify(upgradeSettings),
-    );
+    await writeFile(join(upgradeAgent, "settings.json"), JSON.stringify(upgradeSettings));
     await chmod(join(upgradeAgent, "settings.json"), 0o600);
     const registration = join(upgradeAgent, "studio-package.json");
     await writeFile(registration, JSON.stringify({ packages: [previous] }));
     const upgrade = () =>
-      execute(
-        "python3",
-        [join(root, "scripts/configure.py"), root, upgradeAgent],
-        { env: { ...process.env, PI_CODING_AGENT_DIR: upgradeAgent } },
-      );
+      execute("python3", [join(root, "scripts/configure.py"), root, upgradeAgent], {
+        env: { ...process.env, PI_CODING_AGENT_DIR: upgradeAgent },
+      });
     await upgrade();
-    assert.deepEqual(
-      JSON.parse(await readFile(join(upgradeAgent, "settings.json"), "utf8")),
-      {
-        ...upgradeSettings,
-        packages: ["keep-package", root.replace(/\/$/, "")],
-        quietStartup: true,
-      },
-    );
-    assert.equal(
-      (await stat(join(upgradeAgent, "settings.json"))).mode & 0o777,
-      0o600,
-    );
-    assert.equal(
-      await readlink(join(upgradeAgent, "themes/dotfiles.json")),
-      join(root, "resources/theme.json"),
-    );
+    assert.deepEqual(JSON.parse(await readFile(join(upgradeAgent, "settings.json"), "utf8")), {
+      ...upgradeSettings,
+      packages: ["keep-package", root.replace(/\/$/, "")],
+      quietStartup: true,
+    });
+    assert.equal((await stat(join(upgradeAgent, "settings.json"))).mode & 0o777, 0o600);
+    assert.equal(await readlink(join(upgradeAgent, "themes/dotfiles.json")), join(root, "resources/theme.json"));
     const ownership = z.object({ packages: z.array(z.string()) });
     assert.deepEqual(
-      ownership.parse(
-        JSON.parse(
-          await readFile(join(upgradeAgent, "studio-package.json"), "utf8"),
-        ),
-      ).packages,
+      ownership.parse(JSON.parse(await readFile(join(upgradeAgent, "studio-package.json"), "utf8"))).packages,
       [previous, root.replace(/\/$/, "")],
     );
     await upgrade();
     await rm(registration);
     await symlink(linked, registration);
-    const upgraded = await readFile(
-      join(upgradeAgent, "settings.json"),
-      "utf8",
-    );
+    const upgraded = await readFile(join(upgradeAgent, "settings.json"), "utf8");
     await assert.rejects(upgrade(), /Preserving linked Pi settings/);
     assert.equal(await readFile(linked, "utf8"), saved);
-    assert.equal(
-      await readFile(join(upgradeAgent, "settings.json"), "utf8"),
-      upgraded,
-    );
+    assert.equal(await readFile(join(upgradeAgent, "settings.json"), "utf8"), upgraded);
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }
@@ -485,11 +364,7 @@ await test("optional integrations stay inactive until enabled and fail before ef
     const config = join(temporary, "config.json");
     const marker = join(temporary, "unexpected-effect");
     const executable = join(temporary, "integration");
-    await writeFile(
-      executable,
-      `#!/bin/sh\nprintf called >> "${marker}"\nexit 99\n`,
-      { mode: 0o755 },
-    );
+    await writeFile(executable, `#!/bin/sh\nprintf called >> "${marker}"\nexit 99\n`, { mode: 0o755 });
     const invoke = (...args: string[]) =>
       execute(join(root, "scripts/studio"), args, {
         cwd: temporary,
@@ -516,26 +391,14 @@ await test("optional integrations stay inactive until enabled and fail before ef
           available: z.literal(true),
           paths: z.array(z.string()),
         }),
-        integrations: z.record(
-          z.string(),
-          z.object({ enabled: z.boolean(), available: z.boolean() }),
-        ),
+        integrations: z.record(z.string(), z.object({ enabled: z.boolean(), available: z.boolean() })),
       })
       .parse(JSON.parse((await invoke("doctor")).stdout));
+    assert.ok(report.resources.paths.includes(fileURLToPath(import.meta.resolve("@lanej/copydesk/neovim"))));
     assert.ok(
-      report.resources.paths.includes(
-        fileURLToPath(import.meta.resolve("@lanej/copydesk/neovim")),
-      ),
+      Object.values(report.integrations).every((integration) => !integration.enabled && !integration.available),
     );
-    assert.ok(
-      Object.values(report.integrations).every(
-        (integration) => !integration.enabled && !integration.available,
-      ),
-    );
-    await assert.rejects(
-      invoke("start", "fixture", "--profile", "personal"),
-      /Enable integrations.zellij.enabled/,
-    );
+    await assert.rejects(invoke("start", "fixture", "--profile", "personal"), /Enable integrations.zellij.enabled/);
     await writeFile(
       config,
       JSON.stringify({
@@ -550,28 +413,20 @@ await test("optional integrations stay inactive until enabled and fail before ef
     );
     await assert.rejects(invoke("doctor"));
     await assert.rejects(readFile(marker), /ENOENT/);
-    await assert.rejects(
-      readFile(join(temporary, "state/attempts.sqlite")),
-      /ENOENT/,
-    );
+    await assert.rejects(readFile(join(temporary, "state/attempts.sqlite")), /ENOENT/);
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }
 });
 
 await test("launchers ignore checkout Bun preloads and dotenv before the host entrypoint", async () => {
-  const temporary = await realpath(
-    await mkdtemp(join(tmpdir(), "studio-bootstrap-")),
-  );
+  const temporary = await realpath(await mkdtemp(join(tmpdir(), "studio-bootstrap-")));
   try {
     const checkout = join(temporary, "untrusted checkout");
     const home = join(temporary, "home");
     const bundle = join(temporary, "bundle");
     const marker = join(temporary, "preload-executed");
-    const hostDirectory = join(
-      bundle,
-      "node_modules/@earendil-works/pi-coding-agent/dist",
-    );
+    const hostDirectory = join(bundle, "node_modules/@earendil-works/pi-coding-agent/dist");
     for (const path of [
       checkout,
       home,
@@ -586,18 +441,9 @@ await test("launchers ignore checkout Bun preloads and dotenv before the host en
       preload,
       `import { appendFileSync } from "node:fs"; appendFileSync(${JSON.stringify(marker)}, "executed\\n"); process.env["STUDIO_BOOTSTRAP_PRELOAD"] = "executed";`,
     );
-    await writeFile(
-      join(checkout, "bunfig.toml"),
-      `preload = [${JSON.stringify(preload)}]\n`,
-    );
-    await writeFile(
-      join(home, ".bunfig.toml"),
-      `preload = [${JSON.stringify(preload)}]\n`,
-    );
-    await writeFile(
-      join(checkout, ".env"),
-      "STUDIO_BOOTSTRAP_UNTRUSTED=dotenv\n",
-    );
+    await writeFile(join(checkout, "bunfig.toml"), `preload = [${JSON.stringify(preload)}]\n`);
+    await writeFile(join(home, ".bunfig.toml"), `preload = [${JSON.stringify(preload)}]\n`);
+    await writeFile(join(checkout, ".env"), "STUDIO_BOOTSTRAP_UNTRUSTED=dotenv\n");
     await writeFile(join(bundle, "resources/bunfig.toml"), "preload = []\n");
     const entry = `console.log(JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(2), inherited: process.env["STUDIO_BOOTSTRAP_INHERITED"], dotenv: process.env["STUDIO_BOOTSTRAP_UNTRUSTED"] ?? null, preload: process.env["STUDIO_BOOTSTRAP_PRELOAD"] ?? null }));`;
     await writeFile(join(hostDirectory, "cli.js"), entry);
@@ -605,10 +451,7 @@ await test("launchers ignore checkout Bun preloads and dotenv before the host en
     await symlink(process.execPath, join(temporary, "bin/bun"));
     const args = ["argument with spaces", "--no-extensions", "--resume"];
     await copyFile(join(root, "package.json"), join(bundle, "package.json"));
-    await copyFile(
-      join(root, "scripts/runtime.mjs"),
-      join(bundle, "scripts/runtime.mjs"),
-    );
+    await copyFile(join(root, "scripts/runtime.mjs"), join(bundle, "scripts/runtime.mjs"));
     for (const name of ["pi", "studio"]) {
       const launcher = join(bundle, "scripts", name);
       await copyFile(join(root, "scripts", name), launcher);

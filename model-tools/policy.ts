@@ -19,10 +19,7 @@ export function operationAvailable(
   tools: readonly ToolInfo[],
 ): boolean {
   // A patch can read, write, move, or delete files and uses the admitted shell.
-  const required =
-    operation === "patch"
-      ? ["read", "edit", "write", "bash"]
-      : replacedTools[operation];
+  const required = operation === "patch" ? ["read", "edit", "write", "bash"] : replacedTools[operation];
   return required.every((name) => {
     if (!active.has(name)) return false;
     const tool = tools.find((info) => info.name === name);
@@ -30,9 +27,6 @@ export function operationAvailable(
     if (operation === "replace") return isStudioEdit(tool);
     if (name === "edit" && isStudioEdit(tool)) return true;
     // SDK base-tool overrides also report builtin:<name>, but omit Pi's native prompt guidelines.
-    return (
-      tool.sourceInfo.path === `builtin:${name}` &&
-      tool.promptGuidelines !== undefined
-    );
+    return tool.sourceInfo.path === `builtin:${name}` && tool.promptGuidelines !== undefined;
   });
 }

@@ -17,9 +17,7 @@ export const documentRefSchema = z.strictObject({
   ownerKind: z.enum(DocumentOwnerKind),
   ownerId: z.string().min(1),
   conversationId: z.string().min(1),
-  project: z
-    .string()
-    .refine(isAbsolute, "Use a canonical absolute project path"),
+  project: z.string().refine(isAbsolute, "Use a canonical absolute project path"),
   kind: z.enum(DocumentKind),
 });
 export type DocumentRef = z.infer<typeof documentRefSchema>;

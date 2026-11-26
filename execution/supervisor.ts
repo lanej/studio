@@ -9,35 +9,17 @@ import { configPath, loadConfig } from "../config.ts";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { requireIntegration } from "../integrations.ts";
 import { packageRoot } from "../package-resources.ts";
-import {
-  processFailure,
-  processMatchesStart,
-  processStart,
-} from "../process.ts";
+import { processFailure, processMatchesStart, processStart } from "../process.ts";
 import { owner } from "../task-service.ts";
 import { ownershipConflict, retainedConflicts } from "./admission.ts";
-import {
-  ExecutionBeads,
-  interactiveTask,
-  heartbeat,
-  verifyHeartbeatAuthority,
-} from "./beads.ts";
-import {
-  ExecutionStore,
-  ExecutionPhase,
-  executionSchema,
-  unsettled,
-  type Execution,
-} from "./store.ts";
+import { ExecutionBeads, interactiveTask, heartbeat, verifyHeartbeatAuthority } from "./beads.ts";
+import { ExecutionStore, ExecutionPhase, executionSchema, unsettled, type Execution } from "./store.ts";
 import type { RuntimeProject } from "./target.ts";
 import { assertRuntimeProfile } from "./profile.ts";
 import { verifyInteractiveTarget } from "./interactive-target.ts";
 import type { Zellij } from "../zellij.ts";
 
-export type LaunchWorkerPane = (
-  zellij: Zellij,
-  ...args: Parameters<Zellij["launch"]>
-) => Promise<number>;
+export type LaunchWorkerPane = (zellij: Zellij, ...args: Parameters<Zellij["launch"]>) => Promise<number>;
 
 export async function ensureRuntime(): Promise<void> {
   const config = await loadConfig();
@@ -45,23 +27,17 @@ export async function ensureRuntime(): Promise<void> {
   const store = new ExecutionStore();
   try {
     const current = store.supervisor();
-    if (
-      current !== undefined &&
-      (await processMatchesStart(current.pid, current.started))
-    ) {
-      if (current.stop)
-        throw new Error(
-          "Runtime is stopping; inspect status before restarting",
-        );
+    if (current && (await processMatchesStart(current.pid, current.started))) {
+      if (current.stop) throw new Error("Runtime is stopping; inspect status before restarting");
       return;
     }
     const log = openSync(join(store.directory, "runtime.log"), "a", 0o600);
     try {
-      const child = spawn(
-        join(packageRoot, "scripts/studio"),
-        ["runtime", "serve"],
-        { detached: true, stdio: ["ignore", log, log], cwd: packageRoot },
-      );
+      const child = spawn(join(packageRoot, "scripts/studio"), ["runtime", "serve"], {
+        detached: true,
+        stdio: ["ignore", log, log],
+        cwd: packageRoot,
+      });
       await new Promise<void>((resolve, reject) => {
         child.once("spawn", resolve);
         child.once("error", reject);
@@ -74,6 +50,7 @@ export async function ensureRuntime(): Promise<void> {
     store.close();
   }
 }
+
 export async function maintainAttempt(
   store: ExecutionStore,
   project: RuntimeProject,
@@ -86,11 +63,11 @@ export async function maintainAttempt(
     observed = store.attempt(id);
     // A possibly running control host owns its lease until its launch is reconciled.
     if (
-      observed.bead === undefined ||
+      !observed.bead ||
       observed.phase === ExecutionPhase.Complete ||
       (observed.launchToken !== undefined &&
         !observed.launchSettled &&
-        (observed.interactive === undefined || observed.pid !== undefined)) ||
+        (!observed.interactive || observed.pid !== undefined)) ||
       Date.now() - observed.heartbeatAt <= 15000
     )
       return;
@@ -120,25 +97,19 @@ export async function maintainAttempt(
     });
   }
 }
-export async function serveRuntime(
-  signal?: AbortSignal,
-  launchWorkerPane?: LaunchWorkerPane,
-): Promise<void> {
+
+export async function serveRuntime(signal?: AbortSignal, launchWorkerPane?: LaunchWorkerPane): Promise<void> {
   const store = new ExecutionStore();
   const id = randomUUID();
   const started = await processStart(process.pid);
   const previous = store.supervisor();
-  if (
-    previous !== undefined &&
-    (await processMatchesStart(previous.pid, previous.started))
-  ) {
+  if (previous && (await processMatchesStart(previous.pid, previous.started))) {
     store.close();
     throw new Error("A live Studio runtime already owns scheduling");
   }
   store.transaction(() => {
     const current = store.supervisor();
-    if (current?.id !== previous?.id)
-      throw new Error("Another runtime won scheduling ownership");
+    if (current?.id !== previous?.id) throw new Error("Another runtime won scheduling ownership");
     store.setSupervisor({
       id,
       pid: process.pid,
@@ -176,66 +147,37 @@ export async function serveRuntime(
             .filter(
               (record) =>
                 record.project === project.id &&
-                (unsettled(record) ||
-                  (record.interactive !== undefined &&
-                    record.phase === ExecutionPhase.Parked)),
+                (unsettled(record) || (record.interactive !== undefined && record.phase === ExecutionPhase.Parked)),
             )) {
             await maintainAttempt(store, project, attempt.id);
           }
           await requireIntegration(config, "worktrees");
           const attempts = store.attempts();
           const live = [];
-          for (const attempt of attempts)
-            if (await writerFence(attempt)) live.push(attempt);
+          for (const attempt of attempts) if (await writerFence(attempt)) live.push(attempt);
           for (const attempt of attempts.filter(
-            (record) =>
-              record.project === project.id &&
-              record.phase === ExecutionPhase.Queued,
+            (record) => record.project === project.id && record.phase === ExecutionPhase.Queued,
           )) {
-            const retainedConflict =
-              retainedConflicts(attempt, attempts).next().done !== true;
+            const retainedConflict = retainedConflicts(attempt, attempts).next().done !== true;
             if (
-              live.filter(
-                (record) =>
-                  ![ExecutionPhase.Delivery, ExecutionPhase.Waiting].includes(
-                    record.phase,
-                  ),
-              ).length >= config.runtime.concurrency ||
+              live.filter((record) => ![ExecutionPhase.Delivery, ExecutionPhase.Waiting].includes(record.phase))
+                .length >= config.runtime.concurrency ||
               retainedConflict ||
-              live.some(
-                (other) => ownershipConflict(other, attempt) !== undefined,
-              )
+              live.some((other) => ownershipConflict(other, attempt) !== undefined)
             )
               continue;
-            if (attempt.interactive === undefined)
-              await launchHost(store, attempt, project);
-            else
-              await launchInteractive(
-                store,
-                attempt,
-                project,
-                config.runtime.concurrency,
-                launchWorkerPane,
-              );
+            if (!attempt.interactive) await launchHost(store, attempt, project);
+            else await launchInteractive(store, attempt, project, config.runtime.concurrency, launchWorkerPane);
             live.push(store.attempt(attempt.id));
           }
           if (
-            live.filter(
-              (record) =>
-                ![ExecutionPhase.Delivery, ExecutionPhase.Waiting].includes(
-                  record.phase,
-                ),
-            ).length < config.runtime.concurrency &&
-            attempts.filter(
-              (attempt) => attempt.project === project.id && unsettled(attempt),
-            ).length < 32
+            live.filter((record) => ![ExecutionPhase.Delivery, ExecutionPhase.Waiting].includes(record.phase)).length <
+              config.runtime.concurrency &&
+            attempts.filter((attempt) => attempt.project === project.id && unsettled(attempt)).length < 32
           ) {
             await assertRuntimeProfile(config, project.profile);
             await verifyHeartbeatAuthority(project);
-            await assertVerificationIsolation(
-              project.root,
-              project.verificationReadPaths,
-            );
+            await assertVerificationIsolation(project.root, project.verificationReadPaths);
             const attempt = executionSchema.parse({
               id: randomUUID(),
               project: project.id,
@@ -245,23 +187,16 @@ export async function serveRuntime(
             });
             store.transaction(() => {
               if (!isDeepStrictEqual(store.project(project.id), project))
-                throw new Error(
-                  "Project enrollment changed before claim intent",
-                );
+                throw new Error("Project enrollment changed before claim intent");
               store.saveAttempt(attempt);
             });
             const service = new ExecutionBeads(project.source);
             try {
               const claimed = await service.claimNext(attempt.id);
-              if (claimed === undefined) store.forgetEmpty(attempt.id);
+              if (!claimed) store.forgetEmpty(attempt.id);
               else {
-                if (
-                  claimed.assignee !== owner(attempt.id) ||
-                  claimed.status !== "in_progress"
-                )
-                  throw new Error(
-                    "Atomic claim returned a different owner or status",
-                  );
+                if (claimed.assignee !== owner(attempt.id) || claimed.status !== "in_progress")
+                  throw new Error("Atomic claim returned a different owner or status");
                 await retainClaim(store, service, attempt.id, claimed);
               }
             } catch (error) {
@@ -274,9 +209,7 @@ export async function serveRuntime(
             }
           }
         } catch (error) {
-          console.error(
-            `Project ${project.id}: ${processFailure(error).message}`,
-          );
+          console.error(`Project ${project.id}: ${processFailure(error).message}`);
         }
       }
       await new Promise<void>((resolve) => {
@@ -303,8 +236,7 @@ async function launchInteractive(
   launch: LaunchWorkerPane = (zellij, ...args) => zellij.launch(...args),
 ): Promise<void> {
   const target = attempt.interactive;
-  if (target === undefined || attempt.bead === undefined)
-    throw new Error("Missing interactive assignment");
+  if (!target || !attempt.bead) throw new Error("Missing interactive assignment");
   const bead = attempt.bead.id;
   let zellij: Zellij;
   try {
@@ -346,12 +278,10 @@ async function launchInteractive(
       token,
     ]);
     store.change(attempt.id, (row) => {
-      if (row.launchToken !== token)
-        throw new Error("Interactive launch token changed");
+      if (row.launchToken !== token) throw new Error("Interactive launch token changed");
       if (row.pane !== undefined && row.pane !== pane) {
         row.phase = ExecutionPhase.Uncertain;
-        row.message =
-          "Zellij acknowledged a different pane. Inspect the registered attempt before reconciling.";
+        row.message = "Zellij acknowledged a different pane. Inspect the registered attempt before reconciling.";
         return;
       }
       row.pane = pane;
@@ -365,23 +295,13 @@ async function launchInteractive(
   }
 }
 
-async function launchHost(
-  store: ExecutionStore,
-  attempt: Execution,
-  project: RuntimeProject,
-): Promise<void> {
-  if (attempt.bead !== undefined && interactiveTask(attempt.bead)) {
-    await retainClaim(
-      store,
-      new ExecutionBeads(project.source),
-      attempt.id,
-      attempt.bead,
-    );
+async function launchHost(store: ExecutionStore, attempt: Execution, project: RuntimeProject): Promise<void> {
+  if (attempt.bead && interactiveTask(attempt.bead)) {
+    await retainClaim(store, new ExecutionBeads(project.source), attempt.id, attempt.bead);
     return;
   }
   const selection = attempt.controller;
-  if (selection === undefined)
-    throw new Error("Runtime lead/control model is not configured");
+  if (!selection) throw new Error("Runtime lead/control model is not configured");
   const directory = join(store.directory, "runtime-sessions", attempt.id);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const token = randomUUID();
@@ -412,9 +332,7 @@ async function launchHost(
         join(packageRoot, "execution/host-extension.ts"),
         "--session-dir",
         directory,
-        ...(attempt.controllerSession === undefined
-          ? []
-          : ["--session-id", attempt.controllerSession]),
+        ...(attempt.controllerSession === undefined ? [] : ["--session-id", attempt.controllerSession]),
         "--model",
         `${selection.provider}/${selection.model}`,
         "--thinking",
@@ -437,14 +355,10 @@ async function launchHost(
       child.once("error", reject);
     });
     launch.spawned = true;
-    if (child.pid === undefined)
-      throw new Error("Native control host did not return a process identity");
+    if (child.pid === undefined) throw new Error("Native control host did not return a process identity");
     const hostStart = await processStart(child.pid);
     store.change(attempt.id, (row) => {
-      if (
-        row.launchToken !== token ||
-        (row.pid !== undefined && row.pid !== child.pid)
-      )
+      if (row.launchToken !== token || (row.pid !== undefined && row.pid !== child.pid))
         throw new Error("Native launch ownership changed before its receipt");
       row.pid = child.pid;
       row.started = hostStart;
@@ -453,9 +367,7 @@ async function launchHost(
   } catch (error) {
     store.change(attempt.id, (row) => {
       if (row.launchToken !== token) return;
-      row.phase = launch.spawned
-        ? ExecutionPhase.Uncertain
-        : ExecutionPhase.Parked;
+      row.phase = launch.spawned ? ExecutionPhase.Uncertain : ExecutionPhase.Parked;
       row.launchSettled = !launch.spawned;
       row.message = processFailure(error).message;
     });

@@ -31,11 +31,7 @@ await test("Pi's actual CustomEditor uses native history actions before model cy
   const manager = new KeybindingsManager();
   setKeybindings(manager);
   try {
-    const editor = new CustomEditor(
-      new TuiMainScreen(new ProcessTerminal()),
-      theme,
-      manager,
-    );
+    const editor = new CustomEditor(new TuiMainScreen(new ProcessTerminal()), theme, manager);
     editor.addToHistory("older prompt");
     editor.addToHistory("newer prompt");
     let cycles = 0;
@@ -91,21 +87,14 @@ await test("authored reloads, empty actions and explicit conflicting claims rema
     manager.reload();
     const source = manager.getUserBindings();
     const copy = manager.getUserBindings();
-    assert.notEqual(
-      source,
-      copy,
-      "Pi returns a new top-level configuration object",
-    );
+    assert.notEqual(source, copy, "Pi returns a new top-level configuration object");
     assert.equal(
       source["tui.editor.historyPrevious"],
       copy["tui.editor.historyPrevious"],
       "Pi retains nested binding arrays; the layer must not mutate them",
     );
     layer.apply();
-    assert.equal(
-      manager.getUserBindings()["tui.editor.historyPrevious"],
-      source["tui.editor.historyPrevious"],
-    );
+    assert.equal(manager.getUserBindings()["tui.editor.historyPrevious"], source["tui.editor.historyPrevious"]);
     assert.deepEqual(manager.getUserBindings(), authored);
     layer.apply();
     assert.deepEqual(

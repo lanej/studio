@@ -1,13 +1,6 @@
 import { requireIntegration } from "./integrations.ts";
 import { createHash, randomUUID } from "node:crypto";
-import {
-  link,
-  lstat,
-  mkdir,
-  readFile,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
+import { link, lstat, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { z } from "zod";
 import { Attempts, Phase, stateDirectory, type Attempt } from "./attempts.ts";
@@ -53,8 +46,7 @@ const manager = z.object({
     state: z.literal("finished"),
   }),
 });
-const hash = (bytes: Buffer) =>
-  createHash("sha256").update(bytes).digest("hex");
+const hash = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
 
 async function retain(path: string, bytes: Buffer): Promise<string> {
   const candidate = `${path}.${randomUUID()}`;
@@ -67,8 +59,7 @@ async function retain(path: string, bytes: Buffer): Promise<string> {
     await unlink(candidate);
   }
   const digest = hash(await readFile(path));
-  if (digest !== hash(bytes))
-    throw new Error(`Archive content differs at ${path}`);
+  if (digest !== hash(bytes)) throw new Error(`Archive content differs at ${path}`);
   return digest;
 }
 
@@ -90,8 +81,7 @@ export async function archiveLead(bead: string): Promise<Attempt> {
   const config = await loadConfig();
   const managerExecutable = await requireIntegration(config, "worktrees");
   await requireIntegration(config, "octo");
-  if (config.beadsService === undefined)
-    throw new Error("Configure the Beads service");
+  if (!config.beadsService) throw new Error("Configure the Beads service");
   const db = new Attempts(stateDirectory());
   try {
     const record = db.latest(config.beadsService.projectId, bead);
@@ -104,38 +94,25 @@ export async function archiveLead(bead: string): Promise<Attempt> {
       record.revision === null ||
       record.verification === null ||
       record.verification.exitCode !== 0 ||
-      record.delivery?.merge === undefined ||
+      !record.delivery?.merge ||
       record.delivery.pr === undefined ||
       record.delivery.agent === undefined ||
       (record.phase !== Phase.Verified && record.phase !== Phase.Archiving)
     )
-      throw new Error(
-        "A verified lead with a recorded Octo merge request is required",
-      );
-    if (record.pid === null || !processIsGone(record.pid))
-      throw new Error("Exit the lead Pi session before archiving");
+      throw new Error("A verified lead with a recorded Octo merge request is required");
+    if (record.pid === null || !processIsGone(record.pid)) throw new Error("Exit the lead Pi session before archiving");
     const service = new TaskBeads(record.source);
-    const children = await Promise.all(
-      Object.values(record.leadPlan.children).map((id) => service.get(id)),
-    );
+    const children = await Promise.all(Object.values(record.leadPlan.children).map((id) => service.get(id)));
     const open = children.filter((child) => child.status !== "closed");
     if (open.length > 0)
-      throw new Error(
-        `Settle child beads before archiving: ${open.map((child) => child.id).join(", ")}`,
-      );
+      throw new Error(`Settle child beads before archiving: ${open.map((child) => child.id).join(", ")}`);
 
     const { checkout, delivery, verification } = record;
     const merge = record.delivery.merge;
     const { primary, path } = checkout;
-    const { pr } = observation.parse(
-      await octo(primary, "pr", "show", record.delivery.pr),
-    );
-    const { entries } = chain.parse(
-      await octo(primary, "chain", "show", merge.chain),
-    );
-    const matching = entries.filter((entry) =>
-      entry.id.startsWith(merge.entry),
-    );
+    const { pr } = observation.parse(await octo(primary, "pr", "show", record.delivery.pr));
+    const { entries } = chain.parse(await octo(primary, "chain", "show", merge.chain));
+    const matching = entries.filter((entry) => entry.id.startsWith(merge.entry));
     const entry = matching.length === 1 ? matching[0] : undefined;
     if (
       entry?.mergeCommit === undefined ||
@@ -150,32 +127,24 @@ export async function archiveLead(bead: string): Promise<Attempt> {
       pr.observation.lifecycle !== "merged" ||
       pr.observation.headSha !== merge.head
     )
-      throw new Error(
-        "Octo has not confirmed this exact lead revision as merged",
-      );
+      throw new Error("Octo has not confirmed this exact lead revision as merged");
 
     const delegates = settledDelegates(record.id);
     const archive = join(db.directory, "archives", record.id);
     await mkdir(archive, { recursive: true, mode: 0o700 });
     const transcripts = await Promise.all(
-      [{ id: record.id, path: record.transcript }, ...delegates].map(
-        async ({ id, path: transcript }) => {
-          if (!isAbsolute(transcript) || !(await lstat(transcript)).isFile())
-            throw new Error(
-              "A native transcript is missing or is not a regular file",
-            );
-          const bytes = await readFile(transcript);
-          if (bytes.length === 0)
-            throw new Error("An archived native transcript is empty");
-          const name = `${id}.jsonl`;
-          const digest = await retain(join(archive, name), bytes);
-          return { id, transcript, name, digest };
-        },
-      ),
+      [{ id: record.id, path: record.transcript }, ...delegates].map(async ({ id, path: transcript }) => {
+        if (!isAbsolute(transcript) || !(await lstat(transcript)).isFile())
+          throw new Error("A native transcript is missing or is not a regular file");
+        const bytes = await readFile(transcript);
+        if (bytes.length === 0) throw new Error("An archived native transcript is empty");
+        const name = `${id}.jsonl`;
+        const digest = await retain(join(archive, name), bytes);
+        return { id, transcript, name, digest };
+      }),
     );
 
-    const git = async (...args: string[]) =>
-      (await run("git", args, { cwd: primary, timeout: 90_000 })).trim();
+    const git = async (...args: string[]) => (await run("git", args, { cwd: primary, timeout: 90_000 })).trim();
     const base = `refs/heads/${pr.observation.targetBase.ref}`;
     await git("check-ref-format", base);
     const observed = `refs/studio/archive-bases/${record.id}`;
@@ -183,13 +152,7 @@ export async function archiveLead(bead: string): Promise<Attempt> {
     await git("merge-base", "--is-ancestor", entry.mergeCommit, observed);
     const retained = `refs/studio/archives/${record.id}`;
     await git("update-ref", retained, entry.mergeCommit);
-    if (
-      (await git(
-        "rev-parse",
-        "--verify",
-        `refs/heads/${checkout.branch}^{commit}`,
-      )) !== merge.head
-    )
+    if ((await git("rev-parse", "--verify", `refs/heads/${checkout.branch}^{commit}`)) !== merge.head)
       throw new Error("The verified source branch moved before cleanup");
 
     const manifest = join(archive, "manifest.json");
@@ -210,10 +173,7 @@ export async function archiveLead(bead: string): Promise<Attempt> {
       retained,
       transcripts,
     };
-    await retain(
-      manifest,
-      Buffer.from(`${JSON.stringify(metadata, null, 2)}\n`),
-    );
+    await retain(manifest, Buffer.from(`${JSON.stringify(metadata, null, 2)}\n`));
     const claim = db.change(record.id, (row) => {
       if (row.phase === Phase.Archived) return;
       if (
@@ -226,17 +186,11 @@ export async function archiveLead(bead: string): Promise<Attempt> {
       )
         throw new Error("The lead attempt changed before finalization");
       row.phase = Phase.Archiving;
-      row.message =
-        "Transcript retained. Confirming Beads closure and checkout removal";
+      row.message = "Transcript retained. Confirming Beads closure and checkout removal";
     });
     if (claim.phase === Phase.Archived) return claim;
     if (!(await service.closedWith(record.bead.id, record.id, verification)))
-      await service.complete(
-        record.bead,
-        record.revision,
-        record.id,
-        verification,
-      );
+      await service.complete(record.bead, record.revision, record.id, verification);
 
     if (!(await removed(primary, path))) {
       const finished = manager.parse(
@@ -253,21 +207,11 @@ export async function archiveLead(bead: string): Promise<Attempt> {
         finished.branch !== checkout.branch
       )
         throw new Error("The worktree manager returned a different allocation");
-      const options = [
-        "prune",
-        "--worktree",
-        path,
-        "--integrated",
-        "--accept-recent",
-        "-b",
-        entry.mergeCommit,
-      ];
+      const options = ["prune", "--worktree", path, "--integrated", "--accept-recent", "-b", entry.mergeCommit];
       const preview = z
         .object({
           result: z.object({
-            worktrees: z.array(
-              z.object({ path: z.string(), action: z.string() }),
-            ),
+            worktrees: z.array(z.object({ path: z.string(), action: z.string() })),
           }),
         })
         .parse(
@@ -278,23 +222,15 @@ export async function archiveLead(bead: string): Promise<Attempt> {
             }),
           ),
         );
-      const candidate = preview.result.worktrees.find(
-        (row) => row.path === path,
-      );
-      if (
-        candidate?.action !== "remove" &&
-        candidate?.action !== "force-remove"
-      )
-        throw new Error(
-          `Worktree retained by the manager (${candidate?.action ?? "no removal candidate"})`,
-        );
+      const candidate = preview.result.worktrees.find((row) => row.path === path);
+      if (candidate?.action !== "remove" && candidate?.action !== "force-remove")
+        throw new Error(`Worktree retained by the manager (${candidate?.action ?? "no removal candidate"})`);
       await run(managerExecutable, [...options, "--apply", "--json"], {
         cwd: primary,
         timeout: 180_000,
       });
     }
-    if (!(await removed(primary, path)))
-      throw new Error("The worktree manager has not confirmed removal");
+    if (!(await removed(primary, path))) throw new Error("The worktree manager has not confirmed removal");
     return db.change(record.id, (row) => {
       row.phase = Phase.Archived;
       row.archiveManifest = manifest;

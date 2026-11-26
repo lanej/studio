@@ -8,25 +8,15 @@ import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import { Command } from "commander";
 import { runtimeProjectSchema } from "../config.ts";
-import {
-  approveManualMerge,
-  registerRuntimeCommands,
-} from "../execution/cli.ts";
-import {
-  ExecutionPhase,
-  ExecutionStore,
-  executionSchema,
-  type Execution,
-} from "../execution/store.ts";
+import { approveManualMerge, registerRuntimeCommands } from "../execution/cli.ts";
+import { ExecutionPhase, ExecutionStore, executionSchema, type Execution } from "../execution/store.ts";
 import { beadSchema } from "../task-service.ts";
 
 const head = "a".repeat(40);
 const changedHead = "b".repeat(40);
 
 async function manualDelivery(t: TestContext) {
-  const root = realpathSync(
-    mkdtempSync(join(tmpdir(), "studio-manual-merge-")),
-  );
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "studio-manual-merge-")));
   const config = join(root, "config.json");
   const previousState = process.env["STUDIO_STATE_DIR"];
   const previousConfig = process.env["STUDIO_CONFIG"];
@@ -54,18 +44,10 @@ async function manualDelivery(t: TestContext) {
           project_id: projectId,
           backend: "dolt",
           dolt_mode: "server",
-          capabilities: [
-            "project.enforce",
-            "issues.get",
-            "issues.create",
-            "issues.update",
-          ],
+          capabilities: ["project.enforce", "issues.get", "issues.create", "issues.update"],
         }),
       );
-    } else if (
-      request.method === "GET" &&
-      request.url === "/v0/beads/issues/bd-publish"
-    ) {
+    } else if (request.method === "GET" && request.url === "/v0/beads/issues/bd-publish") {
       service.onRead();
       response.end(JSON.stringify(service.current));
     } else {

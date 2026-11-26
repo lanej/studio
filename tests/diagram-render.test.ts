@@ -71,19 +71,8 @@ const architecture: Diagram = {
   ],
 };
 
-function canvas(
-  diagram: Diagram,
-  view: DiagramView,
-  width: number,
-  selected?: string,
-) {
-  const result = renderDiagramCanvas(
-    diagram,
-    monochrome,
-    view,
-    selected,
-    width,
-  );
+function canvas(diagram: Diagram, view: DiagramView, width: number, selected?: string) {
+  const result = renderDiagramCanvas(diagram, monochrome, view, selected, width);
   return { ...result, lines: result.lines.map(stripTerminalSequences) };
 }
 
@@ -102,49 +91,21 @@ await test("context draws people and systems with directional relationships in a
 });
 
 await test("containers sit inside the named boundary; verbs and protocols belong to the correct sources", () => {
-  const { lines, focusLine, nodeOrder } = canvas(
-    architecture,
-    "container",
-    60,
-    "worker",
-  );
+  const { lines, focusLine, nodeOrder } = canvas(architecture, "container", 60, "worker");
   const top = lines.findIndex((line) => line.includes("┌ Parcel visibility "));
-  const lastMember = lines.findIndex((line) =>
-    line.includes("Container · PostgreSQL"),
-  );
+  const lastMember = lines.findIndex((line) => line.includes("Container · PostgreSQL"));
   const firstOutside = lines.findIndex((line) => line.includes("Merchant"));
-  const lastOutside = lines.findIndex((line) =>
-    line.includes("Carrier network"),
-  );
+  const lastOutside = lines.findIndex((line) => line.includes("Carrier network"));
   assert.ok(
-    firstOutside >= 0 &&
-      firstOutside < top &&
-      top < focusLine &&
-      focusLine < lastMember &&
-      lastMember < lastOutside,
+    firstOutside >= 0 && firstOutside < top && top < focusLine && focusLine < lastMember && lastMember < lastOutside,
   );
   assert.match(lines[focusLine] ?? "", /┃\s*Event worker\s*┃/u);
-  assert.match(
-    lines.join("\n"),
-    /→ Reads history · SQL\s*│.*┃\s*→ Appends scans · SQL/u,
-  );
+  assert.match(lines.join("\n"), /→ Reads history · SQL\s*│.*┃\s*→ Appends scans · SQL/u);
   assert.match(lines.join("\n"), /\[1\] HTTPS.*\[2\] HTTPS/u);
-  assert.ok(
-    lines.every(
-      (line) => !/▼\s*(Reads|Appends)/u.test(line) && visibleWidth(line) <= 60,
-    ),
-  );
-  assert.deepEqual(nodeOrder, [
-    "merchant",
-    "api",
-    "worker",
-    "store",
-    "carrier",
-  ]);
+  assert.ok(lines.every((line) => !/▼\s*(Reads|Appends)/u.test(line) && visibleWidth(line) <= 60));
+  assert.deepEqual(nodeOrder, ["merchant", "api", "worker", "store", "carrier"]);
   assert.equal(
-    lines
-      .slice(top + 1, lastMember + 1)
-      .every((line) => line.trimStart().startsWith("│")),
+    lines.slice(top + 1, lastMember + 1).every((line) => line.trimStart().startsWith("│")),
     true,
   );
 });
@@ -174,13 +135,7 @@ await test("model text is painted literally, including diagram syntax, wide char
     ],
   };
   const text = canvas(diagram, "context", 75).lines.join("\n");
-  for (const literal of [
-    'A --> B | "ok"',
-    "API [v2] (a)",
-    "API [v2] (b)",
-    '中 --> "B"',
-    "Calls [v2]",
-  ])
+  for (const literal of ['A --> B | "ok"', "API [v2] (a)", "API [v2] (b)", '中 --> "B"', "Calls [v2]"])
     assert.ok(text.includes(literal), literal);
 });
 
@@ -208,10 +163,7 @@ await test("dense architecture previews are bounded; expansion and the narrow in
   const preview = renderDiagram(dense, monochrome, false).render(60);
   assert.ok(preview.length < 18);
   assert.match(preview.join(" "), /17 elements · 16 relationships/u);
-  const full = renderDiagram(dense, monochrome, true)
-    .render(60)
-    .map(stripTerminalSequences)
-    .join(" ");
+  const full = renderDiagram(dense, monochrome, true).render(60).map(stripTerminalSequences).join(" ");
   assert.match(full, /Delivers payload 16/u);
   assert.match(full, /Responsibility 17/u);
   const narrow = canvas(dense, "container", 12, "n16");
@@ -233,11 +185,6 @@ await test("a parallel relationship or cycle keeps each verb even if the layout 
     ],
   };
   const text = canvas(graph, "context", 80).lines.join("\n");
-  for (const label of [
-    "Reviews history",
-    "Creates label",
-    "Sends status",
-    "Recalculates",
-  ])
+  for (const label of ["Reviews history", "Creates label", "Sends status", "Recalculates"])
     assert.ok(text.includes(label), label);
 });

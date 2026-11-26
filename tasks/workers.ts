@@ -2,12 +2,7 @@ import { z } from "zod";
 import { Phase, type Attempt } from "../attempts.ts";
 import { knownTaskStatus, TaskStatus } from "../beads.ts";
 import { hasInteractivePane } from "../execution/interactive-target.ts";
-import {
-  ExecutionPhase,
-  pendingDecision,
-  VerificationPhase,
-  type Execution,
-} from "../execution/store.ts";
+import { ExecutionPhase, pendingDecision, VerificationPhase, type Execution } from "../execution/store.ts";
 import { owner, type NativeBead } from "../task-service.ts";
 import type { readTaskEvidence } from "./evidence.ts";
 
@@ -25,11 +20,7 @@ export interface WorkerAssignment extends WorkerState {
   focusable: boolean;
 }
 
-function state(
-  role: WorkerState["role"],
-  phase: string,
-  activity: WorkerState["activity"] = "active",
-): WorkerState {
+function state(role: WorkerState["role"], phase: string, activity: WorkerState["activity"] = "active"): WorkerState {
   return { role, phase, activity };
 }
 
@@ -52,12 +43,8 @@ function runtimeState(attempt: Execution): WorkerState | undefined {
         : { ...state("Worker", "Needs input", "attention"), question };
     }
     case ExecutionPhase.Parked:
-      if (attempt.reviewFinding !== undefined)
-        return state("Worker", "Changes requested", "attention");
-      if (
-        typeof attempt.verification?.exitCode === "number" &&
-        attempt.verification.exitCode !== 0
-      )
+      if (attempt.reviewFinding !== undefined) return state("Worker", "Changes requested", "attention");
+      if (typeof attempt.verification?.exitCode === "number" && attempt.verification.exitCode !== 0)
         return state("Verifier", "Check failed", "attention");
       return state("Controller", "Needs inspection", "attention");
     case ExecutionPhase.Uncertain:
@@ -71,24 +58,16 @@ function runtimeState(attempt: Execution): WorkerState | undefined {
     case ExecutionPhase.Integrating:
       // Integration also verifies the merged tree. A prior completed receipt
       // must not obscure the actor responsible for the current phase.
-      if (
-        attempt.verifier !== undefined &&
-        attempt.verifier.phase !== VerificationPhase.Complete
-      )
+      if (attempt.verifier && attempt.verifier.phase !== VerificationPhase.Complete)
         return state("Verifier", "Verifying");
-      if (attempt.phase === ExecutionPhase.Reviewing)
-        return state("Reviewer", "Reviewing");
-      if (attempt.phase === ExecutionPhase.Integrating)
-        return state("Controller", "Integrating");
-      return state(
-        "Worker",
-        attempt.reviewFinding === undefined ? "Implementing" : "Revising",
-      );
+      if (attempt.phase === ExecutionPhase.Reviewing) return state("Reviewer", "Reviewing");
+      if (attempt.phase === ExecutionPhase.Integrating) return state("Controller", "Integrating");
+      return state("Worker", attempt.reviewFinding === undefined ? "Implementing" : "Revising");
   }
 }
 
 function localState(attempt: Attempt): WorkerState | undefined {
-  const role = attempt.leadPlan === undefined ? "Worker" : "Lead";
+  const role = !attempt.leadPlan ? "Worker" : "Lead";
   switch (attempt.phase) {
     case Phase.Admitting:
       return state("Controller", "Claiming");
@@ -97,9 +76,7 @@ function localState(attempt: Attempt): WorkerState | undefined {
     case Phase.Launching:
       return state(role, "Starting");
     case Phase.Running:
-      return attempt.live
-        ? state(role, "Session open")
-        : state(role, "Session ended", "attention");
+      return attempt.live ? state(role, "Session open") : state(role, "Session ended", "attention");
     case Phase.Checking:
       return state("Verifier", "Verifying");
     case Phase.CheckFailed:
@@ -149,8 +126,7 @@ export function workerAssignments(
     receipts.set(key, receipts.has(key) ? null : receipt);
   }
   for (const execution of evidence.attempts) index(execution.id, { execution });
-  for (const interactive of evidence.interactiveAttempts ?? [])
-    index(interactive.id, { interactive });
+  for (const interactive of evidence.interactiveAttempts ?? []) index(interactive.id, { interactive });
 
   const rows: WorkerAssignment[] = [];
   for (const task of tasks) {
@@ -163,12 +139,11 @@ export function workerAssignments(
     if (receipt === null) continue;
     let assignment: WorkerState | undefined;
     let focusable = false;
-    if (receipt === undefined) {
+    if (!receipt) {
       assignment = state("Attempt", "Status unavailable", "unknown");
     } else if ("execution" in receipt) {
       const { execution } = receipt;
-      if (execution.project !== projectId || execution.bead?.id !== task.id)
-        continue;
+      if (execution.project !== projectId || execution.bead?.id !== task.id) continue;
       assignment = runtimeState(execution);
       focusable =
         assignment?.role === "Worker" &&
@@ -179,15 +154,11 @@ export function workerAssignments(
         execution.revision !== undefined;
     } else {
       const { interactive } = receipt;
-      if (
-        interactive.source.projectId !== projectId ||
-        interactive.bead.id !== task.id
-      )
-        continue;
+      if (interactive.source.projectId !== projectId || interactive.bead.id !== task.id) continue;
       assignment = localState(interactive);
       focusable = hasLocalPane(interactive);
     }
-    if (assignment !== undefined)
+    if (assignment)
       rows.push({
         ...assignment,
         beadId: task.id,

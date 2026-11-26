@@ -29,12 +29,7 @@ import {
   runtimeProjectSchema,
   StudioProfile,
 } from "../config.ts";
-import {
-  ExecutionStore,
-  activeTaskReviews,
-  executionSchema,
-  ExecutionPhase,
-} from "../execution/store.ts";
+import { ExecutionStore, activeTaskReviews, executionSchema, ExecutionPhase } from "../execution/store.ts";
 import { retainClaim, writerFence } from "../execution/recovery.ts";
 import { ExecutionBeads } from "../execution/beads.ts";
 import { beadSchema, owner } from "../task-service.ts";
@@ -174,13 +169,7 @@ await test("daily-driver Socrates starts by title and resumes the picker selecti
       modelsPath: null,
       refreshOnCreate: false,
     });
-    const runner = new ExtensionRunner(
-      extensions,
-      runtime,
-      project,
-      session,
-      new ModelRegistry(modelRuntime),
-    );
+    const runner = new ExtensionRunner(extensions, runtime, project, session, new ModelRegistry(modelRuntime));
     const messages: unknown[] = [];
     runtime.appendEntry = (type, data) => {
       session.appendCustomEntry(type, data);
@@ -203,9 +192,7 @@ await test("daily-driver Socrates starts by title and resumes the picker selecti
           pickerOpenings++;
           options = choices;
           switchBranch?.();
-          return Promise.resolve(
-            choice === undefined ? undefined : choices[choice],
-          );
+          return Promise.resolve(choice === undefined ? undefined : choices[choice]);
         },
         notify: (notice: string) => {
           notices.push(notice);
@@ -303,10 +290,7 @@ await test("daily-driver Socrates starts by title and resumes the picker selecti
     switchBranch = () => {
       session.branch(leaf);
     };
-    await assert.rejects(
-      picker.handler("", ctx),
-      /again for this conversation/u,
-    );
+    await assert.rejects(picker.handler("", ctx), /again for this conversation/u);
     assert.equal(session.getLeafId(), leaf);
     switchBranch = undefined;
     await picker.handler("", ctx);
@@ -326,10 +310,7 @@ await test("daily-driver Socrates starts by title and resumes the picker selecti
 
     await socrates.handler("  ", ctx);
     assert.equal(messages.length, turnCount + 1);
-    assert.equal(
-      messages.at(-1),
-      "Resume Socrates discovery using the recorded operator answer.",
-    );
+    assert.equal(messages.at(-1), "Resume Socrates discovery using the recorded operator answer.");
     assert.equal(session.getLeafId(), marker.id);
     assert.deepEqual(store.get(first.id), answered);
     assert.deepEqual(store.list(project), records);
@@ -354,11 +335,7 @@ await test("discovery approval freezes the displayed version before effects and 
   const store = new Discoveries(join(directory, "state"));
   const peer = new Discoveries(join(directory, "state"));
   try {
-    const discovery = store.create(
-      projectPath,
-      randomUUID(),
-      "Research without Beads",
-    );
+    const discovery = store.create(projectPath, randomUUID(), "Research without Beads");
     const other = store.create(projectPath, randomUUID(), "Separate discovery");
     assert.notEqual(other.id, discovery.id);
     const draft = draftSchema.parse({
@@ -420,10 +397,7 @@ await test("discovery approval freezes the displayed version before effects and 
         })),
       };
     });
-    assert.throws(
-      () => store.beginHandoff(displayed, authority),
-      /changed before approval/u,
-    );
+    assert.throws(() => store.beginHandoff(displayed, authority), /changed before approval/u);
     const current = peer.get(discovery.id);
     const workers = {
       first: {
@@ -447,10 +421,7 @@ await test("discovery approval freezes the displayed version before effects and 
         }),
       /handoff is pending/u,
     );
-    assert.throws(
-      () => peer.beginHandoff(current, authority, undefined, false, workers),
-      /already in progress/u,
-    );
+    assert.throws(() => peer.beginHandoff(current, authority, undefined, false, workers), /already in progress/u);
     assert.equal(peer.get(other.id).title, "Separate discovery");
     const retry = peer.beginHandoff(
       peer.get(discovery.id),
@@ -480,21 +451,16 @@ await test("discovery approval freezes the displayed version before effects and 
     );
     assert.throws(
       () =>
-        store.beginHandoff(
-          store.get(discovery.id),
-          authority,
-          { pid: process.pid, started: "recovered-owner" },
-          true,
-          { first: { ...workers.first, model: "different-fast" } },
-        ),
+        store.beginHandoff(store.get(discovery.id), authority, { pid: process.pid, started: "recovered-owner" }, true, {
+          first: { ...workers.first, model: "different-fast" },
+        }),
       /original project authority and draft, including worker selections/u,
     );
 
     peer.change(
       discovery.id,
       (record) => {
-        if (record.handoff !== undefined)
-          record.handoff.phase = HandoffPhase.Uncertain;
+        if (record.handoff) record.handoff.phase = HandoffPhase.Uncertain;
       },
       true,
     );
@@ -526,11 +492,7 @@ await test("unknown native launches retain writer fences and project merge overr
       launchToken: randomUUID(),
       message: "Missing launch receipt",
     });
-    assert.equal(
-      await writerFence(uncertain),
-      true,
-      "Missing PID cannot establish a dead writer",
-    );
+    assert.equal(await writerFence(uncertain), true, "Missing PID cannot establish a dead writer");
     assert.equal(
       await writerFence({ ...uncertain, launchSettled: true }),
       false,
@@ -586,11 +548,9 @@ await test("task review details follow the current project, bead and attempt own
   const store = new ExecutionStore(directory);
   try {
     store.saveAttempt(attempt);
-    const details = () =>
-      taskDetails(bead, project, undefined, reviews().get(bead.id));
+    const details = () => taskDetails(bead, project, undefined, reviews().get(bead.id));
     assert.match(details(), /in_progress · Reviewing/u);
-    const finding =
-      "Which width wins? diff.ts and view.ts compute separate thresholds.";
+    const finding = "Which width wins? diff.ts and view.ts compute separate thresholds.";
     store.change(id, (row) => {
       row.phase = ExecutionPhase.Running;
       row.reviewFinding = finding;
@@ -634,13 +594,9 @@ await test("review-only execution authority refuses mutation before contacting a
   });
   await assert.rejects(service.claimNext(randomUUID()), /review-only/u);
   await assert.rejects(
-    service.createGraph(
-      randomUUID(),
-      "digest",
-      "No writes",
-      draftSchema.parse({ summary: "Read only", tasks: [] }),
-      { root: "fixture-root" },
-    ),
+    service.createGraph(randomUUID(), "digest", "No writes", draftSchema.parse({ summary: "Read only", tasks: [] }), {
+      root: "fixture-root",
+    }),
     /review-only/u,
   );
   const bead = beadSchema.parse({
@@ -649,10 +605,7 @@ await test("review-only execution authority refuses mutation before contacting a
     status: "in_progress",
     revision: "revision",
   });
-  await assert.rejects(
-    service.finishAccepted(bead, randomUUID(), "No closure"),
-    /review-only/u,
-  );
+  await assert.rejects(service.finishAccepted(bead, randomUUID(), "No closure"), /review-only/u);
 });
 
 await test("independent schedulers and delivery corrections share atomic inference capacity", async () => {
@@ -716,13 +669,9 @@ await test("independent schedulers and delivery corrections share atomic inferen
 await test("configured two and three host limits retain shared admission and release guards", async () => {
   assert.equal(configSchema.parse({}).runtime.concurrency, 2);
   assert.equal(configSchema.parse({ runtime: {} }).runtime.concurrency, 2);
-  assert.equal(
-    configSchema.safeParse({ runtime: { concurrency: 4 } }).success,
-    false,
-  );
+  assert.equal(configSchema.safeParse({ runtime: { concurrency: 4 } }).success, false);
   for (const concurrency of [2, 3]) {
-    const limit = configSchema.parse({ runtime: { concurrency } }).runtime
-      .concurrency;
+    const limit = configSchema.parse({ runtime: { concurrency } }).runtime.concurrency;
     const directory = await mkdtemp(join(tmpdir(), "studio-capacity-"));
     const store = new ExecutionStore(directory);
     const peer = new ExecutionStore(directory);
@@ -742,8 +691,7 @@ await test("configured two and three host limits retain shared admission and rel
           row.phase = ExecutionPhase.Running;
           row.launchToken = randomUUID();
         });
-      for (const attempt of attempts.slice(0, limit))
-        assert.equal(reserve(attempt.id), true);
+      for (const attempt of attempts.slice(0, limit)) assert.equal(reserve(attempt.id), true);
       const first = attempts[0];
       const waiting = attempts[limit];
       assert.ok(first !== undefined);

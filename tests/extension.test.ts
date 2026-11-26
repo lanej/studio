@@ -70,11 +70,7 @@ await test("idle session restores attempts and preserves unknown child work acro
       historyId = `after-${event}`;
       idle.agentSettled();
       t.mock.timers.tick(300_000);
-      assert.equal(
-        requests,
-        2,
-        `${event} must not clear the unknown-child guard`,
-      );
+      assert.equal(requests, 2, `${event} must not clear the unknown-child guard`);
     }
 
     idle.stop();
@@ -83,11 +79,7 @@ await test("idle session restores attempts and preserves unknown child work acro
     idle.newSession();
     initialize();
     t.mock.timers.tick(300_000);
-    assert.equal(
-      requests,
-      3,
-      "new session startup resets the child-work guard",
-    );
+    assert.equal(requests, 3, "new session startup resets the child-work guard");
     historyId = "shutdown-turn";
     idle.agentSettled();
     idle.stop();

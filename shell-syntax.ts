@@ -1,8 +1,5 @@
 import { Parser, type Language, type Tree } from "@vscode/tree-sitter-wasm";
-import {
-  loadLanguage,
-  type SyntaxNode,
-} from "./code-intelligence/tree-sitter.ts";
+import { loadLanguage, type SyntaxNode } from "./code-intelligence/tree-sitter.ts";
 
 interface ShellStyle {
   raw: string;
@@ -36,7 +33,7 @@ function headerStyles(root: SyntaxNode): ShellStyle[] {
   const pending = [root];
   while (pending.length > 0) {
     const node = pending.pop();
-    if (node === undefined) break;
+    if (!node) break;
     if (node.type.endsWith("_redirect")) continue;
     if (node.type === "command") {
       const name = node.childForFieldName("name");
@@ -59,8 +56,7 @@ function headerStyles(root: SyntaxNode): ShellStyle[] {
           });
       }
     }
-    for (const child of node.namedChildren)
-      if (child !== null) pending.push(child);
+    for (const child of node.namedChildren) if (child !== null) pending.push(child);
   }
   return styles.sort((a, b) => a.start - b.start);
 }
@@ -73,22 +69,15 @@ function literal(node: SyntaxNode): string | undefined {
     case "raw_string":
       return raw.slice(1, -1);
     case "string":
-      return node.namedChildren.every(
-        (child) => child?.type === "string_content",
-      )
-        ? raw
-            .slice(1, -1)
-            .replace(/\\(["$`\\\n])/gu, (_, escaped: string) =>
-              escaped === "\n" ? "" : escaped,
-            )
+      return node.namedChildren.every((child) => child?.type === "string_content")
+        ? raw.slice(1, -1).replace(/\\(["$`\\\n])/gu, (_, escaped: string) => (escaped === "\n" ? "" : escaped))
         : undefined;
     case "number":
       return raw;
     case "word":
       // Each escape consumes one literal character. Unescaped glob or brace
       // syntax can expand to several arguments, even within one word node.
-      if (raw.startsWith("~") || !/^(?:\\[^\n]|[^\\*?[\]{}`$])+$/u.test(raw))
-        return undefined;
+      if (raw.startsWith("~") || !/^(?:\\[^\n]|[^\\*?[\]{}`$])+$/u.test(raw)) return undefined;
       return raw.replace(/\\([^\n])/gu, "$1");
     case "concatenation": {
       let value = "";
@@ -129,16 +118,12 @@ function commandWords(command: SyntaxNode): string[] | undefined {
 }
 
 function lineFilter(words: string[] | undefined): boolean {
-  if (words === undefined) return false;
+  if (!words) return false;
   const [name, option, count] = words;
   if (name !== "head" && name !== "tail") return false;
   if (option === undefined) return true;
   if (words.length === 2) return /^(?:-\d+|-n\d+|--lines=\d+)$/u.test(option);
-  return (
-    words.length === 3 &&
-    (option === "-n" || option === "--lines") &&
-    /^\d+$/u.test(count ?? "")
-  );
+  return words.length === 3 && (option === "-n" || option === "--lines") && /^\d+$/u.test(count ?? "");
 }
 
 // Collect every possible stdout producer. Following a sequence or branching
@@ -146,7 +131,7 @@ function lineFilter(words: string[] | undefined): boolean {
 function outputCommands(node: SyntaxNode, commands: string[][]): boolean {
   if (node.type === "command") {
     const words = commandWords(node);
-    if (words === undefined) return false;
+    if (!words) return false;
     if (words[0] === "cd") {
       const path = words.at(-1);
       if (
@@ -169,32 +154,22 @@ function outputCommands(node: SyntaxNode, commands: string[][]): boolean {
     for (const stage of node.children) {
       if (stage === null) return false;
       if (stage.type === "comment" || stage.type === "|") continue;
-      if (
-        first
-          ? !outputCommands(stage, commands)
-          : !lineFilter(commandWords(stage))
-      )
-        return false;
+      if (first ? !outputCommands(stage, commands) : !lineFilter(commandWords(stage))) return false;
       first = false;
     }
     return !first;
   }
-  if (
-    !["program", "list", "subshell", "compound_statement"].includes(node.type)
-  )
-    return false;
+  if (!["program", "list", "subshell", "compound_statement"].includes(node.type)) return false;
   for (const child of node.children) {
     if (child === null) return false;
-    if ([";", "&&", "||", "(", ")", "{", "}", "comment"].includes(child.type))
-      continue;
+    if ([";", "&&", "||", "(", ")", "{", "}", "comment"].includes(child.type)) continue;
     if (!outputCommands(child, commands)) return false;
   }
   return true;
 }
 
 export function analyzeShell(command: string): ShellAnalysis | undefined {
-  if (language === undefined || Buffer.byteLength(command) > 50_000)
-    return undefined;
+  if (!language || Buffer.byteLength(command) > 50_000) return undefined;
   if (cache.has(command)) return cache.get(command);
   let parser: Parser | undefined;
   let tree: Tree | null = null;
@@ -206,20 +181,14 @@ export function analyzeShell(command: string): ShellAnalysis | undefined {
     tree = parser.parse(command, null, {
       progressCallback: () => performance.now() >= deadline,
     });
-    if (
-      tree !== null &&
-      !tree.rootNode.hasError &&
-      tree.rootNode.descendantCount <= 4096
-    ) {
+    if (tree !== null && !tree.rootNode.hasError && tree.rootNode.descendantCount <= 4096) {
       const root = tree.rootNode;
       const styles = headerStyles(root);
       const commands: string[][] = [];
       // Bash may join the word fragments on either side of a continuation;
       // this grammar reports them as separate arguments when no space intervenes.
       analysis =
-        !/\S\\\r?\n(?=\S)/u.test(command) && outputCommands(root, commands)
-          ? { styles, commands }
-          : { styles };
+        !/\S\\\r?\n(?=\S)/u.test(command) && outputCommands(root, commands) ? { styles, commands } : { styles };
     }
   } catch {
     // Incomplete or exceptionally complex input keeps Pi's generic rendering.

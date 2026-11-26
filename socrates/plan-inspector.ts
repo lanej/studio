@@ -1,9 +1,5 @@
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
-import {
-  matchesKey,
-  truncateToWidth,
-  wrapTextWithAnsi,
-} from "@earendil-works/pi-tui";
+import { matchesKey, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import {
   renderStatusCounts,
   renderStatusMark,
@@ -16,10 +12,7 @@ import { ReasoningLevel } from "../config.ts";
 import { planGraph, planGraphColor, renderGraphPrefix } from "../plan-graph.ts";
 import { withTaskAssignment } from "../tasks/presentation.ts";
 import { implementationColumn, taskMarks } from "./columns.ts";
-import type {
-  ImplementationField,
-  ImplementationPresentation,
-} from "./implementation.ts";
+import type { ImplementationField, ImplementationPresentation } from "./implementation.ts";
 
 const fieldMarks = {
   Acceptance: ["◎", "accent"],
@@ -35,14 +28,10 @@ const fieldMarks = {
   Bead: ["#", "muted"],
 } satisfies Record<ImplementationField["label"], [string, ThemeColor]>;
 
-function renderFieldValue(
-  field: ImplementationField,
-  theme: StatusTheme,
-): string {
+function renderFieldValue(field: ImplementationField, theme: StatusTheme): string {
   const { label, value } = field;
   const text = selectorText(value);
-  if (label === "Worker")
-    return renderStatusPill({ label: text, tone: "accent" }, theme);
+  if (label === "Worker") return renderStatusPill({ label: text, tone: "accent" }, theme);
   if (label === "Reasoning")
     return value === ReasoningLevel.Off
       ? renderStatusPill({ label: "Off", tone: "muted" }, theme)
@@ -76,8 +65,7 @@ export function createPlanInspector(
   let maximum = 0;
   let page = 1;
   const color = planGraphColor(theme);
-  const oneLine = (text: string) =>
-    selectorText(text).replace(/\s+/gu, " ").trim();
+  const oneLine = (text: string) => selectorText(text).replace(/\s+/gu, " ").trim();
 
   return {
     invalidate() {},
@@ -103,16 +91,9 @@ export function createPlanInspector(
       let body: string[];
       let targetLine = 0;
       let footer: string;
-      if (detail && task !== undefined) {
+      if (detail && task) {
         const status = renderStatusPill(taskMarks[task.state], options.theme);
-        header = [
-          heading,
-          ...wrapTextWithAnsi(
-            `${theme.bold(oneLine(task.label))}  ${status}`,
-            width,
-          ),
-          "",
-        ];
+        header = [heading, ...wrapTextWithAnsi(`${theme.bold(oneLine(task.label))}  ${status}`, width), ""];
         body = [
           ...wrapTextWithAnsi(selectorText(task.description), width),
           "",
@@ -122,27 +103,15 @@ export function createPlanInspector(
             return wrapTextWithAnsi(
               `${theme.fg("muted", label)} · ${renderFieldValue(field, options.theme)}`,
               Math.max(1, width - 2),
-            ).map(
-              (line, index) =>
-                (index === 0 ? `${theme.fg(tone, glyph)} ` : "  ") + line,
-            );
+            ).map((line, index) => (index === 0 ? `${theme.fg(tone, glyph)} ` : "  ") + line);
           }),
           ...(task.issue === undefined
             ? []
-            : [
-                "",
-                ...wrapTextWithAnsi(
-                  theme.fg("warning", selectorText(task.issue)),
-                  width,
-                ),
-              ]),
+            : ["", ...wrapTextWithAnsi(theme.fg("warning", selectorText(task.issue)), width)]),
         ];
         footer = "↑↓ scroll  ·  Esc back";
       } else {
-        const status =
-          column.status === undefined
-            ? ""
-            : renderStatusMark(column.status, options.theme);
+        const status = !column.status ? "" : renderStatusMark(column.status, options.theme);
         const counts = renderStatusCounts(column.counts ?? [], options.theme);
         header = [heading, [status, counts].filter(Boolean).join("   ")];
         if (column.summary !== undefined) {
@@ -166,54 +135,30 @@ export function createPlanInspector(
         for (const [index, graph] of rows.entries()) {
           const item = graph.task;
           const mark = taskMarks[item.state];
-          const prefix = renderGraphPrefix(
-            graph.prefix,
-            color,
-            statusPaint(options.theme, mark.tone)(mark.glyph),
-          );
+          const prefix = renderGraphPrefix(graph.prefix, color, statusPaint(options.theme, mark.tone)(mark.glyph));
           const label = oneLine(item.label);
           const current = index === selected;
           const pointer = current ? theme.fg("accent", "› ") : "  ";
           const row = truncateToWidth(
-            withTaskAssignment(
-              `${pointer}${prefix}  ${label}`,
-              item.assignment,
-              width,
-              (text) => theme.fg("muted", text),
+            withTaskAssignment(`${pointer}${prefix}  ${label}`, item.assignment, width, (text) =>
+              theme.fg("muted", text),
             ),
             width,
           );
           if (current) targetLine = body.length;
-          body.push(
-            current
-              ? options.theme.selected(truncateToWidth(row, width, "", true))
-              : row,
-          );
-          body.push(
-            ...graph.connectors.map(
-              (line) => `  ${renderGraphPrefix(line, color)}`,
-            ),
-          );
+          body.push(current ? options.theme.selected(truncateToWidth(row, width, "", true)) : row);
+          body.push(...graph.connectors.map((line) => `  ${renderGraphPrefix(line, color)}`));
         }
-        if (body.length === 0)
-          body.push(theme.fg("muted", oneLine(plan.detail)));
-        footer =
-          rows.length === 0
-            ? "Esc close"
-            : "↑↓ select  ·  Enter details  ·  Esc close";
+        if (body.length === 0) body.push(theme.fg("muted", oneLine(plan.detail)));
+        footer = rows.length === 0 ? "Esc close" : "↑↓ select  ·  Enter details  ·  Esc close";
       }
       // Keep one content line available even in a short split pane.
       header = header.slice(0, Math.max(0, height - 2));
       page = Math.max(1, height - header.length - 1);
       maximum = Math.max(0, body.length - page);
       offset = Math.min(offset, maximum);
-      if (!detail)
-        offset = Math.min(targetLine, Math.max(offset, targetLine - page + 1));
-      return [
-        ...header,
-        ...body.slice(offset, offset + page),
-        theme.fg("dim", footer),
-      ]
+      if (!detail) offset = Math.min(targetLine, Math.max(offset, targetLine - page + 1));
+      return [...header, ...body.slice(offset, offset + page), theme.fg("dim", footer)]
         .slice(0, height)
         .map((line) => truncateToWidth(line, width));
     },
@@ -222,21 +167,14 @@ export function createPlanInspector(
         options.onClose();
         return;
       }
-      if (
-        matchesKey(input, "escape") ||
-        (detail && (input === "h" || matchesKey(input, "left")))
-      ) {
+      if (matchesKey(input, "escape") || (detail && (input === "h" || matchesKey(input, "left")))) {
         if (!detail) {
           options.onClose();
           return;
         }
         detail = false;
         offset = 0;
-      } else if (
-        matchesKey(input, "enter") &&
-        !detail &&
-        rows[selected] !== undefined
-      ) {
+      } else if (matchesKey(input, "enter") && !detail && rows[selected]) {
         detail = true;
         offset = 0;
       } else {

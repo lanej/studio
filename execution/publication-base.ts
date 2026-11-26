@@ -10,9 +10,7 @@ type Receipt = Proof["prerequisites"][number];
 
 function sha(value: string | undefined): string {
   if (value === undefined || !/^[a-f0-9]{40}$/u.test(value))
-    throw new Error(
-      "PR publication requires exact Git commit and tree identities",
-    );
+    throw new Error("PR publication requires exact Git commit and tree identities");
   return value;
 }
 
@@ -29,25 +27,11 @@ export async function fetchPublicationTarget(
   const source = `refs/heads/${publicationTarget(project)}`;
   const target = `refs/studio/publication-targets/${attemptId}`;
   await git(project.root, ["check-ref-format", source]);
-  await git(project.root, [
-    "fetch",
-    "--no-tags",
-    "--no-write-fetch-head",
-    "origin",
-    `+${source}:${target}`,
-  ]);
-  return sha(
-    (
-      await git(project.root, ["rev-parse", "--verify", `${target}^{commit}`])
-    ).trim(),
-  );
+  await git(project.root, ["fetch", "--no-tags", "--no-write-fetch-head", "origin", `+${source}:${target}`]);
+  return sha((await git(project.root, ["rev-parse", "--verify", `${target}^{commit}`])).trim());
 }
 
-async function isAncestor(
-  git: Git,
-  base: string,
-  head: string,
-): Promise<boolean> {
+async function isAncestor(git: Git, base: string, head: string): Promise<boolean> {
   try {
     await git(["merge-base", "--is-ancestor", sha(base), sha(head)]);
     return true;
@@ -57,44 +41,20 @@ async function isAncestor(
   }
 }
 
-async function requireAncestor(
-  git: Git,
-  base: string,
-  head: string,
-): Promise<void> {
+async function requireAncestor(git: Git, base: string, head: string): Promise<void> {
   if (!(await isAncestor(git, base, head)))
-    throw new Error(
-      "PR publication ancestry differs from the approved checkout base or remote target",
-    );
+    throw new Error("PR publication ancestry differs from the approved checkout base or remote target");
 }
 
-async function checkPaths(
-  git: Git,
-  before: string,
-  after: string,
-  owns: string[],
-): Promise<void> {
+async function checkPaths(git: Git, before: string, after: string, owns: string[]): Promise<void> {
   if (owns.length === 0) return;
-  const paths = await git([
-    "diff",
-    "--no-renames",
-    "--name-only",
-    "-z",
-    before,
-    after,
-  ]);
+  const paths = await git(["diff", "--no-renames", "--name-only", "-z", before, after]);
   requireOwnedPaths(paths, owns);
 }
 
 function requireOwnedPaths(output: string, owns: string[]): void {
   const paths = output.split("\0");
-  if (
-    paths.some(
-      (path) =>
-        path !== "" &&
-        !owns.some((owned) => path === owned || path.startsWith(`${owned}/`)),
-    )
-  )
+  if (paths.some((path) => path !== "" && !owns.some((owned) => path === owned || path.startsWith(`${owned}/`))))
     throw new Error("PR changes exceed accepted path ownership");
 }
 
@@ -111,10 +71,7 @@ async function projectBase(
   const published = store
     .attempts()
     .filter(
-      (record) =>
-        record.project === project.id &&
-        record.merged !== undefined &&
-        record.publicationBase !== undefined,
+      (record) => record.project === project.id && record.merged !== undefined && record.publicationBase !== undefined,
     );
   for (const task of publicationPrerequisites(store, project, attempt)) {
     if (task.merged !== undefined) {
@@ -130,15 +87,8 @@ async function projectBase(
     await requireAncestor(git, sha(task.head), after);
     await checkPaths(git, before, after, task.owns);
     const receipt = proof?.prerequisites[receipts.length];
-    if (
-      proof !== undefined &&
-      (receipt?.id !== task.id ||
-        receipt.before !== before ||
-        receipt.after !== after)
-    )
-      throw new Error(
-        "PR prerequisite provenance differs from the approved graph",
-      );
+    if (proof && (receipt?.id !== task.id || receipt.before !== before || receipt.after !== after))
+      throw new Error("PR prerequisite provenance differs from the approved graph");
 
     // A sibling PR may already have squash-merged this exact local prerequisite.
     // Its accepted remote receipt survives later edits and reversions on the target.
@@ -147,42 +97,24 @@ async function projectBase(
       if (included) break;
       if (
         record.publicationBase?.prerequisites.some(
-          (entry) =>
-            entry.id === task.id &&
-            entry.before === before &&
-            entry.after === after,
+          (entry) => entry.id === task.id && entry.before === before && entry.after === after,
         ) === true
       )
         included = await isAncestor(git, sha(record.merged), remote);
     }
     if (!included) {
       const tree = sha(
-        (
-          await git([
-            "merge-tree",
-            "--write-tree",
-            "-Xno-renames",
-            `--merge-base=${before}`,
-            tip,
-            after,
-          ])
-        ).trim(),
+        (await git(["merge-tree", "--write-tree", "-Xno-renames", `--merge-base=${before}`, tip, after])).trim(),
       );
-      const previousTree = sha(
-        (await git(["rev-parse", `${tip}^{tree}`])).trim(),
-      );
+      const previousTree = sha((await git(["rev-parse", `${tip}^{tree}`])).trim());
       if (tree !== previousTree) {
         await checkPaths(git, previousTree, tree, task.owns);
-        if (receipt !== undefined) {
+        if (receipt) {
           const commit = sha(receipt.commit);
           const parents = (await git(["rev-parse", `${commit}^@`])).trim();
-          const storedTree = (
-            await git(["rev-parse", `${commit}^{tree}`])
-          ).trim();
+          const storedTree = (await git(["rev-parse", `${commit}^{tree}`])).trim();
           if (parents !== tip || storedTree !== tree)
-            throw new Error(
-              "PR prerequisite commit differs from its authorized tree or parent",
-            );
+            throw new Error("PR prerequisite commit differs from its authorized tree or parent");
           tip = commit;
         } else {
           tip = sha(
@@ -200,16 +132,12 @@ async function projectBase(
         }
       }
     }
-    if (receipt !== undefined && receipt.commit !== tip)
-      throw new Error(
-        "PR prerequisite commit differs from its authorized projection",
-      );
+    if (receipt && receipt.commit !== tip)
+      throw new Error("PR prerequisite commit differs from its authorized projection");
     receipts.push({ id: task.id, before, after, commit: tip });
   }
-  if (proof !== undefined && receipts.length !== proof.prerequisites.length)
-    throw new Error(
-      "PR publication contains prerequisites outside the approved graph",
-    );
+  if (proof && receipts.length !== proof.prerequisites.length)
+    throw new Error("PR publication contains prerequisites outside the approved graph");
   return { base: tip, publicationBase: { remote, prerequisites: receipts } };
 }
 
@@ -219,15 +147,9 @@ export async function preparePublicationBase(
   attempt: Execution,
 ): Promise<string> {
   const remote = await fetchPublicationTarget(project, attempt.id);
-  const result = await projectBase(store, project, attempt, remote, (args) =>
-    projectObjectGit(project.root, args),
-  );
+  const result = await projectBase(store, project, attempt, remote, (args) => projectObjectGit(project.root, args));
   // Keep synthetic commits reachable if allocation is interrupted before the worker branch exists.
-  await projectObjectGit(project.root, [
-    "update-ref",
-    `refs/studio/publication-bases/${attempt.id}`,
-    result.base,
-  ]);
+  await projectObjectGit(project.root, ["update-ref", `refs/studio/publication-bases/${attempt.id}`, result.base]);
   store.change(attempt.id, (row) => {
     row.base = result.base;
     row.publicationBase = result.publicationBase;
@@ -244,38 +166,16 @@ export async function assertPublicationHead(
   adapters = { networkGit, safeGit },
 ): Promise<void> {
   const checkout = attempt.checkout;
-  if (
-    checkout === undefined ||
-    attempt.project !== project.id ||
-    attempt.head !== sha(head) ||
-    attempt.review === undefined
-  )
-    throw new Error(
-      "PR publication requires the independently reviewed worker head",
-    );
-  const git: Git = (args) =>
-    adapters.safeGit(project.root, checkout.path, args);
+  if (!checkout || attempt.project !== project.id || attempt.head !== sha(head) || attempt.review === undefined)
+    throw new Error("PR publication requires the independently reviewed worker head");
+  const git: Git = (args) => adapters.safeGit(project.root, checkout.path, args);
   const base = sha(attempt.base);
-  const remote = await fetchPublicationTarget(
-    project,
-    attempt.id,
-    adapters.networkGit,
-  );
+  const remote = await fetchPublicationTarget(project, attempt.id, adapters.networkGit);
   const proof = attempt.publicationBase;
-  if (proof !== undefined) {
+  if (proof) {
     await requireAncestor(git, proof.remote, remote);
-    const result = await projectBase(
-      store,
-      project,
-      attempt,
-      proof.remote,
-      git,
-      proof,
-    );
-    if (result.base !== base)
-      throw new Error(
-        "PR checkout does not descend from the approved prerequisite projection",
-      );
+    const result = await projectBase(store, project, attempt, proof.remote, git, proof);
+    if (result.base !== base) throw new Error("PR checkout does not descend from the approved prerequisite projection");
   } else {
     // Retained pre-upgrade allocations can resume when all inherited history
     // already belongs to the target. Never publish an unproven local frontier.
@@ -284,16 +184,7 @@ export async function assertPublicationHead(
       await requireAncestor(git, sha(task.merged ?? task.integration), base);
   }
   await requireAncestor(git, base, head);
-  if (
-    (
-      await git([
-        "rev-list",
-        "--min-parents=2",
-        "--max-count=1",
-        `${base}..${head}`,
-      ])
-    ).trim() !== ""
-  )
+  if ((await git(["rev-list", "--min-parents=2", "--max-count=1", `${base}..${head}`])).trim() !== "")
     throw new Error("PR worker history contains an unapproved merge parent");
   if (attempt.owns.length > 0) {
     // Inspect intermediate revisions too. A later deletion cannot retract a blob

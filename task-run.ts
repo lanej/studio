@@ -10,14 +10,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { Attempts, Phase, stateDirectory, type Attempt } from "./attempts.ts";
-import {
-  AgentRole,
-  DefaultProvider,
-  StudioProfile,
-  type StudioConfig,
-  knownProvider,
-  loadConfig,
-} from "./config.ts";
+import { AgentRole, DefaultProvider, StudioProfile, type StudioConfig, knownProvider, loadConfig } from "./config.ts";
 import { LeadMode } from "./planning/plan.ts";
 import { processFailure, processStart, run } from "./process.ts";
 import { ClaimRefused, owner, TaskBeads } from "./task-service.ts";
@@ -27,6 +20,7 @@ import { readTaskEvidence } from "./tasks/evidence.ts";
 import { ExecutionStore } from "./execution/store.ts";
 
 const extension = join(packageRoot, "worker-extension.ts");
+
 export async function piExecutable(): Promise<string> {
   const executable = join(packageRoot, "scripts/pi");
   await access(executable, constants.X_OK);
@@ -41,21 +35,14 @@ async function focus(
   profile: StudioProfile,
   check: string[],
 ): Promise<Attempt> {
-  if (
-    record.reservation.primary !== primary ||
-    record.profile !== profile ||
-    !isDeepStrictEqual(record.check, check)
-  ) {
-    throw new Error(
-      "The existing attempt has a different repository, profile or verification command",
-    );
+  if (record.reservation.primary !== primary || record.profile !== profile || !isDeepStrictEqual(record.check, check)) {
+    throw new Error("The existing attempt has a different repository, profile or verification command");
   }
   return focusRegisteredPane(record, zellij, service);
 }
 
 export async function taskPaneBeads(project: string): Promise<Set<string>> {
-  if (!(await integrationStatus(await loadConfig(), "zellij")).available)
-    return new Set();
+  if (!(await integrationStatus(await loadConfig(), "zellij")).available) return new Set();
   const session = process.env["ZELLIJ_SESSION_NAME"];
   if (session === undefined || session === "") return new Set();
   const directory = stateDirectory();
@@ -90,30 +77,21 @@ export async function focusTaskPane(
   if (candidates.length > 0) {
     const service = new TaskBeads(source);
     const current = await service.get(bead);
-    if (
-      expectedAttemptId !== undefined &&
-      current.assignee !== owner(expectedAttemptId)
-    )
-      throw new Error(
-        "The assignment changed. Select the current worker before focusing its pane.",
-      );
+    if (expectedAttemptId !== undefined && current.assignee !== owner(expectedAttemptId))
+      throw new Error("The assignment changed. Select the current worker before focusing its pane.");
     const attempt = candidates.find(
       (candidate) =>
         candidate.bead?.assignee === current.assignee &&
         (expectedAttemptId === undefined || candidate.id === expectedAttemptId),
     );
-    if (attempt?.bead !== undefined && attempt.revision !== undefined) {
+    if (attempt?.bead && attempt.revision !== undefined) {
       await service.requireCurrent(attempt.bead, attempt.revision, attempt.id);
       const store = new ExecutionStore();
       try {
         const enrolled = store.project(attempt.project);
         if (!isDeepStrictEqual(enrolled.source, source))
           throw new Error("This inspector uses a different Beads authority");
-        await focusInteractivePane(
-          store.attempt(attempt.id),
-          enrolled.root,
-          signal,
-        );
+        await focusInteractivePane(store.attempt(attempt.id), enrolled.root, signal);
       } finally {
         store.close();
       }
@@ -124,21 +102,11 @@ export async function focusTaskPane(
   try {
     const record = db.latest(source.projectId, bead);
     if (expectedAttemptId !== undefined && record?.id !== expectedAttemptId)
-      throw new Error(
-        "The assignment changed. Select the current worker before focusing its pane.",
-      );
+      throw new Error("The assignment changed. Select the current worker before focusing its pane.");
     if (record === null || record.session !== session)
-      throw new Error(
-        "This task has no registered Pi pane in the current Zellij session",
-      );
-    if (!isDeepStrictEqual(record.source, source))
-      throw new Error("This inspector uses a different Beads authority");
-    await focusRegisteredPane(
-      record,
-      new Zellij(session),
-      new TaskBeads(source),
-      signal,
-    );
+      throw new Error("This task has no registered Pi pane in the current Zellij session");
+    if (!isDeepStrictEqual(record.source, source)) throw new Error("This inspector uses a different Beads authority");
+    await focusRegisteredPane(record, new Zellij(session), new TaskBeads(source), signal);
   } finally {
     db.close();
   }
@@ -161,17 +129,13 @@ async function focusRegisteredPane(
       "This attempt has no binding to the current Zellij server. Inspect the retained attempt before resuming",
     );
   const panes = await zellij.panes();
-  const pane = panes.find(
-    (candidate) =>
-      candidate.id === record.pane && !candidate.is_plugin && !candidate.exited,
-  );
+  const pane = panes.find((candidate) => candidate.id === record.pane && !candidate.is_plugin && !candidate.exited);
   if (
     !record.live ||
     record.checkout === null ||
     !matchesAttempt(pane?.terminal_command, record.id, record.transcript) ||
     pane?.pane_cwd == null ||
-    (await realpath(pane.pane_cwd)) !==
-      (await realpath(record.checkout.path)) ||
+    (await realpath(pane.pane_cwd)) !== (await realpath(record.checkout.path)) ||
     (await processStart(record.pid)) !== record.processStarted
   ) {
     throw new Error(
@@ -183,10 +147,7 @@ async function focusRegisteredPane(
   return record;
 }
 
-async function assertLeadProfile(
-  config: StudioConfig,
-  profile: StudioProfile,
-): Promise<void> {
+async function assertLeadProfile(config: StudioConfig, profile: StudioProfile): Promise<void> {
   const agent = getAgentDir();
   const runtime = await ModelRuntime.create({
     authPath: join(agent, "auth.json"),
@@ -194,48 +155,28 @@ async function assertLeadProfile(
   });
   for (const role of [AgentRole.Lead, AgentRole.Explorer, AgentRole.Reviewer]) {
     const selection = config.profiles[profile]?.[role];
-    const model =
-      selection === undefined
-        ? undefined
-        : runtime.getModel(selection.provider, selection.model);
+    const model = !selection ? undefined : runtime.getModel(selection.provider, selection.model);
     if (
-      model === undefined ||
+      !model ||
       !runtime.hasConfiguredAuth(model.provider) ||
-      (profile === StudioProfile.Personal &&
-        knownProvider(model.provider) !==
-          DefaultProvider.ChatGPTSubscription) ||
+      (profile === StudioProfile.Personal && knownProvider(model.provider) !== DefaultProvider.ChatGPTSubscription) ||
       (profile === StudioProfile.Work &&
-        !/^https:\/\/bedrock-mantle\.[a-z0-9-]+\.api\.aws(?:\/|$)/u.test(
-          model.baseUrl,
-        ))
+        !/^https:\/\/bedrock-mantle\.[a-z0-9-]+\.api\.aws(?:\/|$)/u.test(model.baseUrl))
     )
-      throw new Error(
-        `Configure and authenticate the ${profile} ${role} model in Pi before claiming the task`,
-      );
+      throw new Error(`Configure and authenticate the ${profile} ${role} model in Pi before claiming the task`);
   }
 }
 
-function matchesAttempt(
-  command: string | null | undefined,
-  attempt: string,
-  transcript: string | null,
-): boolean {
+function matchesAttempt(command: string | null | undefined, attempt: string, transcript: string | null): boolean {
   const argv = command?.split(/\s+/u) ?? [];
   const marker = argv.indexOf("--session-id");
   return (
     (marker >= 0 && argv[marker + 1] === attempt) ||
-    (transcript !== null &&
-      command?.includes(`--session ${transcript} --`) === true)
+    (transcript !== null && command?.includes(`--session ${transcript} --`) === true)
   );
 }
 
-async function launchPi(
-  db: Attempts,
-  zellij: Zellij,
-  tab: number,
-  binary: string,
-  record: Attempt,
-): Promise<Attempt> {
+async function launchPi(db: Attempts, zellij: Zellij, tab: number, binary: string, record: Attempt): Promise<Attempt> {
   const { id: attempt, checkout, model } = record;
   const id = record.bead.id;
   const lead = record.leadPlan !== undefined;
@@ -256,9 +197,7 @@ async function launchPi(
     ...(record.resumePhase === undefined || record.transcript === null
       ? ["--session-id", attempt]
       : ["--session", record.transcript]),
-    ...(lead
-      ? ["--no-extensions", "--no-mcp", "--extension", diffExtension()]
-      : []),
+    ...(lead ? ["--no-extensions", "--no-mcp", "--extension", diffExtension()] : []),
     "--extension",
     extension,
     "--provider",
@@ -283,7 +222,7 @@ async function launchPi(
         matchesAttempt(candidate.terminal_command, attempt, record.transcript),
     );
     const [recovered] = matching;
-    if (matching.length !== 1 || recovered === undefined) throw error;
+    if (matching.length !== 1 || !recovered) throw error;
     pane = recovered.id;
   }
   const deadline = Date.now() + 15000;
@@ -291,15 +230,12 @@ async function launchPi(
     const observed = db.get(attempt);
     if (observed.phase === Phase.Reconcile) throw new Error(observed.message);
     if (observed.pid !== null) {
-      if (observed.pane !== pane)
-        throw new Error("Pi registered a different Zellij pane");
+      if (observed.pane !== pane) throw new Error("Pi registered a different Zellij pane");
       return observed;
     }
     await delay(100);
   } while (Date.now() < deadline);
-  throw new Error(
-    "Native Pi registration is pending. Inspect the attempt before retrying",
-  );
+  throw new Error("Native Pi registration is pending. Inspect the attempt before retrying");
 }
 
 export function processIsGone(pid: number): boolean {
@@ -307,51 +243,34 @@ export function processIsGone(pid: number): boolean {
     process.kill(pid, 0);
     return false;
   } catch (error) {
-    if (z.object({ code: z.literal("ESRCH") }).safeParse(error).success)
-      return true;
+    if (z.object({ code: z.literal("ESRCH") }).safeParse(error).success) return true;
     throw error;
   }
 }
 
-export async function resumeLead(
-  bead: string,
-  targetTab?: number,
-): Promise<Attempt> {
+export async function resumeLead(bead: string, targetTab?: number): Promise<Attempt> {
   const config = await loadConfig();
   await requireIntegration(config, "zellij");
   const managerExecutable = await requireIntegration(config, "worktrees");
-  if (config.beadsService === undefined)
-    throw new Error("Configure the Beads service before resuming");
+  if (!config.beadsService) throw new Error("Configure the Beads service before resuming");
   const db = new Attempts(stateDirectory());
   try {
     const record = db.latest(config.beadsService.projectId, bead);
     if (
       record === null ||
-      record.leadPlan === undefined ||
+      !record.leadPlan ||
       record.checkout === null ||
       record.revision === null ||
       record.transcript === null ||
       record.pid === null ||
-      (record.phase !== Phase.Running &&
-        record.phase !== Phase.Verified &&
-        record.phase !== Phase.CheckFailed)
+      (record.phase !== Phase.Running && record.phase !== Phase.Verified && record.phase !== Phase.CheckFailed)
     )
       throw new Error("No settled, resumable lead attempt is recorded");
-    const session = z
-      .string()
-      .min(1, "Resume from a live Zellij session")
-      .parse(process.env["ZELLIJ_SESSION_NAME"]);
+    const session = z.string().min(1, "Resume from a live Zellij session").parse(process.env["ZELLIJ_SESSION_NAME"]);
     const zellij = new Zellij(session);
     const service = new TaskBeads(record.source);
     if (!processIsGone(record.pid)) {
-      return await focus(
-        record,
-        zellij,
-        service,
-        record.reservation.primary,
-        record.profile,
-        record.check,
-      );
+      return await focus(record, zellij, service, record.reservation.primary, record.profile, record.check);
     }
     const checkout = record.checkout;
     if (
@@ -360,23 +279,16 @@ export async function resumeLead(
           cwd: checkout.path,
         })
       ).trim() !== (await realpath(checkout.path)) ||
-      (
-        await run("git", ["branch", "--show-current"], { cwd: checkout.path })
-      ).trim() !== checkout.branch ||
+      (await run("git", ["branch", "--show-current"], { cwd: checkout.path })).trim() !== checkout.branch ||
       !(await stat(record.transcript)).isFile()
     )
-      throw new Error(
-        "The managed checkout or Pi transcript no longer matches the attempt",
-      );
+      throw new Error("The managed checkout or Pi transcript no longer matches the attempt");
     await new WorktreeManager(managerExecutable).requireAllocation(checkout);
     if (record.leadPlan.mode === LeadMode.Applying)
       throw new Error("The plan batch needs reconciliation before resuming");
     await service.requireCurrent(record.bead, record.revision, record.id);
     await assertLeadProfile(config, record.profile);
-    const [binary, tab] = await Promise.all([
-      piExecutable(),
-      zellij.launchTab(targetTab),
-    ]);
+    const [binary, tab] = await Promise.all([piExecutable(), zellij.launchTab(targetTab)]);
     const previousPid = record.pid;
     const phase = record.phase;
     const pending = db.change(record.id, (row) => {
@@ -402,8 +314,7 @@ export async function resumeLead(
       db.change(record.id, (row) => {
         if (row.pid !== null) return;
         row.phase = Phase.Reconcile;
-        row.message =
-          "Resume outcome uncertain. Inspect the Pi pane and transcript before retrying";
+        row.message = "Resume outcome uncertain. Inspect the Pi pane and transcript before retrying";
       });
       throw error;
     }
@@ -423,27 +334,17 @@ export async function startTask(
   await requireIntegration(config, "zellij");
   const managerExecutable = await requireIntegration(config, "worktrees");
   const source = config.beadsService;
-  if (source === undefined)
-    throw new Error(
-      "Configure beadsService.url and beadsService.projectId to start a native bead",
-    );
+  if (!source) throw new Error("Configure beadsService.url and beadsService.projectId to start a native bead");
   const service = new TaskBeads(source);
   const bead = await service.get(id);
   await service.requireDeliveryLaunch(bead, lead);
-  const model =
-    config.profiles[profile]?.[lead ? AgentRole.Lead : AgentRole.Worker];
-  if (model === undefined)
-    throw new Error(`Configure the model for the ${profile} profile`);
+  const model = config.profiles[profile]?.[lead ? AgentRole.Lead : AgentRole.Worker];
+  if (!model) throw new Error(`Configure the model for the ${profile} profile`);
   const expectedProvider =
-    profile === StudioProfile.Personal
-      ? DefaultProvider.ChatGPTSubscription
-      : DefaultProvider.BedrockMantle;
+    profile === StudioProfile.Personal ? DefaultProvider.ChatGPTSubscription : DefaultProvider.BedrockMantle;
   if (knownProvider(model.provider) !== expectedProvider)
     throw new Error(`The ${profile} profile must use ${expectedProvider}`);
-  const session = z
-    .string()
-    .min(1, "Start from the target Zellij session")
-    .parse(process.env["ZELLIJ_SESSION_NAME"]);
+  const session = z.string().min(1, "Start from the target Zellij session").parse(process.env["ZELLIJ_SESSION_NAME"]);
   const zellij = new Zellij(session);
   const attempt = randomUUID();
   const manager = new WorktreeManager(managerExecutable);
@@ -479,10 +380,7 @@ export async function startTask(
     };
     const last = db.latest(source.projectId, id);
     if (bead.status === "closed") {
-      if (
-        last?.verification?.exitCode === 0 &&
-        (await service.closedWith(id, last.id, last.verification))
-      ) {
+      if (last?.verification?.exitCode === 0 && (await service.closedWith(id, last.id, last.verification))) {
         return db.change(last.id, (row) => {
           row.phase = Phase.Closed;
           row.message = "Beads confirmed the verified result";
@@ -495,18 +393,10 @@ export async function startTask(
     if (last === null && lead) await assertLeadProfile(config, profile);
     if (!db.reserve(initial)) {
       const existing = db.latest(source.projectId, id);
-      if (existing === null)
-        throw new Error("The active attempt could not be identified");
+      if (existing === null) throw new Error("The active attempt could not be identified");
       if ((existing.leadPlan !== undefined) !== lead)
         throw new Error("The existing attempt has a different session role");
-      return await focus(
-        existing,
-        zellij,
-        service,
-        reservation.primary,
-        profile,
-        check,
-      );
+      return await focus(existing, zellij, service, reservation.primary, profile, check);
     }
     try {
       const revision = await service.claim(bead, attempt);
@@ -532,8 +422,7 @@ export async function startTask(
       // A read immediately after a transport failure can outrun the original claim.
       db.change(attempt, (row) => {
         if (row.pid !== null) return;
-        row.phase =
-          cause instanceof ClaimRefused ? Phase.Rejected : Phase.Reconcile;
+        row.phase = cause instanceof ClaimRefused ? Phase.Rejected : Phase.Reconcile;
         row.message = message;
       });
       throw cause;

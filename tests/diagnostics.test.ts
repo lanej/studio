@@ -3,21 +3,10 @@ import type { SyntaxReplacement } from "../code-intelligence/syntax-analysis.ts"
 import studioTheme from "../resources/theme.json" with { type: "json" };
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type {
-  ThemeBg,
-  ThemeColor,
-  ThemeStyle,
-} from "@earendil-works/pi-coding-agent";
-import {
-  parseColor,
-  styleText,
-  stripTerminalSequences,
-  visibleWidth,
-} from "@earendil-works/pi-tui";
-import {
-  diagnosticRows,
-  type DiagnosticSnapshot,
-} from "../code-intelligence/diagnostics.ts";
+import type { ThemeBg, ThemeColor, ThemeStyle } from "@earendil-works/pi-coding-agent";
+import { parseColor, styleText, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
+import { diagnosticRows, type DiagnosticSnapshot } from "../code-intelligence/diagnostics.ts";
+
 const plain = {
   appearance: "dark" as const,
   bg: (_tone: ThemeBg, value: string) => value,
@@ -81,22 +70,14 @@ await test("inline diagnostics distinguish pending and reported results, wrap, a
   assert.doesNotMatch(text, /TS2322/u);
   assert.equal(text.match(/assignable/gu)?.length, 1);
   assert.equal(text.includes("\x1b"), false);
-  assert.match(
-    diagnosticRows(value, plain, 100, true).join("\n"),
-    /⚠ 3:1 {2}Unused value/u,
-  );
+  assert.match(diagnosticRows(value, plain, 100, true).join("\n"), /⚠ 3:1 {2}Unused value/u);
   const wide = diagnosticRows(value, plain, 55, false);
   const first = wide.findIndex((row) => row.startsWith("× 7:3"));
   assert.match(wide[first] ?? "", /^× 7:3, 9:3 {2}Type/u);
   assert.match(wide[first + 1] ?? "", /^ {12}\S/u);
   assert.match(text, /document version/u);
   assert.match(
-    diagnosticRows(
-      { path: value.path, state: "pending", diagnostics: [] },
-      plain,
-      100,
-      false,
-    ).join("\n"),
+    diagnosticRows({ path: value.path, state: "pending", diagnostics: [] }, plain, 100, false).join("\n"),
     /checking/u,
   );
   const empty = diagnosticRows(
@@ -123,17 +104,9 @@ await test("edit diffs switch between aligned split and unified layouts without 
   const highlight = (text: string) => text.split("\n");
   const scope = { row: 1, label: "applyRetry(limit: number)" };
   for (const width of [60, 92, 93, 100, 140]) {
-    const rows = syntaxDiffRows(
-      diff,
-      "retry.ts",
-      plain,
-      width,
-      "/project",
-      highlight,
-      undefined,
-      [],
-      { scopes: [scope] },
-    );
+    const rows = syntaxDiffRows(diff, "retry.ts", plain, width, "/project", highlight, undefined, [], {
+      scopes: [scope],
+    });
     const text = rows.join("\n");
     assert.ok(
       rows.every((row) => visibleWidth(row) <= width),
@@ -151,42 +124,20 @@ await test("edit diffs switch between aligned split and unified layouts without 
     assert.equal(text.includes(" │ "), width >= 93);
     assert.doesNotMatch(text, /Original.*Updated/u);
     if (width >= 93) {
-      assert.match(
-        text,
-        /-\s*7 const retries = 3;.*│.*\+\s*7 const retries = "three";/u,
-      );
+      assert.match(text, /-\s*7 const retries = 3;.*│.*\+\s*7 const retries = "three";/u);
       assert.match(text, /9 finish\(\).*│.*8 finish\(\)/u);
     }
   }
   const long = `-1 const value = "${"漢字😀".repeat(25)}";\n+1 const value = "short";`;
-  const wrapped = syntaxDiffRows(
-    long,
-    "retry.ts",
-    plain,
-    100,
-    "/project",
-    highlight,
-  );
+  const wrapped = syntaxDiffRows(long, "retry.ts", plain, 100, "/project", highlight);
   assert.ok(wrapped.every((row) => visibleWidth(row) <= 100));
   assert.match(wrapped.join("\n"), /short/u);
 });
 
-function renderDiff(
-  diff: string,
-  width: number,
-  replacements: SyntaxReplacement[] = [],
-): string {
-  const rows = syntaxDiffRows(
-    diff,
-    "retry.ts",
-    plain,
-    width,
-    "/project",
-    (text) => text.split("\n"),
-    undefined,
-    [],
-    { replacements },
-  );
+function renderDiff(diff: string, width: number, replacements: SyntaxReplacement[] = []): string {
+  const rows = syntaxDiffRows(diff, "retry.ts", plain, width, "/project", (text) => text.split("\n"), undefined, [], {
+    replacements,
+  });
   assert.ok(rows.every((row) => visibleWidth(row) <= width));
   return rows.map(stripTerminalSequences).join("\n");
 }
@@ -216,9 +167,7 @@ await test("small replacements show both tokens inline and shared code once", ()
     assert.ok(text.includes("mode: passive → active,"));
   }
   assert.match(
-    renderDiff("-1 rate: 1.25\n+1 rate: 1.75", 120, [
-      { row: 1, start: 6, original: "1.25", updated: "1.75" },
-    ]),
+    renderDiff("-1 rate: 1.25\n+1 rate: 1.75", 120, [{ row: 1, start: 6, original: "1.25", updated: "1.75" }]),
     /rate: 1\.25 → 1\.75/u,
   );
 });
@@ -228,11 +177,7 @@ await test("compact rows use UTF-16 syntax offsets and require matching saved so
   const diff = `-1 ${prefix}2);\n+1 ${prefix}4);`;
   const change = { row: 1, start: prefix.length, original: "2", updated: "4" };
   assert.ok(renderDiff(diff, 120, [change]).includes(`${prefix}2 → 4);`));
-  for (const replacements of [
-    [],
-    [{ ...change, original: "5" }],
-    [{ ...change, start: 2 }],
-  ]) {
+  for (const replacements of [[], [{ ...change, original: "5" }], [{ ...change, start: 2 }]]) {
     const full = renderDiff(diff, 120, replacements);
     assert.ok(full.includes(" │ "));
     assert.ok(full.includes(`${prefix}2);`));
@@ -241,14 +186,8 @@ await test("compact rows use UTF-16 syntax offsets and require matching saved so
 });
 
 await test("changing an operator or whitespace with a value preserves both expressions", () => {
-  assert.match(
-    renderDiff("-1 base-2\n+1 base+4", 120),
-    /-1 base-2\s*│\s*\+1 base\+4/u,
-  );
-  assert.match(
-    renderDiff("-1 retries: 2\n+1 retries:  4", 120),
-    /-1 retries: 2\s*│\s*\+1 retries: {2}4/u,
-  );
+  assert.match(renderDiff("-1 base-2\n+1 base+4", 120), /-1 base-2\s*│\s*\+1 base\+4/u);
+  assert.match(renderDiff("-1 retries: 2\n+1 retries:  4", 120), /-1 retries: 2\s*│\s*\+1 retries: {2}4/u);
 });
 
 await test("file reasons share the heading and a creation marks the file once", () => {
@@ -265,10 +204,7 @@ await test("file reasons share the heading and a creation marks the file once", 
       { displayToolName: "", addedFile, reason: "Cover the retry boundary." },
     ).map(stripTerminalSequences);
   const lines = render(72, true);
-  assert.match(
-    lines[0] ?? "",
-    /\+ src\/retry.ts {2}· Cover the retry boundary/u,
-  );
+  assert.match(lines[0] ?? "", /\+ src\/retry.ts {2}· Cover the retry boundary/u);
   assert.match(lines[1] ?? "", /^\s*1 export/u);
   assert.doesNotMatch(lines.join("\n"), /\+\s*\d/u);
   const inFile = render(72, false);
@@ -276,15 +212,9 @@ await test("file reasons share the heading and a creation marks the file once", 
   for (const width of [12, 18, 33]) {
     const narrow = render(width, true);
     assert.ok(narrow.every((row) => visibleWidth(row) <= width));
-    assert.match(
-      narrow.join(" ").replace(/\s+/gu, " "),
-      /Cover the retry boundary\./u,
-    );
+    assert.match(narrow.join(" ").replace(/\s+/gu, " "), /Cover the retry boundary\./u);
   }
-  assert.equal(
-    editFileHeading(plain, "Edit", "f", "\x1b[31m reason\x1b[0m"),
-    "Edit f  · reason",
-  );
+  assert.equal(editFileHeading(plain, "Edit", "f", "\x1b[31m reason\x1b[0m"), "Edit f  · reason");
   assert.equal(editFileHeading(plain, "Edit", "f", " "), "Edit f");
 });
 
@@ -299,12 +229,7 @@ await test("token fills and gutter roles survive compact, paired and wrapped dif
       toolDiffAdded: parseColor(studioTheme.colors.toolDiffAdded),
     },
     fg(role: ThemeColor, text: string) {
-      const ansi =
-        role === "warning"
-          ? "\x1b[33m"
-          : role === "toolDiffContext"
-            ? "\x1b[34m"
-            : "";
+      const ansi = role === "warning" ? "\x1b[33m" : role === "toolDiffContext" ? "\x1b[34m" : "";
       return ansi + text + (ansi === "" ? "" : "\x1b[39m");
     },
     style(text: string, options: ThemeStyle) {
@@ -314,7 +239,7 @@ await test("token fills and gutter roles survive compact, paired and wrapped dif
         text,
         {
           fg: options.fg,
-          ...(options.bg === undefined ? {} : { bg: options.bg }),
+          ...(!options.bg ? {} : { bg: options.bg }),
           bold: options.bold === true,
         },
         "truecolor",
@@ -323,11 +248,7 @@ await test("token fills and gutter roles survive compact, paired and wrapped dif
   };
   const gray = "\x1b[38;2;177;177;177m";
   const reason = "Allow another attempt";
-  assert.ok(
-    editFileHeading(theme, "Edit", "retry.ts", reason).includes(
-      `${gray}  · ${reason}`,
-    ),
-  );
+  assert.ok(editFileHeading(theme, "Edit", "retry.ts", reason).includes(`${gray}  · ${reason}`));
   const light = {
     ...theme,
     name: "custom-light",
@@ -338,11 +259,7 @@ await test("token fills and gutter roles survive compact, paired and wrapped dif
       text: parseColor("#202020"),
     },
   };
-  assert.ok(
-    editFileHeading(light, "Edit", "retry.ts", reason).includes(
-      "\x1b[38;2;85;85;85m",
-    ),
-  );
+  assert.ok(editFileHeading(light, "Edit", "retry.ts", reason).includes("\x1b[38;2;85;85;85m"));
   const diff = "-12 return attempts < 2;\n+12 return attempts < 4;";
   const change = { row: 1, start: 18, original: "2", updated: "4" };
   for (const [width, withIssue] of [
@@ -377,16 +294,9 @@ await test("token fills and gutter roles survive compact, paired and wrapped dif
     assert.ok(rows.every((row) => visibleWidth(row) <= width));
     assert.ok(view.includes("\x1b[48;2;71;52;63m"), "dark rose removal tint");
     assert.ok(view.includes("\x1b[48;2;48;70;57m"), "dark green addition tint");
-    assert.ok(
-      view.includes("\x1b[38;2;191;97;106m"),
-      "original red removal ink",
-    );
-    assert.ok(
-      view.includes("\x1b[38;2;163;190;140m"),
-      "original green addition ink",
-    );
-    if (withIssue && width === 120)
-      assert.ok(view.includes(`${gray}Out of range`));
+    assert.ok(view.includes("\x1b[38;2;191;97;106m"), "original red removal ink");
+    assert.ok(view.includes("\x1b[38;2;163;190;140m"), "original green addition ink");
+    if (withIssue && width === 120) assert.ok(view.includes(`${gray}Out of range`));
     if (!withIssue) {
       assert.ok(view.includes("\x1b[33m~\x1b[39m\x1b[34m12 "));
       assert.ok(view.includes("\x1b[38;2;191;97;106m\x1b[48;2;71;52;63m2"));
@@ -443,9 +353,7 @@ await test("token fills and gutter roles survive compact, paired and wrapped dif
 
 await test("a replacement that cannot fit inline keeps both source lines", () => {
   const diff = "-1 mode: previousMode,\n+1 mode: proposedMode,";
-  const text = renderDiff(diff, 24, [
-    { row: 1, start: 6, original: "previousMode", updated: "proposedMode" },
-  ]);
+  const text = renderDiff(diff, 24, [{ row: 1, start: 6, original: "previousMode", updated: "proposedMode" }]);
   assert.match(text, /-1 mode: previousMode,/u);
   assert.match(text, /\+1 mode: proposedMode,/u);
 });
@@ -483,11 +391,7 @@ await test("edit inlays stay attached to each occurrence and underline the sourc
     assert.ok(rows.every((row) => visibleWidth(row) <= width));
     for (const name of ["a", "b"]) {
       assert.ok(
-        rows.some(
-          (row) =>
-            row.includes(`const ${name} = \x1b[4:3m"bad"\x1b[24m`) &&
-            row.includes("× Use a number"),
-        ),
+        rows.some((row) => row.includes(`const ${name} = \x1b[4:3m"bad"\x1b[24m`) && row.includes("× Use a number")),
       );
     }
   }

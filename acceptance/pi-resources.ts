@@ -7,12 +7,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import {
-  AgentRole,
-  StudioProfile,
-  exampleConfig,
-  ReasoningLevel,
-} from "../config.ts";
+import { AgentRole, StudioProfile, exampleConfig, ReasoningLevel } from "../config.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const temporary = await mkdtemp(join(tmpdir(), "studio-resources-"));
@@ -37,9 +32,7 @@ await writeFile(
   join(temporary, "config.json"),
   JSON.stringify({
     profiles: {
-      [StudioProfile.Work]: Object.fromEntries(
-        Object.values(AgentRole).map((role) => [role, workModel]),
-      ),
+      [StudioProfile.Work]: Object.fromEntries(Object.values(AgentRole).map((role) => [role, workModel])),
     },
   }),
 );
@@ -64,17 +57,7 @@ await writeFile(
 );
 const pi = spawn(
   join(root, "scripts/studio"),
-  [
-    "lead",
-    "--",
-    "--mode",
-    "rpc",
-    "--offline",
-    "--no-session",
-    "--no-mcp",
-    "--model",
-    "fixture/tiny",
-  ],
+  ["lead", "--", "--mode", "rpc", "--offline", "--no-session", "--no-mcp", "--model", "fixture/tiny"],
   {
     cwd: temporary,
     detached: true,
@@ -103,12 +86,7 @@ const stop = (signal: NodeJS.Signals): void => {
   try {
     process.kill(-pi.pid, signal);
   } catch (cause) {
-    if (
-      !(cause instanceof Error) ||
-      !("code" in cause) ||
-      cause.code !== "ESRCH"
-    )
-      throw cause;
+    if (!(cause instanceof Error) || !("code" in cause) || cause.code !== "ESRCH") throw cause;
   }
 };
 const timeout = setTimeout(() => {
@@ -135,30 +113,16 @@ try {
           data: z.object({ commands: z.array(z.object({ name: z.string() })) }),
         })
         .parse(envelope);
-      for (const name of [
-        "tasks",
-        "archives",
-        "studio-profile",
-        "studio-status",
-      ])
+      for (const name of ["tasks", "archives", "studio-profile", "studio-status"])
         assert.ok(
-          event.data.commands.some(
-            (command: { name: string }) => command.name === name,
-          ),
+          event.data.commands.some((command: { name: string }) => command.name === name),
           name,
         );
       found = true;
-      pi.stdin.write(
-        '{"id":"profile","type":"prompt","message":"/studio-profile work"}\n',
-      );
+      pi.stdin.write('{"id":"profile","type":"prompt","message":"/studio-profile work"}\n');
     }
-    if (
-      envelope.type === "extension_ui_request" &&
-      envelope.method === "notify"
-    ) {
-      const notice = z
-        .object({ message: z.string(), notifyType: z.literal("error") })
-        .parse(envelope);
+    if (envelope.type === "extension_ui_request" && envelope.method === "notify") {
+      const notice = z.object({ message: z.string(), notifyType: z.literal("error") }).parse(envelope);
       assert.match(notice.message, /Cannot switch to work.*fixture-mantle/);
       assert.match(notice.message, /current model is still active/);
       rejectedSwitch = true;
@@ -184,13 +148,8 @@ try {
   assert.ok(found, errors);
   assert.ok(checkedModel, "Pi did not return the active model");
   assert.ok(rejectedSwitch, "Pi silently rejected the unauthenticated profile");
-  assert.doesNotMatch(
-    errors,
-    /Failed to load|Error loading|Cannot load|Warning: Extension package/,
-  );
-  console.log(
-    "Pi 1.6.0 discovered the Studio commands and kept the current model after a rejected profile switch.",
-  );
+  assert.doesNotMatch(errors, /Failed to load|Error loading|Cannot load|Warning: Extension package/);
+  console.log("Pi 1.6.0 discovered the Studio commands and kept the current model after a rejected profile switch.");
 } finally {
   clearTimeout(timeout);
   if (!lifecycle.closed) {

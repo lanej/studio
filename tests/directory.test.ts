@@ -1,13 +1,5 @@
 import assert from "node:assert/strict";
-import {
-  mkdtemp,
-  mkdir,
-  readFile,
-  readdir,
-  realpath,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -45,8 +37,7 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
   const source = join(root, "source");
   const target = join(root, "other project");
   const agentDir = join(root, "agent");
-  for (const directory of [source, target, agentDir])
-    await mkdir(directory, { recursive: true });
+  for (const directory of [source, target, agentDir]) await mkdir(directory, { recursive: true });
   process.env["PI_CODING_AGENT_DIR"] = agentDir;
   const configFile = join(root, "config.json");
   process.env["STUDIO_CONFIG"] = configFile;
@@ -59,10 +50,7 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
     idleCompaction: { enabled: false },
     profiles: {
       work: Object.fromEntries(
-        Object.values(AgentRole).map((role) => [
-          role,
-          { provider: "fixture", model: "tiny", reasoning: "low" },
-        ]),
+        Object.values(AgentRole).map((role) => [role, { provider: "fixture", model: "tiny", reasoning: "low" }]),
       ),
     },
   };
@@ -126,9 +114,7 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
     const result = await createAgentSessionFromServices({
       services,
       sessionManager: options.sessionManager,
-      ...(options.sessionStartEvent === undefined
-        ? {}
-        : { sessionStartEvent: options.sessionStartEvent }),
+      ...(!options.sessionStartEvent ? {} : { sessionStartEvent: options.sessionStartEvent }),
     });
     return { ...result, services, diagnostics: services.diagnostics };
   };
@@ -138,11 +124,7 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
     content: "Remember our deployment target is cobalt.",
     timestamp: Date.now(),
   });
-  manager.appendCompaction(
-    "The deployment target is cobalt.",
-    firstMessage,
-    100,
-  );
+  manager.appendCompaction("The deployment target is cobalt.", firstMessage, 100);
   manager.appendSessionInfo("Moving conversation");
   const originalFile = manager.getSessionFile();
   assert.ok(originalFile !== undefined);
@@ -182,10 +164,7 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
   const conversation = manager.buildSessionProjection().messages;
   const branch = manager.getBranch();
   const original = await readFile(originalFile, "utf8");
-  const cd = async (
-    path: string,
-    overrides: Partial<ExtensionCommandContext> = {},
-  ): Promise<void> => {
+  const cd = async (path: string, overrides: Partial<ExtensionCommandContext> = {}): Promise<void> => {
     const runner = runtime.session.extensionRunner;
     const command = runner.getCommand("cd");
     assert.ok(command !== undefined);
@@ -226,14 +205,8 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
     assert.equal(runtime.cwd, target);
     assert.equal(runtime.session.sessionManager.getCwd(), target);
     const continued = runtime.session.sessionManager;
-    assert.deepEqual(
-      continued.buildSessionProjection().messages.slice(0, conversation.length),
-      conversation,
-    );
-    assert.equal(
-      JSON.stringify(continued.getBranch().slice(0, branch.length)),
-      JSON.stringify(branch),
-    );
+    assert.deepEqual(continued.buildSessionProjection().messages.slice(0, conversation.length), conversation);
+    assert.equal(JSON.stringify(continued.getBranch().slice(0, branch.length)), JSON.stringify(branch));
     assert.ok(continued.getEntry(inactive) !== undefined);
     assert.equal(
       continued.getBranch().some((entry) => entry.id === inactive),
@@ -245,25 +218,17 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
     assert.match(modelContext, /Working directory changed/u);
     assert.doesNotMatch(modelContext, /abandoned branch/u);
     assert.match(runtime.session.systemPrompt, /TARGET_PROJECT_INSTRUCTIONS/u);
-    assert.doesNotMatch(
-      runtime.session.systemPrompt,
-      /SOURCE_PROJECT_INSTRUCTIONS/u,
-    );
+    assert.doesNotMatch(runtime.session.systemPrompt, /SOURCE_PROJECT_INSTRUCTIONS/u);
     const switchedModel = runtime.session.model;
     assert.ok(switchedModel !== undefined);
     assert.equal(switchedModel.id, model.id);
     assert.equal(switchedModel.provider, model.provider);
     assert.equal(runtime.session.thinkingLevel, thinking);
-    assert.equal(
-      runtime.session.sessionManager.getHeader()?.parentSession,
-      originalFile,
-    );
+    assert.equal(runtime.session.sessionManager.getHeader()?.parentSession, originalFile);
     assert.equal(await readFile(originalFile, "utf8"), original);
     const output = await runtime.session.executeBash("pwd; cat marker.txt");
     assert.match(output.output, /other project\ndestination contents/u);
-    const read = runtime.session.agent.state.tools.find(
-      (tool) => tool.name === "read",
-    );
+    const read = runtime.session.agent.state.tools.find((tool) => tool.name === "read");
     assert.ok(read !== undefined);
     const result = await read.execute("native-read", { path: "marker.txt" });
     assert.match(JSON.stringify(result), /destination contents/u);
@@ -274,9 +239,7 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
     assert.equal(runtime.cwd, source);
     assert.match(runtime.session.systemPrompt, /SOURCE_PROJECT_INSTRUCTIONS/u);
     assert.deepEqual(
-      runtime.session.sessionManager
-        .buildSessionProjection()
-        .messages.slice(0, conversation.length),
+      runtime.session.sessionManager.buildSessionProjection().messages.slice(0, conversation.length),
       conversation,
     );
     fullStudio = true;
@@ -291,9 +254,7 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
     assert.ok(!runtime.session.getActiveToolNames().includes(delegateTool));
     await selectWork(runtime.session);
     assert.ok(runtime.session.getActiveToolNames().includes(delegateTool));
-    const other = driver
-      .createCommandContext()
-      .modelRegistry.find("fixture", "other");
+    const other = driver.createCommandContext().modelRegistry.find("fixture", "other");
     assert.ok(other !== undefined);
     await runtime.session.setModel(other);
     assert.ok(!runtime.session.getActiveToolNames().includes(delegateTool));
@@ -315,10 +276,7 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
         await session.setModel(other);
         await selectWork(session);
         assert.equal(session.model?.id, "tiny");
-        assert.ok(
-          !session.getActiveToolNames().includes(delegateTool),
-          tool ?? "--no-session",
-        );
+        assert.ok(!session.getActiveToolNames().includes(delegateTool), tool ?? "--no-session");
       } finally {
         session.dispose();
       }
@@ -328,29 +286,16 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
     await cd(target);
     assert.ok(runtime.session.getActiveToolNames().includes(delegateTool));
     assert.equal(runtime.session.thinkingLevel, "high");
-    await writeFile(
-      configFile,
-      JSON.stringify({ ...config, delegation: { enabled: false } }),
-    );
+    await writeFile(configFile, JSON.stringify({ ...config, delegation: { enabled: false } }));
     await cd(source);
     assert.ok(!runtime.session.getActiveToolNames().includes(delegateTool));
-    await writeFile(
-      configFile,
-      JSON.stringify({ ...config, integrations: {} }),
-    );
+    await writeFile(configFile, JSON.stringify({ ...config, integrations: {} }));
     await cd(target);
     assert.ok(!runtime.session.getActiveToolNames().includes(delegateTool));
     await writeFile(configFile, JSON.stringify({ ...config, profiles: {} }));
     await cd(source);
-    assert.equal(
-      runtime.session.getActiveToolNames().includes(delegateTool),
-      false,
-    );
-    assert.ok(
-      notifications.some((message) =>
-        message.includes("Configure the work profile first"),
-      ),
-    );
+    assert.equal(runtime.session.getActiveToolNames().includes(delegateTool), false);
+    assert.ok(notifications.some((message) => message.includes("Configure the work profile first")));
   } finally {
     await runtime.dispose();
   }

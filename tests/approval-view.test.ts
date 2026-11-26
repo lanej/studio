@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  initTheme,
-  type ExtensionUIContext,
-} from "@earendil-works/pi-coding-agent";
+import { initTheme, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import {
   ProcessTerminal,
   TuiAltScreen,
@@ -25,9 +22,7 @@ function view(columns: number, rows: number) {
   });
   const tui = new TuiAltScreen(terminal);
   // A retained dock must not consume any of the modal's advertised review rows.
-  tui.addChild(
-    new Text(Array.from({ length: 8 }, () => "Retained dock").join("\n"), 0, 0),
-  );
+  tui.addChild(new Text(Array.from({ length: 8 }, () => "Retained dock").join("\n"), 0, 0));
   let component: Component | undefined;
   let result: unknown;
   const ui: Pick<ExtensionUIContext, "custom"> = {
@@ -39,15 +34,10 @@ function view(columns: number, rows: number) {
         margin: 1,
       });
       return new Promise((resolve, reject) => {
-        const created = factory(
-          tui,
-          theme,
-          new KeybindingsManager(),
-          (value) => {
-            result = value;
-            resolve(value);
-          },
-        );
+        const created = factory(tui, theme, new KeybindingsManager(), (value) => {
+          result = value;
+          resolve(value);
+        });
         void Promise.resolve(created).then((value) => {
           component = value;
         }, reject);
@@ -60,13 +50,9 @@ function view(columns: number, rows: number) {
     result: () => result,
     render: () => {
       assert.ok(component !== undefined);
-      const lines = component
-        .render(dimensions.columns - 2)
-        .map(stripTerminalSequences);
+      const lines = component.render(dimensions.columns - 2).map(stripTerminalSequences);
       assert.ok(lines.length <= Math.max(1, dimensions.rows - 2));
-      assert.ok(
-        lines.every((line) => visibleWidth(line) <= dimensions.columns - 2),
-      );
+      assert.ok(lines.every((line) => visibleWidth(line) <= dimensions.columns - 2));
       return lines.map((line) => line.trimEnd());
     },
     input: (key: string) => {
@@ -78,34 +64,21 @@ function view(columns: number, rows: number) {
 
 await test("bounded approval modal keeps its action visible and pages every row before Enter approves", async () => {
   initTheme("dark", false);
-  const details = Array.from(
-    { length: 70 },
-    (_, index) => `Review item ${String(index).padStart(2, "0")}`,
-  );
+  const details = Array.from({ length: 70 }, (_, index) => `Review item ${String(index).padStart(2, "0")}`);
   for (const [columns, rows] of [
     [80, 32],
     [28, 12],
     [28, 5],
   ] as const) {
     const current = view(columns, rows);
-    const outcome = reviewPlan(
-      current.ctx,
-      "Review specification",
-      details.join("\n"),
-      "freeze spec",
-    );
+    const outcome = reviewPlan(current.ctx, "Review specification", details.join("\n"), "freeze spec");
     await Promise.resolve();
     current.input("\r");
-    assert.equal(
-      current.result(),
-      undefined,
-      "Enter before the first render cannot approve",
-    );
+    assert.equal(current.result(), undefined, "Enter before the first render cannot approve");
     const seen = new Set<string>();
     for (let count = 0; count < 100; count++) {
       const lines = current.render();
-      for (const line of lines)
-        if (line.startsWith("Review item")) seen.add(line);
+      for (const line of lines) if (line.startsWith("Review item")) seen.add(line);
       const footer = lines.at(-1) ?? "";
       assert.match(footer, /(?:More|Enter freeze spec).*Esc/u);
       assert.equal(current.result(), undefined);
@@ -113,11 +86,7 @@ await test("bounded approval modal keeps its action visible and pages every row 
       if (current.result() === true) break;
       for (let buffered = 0; buffered < 5; buffered++) current.input("j");
       current.input("\r");
-      assert.equal(
-        current.result(),
-        undefined,
-        "Buffered Enter cannot approve an unseen final page",
-      );
+      assert.equal(current.result(), undefined, "Buffered Enter cannot approve an unseen final page");
     }
     assert.deepEqual([...seen], details);
     assert.equal(await outcome, true);
@@ -129,15 +98,9 @@ await test("narrow-to-wide resizing restarts wrapped review without skipping tex
   const current = view(24, 10);
   const details = Array.from(
     { length: 70 },
-    (_, index) =>
-      `Review item ${String(index).padStart(2, "0")} with additional wrapped review detail`,
+    (_, index) => `Review item ${String(index).padStart(2, "0")} with additional wrapped review detail`,
   );
-  const outcome = reviewPlan(
-    current.ctx,
-    "Review",
-    details.join("\n"),
-    "approve",
-  );
+  const outcome = reviewPlan(current.ctx, "Review", details.join("\n"), "approve");
   await Promise.resolve();
   const seen = new Set<string>();
   const observe = () => {
@@ -170,12 +133,7 @@ await test("narrow-to-wide resizing restarts wrapped review without skipping tex
 await test("review resize and cancellation preserve authority, and task details use the same bounded surface", async () => {
   initTheme("dark", false);
   const current = view(40, 12);
-  const outcome = reviewPlan(
-    current.ctx,
-    "Review",
-    "First\nSecond\nThird",
-    "approve",
-  );
+  const outcome = reviewPlan(current.ctx, "Review", "First\nSecond\nThird", "approve");
   await Promise.resolve();
   current.render();
   current.dimensions.rows = 4;
@@ -185,12 +143,7 @@ await test("review resize and cancellation preserve authority, and task details 
   current.input("\x1b");
   assert.equal(await outcome, false);
   const details = view(28, 8);
-  const closed = showTask(
-    details.ctx,
-    Array.from({ length: 30 }, (_, index) => `Detail ${String(index)}`).join(
-      "\n",
-    ),
-  );
+  const closed = showTask(details.ctx, Array.from({ length: 30 }, (_, index) => `Detail ${String(index)}`).join("\n"));
   await Promise.resolve();
   assert.equal(details.render()[0], "Detail 0");
   details.input("j");

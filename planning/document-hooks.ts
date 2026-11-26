@@ -1,7 +1,4 @@
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Attempt } from "../attempts.ts";
 import type { OperationWitness } from "../operation-witness.ts";
 import type { DocumentKind, DocumentOwnerKind } from "./model.ts";
@@ -47,37 +44,22 @@ export interface PlanningDocumentHooks {
   bind(authority: PlanningDocumentAuthority): void;
   capture(ctx: ExtensionContext): void;
   pending(): boolean;
-  assertAgent(
-    kind: DocumentKind,
-    record: DocumentState,
-    ctx: ExtensionContext,
-    expectedRevision?: string,
-  ): void;
+  assertAgent(kind: DocumentKind, record: DocumentState, ctx: ExtensionContext, expectedRevision?: string): void;
   committed(kind: DocumentKind, ctx: ExtensionContext): void;
-  onPromptAdmission(
-    listener: (
-      admission: DocumentPromptAdmission,
-      ctx: ExtensionContext,
-    ) => void,
-  ): () => void;
+  onPromptAdmission(listener: (admission: DocumentPromptAdmission, ctx: ExtensionContext) => void): () => void;
 }
 const hooks = new WeakMap<ExtensionAPI, PlanningDocumentHooks>();
-export function installPlanningDocumentHooks(
-  pi: ExtensionAPI,
-  value: PlanningDocumentHooks,
-): void {
+
+export function installPlanningDocumentHooks(pi: ExtensionAPI, value: PlanningDocumentHooks): void {
   hooks.set(pi, value);
 }
-export function getPlanningDocumentHooks(
-  pi: ExtensionAPI,
-): PlanningDocumentHooks | undefined {
+
+export function getPlanningDocumentHooks(pi: ExtensionAPI): PlanningDocumentHooks | undefined {
   return hooks.get(pi);
 }
-export function requirePlanningDocumentHooks(
-  pi: ExtensionAPI,
-): PlanningDocumentHooks {
+
+export function requirePlanningDocumentHooks(pi: ExtensionAPI): PlanningDocumentHooks {
   const value = hooks.get(pi);
-  if (value === undefined)
-    throw new Error("Initialize Studio planning authority before its controls");
+  if (!value) throw new Error("Initialize Studio planning authority before its controls");
   return value;
 }

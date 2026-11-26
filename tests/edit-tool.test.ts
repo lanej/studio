@@ -12,10 +12,7 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { z } from "zod";
-import {
-  isStudioEdit,
-  registerReasonedEdit,
-} from "../code-intelligence/edit-tool.ts";
+import { isStudioEdit, registerReasonedEdit } from "../code-intelligence/edit-tool.ts";
 import { StudioProfile } from "../config.ts";
 import { ExecutionPhase, executionSchema } from "../execution/store.ts";
 import { projectSchema } from "../execution/target.ts";
@@ -84,9 +81,7 @@ await test("reasoned edits respect tool admission and update the schema when old
   });
   try {
     await resumed.session.bindExtensions({ mode: "rpc" });
-    const edit = resumed.session.agent.state.tools.find(
-      (tool) => tool.name === "edit",
-    );
+    const edit = resumed.session.agent.state.tools.find((tool) => tool.name === "edit");
     const schema = z
       .object({
         required: z.array(z.string()),
@@ -96,10 +91,7 @@ await test("reasoned edits respect tool admission and update the schema when old
       })
       .parse(edit?.parameters);
     assert.ok(schema.required.includes("reason"));
-    assert.doesNotMatch(
-      JSON.stringify(manager.getEntry(oldEntry)),
-      /"reason"/u,
-    );
+    assert.doesNotMatch(JSON.stringify(manager.getEntry(oldEntry)), /"reason"/u);
   } finally {
     resumed.session.dispose();
   }
@@ -164,30 +156,15 @@ await test("worker edit rejects a missing or blank reason before checking its le
   const file = join(cwd, "sample.ts");
   await writeFile(file, "original");
   const change = { path: "sample.ts", oldText: "original", newText: "changed" };
-  const context = session.extensionRunner.createToolContext(
-    "worker-fixture",
-    undefined,
-  );
-  for (const args of [
-    change,
-    ...["", " \t\n", false].map((reason) => ({ ...change, reason })),
-  ]) {
+  const context = session.extensionRunner.createToolContext("worker-fixture", undefined);
+  for (const args of [change, ...["", " \t\n", false].map((reason) => ({ ...change, reason }))]) {
     assert.throws(() => prepareArguments(args), /reason/u);
-    await assert.rejects(
-      edit.execute("invalid", args, undefined, undefined, context),
-      /reason/u,
-    );
+    await assert.rejects(edit.execute("invalid", args, undefined, undefined, context), /reason/u);
   }
   assert.equal(leaseChecks, 0);
   assert.equal(await readFile(file, "utf8"), "original");
   await assert.rejects(
-    edit.execute(
-      "valid",
-      { ...change, reason: "Exercise the existing lease check." },
-      undefined,
-      undefined,
-      context,
-    ),
+    edit.execute("valid", { ...change, reason: "Exercise the existing lease check." }, undefined, undefined, context),
     /Retired fixture lease/u,
   );
   assert.equal(leaseChecks, 1);
@@ -205,10 +182,7 @@ await test("Claude Edit keeps exact matching and literal replace_all inside Stud
     session.dispose();
   });
   await session.bindExtensions({ mode: "rpc" });
-  const ctx = session.extensionRunner.createToolContext(
-    "claude-edit",
-    undefined,
-  );
+  const ctx = session.extensionRunner.createToolContext("claude-edit", undefined);
   const path = join(cwd, "sample.txt");
   const original = "\uFEFF“one”\r\ntwo\r\n“one”\r\ntwo\r\n";
   await writeFile(path, original);
@@ -225,18 +199,9 @@ await test("Claude Edit keeps exact matching and literal replace_all inside Stud
       matchMode: mode,
       edits: [{ oldText, newText: "$&\n$1" }],
     };
-    return edit.execute(
-      "exact-edit",
-      edit.prepareArguments?.(args) ?? args,
-      undefined,
-      undefined,
-      ctx,
-    );
+    return edit.execute("exact-edit", edit.prepareArguments?.(args) ?? args, undefined, undefined, ctx);
   };
-  await assert.rejects(
-    replace('"one"', "exact"),
-    /does not match the file exactly/u,
-  );
+  await assert.rejects(replace('"one"', "exact"), /does not match the file exactly/u);
   await assert.rejects(replace("“one”\ntwo", "exact"), /multiple locations/u);
   assert.equal(await readFile(path, "utf8"), original);
   await replace("“one”\ntwo", "all");

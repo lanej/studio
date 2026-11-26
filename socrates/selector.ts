@@ -1,7 +1,4 @@
-import {
-  getMarkdownTheme,
-  type ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import { getMarkdownTheme, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createSelector } from "@lanej/pi-components";
 import { matchesKey } from "@earendil-works/pi-tui";
 import { framePaneRows, paintPaneLine } from "../floating-pane.ts";
@@ -15,9 +12,7 @@ export enum QuestionSelectionKind {
   Text = "text",
 }
 
-type QuestionSelection =
-  | { kind: QuestionSelectionKind.Choice; index: number }
-  | { kind: QuestionSelectionKind.Text };
+type QuestionSelection = { kind: QuestionSelectionKind.Choice; index: number } | { kind: QuestionSelectionKind.Text };
 
 export async function chooseQuestion(
   ctx: ExtensionContext,
@@ -75,9 +70,7 @@ export async function chooseQuestion(
         render(width) {
           const height = Math.max(0, tui.terminal.rows - 2);
           choicesVisible = height >= 5 && width >= 12;
-          const body = choicesVisible
-            ? selector.render(width - 4)
-            : ["Resize · Esc cancel"];
+          const body = choicesVisible ? selector.render(width - 4) : ["Resize · Esc cancel"];
           return framePaneRows({
             body: body.slice(0, Math.max(0, height - 2)),
             width,
@@ -89,10 +82,7 @@ export async function chooseQuestion(
         handleInput(input) {
           if (choicesVisible && tui.terminal.rows >= 7) {
             selector.handleInput(input);
-          } else if (
-            matchesKey(input, NavigationKey.Escape) ||
-            matchesKey(input, NavigationKey.Cancel)
-          ) {
+          } else if (matchesKey(input, NavigationKey.Escape) || matchesKey(input, NavigationKey.Cancel)) {
             cancel();
           }
         },

@@ -1,7 +1,4 @@
-import type {
-  SessionEntry,
-  SessionMessageEntry,
-} from "@earendil-works/pi-coding-agent";
+import type { SessionEntry, SessionMessageEntry } from "@earendil-works/pi-coding-agent";
 import { z } from "zod";
 
 export enum PiMode {

@@ -1,15 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  AssistantMessageComponent,
-  getMarkdownTheme,
-  initTheme,
-} from "@earendil-works/pi-coding-agent";
+import { AssistantMessageComponent, getMarkdownTheme, initTheme } from "@earendil-works/pi-coding-agent";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 
-type AssistantMessage = Parameters<
-  AssistantMessageComponent["updateContent"]
->[0];
+type AssistantMessage = Parameters<AssistantMessageComponent["updateContent"]>[0];
 
 function message(content: AssistantMessage["content"]): AssistantMessage {
   return {
@@ -33,53 +27,35 @@ function message(content: AssistantMessage["content"]): AssistantMessage {
 
 await test("expanded thinking preserves Markdown and reflows independently of the answer", () => {
   initTheme("dark", false);
-  const prose = "The screenshot shows a thin slice of the terminal. "
-    .repeat(4)
-    .trimEnd();
+  const prose = "The screenshot shows a thin slice of the terminal. ".repeat(4).trimEnd();
   const input = message([
     { type: "thinking", thinking: "**Inspecting the screenshot**" },
     { type: "thinking", thinking: prose },
     { type: "text", text: "The answer follows." },
   ]);
-  const transformed: { markdown: string; width: number; streaming: boolean }[] =
-    [];
-  const component = new AssistantMessageComponent(
-    undefined,
-    false,
-    getMarkdownTheme(),
-    undefined,
-    1,
-    [
-      (markdown, { messageType, availableWidth, isStreaming }) => {
-        if (messageType === "assistant-thinking") {
-          transformed.push({
-            markdown,
-            width: availableWidth,
-            streaming: isStreaming,
-          });
-        }
-        return markdown;
-      },
-    ],
-  );
+  const transformed: { markdown: string; width: number; streaming: boolean }[] = [];
+  const component = new AssistantMessageComponent(undefined, false, getMarkdownTheme(), undefined, 1, [
+    (markdown, { messageType, availableWidth, isStreaming }) => {
+      if (messageType === "assistant-thinking") {
+        transformed.push({
+          markdown,
+          width: availableWidth,
+          streaming: isStreaming,
+        });
+      }
+      return markdown;
+    },
+  ]);
   component.updateContent(input, true);
   for (const width of [160, 34]) {
     const lines = component.render(width);
     const plain = lines.map(stripTerminalSequences);
     assert.deepEqual(
-      plain
-        .filter((line) => line.includes("\u{F09D1}"))
-        .map((line) => line.trim()),
+      plain.filter((line) => line.includes("\u{F09D1}")).map((line) => line.trim()),
       ["▾ \u{F09D1} Inspecting the screenshot"],
     );
-    assert.ok(
-      plain.some(
-        (line) => line.trim() === "▾ \u{F09D1} Inspecting the screenshot",
-      ),
-    );
-    const body = plain.filter(
-      (line) => line.includes("│ ") && !line.includes("Inspecting"),
-    );
+    assert.ok(plain.some((line) => line.trim() === "▾ \u{F09D1} Inspecting the screenshot"));
+    const body = plain.filter((line) => line.includes("│ ") && !line.includes("Inspecting"));
     assert.equal(
       body
         .map((line) => line.slice(line.indexOf("│") + 1).trim())
@@ -115,12 +91,7 @@ await test("clicking a folded run preserves neighboring runs and the user's glob
     { type: "text", text: "Progress." },
     { type: "thinking", thinking: "Second note." },
   ]);
-  const component = new AssistantMessageComponent(
-    input,
-    true,
-    getMarkdownTheme(),
-    "Notes",
-  );
+  const component = new AssistantMessageComponent(input, true, getMarkdownTheme(), "Notes");
   const width = 48;
   const lines = component.render(width).map(stripTerminalSequences);
   assert.equal(lines.filter((line) => line.trim() === "▸ Notes").length, 2);
@@ -142,30 +113,19 @@ await test("clicking a folded run preserves neighboring runs and the user's glob
     })?.handled,
   );
   component.updateContent(input, true);
-  const reopened = component
-    .render(width)
-    .map(stripTerminalSequences)
-    .join("\n");
+  const reopened = component.render(width).map(stripTerminalSequences).join("\n");
   assert.match(reopened, /\u{F09D1} First note\./u);
   assert.doesNotMatch(reopened, /Second note/u);
   component.setHideThinkingBlock(true);
   component.setHiddenThinkingLabel("");
-  const hidden = component
-    .render(width)
-    .map(stripTerminalSequences)
-    .join("")
-    .trim();
+  const hidden = component.render(width).map(stripTerminalSequences).join("").trim();
   assert.equal(hidden, "Progress.");
 });
 
 await test("the brain shares the first prose or heading row while narrow Markdown keeps its content", () => {
   initTheme("dark", false);
-  for (const lead of [
-    "Checking the unit switch.",
-    "## Checking the unit switch",
-  ]) {
-    const prose =
-      "Every retained word must survive wrapping into the narrow pane.";
+  for (const lead of ["Checking the unit switch.", "## Checking the unit switch"]) {
+    const prose = "Every retained word must survive wrapping into the narrow pane.";
     const markdown = `${lead}\n\n${prose}\n\n- Preserve the list item.\n\n\`\`\`ts\nconst unit = "celsius";\n\`\`\``;
     const component = new AssistantMessageComponent(
       message([{ type: "thinking", thinking: markdown }]),

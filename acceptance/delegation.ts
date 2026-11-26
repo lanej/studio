@@ -1,31 +1,13 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  readdir,
-  realpath,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
-import {
-  createServer,
-  type IncomingMessage,
-  type ServerResponse,
-} from "node:http";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import {
-  AgentRole,
-  DefaultProvider,
-  StudioProfile,
-  ReasoningLevel,
-} from "../config.ts";
+import { AgentRole, DefaultProvider, StudioProfile, ReasoningLevel } from "../config.ts";
 import { run } from "../process.ts";
 import { coldReadInstructions } from "../review-contract.ts";
 import { PiEvent } from "../runtime.ts";
@@ -45,9 +27,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const requestSchema = z.object({
   model: z.enum(AgentRole),
   messages: z.array(z.object({ role: z.string(), content: z.unknown() })),
-  tools: z
-    .array(z.object({ function: z.object({ name: z.string() }) }))
-    .default([]),
+  tools: z.array(z.object({ function: z.object({ name: z.string() }) })).default([]),
 });
 const eventSchema = z.looseObject({
   id: z.string().optional(),
@@ -66,8 +46,7 @@ const attemptSchema = z.object({
 });
 type ModelRequest = z.infer<typeof requestSchema>;
 type DelegatedRole = AgentRole.Explorer | AgentRole.Reviewer;
-const toolNames = (request: ModelRequest) =>
-  request.tools.map((tool) => tool.function.name);
+const toolNames = (request: ModelRequest) => request.tools.map((tool) => tool.function.name);
 const settledEvent: string = PiEvent.AgentSettled;
 const costs = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
@@ -102,9 +81,7 @@ function fixtureProvider(scenario: Scenario, role: DelegatedRole) {
       return;
     }
 
-    const hasResult = request.messages.some(
-      (message) => message.role === "tool",
-    );
+    const hasResult = request.messages.some((message) => message.role === "tool");
     const call = hasResult
       ? undefined
       : request.model === AgentRole.Lead
@@ -116,8 +93,7 @@ function fixtureProvider(scenario: Scenario, role: DelegatedRole) {
             }),
           }
         : { name: "read", arguments: JSON.stringify({ path: "fixture.txt" }) };
-    const useTool =
-      call !== undefined && toolNames(request).includes(call.name);
+    const useTool = call !== undefined && toolNames(request).includes(call.name);
     const delta = useTool
       ? {
           role: "assistant",
@@ -136,9 +112,7 @@ function fixtureProvider(scenario: Scenario, role: DelegatedRole) {
       object: "chat.completion.chunk",
       created: 1,
       model: request.model,
-      choices: [
-        { index: 0, delta, finish_reason: useTool ? "tool_calls" : "stop" },
-      ],
+      choices: [{ index: 0, delta, finish_reason: useTool ? "tool_calls" : "stop" }],
     };
     response.writeHead(200, { "Content-Type": "text/event-stream" });
     response.end(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`);
@@ -159,11 +133,7 @@ function fixtureProvider(scenario: Scenario, role: DelegatedRole) {
   };
 }
 
-async function exercise(
-  scenario: Scenario,
-  fixture: string,
-  role: DelegatedRole,
-) {
+async function exercise(scenario: Scenario, fixture: string, role: DelegatedRole) {
   const provider = fixtureProvider(scenario, role);
   try {
     await new Promise<void>((resolve, reject) => {
@@ -177,11 +147,7 @@ async function exercise(
     const config = join(fixture, "config.json");
     const state = join(fixture, "state");
     const env = Object.assign(
-      Object.fromEntries(
-        Object.entries(process.env).filter(
-          ([key]) => !/^(GIT_|PI_|WORKTREE_)/.test(key),
-        ),
-      ),
+      Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(GIT_|PI_|WORKTREE_)/.test(key))),
       {
         HOME: fixture,
         PI_CODING_AGENT_DIR: agent,
@@ -194,12 +160,9 @@ async function exercise(
       },
     );
     await mkdir(repo);
-    const command = (exe: string, args: string[]) =>
-      run(exe, args, { cwd: repo, env, timeout: 30_000 });
+    const command = (exe: string, args: string[]) => run(exe, args, { cwd: repo, env, timeout: 30_000 });
     if (scenario === Scenario.LostAllocation) {
-      const manager = (
-        await command("sh", ["-c", "command -v worktree"])
-      ).trim();
+      const manager = (await command("sh", ["-c", "command -v worktree"])).trim();
       assert.ok(manager.startsWith("/"));
       const bin = join(fixture, "bin");
       await mkdir(bin);
@@ -278,22 +241,11 @@ process.exit(lose ? 1 : (result.status ?? 1));
       }),
     );
 
-    const pi = spawn(
-      await piExecutable(),
-      [
-        "--mode",
-        "rpc",
-        "--offline",
-        "--no-mcp",
-        "--model",
-        "openai-codex/lead",
-      ],
-      {
-        env,
-        cwd: repo,
-        stdio: ["pipe", "pipe", "pipe"],
-      },
-    );
+    const pi = spawn(await piExecutable(), ["--mode", "rpc", "--offline", "--no-mcp", "--model", "openai-codex/lead"], {
+      env,
+      cwd: repo,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
     let spawnError: Error | undefined;
     pi.once("error", (error) => {
       spawnError = error;
@@ -313,13 +265,10 @@ process.exit(lose ? 1 : (result.status ?? 1));
     const send = (id: string, type: RpcCommand, message?: string) => {
       pi.stdin.write(`${JSON.stringify({ id, type, message })}\n`);
     };
-    const wait = async (
-      predicate: (event: z.infer<typeof eventSchema>) => boolean,
-    ) => {
+    const wait = async (predicate: (event: z.infer<typeof eventSchema>) => boolean) => {
       for (;;) {
         const line = await events.next();
-        if (line.done === true)
-          throw new Error("Pi closed its RPC stream", { cause: spawnError });
+        if (line.done === true) throw new Error("Pi closed its RPC stream", { cause: spawnError });
         const event = eventSchema.parse(JSON.parse(line.value));
         recent.push(event);
         if (recent.length > 12) recent.shift();
@@ -342,10 +291,7 @@ process.exit(lose ? 1 : (result.status ?? 1));
         "Delegate repository inspection. Author-only explanation: yellow lighthouse.",
       );
       if (scenario === Scenario.Cancel) {
-        await bounded(
-          provider.childStarted,
-          "The Explorer did not reach the fixture provider",
-        );
+        await bounded(provider.childStarted, "The Explorer did not reach the fixture provider");
         await rpc("cancel", RpcCommand.Abort);
       } else {
         await bounded(
@@ -355,19 +301,11 @@ process.exit(lose ? 1 : (result.status ?? 1));
       }
       assert.equal(provider.failure, undefined);
       const attemptsDir = join(state, "studio", "attempts");
-      const [filename, extra] = (await readdir(attemptsDir)).filter((file) =>
-        file.endsWith(".json"),
-      );
+      const [filename, extra] = (await readdir(attemptsDir)).filter((file) => file.endsWith(".json"));
       assert.ok(filename !== undefined && extra === undefined);
-      const attempt = attemptSchema.parse(
-        JSON.parse(await readFile(join(attemptsDir, filename), "utf8")),
-      );
+      const attempt = attemptSchema.parse(JSON.parse(await readFile(join(attemptsDir, filename), "utf8")));
       const expected =
-        scenario === Scenario.LostAllocation
-          ? "uncertain"
-          : scenario === Scenario.Cancel
-            ? "cancelled"
-            : "complete";
+        scenario === Scenario.LostAllocation ? "uncertain" : scenario === Scenario.Cancel ? "cancelled" : "complete";
       assert.equal(attempt.state, expected);
       assert.equal(attempt.source, source);
       assert.equal(attempt.role, role);
@@ -377,49 +315,29 @@ process.exit(lose ? 1 : (result.status ?? 1));
       assert.ok(toolNames(lead).includes("studio_delegate"));
       const instructions = lead.messages
         .flatMap((message) =>
-          (message.role === "system" || message.role === "developer") &&
-          typeof message.content === "string"
+          (message.role === "system" || message.role === "developer") && typeof message.content === "string"
             ? [message.content]
             : [],
         )
         .join("\n");
       assert.match(instructions, /Use studio_delegate/u);
       assert.match(instructions, /Do not launch.*Codex.*Claude/iu);
-      assert.ok(
-        !toolNames(lead).some((name) =>
-          ["Agent", "SubagentWorkflow", "subagent"].includes(name),
-        ),
-      );
+      assert.ok(!toolNames(lead).some((name) => ["Agent", "SubagentWorkflow", "subagent"].includes(name)));
       const checkout = attempt.worktree.path;
       assert.equal(dirname(checkout), join(repo, ".worktrees"));
       assert.equal(attempt.worktree.owner_id, attempt.id);
-      assert.equal(
-        await readFile(join(checkout, "fixture.txt"), "utf8"),
-        "committed fixture evidence\n",
-      );
+      assert.equal(await readFile(join(checkout, "fixture.txt"), "utf8"), "committed fixture evidence\n");
       if (scenario === Scenario.LostAllocation) {
         assert.equal((await readdir(join(repo, ".worktrees"))).length, 1);
-        assert.ok(
-          provider.requests.every(
-            (request) => request.model === AgentRole.Lead,
-          ),
-        );
-        console.log(
-          "Lost worktree response recovered by owner. One checkout, zero child launches.",
-        );
+        assert.ok(provider.requests.every((request) => request.model === AgentRole.Lead));
+        console.log("Lost worktree response recovered by owner. One checkout, zero child launches.");
       } else {
-        assert.ok(
-          attempt.session !== undefined && attempt.sessionFile !== undefined,
-        );
+        assert.ok(attempt.session !== undefined && attempt.sessionFile !== undefined);
         if (scenario === Scenario.Cancel) {
-          console.log(
-            "Native Pi abort settled the child and retained its session locator.",
-          );
+          console.log("Native Pi abort settled the child and retained its session locator.");
         } else {
           const transcript = await readFile(attempt.sessionFile, "utf8");
-          const children = provider.requests.filter(
-            (request) => request.model === role,
-          );
+          const children = provider.requests.filter((request) => request.model === role);
           const [child] = children;
           assert.ok(child !== undefined);
           assert.equal(children.length, 2);
@@ -430,19 +348,11 @@ process.exit(lose ? 1 : (result.status ?? 1));
               message.content.includes(coldReadInstructions),
           );
           assert.equal(hasReviewInstructions, role === AgentRole.Reviewer);
-          assert.doesNotMatch(
-            JSON.stringify(child.messages),
-            /yellow lighthouse/,
-          );
-          assert.deepEqual(
-            new Set(toolNames(child)),
-            new Set(["read", "ls", "find", "grep"]),
-          );
+          assert.doesNotMatch(JSON.stringify(child.messages), /yellow lighthouse/);
+          assert.deepEqual(new Set(toolNames(child)), new Set(["read", "ls", "find", "grep"]));
           assert.match(transcript, /committed fixture evidence/);
           assert.doesNotMatch(transcript, /uncommitted change/);
-          console.log(
-            "Native Pi delegation, exact worktree and snapshot tools verified.",
-          );
+          console.log("Native Pi delegation, exact worktree and snapshot tools verified.");
         }
       }
     } catch (error) {

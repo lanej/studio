@@ -1,7 +1,4 @@
-import {
-  spawnSync,
-  type SpawnSyncOptionsWithBufferEncoding,
-} from "node:child_process";
+import { spawnSync, type SpawnSyncOptionsWithBufferEncoding } from "node:child_process";
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -17,8 +14,7 @@ const cli = new URL("../cli.ts", import.meta.url).pathname;
 // Preserve provisioned package code, not Studio configuration, across HOME
 // isolation. An empty dependency cache could turn this into a network install.
 const bunInstall = process.env["BUN_INSTALL"] ?? join(homedir(), ".bun");
-const dependencyCache =
-  process.env["BUN_INSTALL_CACHE_DIR"] ?? join(bunInstall, "install", "cache");
+const dependencyCache = process.env["BUN_INSTALL_CACHE_DIR"] ?? join(bunInstall, "install", "cache");
 
 function offline<T>(exercise: (invoke: (...args: string[]) => string) => T): T {
   const home = mkdtempSync(join(tmpdir(), "studio-completion-test-"));
@@ -68,8 +64,7 @@ describe("offline Commander completion", () => {
       const root = invoke("--help");
       for (const candidate of query("")) expect(root).toContain(candidate);
       const runtime = invoke("runtime", "--help");
-      for (const candidate of query("runtime", ""))
-        expect(runtime).toContain(candidate);
+      for (const candidate of query("runtime", "")) expect(runtime).toContain(candidate);
     });
     expect(query("ru")).toEqual(["runtime"]);
     expect(query("runtime", "sta")).toEqual(["start", "status"]);
@@ -88,9 +83,7 @@ describe("offline Commander completion", () => {
     expect(query("doctor", "--j")).toEqual([]);
     expect(query("start", "id", "--", "")).toEqual([]);
     expect(query("lead", "--", "--pro")).toEqual([]);
-    expect(query("start", "id", "--profile", "personal", "--w")).toEqual([
-      "--worker",
-    ]);
+    expect(query("start", "id", "--profile", "personal", "--w")).toEqual(["--worker"]);
   });
 
   test("declared values, argument choices and help topics", () => {
@@ -99,12 +92,7 @@ describe("offline Commander completion", () => {
     expect(query("start", "--profile=p")).toEqual(["--profile=personal"]);
     expect(query("start", "--profile", "missing")).toEqual([]);
     expect(query("skill", "--topic", "pro")).toEqual(["profiles"]);
-    expect(query("skill", "--topic", "")).toEqual([
-      "compaction",
-      "dispatch",
-      "profiles",
-      "tasks",
-    ]);
+    expect(query("skill", "--topic", "")).toEqual(["compaction", "dispatch", "profiles", "tasks"]);
     expect(query("skill", "--topic=ta")).toEqual(["--topic=tasks"]);
     expect(query("completion", "")).toEqual(["bash", "fish", "zsh"]);
     expect(query("completion", "z")).toEqual(["zsh"]);

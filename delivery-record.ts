@@ -1,8 +1,7 @@
 import { z } from "zod";
+
 export const sha = z.string().regex(/^[0-9a-f]{40}$/u);
-export const prUrl = z
-  .string()
-  .regex(/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/[1-9]\d*$/u);
+export const prUrl = z.string().regex(/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/[1-9]\d*$/u);
 export const identifier = z.string().min(1);
 export const deliverySchema = z.object({
   requestId: identifier,

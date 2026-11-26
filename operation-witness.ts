@@ -20,9 +20,7 @@ export class OperationIdReused extends Error {
 }
 
 export function initializeOperationWitnesses(db: Database): void {
-  db.run(
-    "CREATE TABLE IF NOT EXISTS operation_witnesses (operation_id TEXT PRIMARY KEY, record TEXT NOT NULL)",
-  );
+  db.run("CREATE TABLE IF NOT EXISTS operation_witnesses (operation_id TEXT PRIMARY KEY, record TEXT NOT NULL)");
 }
 
 function findWitness(
@@ -31,18 +29,10 @@ function findWitness(
   operationId: string,
   command: string,
 ): OperationWitness | undefined {
-  const row = db
-    .query("SELECT record FROM operation_witnesses WHERE operation_id=?")
-    .get(operationId);
+  const row = db.query("SELECT record FROM operation_witnesses WHERE operation_id=?").get(operationId);
   if (row === null) return undefined;
-  const witness = witnessSchema.parse(
-    JSON.parse(z.object({ record: z.string() }).parse(row).record),
-  );
-  if (
-    witness.operationId !== operationId ||
-    witness.ownerId !== ownerId ||
-    witness.command !== command
-  )
+  const witness = witnessSchema.parse(JSON.parse(z.object({ record: z.string() }).parse(row).record));
+  if (witness.operationId !== operationId || witness.ownerId !== ownerId || witness.command !== command)
     throw new OperationIdReused();
   return witness;
 }
@@ -58,13 +48,7 @@ export function readOperationWitness(
   const db = new Database(file, { readonly: true });
   try {
     db.run("PRAGMA busy_timeout=5000");
-    if (
-      db
-        .query(
-          "SELECT name FROM sqlite_master WHERE type='table' AND name='operation_witnesses'",
-        )
-        .get() === null
-    )
+    if (db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='operation_witnesses'").get() === null)
       return undefined;
     return findWitness(db, ownerId, operationId, command);
   } finally {
@@ -94,7 +78,7 @@ export function commitOperation(
 ): OperationWitness {
   return transaction(db, () => {
     const previous = findWitness(db, ownerId, operationId, command);
-    if (previous !== undefined) return previous;
+    if (previous) return previous;
     const witness = witnessSchema.parse({
       id: randomUUID(),
       operationId,
@@ -102,10 +86,7 @@ export function commitOperation(
       command,
       result: update(),
     });
-    db.query("INSERT INTO operation_witnesses VALUES (?,?)").run(
-      operationId,
-      JSON.stringify(witness),
-    );
+    db.query("INSERT INTO operation_witnesses VALUES (?,?)").run(operationId, JSON.stringify(witness));
     return witness;
   });
 }

@@ -1,12 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import { LeadMode, type LeadDraft } from "../planning/plan.ts";
-import {
-  propertyGaps,
-  SpecStatus,
-  specDraft,
-  specificationGaps,
-  type LeadSpecification,
-} from "./spec.ts";
+import { propertyGaps, SpecStatus, specDraft, specificationGaps, type LeadSpecification } from "./spec.ts";
 
 interface FreezeState {
   readonly revision: string | null;
@@ -20,27 +14,18 @@ interface SpecificationFreezeReview {
   readonly planDraft: LeadDraft | null | undefined;
 }
 
-type FreezeReadiness =
-  | SpecificationFreezeReview
-  | { kind: "gaps"; gaps: string[] }
-  | { kind: "blocked" };
+type FreezeReadiness = SpecificationFreezeReview | { kind: "gaps"; gaps: string[] } | { kind: "blocked" };
 
-export function prepareSpecificationFreeze(
-  state: FreezeState,
-  scope: "discovery" | "managed",
-): FreezeReadiness {
+export function prepareSpecificationFreeze(state: FreezeState, scope: "discovery" | "managed"): FreezeReadiness {
   const { specification, revision } = state;
-  if (specification?.status !== SpecStatus.Interrogating)
-    return { kind: "blocked" };
+  if (specification?.status !== SpecStatus.Interrogating) return { kind: "blocked" };
   const gaps =
-    scope === "discovery"
-      ? specificationGaps(specification, revision)
-      : propertyGaps(specification, revision);
+    scope === "discovery" ? specificationGaps(specification, revision) : propertyGaps(specification, revision);
   if (gaps.length > 0) return { kind: "gaps", gaps };
   if (
     specification.draft === null ||
     specification.draft.blockingQuestions.length > 0 ||
-    specification.exchange !== undefined ||
+    specification.exchange ||
     !specDraft.safeParse(specification.draft).success ||
     revision !== specification.acceptedRevision
   )

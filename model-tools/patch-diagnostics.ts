@@ -1,15 +1,9 @@
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { z } from "zod";
 import type { DiagnosticSnapshot } from "../code-intelligence/diagnostics.ts";
-import {
-  type CodeIntelligence,
-  serverForPath,
-} from "../code-intelligence/service.ts";
+import { type CodeIntelligence, serverForPath } from "../code-intelligence/service.ts";
 import type { registerDiagnosticRendering } from "../code-intelligence/rendering.ts";
 import { parseApplyPatch } from "./codex-patch-runner.mjs";
 import { patchEdits } from "./patch-edits.ts";
@@ -30,11 +24,9 @@ export function patchDiagnosticTargets(patch: string) {
   try {
     const paths = new Set<string>();
     for (const hunk of parseApplyPatch(patch)) {
-      if (hunk.kind === "delete" || hunk.moveTo !== undefined)
-        paths.delete(hunk.path);
+      if (hunk.kind === "delete" || hunk.moveTo !== undefined) paths.delete(hunk.path);
       const target = hunk.moveTo ?? hunk.path;
-      if (hunk.kind !== "delete" && serverForPath(target) !== undefined)
-        paths.add(target);
+      if (hunk.kind !== "delete" && serverForPath(target) !== undefined) paths.add(target);
     }
     return {
       paths: [...paths].slice(0, fileLimit),
@@ -66,12 +58,7 @@ export function registerPatchDiagnostics(
   display: ReturnType<typeof registerDiagnosticRendering>,
 ): void {
   pi.on("tool_result", async (event, ctx) => {
-    if (
-      event.toolName !== "apply_patch" ||
-      event.isError ||
-      !intelligence.enabled
-    )
-      return;
+    if (event.toolName !== "apply_patch" || event.isError || !intelligence.enabled) return;
     const applied = receipt.safeParse(event.details);
     if (!applied.success) return;
     const { paths: selected, omittedFiles } = applied.data.studioPatchTargets;
@@ -83,14 +70,9 @@ export function registerPatchDiagnostics(
         const absolute = resolve(cwd, path);
         // Only the final change to a path can own current diagnostics.
         const editIndex = edits.findLastIndex(
-          (edit) =>
-            edit.kind !== "deleted" &&
-            resolve(cwd, edit.moveTo ?? edit.path) === absolute,
+          (edit) => edit.kind !== "deleted" && resolve(cwd, edit.moveTo ?? edit.path) === absolute,
         );
-        const id = patchEditCallId(
-          event.toolCallId,
-          editIndex < 0 ? -index - 1 : editIndex,
-        );
+        const id = patchEditCallId(event.toolCallId, editIndex < 0 ? -index - 1 : editIndex);
         display.watch(id, absolute);
         return { path, editIndex, id };
       });
@@ -107,11 +89,10 @@ export function registerPatchDiagnostics(
             const { diagnostics, scopes } = await intelligence.editFeedback(
               cwd,
               path,
-              edit?.studioSyntax === undefined ? edit?.diff : undefined,
+              !edit?.studioSyntax ? edit?.diff : undefined,
             );
             snapshots.push(diagnostics);
-            if (edit !== undefined && scopes.length > 0)
-              edit.studioDiffScopes = scopes;
+            if (edit && scopes.length > 0) edit.studioDiffScopes = scopes;
           } catch (error) {
             snapshots.push(unavailable(path, error));
           }
@@ -120,7 +101,7 @@ export function registerPatchDiagnostics(
       });
       for (const [index, target] of targets.entries()) {
         const file = files[index];
-        if (file !== undefined) display.finish(target.id, file);
+        if (file) display.finish(target.id, file);
       }
       // The full snapshots stay in tool details. Bound the LSP feedback sent to the model.
       const lsp = {
@@ -132,10 +113,7 @@ export function registerPatchDiagnostics(
         omittedFiles,
       };
       return {
-        content: [
-          ...event.content,
-          { type: "text", text: JSON.stringify({ lsp }) },
-        ],
+        content: [...event.content, { type: "text", text: JSON.stringify({ lsp }) }],
         details: {
           ...applied.data,
           studioPatchDiagnostics: {
@@ -148,10 +126,7 @@ export function registerPatchDiagnostics(
       };
     } catch {
       return {
-        content: [
-          ...event.content,
-          { type: "text", text: "Patch applied. LSP feedback is unavailable." },
-        ],
+        content: [...event.content, { type: "text", text: "Patch applied. LSP feedback is unavailable." }],
       };
     }
   });

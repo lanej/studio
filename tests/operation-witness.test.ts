@@ -74,9 +74,7 @@ await test("attempt mutations and immutable operation results survive together, 
       assert.throws(mutate, /witness write failed/u);
       assert.equal(store.get(id).message, "Original");
       assert.equal(
-        database
-          .query("SELECT record FROM operation_witnesses WHERE operation_id=?")
-          .get(operationId),
+        database.query("SELECT record FROM operation_witnesses WHERE operation_id=?").get(operationId),
         null,
       );
       database.run("DROP TRIGGER fail_commit");
@@ -89,11 +87,7 @@ await test("attempt mutations and immutable operation results survive together, 
     store.change(id, (row) => {
       row.message = "Later writer";
     });
-    assert.deepEqual(
-      mutate(),
-      accepted,
-      "reopening returns the original result without invoking the stale mutation",
-    );
+    assert.deepEqual(mutate(), accepted, "reopening returns the original result without invoking the stale mutation");
     assert.equal(store.get(id).message, "Later writer");
     assert.throws(
       () =>

@@ -1,9 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-  getKeybindings,
-  type KeybindingsConfig,
-  type KeybindingsManager,
-} from "@earendil-works/pi-tui";
+import { getKeybindings, type KeybindingsConfig, type KeybindingsManager } from "@earendil-works/pi-tui";
 import { isDeepStrictEqual } from "node:util";
 import { PiMode, piModeSchema } from "./runtime.ts";
 
@@ -21,13 +17,7 @@ export class HistoryBindings {
   apply(): void {
     // Pi aliases this public module to its host copy. Refuse the plain TUI
     // fallback manager if this extension is loaded by an incompatible host.
-    if (
-      !Object.hasOwn(
-        this.manager.getResolvedBindings(),
-        "app.model.cycleForward",
-      )
-    )
-      return;
+    if (!Object.hasOwn(this.manager.getResolvedBindings(), "app.model.cycleForward")) return;
     const source = this.manager.getUserBindings();
     if (isDeepStrictEqual(source, this.applied)) return;
     const applied = { ...source };

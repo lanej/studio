@@ -18,12 +18,10 @@ export function taskWaves(tasks: GraphTask[]): Map<string, number> {
   function layerOf(key: string): number {
     const cached = layers.get(key);
     if (cached !== undefined) return cached;
-    if (visiting.has(key))
-      throw new Error("The task dependency graph contains a cycle");
+    if (visiting.has(key)) throw new Error("The task dependency graph contains a cycle");
     const task = byKey.get(key);
-    if (task === undefined) throw new Error(`Unknown blocker ${key}`);
-    if (new Set(task.blockedBy).size !== task.blockedBy.length)
-      throw new Error(`List each blocker for ${key} once`);
+    if (!task) throw new Error(`Unknown blocker ${key}`);
+    if (new Set(task.blockedBy).size !== task.blockedBy.length) throw new Error(`List each blocker for ${key} once`);
     visiting.add(key);
     const wave = 1 + Math.max(0, ...task.blockedBy.map(layerOf));
     visiting.delete(key);
@@ -34,14 +32,8 @@ export function taskWaves(tasks: GraphTask[]): Map<string, number> {
   for (const [index, task] of tasks.entries()) {
     for (const other of tasks.slice(index + 1)) {
       if (layers.get(task.key) !== layers.get(other.key)) continue;
-      if (
-        task.owns.some((a) =>
-          other.owns.some((b) => worktreePathsOverlap(a, b)),
-        )
-      )
-        throw new Error(
-          `${task.key} and ${other.key} own overlapping paths in the same wave`,
-        );
+      if (task.owns.some((a) => other.owns.some((b) => worktreePathsOverlap(a, b))))
+        throw new Error(`${task.key} and ${other.key} own overlapping paths in the same wave`);
     }
   }
   return layers;

@@ -1,7 +1,4 @@
-import {
-  coveragePropertyCatalog,
-  coverageToken,
-} from "../../socrates/assessment.ts";
+import { coveragePropertyCatalog, coverageToken } from "../../socrates/assessment.ts";
 import { SpecStatus, specDraft } from "../../socrates/spec.ts";
 
 export function readySpecification(revision: string) {
@@ -34,9 +31,7 @@ export function readySpecification(revision: string) {
       coverage: {
         domains: ["engineering"],
         assessments: coveragePropertyCatalog
-          .filter(
-            ({ domain }) => domain === "universal" || domain === "engineering",
-          )
+          .filter(({ domain }) => domain === "universal" || domain === "engineering")
           .map(({ id, label }) => ({
             propertyId: id,
             status: id === "stakeholders" ? "not-applicable" : "satisfied",

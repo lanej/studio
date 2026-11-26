@@ -17,9 +17,7 @@ import {
 import { queryPaneGraphics } from "../diagram/mermaid-preview.ts";
 
 function terminal(timeout: number) {
-  let listener:
-    | Parameters<ExtensionUIContext["onTerminalInput"]>[0]
-    | undefined;
+  let listener: Parameters<ExtensionUIContext["onTerminalInput"]>[0] | undefined;
   let request = "";
   const probe = queryPaneGraphics(
     (handler) => {
@@ -46,10 +44,7 @@ function terminal(timeout: number) {
 
 await test("the Zellij query consumes only its own reply, including late replies", async () => {
   const enabled = terminal(500);
-  assert.equal(
-    enabled.request,
-    `\x1b_Ga=q,i=${enabled.id},s=1,v=1,t=d,f=24;AAAA\x1b\\`,
-  );
+  assert.equal(enabled.request, `\x1b_Ga=q,i=${enabled.id},s=1,v=1,t=d,f=24;AAAA\x1b\\`);
   assert.equal(enabled.input("j"), undefined);
   assert.equal(enabled.input("\x1b_Gi=other;OK\x1b\\"), undefined);
   assert.deepEqual(enabled.reply("OK"), { consume: true });
@@ -76,10 +71,7 @@ await test("a split fullscreen viewport paints a cropped Kitty image and its sid
     setCapabilities(saved);
   });
   setCapabilities({ ...saved, images: "kitty" });
-  const data = await readFile(
-    new URL("../docs/assets/diagram-containers.png", import.meta.url),
-    "base64",
-  );
+  const data = await readFile(new URL("../docs/assets/diagram-containers.png", import.meta.url), "base64");
   const image = new Image(data, "image/png", { fallbackColor: (s) => s });
   let output = "";
   const noop = () => undefined;
@@ -117,9 +109,7 @@ await test("a split fullscreen viewport paints a cropped Kitty image and its sid
     assert.ok(sidebarStart >= 0);
     assert.equal(visibleWidth(row.slice(0, sidebarStart)), 48);
     const sidebarWrite = output.indexOf("Socrates");
-    assert.ok(
-      sidebarWrite >= 0 && sidebarWrite < output.lastIndexOf("\x1b_Ga="),
-    );
+    assert.ok(sidebarWrite >= 0 && sidebarWrite < output.lastIndexOf("\x1b_Ga="));
   };
   verifySidebar();
   assert.ok(output.includes(data.slice(0, 4096)));

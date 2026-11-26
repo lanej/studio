@@ -1,10 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
-import {
-  draftSchema,
-  planWorkersSchema,
-  type LeadDraft,
-} from "../planning/plan.ts";
+import { draftSchema, planWorkersSchema, type LeadDraft } from "../planning/plan.ts";
 import { interactiveTargetSchema, projectSchema } from "./target.ts";
 
 export const handoffIntentSchema = z.object({
@@ -20,15 +16,10 @@ export type HandoffIntent = z.infer<typeof handoffIntentSchema>;
 export type RetainedHandoffIntent = HandoffIntent & { id: string };
 
 /** Reconciliation uses the graph IDs already recorded before the Beads request. */
-export function handoffTaskIds(
-  prefix: string,
-  revision: string,
-  draft: LeadDraft,
-): HandoffIntent["ids"] {
+export function handoffTaskIds(prefix: string, revision: string, draft: LeadDraft): HandoffIntent["ids"] {
   const root = `${prefix}-${revision.replaceAll("-", "")}`;
   const entries: [string, string][] = [["root", root]];
-  for (const task of draft.tasks)
-    entries.push([task.key, `${root}.${task.key}`]);
+  for (const task of draft.tasks) entries.push([task.key, `${root}.${task.key}`]);
   return Object.fromEntries(entries);
 }
 

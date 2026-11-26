@@ -9,11 +9,7 @@ import { test } from "node:test";
 import { z } from "zod";
 import { ExecutionBeads, requireUnattendedTask } from "../execution/beads.ts";
 import { retainClaim, reconcileAttempt } from "../execution/recovery.ts";
-import {
-  ExecutionStore,
-  ExecutionPhase,
-  executionSchema,
-} from "../execution/store.ts";
+import { ExecutionStore, ExecutionPhase, executionSchema } from "../execution/store.ts";
 import { beadSchema, owner } from "../task-service.ts";
 import { StudioProfile, runtimeProjectSchema } from "../config.ts";
 
@@ -44,8 +40,7 @@ await test("unattended admission skips interactive children before claim and fen
       const url = new URL(request.url ?? "/", "http://localhost");
       const reply = (value: unknown, status = 200) => {
         response.writeHead(status, {
-          "Content-Type":
-            status === 200 ? "application/json" : "application/problem+json",
+          "Content-Type": status === 200 ? "application/json" : "application/problem+json",
         });
         return response.end(JSON.stringify(value));
       };
@@ -54,25 +49,14 @@ await test("unattended admission skips interactive children before claim and fen
           project_id: projectId,
           backend: "dolt",
           dolt_mode: "server",
-          capabilities: [
-            "project.enforce",
-            "issues.get",
-            "issues.create",
-            "issues.update",
-          ],
+          capabilities: ["project.enforce", "issues.get", "issues.create", "issues.update"],
         });
-      if (url.pathname === "/v0/beads/ready:count")
-        return reply({ total: rows.length });
+      if (url.pathname === "/v0/beads/ready:count") return reply({ total: rows.length });
       if (url.pathname === "/v0/beads/ready") {
         const ready = rows.filter((row) => row.status === "open");
         return reply({
-          items:
-            url.searchParams.get("limit") === "1000"
-              ? ready.slice(0, 1)
-              : ready,
-          has_more:
-            truncated ||
-            (url.searchParams.get("limit") === "1000" && ready.length > 1),
+          items: url.searchParams.get("limit") === "1000" ? ready.slice(0, 1) : ready,
+          has_more: truncated || (url.searchParams.get("limit") === "1000" && ready.length > 1),
         });
       }
       if (url.pathname === "/v0/beads/issues:claimNext") {
@@ -81,16 +65,12 @@ await test("unattended admission skips interactive children before claim and fen
         interactive.assignee = owner(id);
         return reply({ claimed: interactive });
       }
-      const current = rows.find(
-        (row) => url.pathname === `/v0/beads/issues/${row.id}`,
-      );
-      if (current === undefined) return reply({}, 404);
+      const current = rows.find((row) => url.pathname === `/v0/beads/issues/${row.id}`);
+      if (!current) return reply({}, 404);
       if (request.method === "GET") return reply(current);
       const chunks: Buffer[] = [];
       for await (const chunk of request)
-        chunks.push(
-          Buffer.from(z.union([z.string(), z.instanceof(Buffer)]).parse(chunk)),
-        );
+        chunks.push(Buffer.from(z.union([z.string(), z.instanceof(Buffer)]).parse(chunk)));
       const body = z
         .object({
           actor: z.string(),

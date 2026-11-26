@@ -1,14 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import {
-  mkdir,
-  mkdtemp,
-  rm,
-  readFile,
-  writeFile,
-  rename,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, rm, readFile, writeFile, rename } from "node:fs/promises";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -19,13 +12,7 @@ import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { fixtureMetricsEnv } from "./beads-fixture.ts";
 import { withBeadsHttp } from "./beads-http-fixture.ts";
-import {
-  AgentRole,
-  StudioProfile,
-  ReasoningLevel,
-  ModelCapability,
-  DefaultProvider,
-} from "../config.ts";
+import { AgentRole, StudioProfile, ReasoningLevel, ModelCapability, DefaultProvider } from "../config.ts";
 import { ExecutionBeads } from "../execution/beads.ts";
 import { ExecutionStore, ExecutionPhase } from "../execution/store.ts";
 import { draftSchema, planDigest } from "../planning/plan.ts";
@@ -39,10 +26,7 @@ const fastModel = "fast-worker";
 const program = new Command()
   .requiredOption("--bd <path>")
   .requiredOption("--dolt <path>")
-  .option(
-    "--recovery-output <directory>",
-    "Keep guarded-retry receipts and native terminal captures",
-  );
+  .option("--recovery-output <directory>", "Keep guarded-retry receipts and native terminal captures");
 program.parse();
 const options = program.opts<{
   bd: string;
@@ -52,19 +36,12 @@ const options = program.opts<{
 await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
   const agent = join(fixture.directory, "agent");
   // Darwin activation sockets must fit sockaddr_un, including the per-session suffix.
-  const state = await mkdtemp(
-    join(
-      process.platform === "darwin" ? "/private/tmp" : fixture.directory,
-      "st-recovery-",
-    ),
-  );
+  const state = await mkdtemp(join(process.platform === "darwin" ? "/private/tmp" : fixture.directory, "st-recovery-"));
   const configFile = join(fixture.directory, "runtime.json");
   await mkdir(agent);
   const env: NodeJS.ProcessEnv = {
     ...Object.fromEntries(
-      Object.entries(process.env).filter(
-        ([key]) => !/^(GIT_|PI_|WORKTREE_|BEADS_|BD_|DOLT_|STUDIO_)/u.test(key),
-      ),
+      Object.entries(process.env).filter(([key]) => !/^(GIT_|PI_|WORKTREE_|BEADS_|BD_|DOLT_|STUDIO_)/u.test(key)),
     ),
     ...fixtureMetricsEnv,
     HOME: fixture.directory,
@@ -78,17 +55,10 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     XDG_STATE_HOME: join(fixture.directory, "xdg-state"),
     XDG_CONFIG_HOME: join(fixture.directory, "xdg-config"),
   };
-  const git = (...args: string[]) =>
-    run("git", args, { cwd: fixture.workspace, env });
-  await writeFile(
-    join(fixture.workspace, ".gitignore"),
-    ".worktrees/\n.beads/\n",
-  );
+  const git = (...args: string[]) => run("git", args, { cwd: fixture.workspace, env });
+  await writeFile(join(fixture.workspace, ".gitignore"), ".worktrees/\n.beads/\n");
   await writeFile(join(fixture.workspace, "README.md"), "Runtime fixture\n");
-  await writeFile(
-    join(fixture.workspace, "rejected.txt"),
-    "Prior tracked result\n",
-  );
+  await writeFile(join(fixture.workspace, "rejected.txt"), "Prior tracked result\n");
   await git("config", "user.name", "Fixture");
   await git("config", "user.email", "fixture@example.invalid");
   await git("config", "core.hooksPath", "/dev/null");
@@ -157,8 +127,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       requests.push(request.model);
       const conversation = JSON.stringify(request.messages);
       const kind =
-        conversation.includes("Recovery overlap") ||
-        conversation.includes("Blocked by rejected verification")
+        conversation.includes("Recovery overlap") || conversation.includes("Blocked by rejected verification")
           ? "recovery-overlap"
           : conversation.includes("Deliberate verifier rejection")
             ? "rejected"
@@ -185,23 +154,14 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
             : kind === "overlap"
               ? "verified prerequisite\noverlap completed\n"
               : "verified prerequisite\n";
-      const toolMessages = request.messages.filter(
-        (message) => message.role === "tool",
-      );
+      const toolMessages = request.messages.filter((message) => message.role === "tool");
       let call: { name: string; arguments: string } | undefined;
       let text = "";
       if (request.model === AgentRole.Worker || request.model === fastModel) {
-        assert.equal(
-          request.model,
-          kind === "first" ? fastModel : AgentRole.Worker,
-        );
+        assert.equal(request.model, kind === "first" ? fastModel : AgentRole.Worker);
         assert.equal(
           request.reasoning_effort,
-          kind === "first"
-            ? ReasoningLevel.Medium
-            : kind === "second"
-              ? ReasoningLevel.High
-              : ReasoningLevel.Low,
+          kind === "first" ? ReasoningLevel.Medium : kind === "second" ? ReasoningLevel.High : ReasoningLevel.Low,
           `Worker reasoning for ${kind}`,
         );
         if (kind === "recovery-overlap") {
@@ -209,9 +169,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
             store
               .attempts()
               .some(
-                (row) =>
-                  row.bead?.title === "Deliberate verifier rejection" &&
-                  row.phase === ExecutionPhase.Complete,
+                (row) => row.bead?.title === "Deliberate verifier rejection" && row.phase === ExecutionPhase.Complete,
               ),
             "Queued ownership must stay fenced until retry completes verification/review",
           );
@@ -225,9 +183,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
           await overlapIntegrated;
         }
         if (kind === "overlap") {
-          const first = store
-            .attempts()
-            .find((row) => row.bead?.id === `${parent}.first`);
+          const first = store.attempts().find((row) => row.bead?.id === `${parent}.first`);
           assert.equal(
             first?.phase,
             ExecutionPhase.Complete,
@@ -241,10 +197,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
             name: "read",
             arguments: JSON.stringify({ path: "first.txt" }),
           };
-        else if (
-          (kind !== "second" && toolMessages.length === 0) ||
-          (kind === "second" && toolMessages.length === 1)
-        ) {
+        else if ((kind !== "second" && toolMessages.length === 0) || (kind === "second" && toolMessages.length === 1)) {
           let updatedContent = content;
           if (kind === "third") unrelatedWrites++;
           if (kind === "second") {
@@ -253,31 +206,21 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
               /verified prerequisite/u,
               "Successor did not receive predecessor code",
             );
-            const finding = [readabilityFinding, integrationFinding].find(
-              (item) => conversation.includes(item),
-            );
+            const finding = [readabilityFinding, integrationFinding].find((item) => conversation.includes(item));
             if (finding !== undefined) {
-              const attempt = store
-                .attempts()
-                .find((row) => row.bead?.id === `${parent}.second`);
+              const attempt = store.attempts().find((row) => row.bead?.id === `${parent}.second`);
               assert(attempt !== undefined);
               assert.deepEqual(
                 attempt.reviewFeedback,
                 [finding],
                 "The correction must retain the original finding on the same attempt",
               );
-              assert.equal(
-                attempt.reviewFinding,
-                finding,
-                "The task panel must be able to show the actionable repair",
-              );
+              assert.equal(attempt.reviewFinding, finding, "The task panel must be able to show the actionable repair");
             }
             const flag = finding === undefined ? "flag" : "accepted";
             updatedContent = `export function consume(prerequisite: string, ${flag}: boolean) {\n  return ${flag} ? "consumed " + prerequisite : prerequisite;\n}\n`;
             if (finding === integrationFinding)
-              updatedContent =
-                "// Prefix the whole prerequisite once, even when it spans lines.\n" +
-                updatedContent;
+              updatedContent = "// Prefix the whole prerequisite once, even when it spans lines.\n" + updatedContent;
           }
           call = {
             name: "write",
@@ -292,17 +235,12 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
           });
       } else if (request.model === AgentRole.Reviewer) {
         assert.equal(request.reasoning_effort, ReasoningLevel.Low);
-        const inspectIntegratedInput =
-          kind === "second" && approvedSecondHead !== undefined;
+        const inspectIntegratedInput = kind === "second" && approvedSecondHead !== undefined;
         const readCount = inspectIntegratedInput ? 2 : 1;
         if (toolMessages.length <= readCount) {
+          assert(!conversation.includes(workerNarrative), "The cold read included the author's walkthrough");
           assert(
-            !conversation.includes(workerNarrative),
-            "The cold read included the author's walkthrough",
-          );
-          assert(
-            !conversation.includes(readabilityFinding) &&
-              !conversation.includes(integrationFinding),
+            !conversation.includes(readabilityFinding) && !conversation.includes(integrationFinding),
             "Earlier feedback leaked into a fresh cold read",
           );
           if (kind === "second")
@@ -311,19 +249,14 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
               "The reviewer did not receive the actual verifier output",
             );
         }
-        if (toolMessages.length === 0)
-          call = { name: "read", arguments: JSON.stringify({ path }) };
+        if (toolMessages.length === 0) call = { name: "read", arguments: JSON.stringify({ path }) };
         else if (inspectIntegratedInput && toolMessages.length === 1)
           call = {
             name: "read",
             arguments: JSON.stringify({ path: "first.txt" }),
           };
         else if (toolMessages.length === readCount) {
-          if (inspectIntegratedInput)
-            assert.match(
-              JSON.stringify(toolMessages[1]?.content),
-              /overlap completed/u,
-            );
+          if (inspectIntegratedInput) assert.match(JSON.stringify(toolMessages[1]?.content), /overlap completed/u);
           assert.match(
             JSON.stringify(toolMessages),
             kind === "second"
@@ -349,12 +282,8 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
           };
         } else {
           if (kind === "third") {
-            const first = store
-              .attempts()
-              .find((row) => row.bead?.id === `${parent}.first`);
-            const overlap = store
-              .attempts()
-              .find((row) => row.bead?.id === `${parent}.overlap`);
+            const first = store.attempts().find((row) => row.bead?.id === `${parent}.first`);
+            const overlap = store.attempts().find((row) => row.bead?.id === `${parent}.overlap`);
             assert.equal(
               first?.phase,
               ExecutionPhase.Running,
@@ -376,22 +305,16 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
           }
           text = JSON.stringify({
             approved: true,
-            summary:
-              "Independent fixture review read the exact committed task result",
+            summary: "Independent fixture review read the exact committed task result",
           });
           if (kind === "second" && approvedSecondHead === undefined) {
             assert(
               conversation.includes(workerNarrative),
               "The review context did not reveal the worker report after the cold read",
             );
-            const candidate = store
-              .attempts()
-              .find((row) => row.bead?.id === `${parent}.second`);
+            const candidate = store.attempts().find((row) => row.bead?.id === `${parent}.second`);
             assert(candidate?.head !== undefined);
-            assert(
-              conversation.includes(candidate.head),
-              "The worker revision is missing from the review",
-            );
+            assert(conversation.includes(candidate.head), "The worker revision is missing from the review");
             const implementation = JSON.stringify(toolMessages[0]?.content);
             if (implementation.includes("flag: boolean")) {
               assert.equal(
@@ -415,9 +338,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
               assert.notEqual(approvedSecondHead, rejectedSecondHead);
             }
           } else if (inspectIntegratedInput) {
-            const candidate = store
-              .attempts()
-              .find((row) => row.bead?.id === `${parent}.second`);
+            const candidate = store.attempts().find((row) => row.bead?.id === `${parent}.second`);
             assert(candidate?.checkout !== undefined);
             const revision = (
               await run("git", ["rev-parse", "HEAD"], {
@@ -435,37 +356,30 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
                 summary: integrationFinding,
               });
             } else {
-              assert.match(
-                JSON.stringify(toolMessages[0]?.content),
-                /Prefix the whole prerequisite once/u,
-              );
+              assert.match(JSON.stringify(toolMessages[0]?.content), /Prefix the whole prerequisite once/u);
               assert(conversation.includes(integrationFinding));
               assert.notEqual(revision, rejectedIntegration);
               correctedIntegration = revision;
             }
           }
         }
-      } else
-        throw new Error(
-          `Unexpected inference in free/control lead: ${request.model}`,
-        );
-      const delta =
-        call === undefined
-          ? { role: "assistant", content: text }
-          : {
-              role: "assistant",
-              tool_calls: [
-                {
-                  index: 0,
-                  id: `call_${request.model}_${String(toolMessages.length)}`,
-                  type: "function",
-                  function: call,
-                },
-              ],
-            };
+      } else throw new Error(`Unexpected inference in free/control lead: ${request.model}`);
+      const delta = !call
+        ? { role: "assistant", content: text }
+        : {
+            role: "assistant",
+            tool_calls: [
+              {
+                index: 0,
+                id: `call_${request.model}_${String(toolMessages.length)}`,
+                type: "function",
+                function: call,
+              },
+            ],
+          };
       response.writeHead(200, { "Content-Type": "text/event-stream" });
       response.end(
-        `data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", created: 1, model: request.model, choices: [{ index: 0, delta, finish_reason: call === undefined ? "stop" : "tool_calls" }] })}\n\ndata: [DONE]\n\n`,
+        `data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", created: 1, model: request.model, choices: [{ index: 0, delta, finish_reason: !call ? "stop" : "tool_calls" }] })}\n\ndata: [DONE]\n\n`,
       );
     })().catch((error: unknown) => {
       providerError = error;
@@ -544,17 +458,12 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       if (claim.success) {
         const actor = claim.data.actor;
         assert.equal(claim.data.patch.assignee, actor);
-        assert.equal(
-          actor,
-          `pi:${claim.data.patch.metadata.merge["pi.attempt"]}`,
-        );
+        assert.equal(actor, `pi:${claim.data.patch.metadata.merge["pi.attempt"]}`);
         claimRequests++;
         claimActors.set(actor, (claimActors.get(actor) ?? 0) + 1);
       }
       const completion =
-        incoming.method === "PATCH" &&
-        incoming.url?.endsWith(".first") === true &&
-        body.includes('"status":"closed"');
+        incoming.method === "PATCH" && incoming.url?.endsWith(".first") === true && body.includes('"status":"closed"');
       if (completion && crashedAttempt === undefined) {
         await interruptedClaimReady;
         assert(interruptedActor !== undefined);
@@ -563,19 +472,10 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
           ExecutionPhase.Claiming,
           "Fault boundary must interrupt the observed unbound claim intent",
         );
-        const attempt = store
-          .attempts()
-          .find((row) => row.bead?.id === `${parent}.first`);
-        assert(
-          attempt?.integration !== undefined &&
-            attempt.resultRef !== undefined &&
-            attempt.pid !== undefined,
-        );
+        const attempt = store.attempts().find((row) => row.bead?.id === `${parent}.first`);
+        assert(attempt?.integration !== undefined && attempt.resultRef !== undefined && attempt.pid !== undefined);
         assert(supervisor?.pid !== undefined);
-        assert.equal(
-          (await service.get(`${parent}.first`)).status,
-          "in_progress",
-        );
+        assert.equal((await service.get(`${parent}.first`)).status, "in_progress");
         crashedAttempt = attempt.id;
         crashedSession = attempt.controllerSession;
         assert(crashedSession !== undefined);
@@ -592,12 +492,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       }
       const headers = new Headers();
       for (const [name, value] of Object.entries(incoming.headers))
-        if (
-          value !== undefined &&
-          name !== "host" &&
-          name !== "connection" &&
-          name !== "content-length"
-        )
+        if (value !== undefined && name !== "host" && name !== "connection" && name !== "content-length")
           headers.set(name, Array.isArray(value) ? value.join(",") : value);
       const forwarded = await fetch(`${source.url}${incoming.url ?? "/"}`, {
         method: incoming.method ?? "GET",
@@ -611,23 +506,14 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
         requestUrl.searchParams.getAll("exclude_type").includes("epic") &&
         interruptedActor === undefined &&
         forwarded.ok &&
-        z.object({ items: z.array(z.unknown()) }).parse(JSON.parse(payload))
-          .items.length === 0
+        z.object({ items: z.array(z.unknown()) }).parse(JSON.parse(payload)).items.length === 0
       ) {
         // Ready reads carry no actor. Bind this read to the single persisted,
         // unbound admission intent before interrupting the scheduler.
         const pending = store
           .attempts()
-          .filter(
-            (attempt) =>
-              attempt.phase === ExecutionPhase.Claiming &&
-              attempt.bead === undefined,
-          );
-        assert.equal(
-          pending.length,
-          1,
-          "An empty admission read must identify one durable intent",
-        );
+          .filter((attempt) => attempt.phase === ExecutionPhase.Claiming && attempt.bead === undefined);
+        assert.equal(pending.length, 1, "An empty admission read must identify one durable intent");
         const intent = pending[0];
         assert(intent !== undefined);
         interruptedActor = `pi:${intent.id}`;
@@ -829,12 +715,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     },
   );
   // Existing/cross-discovery Beads dependencies must receive accepted code without sharing graph metadata.
-  const ungroup = await fixture.command([
-    "update",
-    `${parent}.first`,
-    "--unset-metadata",
-    "studio.graph",
-  ]);
+  const ungroup = await fixture.command(["update", `${parent}.first`, "--unset-metadata", "studio.graph"]);
   assert.equal(ungroup.code, 0, ungroup.stderr);
   const regroup = await fixture.command([
     "update",
@@ -848,12 +729,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     ["overlap", "1"],
     ["third", "2"],
   ]) {
-    const prioritize = await fixture.command([
-      "update",
-      `${parent}.${key ?? ""}`,
-      "--priority",
-      priority ?? "2",
-    ]);
+    const prioritize = await fixture.command(["update", `${parent}.${key ?? ""}`, "--priority", priority ?? "2"]);
     assert.equal(prioritize.code, 0, prioritize.stderr);
   }
   const store = new ExecutionStore(state);
@@ -877,16 +753,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
   startSupervisor();
   const lead = spawn(
     join(root, "scripts/studio"),
-    [
-      "lead",
-      "--",
-      "--mode",
-      "rpc",
-      "--offline",
-      "--no-mcp",
-      "--model",
-      "openai-codex/lead",
-    ],
+    ["lead", "--", "--mode", "rpc", "--offline", "--no-mcp", "--model", "openai-codex/lead"],
     {
       cwd: fixture.workspace,
       env,
@@ -907,54 +774,32 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     const rejectedAdmission = async (reason: string) => {
       const deadline = Date.now() + 10000;
       while (!diagnostics.includes(reason)) {
-        if (Date.now() > deadline)
-          throw new Error(
-            `Runtime did not reject unavailable integration: ${diagnostics}`,
-          );
+        if (Date.now() > deadline) throw new Error(`Runtime did not reject unavailable integration: ${diagnostics}`);
         await new Promise<void>((resolve) => {
           setTimeout(resolve, 50);
         });
       }
-      assert.equal(
-        claimRequests,
-        0,
-        "An unavailable worktree integration must not claim Beads work",
-      );
-      assert.equal(
-        store.attempts().length,
-        0,
-        "Admission preflight must precede durable claim intent",
-      );
+      assert.equal(claimRequests, 0, "An unavailable worktree integration must not claim Beads work");
+      assert.equal(store.attempts().length, 0, "Admission preflight must precede durable claim intent");
       assert.equal((await service.get(`${parent}.first`)).status, "open");
     };
     await rejectedAdmission("Enable integrations.worktrees.enabled");
     runtimeConfig.integrations.worktrees.enabled = true;
-    runtimeConfig.integrations.worktrees.executable = join(
-      fixture.directory,
-      "missing-runtime-worktree",
-    );
+    runtimeConfig.integrations.worktrees.executable = join(fixture.directory, "missing-runtime-worktree");
     await saveConfig();
-    await rejectedAdmission(
-      `Install ${runtimeConfig.integrations.worktrees.executable}`,
-    );
+    await rejectedAdmission(`Install ${runtimeConfig.integrations.worktrees.executable}`);
     runtimeConfig.integrations.worktrees.executable = "worktree";
     await saveConfig();
     await Promise.race([
       workerStarted,
       new Promise<never>((_resolve, reject) => {
         startupTimer = setTimeout(() => {
-          reject(
-            new Error(
-              `Worker did not start: ${diagnostics}\n${JSON.stringify(store.attempts())}`,
-            ),
-          );
+          reject(new Error(`Worker did not start: ${diagnostics}\n${JSON.stringify(store.attempts())}`));
         }, 25000);
       }),
     ]);
-    if (startupTimer !== undefined) clearTimeout(startupTimer);
-    const requestLead = async (
-      command: "get_state" | "get_commands",
-    ): Promise<unknown> =>
+    if (startupTimer) clearTimeout(startupTimer);
+    const requestLead = async (command: "get_state" | "get_commands"): Promise<unknown> =>
       new Promise((resolve, reject) => {
         const id = `free-lead-${randomUUID()}`;
         const cleanup = () => {
@@ -964,9 +809,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
         const inspect = (line: string) => {
           try {
             const value: unknown = JSON.parse(line);
-            const envelope = z
-              .looseObject({ id: z.string().optional() })
-              .parse(value);
+            const envelope = z.looseObject({ id: z.string().optional() }).parse(value);
             if (envelope.id !== id) return;
             const reply = z
               .object({
@@ -986,11 +829,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
         };
         const timer = setTimeout(() => {
           cleanup();
-          reject(
-            new Error(
-              `Free lead did not respond to ${command} while worker was blocked: ${leadErrors}`,
-            ),
-          );
+          reject(new Error(`Free lead did not respond to ${command} while worker was blocked: ${leadErrors}`));
         }, 5000);
         leadLines.on("line", inspect);
         lead.stdin.write(`${JSON.stringify({ id, type: command })}\n`);
@@ -1010,46 +849,28 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       leadCommands.commands.some((command) => command.name === "discoveries"),
       "The free lead must expose independent discovery while implementation is blocked",
     );
-    assert.equal(
-      store.attempts().find((row) => row.bead?.id === `${parent}.first`)?.phase,
-      ExecutionPhase.Running,
-    );
+    assert.equal(store.attempts().find((row) => row.bead?.id === `${parent}.first`)?.phase, ExecutionPhase.Running);
     const schedulingOwner = store.supervisor();
     assert(schedulingOwner !== undefined);
-    const competing = spawn(
-      join(root, "scripts/studio"),
-      ["runtime", "serve"],
-      {
-        cwd: fixture.workspace,
-        env,
-        detached: true,
-        stdio: ["ignore", "ignore", "pipe"],
-      },
-    );
+    const competing = spawn(join(root, "scripts/studio"), ["runtime", "serve"], {
+      cwd: fixture.workspace,
+      env,
+      detached: true,
+      stdio: ["ignore", "ignore", "pipe"],
+    });
     let competingError = "";
     competing.stderr.on("data", (chunk: Buffer) => {
       competingError += chunk.toString();
     });
     const competingDeadline = setTimeout(() => {
-      if (
-        competing.pid !== undefined &&
-        competing.exitCode === null &&
-        competing.signalCode === null
-      )
+      if (competing.pid !== undefined && competing.exitCode === null && competing.signalCode === null)
         process.kill(-competing.pid, "SIGKILL");
     }, 10000);
     const competingResult: unknown[] = await once(competing, "close");
     const competingCode = z.number().nullable().parse(competingResult[0]);
     clearTimeout(competingDeadline);
-    assert.notEqual(
-      competingCode,
-      0,
-      "A second supervisor must not acquire a live scheduler's project",
-    );
-    assert.match(
-      competingError,
-      /live Studio runtime already owns scheduling/u,
-    );
+    assert.notEqual(competingCode, 0, "A second supervisor must not acquire a live scheduler's project");
+    assert.match(competingError, /live Studio runtime already owns scheduling/u);
     assert.equal(store.supervisor()?.id, schedulingOwner.id);
     if (lead.pid !== undefined) process.kill(-lead.pid, "SIGTERM");
     await once(lead, "close");
@@ -1064,39 +885,25 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       if (crashedAttempt !== undefined && !restarted) {
         await crashed;
         assert.equal(crashError, undefined);
-        assert.equal(
-          (await service.get(`${parent}.first`)).status,
-          "in_progress",
-        );
-        assert.equal(
-          store.attempt(crashedAttempt).integration !== undefined,
-          true,
-        );
+        assert.equal((await service.get(`${parent}.first`)).status, "in_progress");
+        assert.equal(store.attempt(crashedAttempt).integration !== undefined, true);
         startSupervisor();
         restarted = true;
       }
       const attempts = store.attempts();
-      const completed = attempts.filter(
-        (attempt) => attempt.phase === ExecutionPhase.Complete,
-      );
+      const completed = attempts.filter((attempt) => attempt.phase === ExecutionPhase.Complete);
       const failed = attempts.find(
         (attempt) =>
-          attempt.bead !== undefined &&
-          [ExecutionPhase.Parked, ExecutionPhase.Uncertain].includes(
-            attempt.phase,
-          ),
+          attempt.bead !== undefined && [ExecutionPhase.Parked, ExecutionPhase.Uncertain].includes(attempt.phase),
       );
-      if (failed !== undefined || Date.now() >= deadline) {
+      if (failed || Date.now() >= deadline) {
         const logs = await Promise.all(
           attempts.map((attempt) =>
-            readFile(
-              join(state, "runtime-sessions", attempt.id, "host.log"),
-              "utf8",
-            ).catch(() => ""),
+            readFile(join(state, "runtime-sessions", attempt.id, "host.log"), "utf8").catch(() => ""),
           ),
         );
         throw new Error(
-          `Unattended fixture ${failed === undefined ? `timed out after ${String(completionMs)} ms` : "failed"}: ${JSON.stringify(attempts)}\n${diagnostics}\n${logs.join("\n")}\nLead: ${leadErrors}`,
+          `Unattended fixture ${!failed ? `timed out after ${String(completionMs)} ms` : "failed"}: ${JSON.stringify(attempts)}\n${diagnostics}\n${logs.join("\n")}\nLead: ${leadErrors}`,
         );
       }
       if (completed.length >= 4) break;
@@ -1110,14 +917,8 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     assert(supervisor.kill("SIGTERM"));
     const exit: unknown[] = await stopped;
     assert.equal(exit[0], 0, diagnostics);
-    const admitted = store
-      .attempts()
-      .filter((attempt) => attempt.bead !== undefined);
-    assert.equal(
-      admitted.length,
-      4,
-      "Competing supervisors must not duplicate admission",
-    );
+    const admitted = store.attempts().filter((attempt) => attempt.bead !== undefined);
+    assert.equal(admitted.length, 4, "Competing supervisors must not duplicate admission");
     assert.deepEqual(
       admitted.map((row) => row.bead?.id).sort(),
       ["first", "overlap", "second", "third"].map((key) => `${parent}.${key}`),
@@ -1134,13 +935,8 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     assert.equal(interrupted.phase, ExecutionPhase.Uncertain);
     assert.equal(interrupted.bead, undefined);
     assert.equal(interruptedReadRequests, 1);
-    assert.equal(
-      claimRequests,
-      4,
-      "Each completed task must have one guarded claim write",
-    );
-    for (const attempt of admitted)
-      assert.equal(claimActors.get(`pi:${attempt.id}`), 1);
+    assert.equal(claimRequests, 4, "Each completed task must have one guarded claim write");
+    for (const attempt of admitted) assert.equal(claimActors.get(`pi:${attempt.id}`), 1);
     for (const count of claimActors.values()) assert.equal(count, 1);
     console.log(
       JSON.stringify({
@@ -1150,70 +946,28 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
         completedFixtureTasks: 4,
       }),
     );
-    const first = admitted.find(
-      (attempt) => attempt.bead?.id === `${parent}.first`,
-    );
-    const second = admitted.find(
-      (attempt) => attempt.bead?.id === `${parent}.second`,
-    );
+    const first = admitted.find((attempt) => attempt.bead?.id === `${parent}.first`);
+    const second = admitted.find((attempt) => attempt.bead?.id === `${parent}.second`);
     assert(first?.integration !== undefined && second?.checkout !== undefined);
     assert.deepEqual(first.worker, approvedWorkers.first);
     assert.deepEqual(second.worker, approvedWorkers.second);
-    assert.equal(
-      first.id,
-      crashedAttempt,
-      "Recovery must retain the admitted attempt identity",
-    );
-    assert.equal(
-      first.recoveries,
-      1,
-      "Known-dead control host must resume the same accepted attempt",
-    );
+    assert.equal(first.id, crashedAttempt, "Recovery must retain the admitted attempt identity");
+    assert.equal(first.recoveries, 1, "Known-dead control host must resume the same accepted attempt");
     assert.equal(second.base, first.integration);
-    assert(
-      rejectedSecondHead !== undefined && approvedSecondHead !== undefined,
-    );
-    assert(
-      rejectedIntegration !== undefined && correctedIntegration !== undefined,
-    );
-    assert.equal(
-      second.integration,
-      correctedIntegration,
-      "The accepted integration must be the reviewed repair",
-    );
-    await git(
-      "merge-base",
-      "--is-ancestor",
-      rejectedIntegration,
-      correctedIntegration,
-    );
+    assert(rejectedSecondHead !== undefined && approvedSecondHead !== undefined);
+    assert(rejectedIntegration !== undefined && correctedIntegration !== undefined);
+    assert.equal(second.integration, correctedIntegration, "The accepted integration must be the reviewed repair");
+    await git("merge-base", "--is-ancestor", rejectedIntegration, correctedIntegration);
     assert.equal(second.reviewFeedback, undefined);
     assert.equal(second.reviewFinding, undefined);
-    assert.equal(
-      unrelatedWrites,
-      1,
-      "A clear assignment should pass review without a repair",
-    );
-    assert.match(
-      await readFile(join(second.checkout.path, "first.txt"), "utf8"),
-      /^verified prerequisite\n/u,
-    );
-    assert.equal(
-      first.controllerSession,
-      crashedSession,
-      "Recovery retains the enrolled native controller identity",
-    );
+    assert.equal(unrelatedWrites, 1, "A clear assignment should pass review without a repair");
+    assert.match(await readFile(join(second.checkout.path, "first.txt"), "utf8"), /^verified prerequisite\n/u);
+    assert.equal(first.controllerSession, crashedSession, "Recovery retains the enrolled native controller identity");
     assert.equal((await service.get(`${parent}.held`)).status, "deferred");
     assert.equal(providerError, undefined);
-    assert(
-      sawConcurrentReview,
-      "Unrelated assignment must progress despite an overlapping queued task",
-    );
+    assert(sawConcurrentReview, "Unrelated assignment must progress despite an overlapping queued task");
     assert(sawOverlapAfterCompletion);
-    assert(
-      requests.includes(AgentRole.Worker) &&
-        requests.includes(AgentRole.Reviewer),
-    );
+    assert(requests.includes(AgentRole.Worker) && requests.includes(AgentRole.Reviewer));
     assert(!requests.includes(AgentRole.Lead));
     assert(admitted.every((attempt) => new Set(attempt.sessions).size >= 2));
     const rejectedGraph = randomUUID();
@@ -1224,8 +978,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
         {
           key: "rejected",
           title: "Deliberate verifier rejection",
-          description:
-            "Create rejected.txt with verified prerequisite followed by a newline",
+          description: "Create rejected.txt with verified prerequisite followed by a newline",
           acceptance:
             "Correct rejected.txt only after explicit guarded retry; verification and independent review are mandatory",
           owns: ["rejected.txt"],
@@ -1255,26 +1008,18 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       { root: rejectedRoot, rejected: rejectedId, blocked: blockedId },
     );
     startSupervisor();
-    const waitRecovery = async (
-      label: string,
-      predicate: () => boolean | Promise<boolean>,
-    ) => {
-      const until =
-        Date.now() + (process.env["CI"] === "true" ? 90_000 : 30_000);
+    const waitRecovery = async (label: string, predicate: () => boolean | Promise<boolean>) => {
+      const until = Date.now() + (process.env["CI"] === "true" ? 90_000 : 30_000);
       while (!(await predicate())) {
         if (providerError !== undefined)
           throw new Error("Native fixture inference failed", {
             cause: providerError,
           });
-        assert(
-          Date.now() < until,
-          `${label}: ${JSON.stringify(store.attempts())}\n${diagnostics}`,
-        );
+        assert(Date.now() < until, `${label}: ${JSON.stringify(store.attempts())}\n${diagnostics}`);
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
     };
-    const findRejected = () =>
-      store.attempts().find((row) => row.bead?.id === rejectedId);
+    const findRejected = () => store.attempts().find((row) => row.bead?.id === rejectedId);
     const dependentFenced = async () => {
       assert.equal(
         store.attempts().some((row) => row.bead?.id === blockedId),
@@ -1287,11 +1032,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       return findRejected()?.phase === ExecutionPhase.Parked;
     });
     const rejected = findRejected();
-    assert(
-      rejected?.verification !== undefined &&
-        rejected.checkout !== undefined &&
-        rejected.base !== undefined,
-    );
+    assert(rejected?.verification !== undefined && rejected.checkout !== undefined && rejected.base !== undefined);
     assert.equal(rejected.verification.exitCode, 42);
     assert.match(rejected.verification.output, /EXPECTED_REJECTION/u);
     assert.match(rejected.message, /Agreed verification failed/u);
@@ -1318,22 +1059,15 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       });
       const beadId = `${rootId}.queued`;
       conflicts.push(beadId);
-      await service.createGraph(
-        graphId,
-        planDigest(conflictDraft),
-        "Recovery overlap",
-        conflictDraft,
-        { root: rootId, queued: beadId },
-      );
+      await service.createGraph(graphId, planDigest(conflictDraft), "Recovery overlap", conflictDraft, {
+        root: rootId,
+        queued: beadId,
+      });
     }
     await waitRecovery("Two overlapping tasks were not queued", async () => {
       await dependentFenced();
       return conflicts.every((id) =>
-        store
-          .attempts()
-          .some(
-            (row) => row.bead?.id === id && row.phase === ExecutionPhase.Queued,
-          ),
+        store.attempts().some((row) => row.bead?.id === id && row.phase === ExecutionPhase.Queued),
       );
     });
     const task = await service.get(rejectedId);
@@ -1350,10 +1084,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     assert.match(explanation ?? "", /Other admission fences may also apply/u);
     const evidence = retainedEvidence(task, snapshot);
     assert.match(evidence, /EXPECTED_REJECTION/u);
-    const diff = await safeGit(project.root, rejected.checkout.path, [
-      "diff",
-      rejected.base,
-    ]);
+    const diff = await safeGit(project.root, rejected.checkout.path, ["diff", rejected.base]);
     assert.match(diff, /verified prerequisite/u);
     await waitRecovery(
       "Prior failed writer did not settle",
@@ -1411,9 +1142,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
               "XDG_CONFIG_HOME",
               "UV_PYTHON",
               "UV_PYTHON_DOWNLOADS",
-            ].flatMap((key) =>
-              env[key] === undefined ? [] : [[key, env[key]]],
-            ),
+            ].flatMap((key) => (env[key] === undefined ? [] : [[key, env[key]]])),
           ),
           session,
           task: rejectedId,
@@ -1434,19 +1163,17 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
           cwd: root,
           env: {
             ...env,
-            UV_CACHE_DIR:
-              process.env["UV_CACHE_DIR"] ?? join(homedir(), ".cache", "uv"),
+            UV_CACHE_DIR: process.env["UV_CACHE_DIR"] ?? join(homedir(), ".cache", "uv"),
           },
           timeout: 90000,
         },
       );
     }
     repairRejected = true;
-    const retry = await run(
-      join(root, "scripts/studio"),
-      ["runtime", "retry", rejected.id],
-      { cwd: fixture.workspace, env },
-    );
+    const retry = await run(join(root, "scripts/studio"), ["runtime", "retry", rejected.id], {
+      cwd: fixture.workspace,
+      env,
+    });
     assert.equal(retry.trim(), "");
     await waitRecovery("Same-attempt retry did not complete", async () => {
       const current = store.attempt(rejected.id);
@@ -1454,17 +1181,11 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       return current.phase === ExecutionPhase.Complete;
     });
     const recovered = store.attempt(rejected.id);
-    assert.equal(
-      store.attempts().filter((row) => row.bead?.id === rejectedId).length,
-      1,
-    );
+    assert.equal(store.attempts().filter((row) => row.bead?.id === rejectedId).length, 1);
     assert.equal(recovered.verification?.exitCode, 0);
     assert.match(recovered.verification.output, /RECOVERY_VERIFIED/u);
     assert(recovered.review !== undefined);
-    assert(
-      recovered.sessions.length > rejected.sessions.length,
-      "Retry must run worker and independent review again",
-    );
+    assert(recovered.sessions.length > rejected.sessions.length, "Retry must run worker and independent review again");
     assert.equal((await service.get(rejectedId)).status, "closed");
     if (options.recoveryOutput !== undefined)
       await writeFile(
@@ -1474,8 +1195,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
             attempt: recovered,
             sameAttempt: recovered.id === rejected.id,
             overlaps: conflicts,
-            decisionProtocol:
-              "deferred; no per-attempt operator question/answer is implemented",
+            decisionProtocol: "deferred; no per-attempt operator question/answer is implemented",
           },
           null,
           2,
@@ -1497,7 +1217,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     );
   } finally {
     clearTimeout(timeout);
-    if (startupTimer !== undefined) clearTimeout(startupTimer);
+    if (startupTimer) clearTimeout(startupTimer);
     release?.();
     releaseFirst?.();
     releaseOverlap?.();
@@ -1522,16 +1242,10 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
           /* already closed */
         }
       }
-    if (
-      supervisor?.pid !== undefined &&
-      supervisor.exitCode === null &&
-      supervisor.signalCode === null
-    )
+    if (supervisor?.pid !== undefined && supervisor.exitCode === null && supervisor.signalCode === null)
       process.kill(-supervisor.pid, "SIGTERM");
     await Promise.race([
-      supervisor === undefined ||
-      supervisor.exitCode !== null ||
-      supervisor.signalCode !== null
+      !supervisor || supervisor.exitCode !== null || supervisor.signalCode !== null
         ? Promise.resolve()
         : once(supervisor, "close"),
       new Promise((resolve) => setTimeout(resolve, 3000)),

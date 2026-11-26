@@ -11,15 +11,9 @@ const statusTones = {
   [TaskStatus.Closed]: { glyph: "●", tone: "success" },
 } satisfies Record<TaskStatus, { glyph: string; tone: ThemeColor }>;
 
-export function taskStatusGlyph(
-  status: string,
-  theme: Pick<Theme, "fg">,
-): string {
+export function taskStatusGlyph(status: string, theme: Pick<Theme, "fg">): string {
   const recognized = knownTaskStatus(status);
-  const { glyph, tone } =
-    recognized === undefined
-      ? { glyph: "?", tone: "muted" as const }
-      : statusTones[recognized];
+  const { glyph, tone } = recognized === undefined ? { glyph: "?", tone: "muted" as const } : statusTones[recognized];
   return theme.fg(tone, glyph);
 }
 
@@ -29,9 +23,7 @@ export function withTaskAssignment(
   width: number,
   muted: (text: string) => string,
 ): string {
-  if (assignment === undefined) return row;
+  if (!assignment) return row;
   const suffix = `  ·  ${assignment.capability} · ${assignment.reasoning}`;
-  return visibleWidth(row) + visibleWidth(suffix) <= width
-    ? row + muted(suffix)
-    : row;
+  return visibleWidth(row) + visibleWidth(suffix) <= width ? row + muted(suffix) : row;
 }

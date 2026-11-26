@@ -6,8 +6,7 @@ export async function settleOwnedAllocationGroup(steps: {
   wait: () => Promise<void>;
 }): Promise<void> {
   if (!steps.probe()) return;
-  if (!(await steps.verify()))
-    throw new Error("Cannot verify a surviving owned allocation process group");
+  if (!(await steps.verify())) throw new Error("Cannot verify a surviving owned allocation process group");
   steps.signal();
   await steps.wait();
 }
@@ -23,7 +22,7 @@ export async function finishAllocationFixture(
     dispose: (safe: boolean) => Promise<void>;
   },
 ): Promise<void> {
-  const errors: unknown[] = primary === undefined ? [] : [primary.error];
+  const errors: unknown[] = !primary ? [] : [primary.error];
   let settled = false;
   for (const [name, action] of [
     ["abort pending allocation", steps.abort],
@@ -42,16 +41,10 @@ export async function finishAllocationFixture(
     try {
       await action();
     } catch (error) {
-      errors.push(
-        new Error(`Allocation fixture cleanup: ${name}`, { cause: error }),
-      );
+      errors.push(new Error(`Allocation fixture cleanup: ${name}`, { cause: error }));
     }
   }
   if (errors.length === 0) return;
-  if (primary?.error instanceof Error && errors.length === 1)
-    throw primary.error;
-  throw new AggregateError(
-    errors,
-    "Allocation fixture failure; original error (when present) precedes cleanup errors",
-  );
+  if (primary?.error instanceof Error && errors.length === 1) throw primary.error;
+  throw new AggregateError(errors, "Allocation fixture failure; original error (when present) precedes cleanup errors");
 }

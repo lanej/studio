@@ -1,27 +1,10 @@
 import { createHash } from "node:crypto";
-import {
-  closeSync,
-  createReadStream,
-  mkdtempSync,
-  openSync,
-  rmSync,
-  writeSync,
-} from "node:fs";
+import { closeSync, createReadStream, mkdtempSync, openSync, rmSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import {
-  create,
-  equals,
-  fromJsonString,
-  toJsonString,
-} from "@bufbuild/protobuf";
-import {
-  ProviderError,
-  type HostProvider,
-  type SnapshotItem,
-  type SnapshotReader,
-} from "@lanej/copydesk";
+import { create, equals, fromJsonString, toJsonString } from "@bufbuild/protobuf";
+import { ProviderError, type HostProvider, type SnapshotItem, type SnapshotReader } from "@lanej/copydesk";
 import {
   CallContextSchema,
   DocumentRefSchema,
@@ -42,16 +25,8 @@ import {
 } from "@lanej/copydesk/protocol";
 import { z } from "zod";
 import { OperationIdReused } from "../operation-witness.ts";
-import {
-  type PlanningDocuments,
-  PlanningSaveError,
-  type PlanningBinding,
-} from "../planning/documents.ts";
-import {
-  FeedbackRequestReused,
-  FeedbackState,
-  type FeedbackRecord,
-} from "../planning/feedback.ts";
+import { type PlanningDocuments, PlanningSaveError, type PlanningBinding } from "../planning/documents.ts";
+import { FeedbackRequestReused, FeedbackState, type FeedbackRecord } from "../planning/feedback.ts";
 import {
   DocumentKind,
   type DocumentOwnerKind,
@@ -106,17 +81,11 @@ export class StudioDocumentProvider implements HostProvider {
     try {
       this.authority.assertBinding(this.binding);
     } catch (cause) {
-      throw new ProviderError(
-        "failed_precondition",
-        cause instanceof Error ? cause.message : String(cause),
-      );
+      throw new ProviderError("failed_precondition", cause instanceof Error ? cause.message : String(cause));
     }
   }
   private ref(value: DocumentRef): WireDocumentRef {
-    if (
-      value.project !== this.binding.project ||
-      value.conversationId !== this.binding.conversationId
-    )
+    if (value.project !== this.binding.project || value.conversationId !== this.binding.conversationId)
       throw new Error("A document belongs to another Studio conversation");
     return create(DocumentRefSchema, {
       session: this.context.session,
@@ -130,10 +99,7 @@ export class StudioDocumentProvider implements HostProvider {
       this.context.session === undefined ||
       !equals(SessionRefSchema, value.session, this.context.session)
     )
-      throw new PlanningSaveError(
-        "wrong_owner",
-        "This document belongs to another Studio conversation",
-      );
+      throw new PlanningSaveError("wrong_owner", "This document belongs to another Studio conversation");
     const delimiter = value.ownerId.indexOf(":");
     return documentRefSchema.parse({
       ownerKind: value.ownerId.slice(0, delimiter),
@@ -147,10 +113,7 @@ export class StudioDocumentProvider implements HostProvider {
     return create(DocumentSnapshotSchema, {
       ref: this.ref(value.ref),
       revision: value.revision,
-      title:
-        value.ref.kind === DocumentKind.Specification
-          ? "Specification"
-          : "Implementation plan",
+      title: value.ref.kind === DocumentKind.Specification ? "Specification" : "Implementation plan",
       text: value.markdown,
       writable: value.writable,
       reason: value.reason ?? "",
@@ -176,7 +139,7 @@ export class StudioDocumentProvider implements HostProvider {
         ref: this.ref(change.ref),
         beforeRevision: change.beforeRevision,
         afterRevision: change.afterRevision,
-        ...(change.range === undefined ? {} : { range: change.range }),
+        ...(!change.range ? {} : { range: change.range }),
       })),
     });
   }
@@ -213,9 +176,7 @@ export class StudioDocumentProvider implements HostProvider {
     return Promise.resolve({
       header: create(SyncHeaderSchema, {
         session: this.context.session,
-        ...(view.owner === undefined
-          ? {}
-          : { activeOwnerId: ownerId(view.owner.kind, view.owner.id) }),
+        ...(!view.owner ? {} : { activeOwnerId: ownerId(view.owner.kind, view.owner.id) }),
       }),
       async next(): Promise<SnapshotItem | undefined> {
         if (closed) return undefined;
@@ -254,10 +215,7 @@ export class StudioDocumentProvider implements HostProvider {
           case: "rejected",
           value: {
             operationId: command.operationId,
-            code:
-              cause instanceof PlanningSaveError
-                ? RejectionCode.WRONG_OWNER
-                : RejectionCode.INVALID,
+            code: cause instanceof PlanningSaveError ? RejectionCode.WRONG_OWNER : RejectionCode.INVALID,
             reason: cause instanceof Error ? cause.message : String(cause),
           },
         },
@@ -273,37 +231,28 @@ export class StudioDocumentProvider implements HostProvider {
         },
         {
           command: toJsonString(SaveCommandSchema, command),
-          presentation: (document) =>
-            toJsonString(DocumentSnapshotSchema, this.document(document)),
+          presentation: (document) => toJsonString(DocumentSnapshotSchema, this.document(document)),
         },
       );
       if (accepted.presentation === undefined)
-        throw new Error(
-          "The operation witness has no retained protocol document",
-        );
+        throw new Error("The operation witness has no retained protocol document");
       return create(SaveResultSchema, {
         result: {
           case: "accepted",
           value: {
             operationId: command.operationId,
-            document: fromJsonString(
-              DocumentSnapshotSchema,
-              accepted.presentation,
-            ),
+            document: fromJsonString(DocumentSnapshotSchema, accepted.presentation),
             commitWitnessId: accepted.commitWitnessId,
           },
         },
       });
     } catch (cause) {
       const reason = cause instanceof Error ? cause.message : String(cause);
-      if (
-        cause instanceof OperationIdReused ||
-        (cause instanceof PlanningSaveError && cause.code !== "uncertain")
-      ) {
+      if (cause instanceof OperationIdReused || (cause instanceof PlanningSaveError && cause.code !== "uncertain")) {
         let current: WireDocumentSnapshot | undefined;
         try {
           const value = this.authority.currentDocument(ref);
-          if (value !== undefined) current = this.document(value);
+          if (value) current = this.document(value);
         } catch {
           /* The original owner may no longer be selected. */
         }
@@ -315,9 +264,7 @@ export class StudioDocumentProvider implements HostProvider {
               code:
                 cause instanceof OperationIdReused
                   ? RejectionCode.OPERATION_ID_REUSED
-                  : rejectionCodes[
-                      cause.code === "uncertain" ? "invalid" : cause.code
-                    ],
+                  : rejectionCodes[cause.code === "uncertain" ? "invalid" : cause.code],
               reason,
               ...(current === undefined ? {} : { current }),
             },
@@ -338,10 +285,7 @@ export class StudioDocumentProvider implements HostProvider {
     try {
       ref = this.originalRef(command.ref);
     } catch (cause) {
-      throw new ProviderError(
-        "failed_precondition",
-        cause instanceof Error ? cause.message : String(cause),
-      );
+      throw new ProviderError("failed_precondition", cause instanceof Error ? cause.message : String(cause));
     }
     try {
       return this.feedback(
@@ -365,10 +309,8 @@ export class StudioDocumentProvider implements HostProvider {
         ),
       );
     } catch (cause) {
-      if (cause instanceof FeedbackRequestReused)
-        throw new ProviderError("already_exists", cause.message);
-      if (cause instanceof PlanningSaveError)
-        throw new ProviderError("failed_precondition", cause.message);
+      if (cause instanceof FeedbackRequestReused) throw new ProviderError("already_exists", cause.message);
+      if (cause instanceof PlanningSaveError) throw new ProviderError("failed_precondition", cause.message);
       throw cause;
     }
   }

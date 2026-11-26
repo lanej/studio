@@ -1,14 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  realpath,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,11 +18,7 @@ import {
   keyText,
   keyHint,
 } from "@earendil-works/pi-coding-agent";
-import {
-  registerCodeIntelligence,
-  lspTool,
-  renameTool,
-} from "../code-intelligence/extension.ts";
+import { registerCodeIntelligence, lspTool, renameTool } from "../code-intelligence/extension.ts";
 
 initTheme("dark", false);
 const root = await realpath(await mkdtemp(join(tmpdir(), "pi-lsp-native-")));
@@ -58,12 +46,8 @@ await writeFile(
     files: ["a.ts", "b.ts"],
   }),
 );
-await writeFile(
-  join(root, "a.ts"),
-  "export function greet(name: string): string { return name; }\n",
-);
-const valid =
-  'import { greet } from "./a";\nexport const answer: string = greet("hello");\n';
+await writeFile(join(root, "a.ts"), "export function greet(name: string): string { return name; }\n");
+const valid = 'import { greet } from "./a";\nexport const answer: string = greet("hello");\n';
 await writeFile(join(root, "b.ts"), valid);
 let blockWrites = false;
 const services = await createAgentSessionServices({
@@ -99,9 +83,7 @@ const { session } = await createAgentSessionFromServices({
 await session.bindExtensions({ mode: "rpc" });
 session.sessionManager.appendMessage({
   role: "assistant",
-  content: [
-    { type: "toolCall", id: "acceptance", name: "acceptance", arguments: {} },
-  ],
+  content: [{ type: "toolCall", id: "acceptance", name: "acceptance", arguments: {} }],
   api: "openai-completions",
   provider: "fixture",
   model: "fixture",
@@ -128,10 +110,8 @@ const call = async (name: string, args: unknown) => {
     .map((item) => item.text)
     .join("\n");
 };
-async function eventually(
-  operation: () => Promise<string>,
-  expected: RegExp,
-): Promise<void> {
+
+async function eventually(operation: () => Promise<string>, expected: RegExp): Promise<void> {
   const deadline = Date.now() + 30_000;
   let observed = "";
   do {
@@ -139,12 +119,9 @@ async function eventually(
     if (expected.test(observed)) return;
     await delay(100);
   } while (Date.now() < deadline);
-  assert.match(
-    observed,
-    expected,
-    "Language-server result did not settle before the acceptance deadline",
-  );
+  assert.match(observed, expected, "Language-server result did not settle before the acceptance deadline");
 }
+
 try {
   // Initialization can precede project indexing; assert the semantic result when it settles.
   await eventually(
@@ -175,10 +152,7 @@ try {
   assert.ok(lastOutcome !== undefined);
   const written = lastOutcome;
   const native = session.getToolDefinition("edit");
-  const rendered = session.extensionRunner.resolveToolRenderers(
-    "edit",
-    () => native,
-  );
+  const rendered = session.extensionRunner.resolveToolRenderers("edit", () => native);
   assert.ok(rendered?.renderResult !== undefined);
   const renderOptions = { expanded: false, isPartial: false };
   const renderContext = {
@@ -200,41 +174,22 @@ try {
   };
   assert.ok(rendered.renderCall !== undefined);
   const theme = session.extensionRunner.getUIContext().theme;
-  const callComponent = rendered.renderCall(
-    renderContext.args,
-    theme,
-    renderContext,
-  );
-  const component = rendered.renderResult(
-    written.result,
-    renderOptions,
-    theme,
-    renderContext,
-  );
-  await eventually(
-    () => Promise.resolve(callComponent.render(100).join("\n")),
-    /Type 'string' is not assignable/u,
-  );
+  const callComponent = rendered.renderCall(renderContext.args, theme, renderContext);
+  const component = rendered.renderResult(written.result, renderOptions, theme, renderContext);
+  await eventually(() => Promise.resolve(callComponent.render(100).join("\n")), /Type 'string' is not assignable/u);
   assert.doesNotMatch(component.render(100).join("\n"), /"lsp"|"diagnostics"/u);
   assert.doesNotMatch(component.render(60).join("\n"), /not assignable/u);
   assert.match(callComponent.render(100).join("\n"), /answer.*number/u);
   for (const width of [100, 120]) {
     const rows = callComponent.render(width);
-    assert.ok(
-      rows.some((row) => row.includes("×") && row.includes("not assignable")),
-    );
+    assert.ok(rows.some((row) => row.includes("×") && row.includes("not assignable")));
     assert.ok(rows.some((row) => row.includes("\x1b[4:3m")));
   }
   // The type diagnostic needs the updated source line for its range and inlay.
-  const splitText = stripTerminalSequences(
-    callComponent.render(120).join("\n"),
-  );
+  const splitText = stripTerminalSequences(callComponent.render(120).join("\n"));
   assert.doesNotMatch(splitText, /Original.*Updated/u);
   assert.match(splitText, /answer: string.*│.*answer: number/u);
-  assert.doesNotMatch(
-    callComponent.render(100).join("\n"),
-    /Original.*Updated| │ /u,
-  );
+  assert.doesNotMatch(callComponent.render(100).join("\n"), /Original.*Updated| │ /u);
   for (const width of [100, 120]) {
     const output = callComponent.render(width).join("\n");
     assert.ok(output.includes("\x1b[48;2;48;70;57m"));
@@ -269,32 +224,20 @@ try {
   };
   const policyCall = rendered.renderCall(policyArgs, theme, policyContext);
   rendered.renderResult(policy.result, renderOptions, theme, policyContext);
-  const nativeDiff = z
-    .object({ diff: z.string() })
-    .parse(policy.result.details).diff;
+  const nativeDiff = z.object({ diff: z.string() }).parse(policy.result.details).diff;
   assert.doesNotMatch(nativeDiff, /retryDelay/u);
   for (const width of [72, 120]) {
-    const policyText = stripTerminalSequences(
-      policyCall.render(width).join("\n"),
-    );
+    const policyText = stripTerminalSequences(policyCall.render(width).join("\n"));
     assert.match(policyText, /retryDelay\(attempt: number, baseMs: number\)/u);
     assert.equal(policyText.match(/retryDelay/gu)?.length, 1);
     assert.equal(policyText.split(policyArgs.reason).length, 2);
-    assert.ok(
-      policyText.indexOf(policyArgs.reason) < policyText.indexOf("retryDelay"),
-    );
+    assert.ok(policyText.indexOf(policyArgs.reason) < policyText.indexOf("retryDelay"));
     assert.match(policyText, /factor = 2 → 4/u);
     assert.doesNotMatch(policyText, /Original|Updated| │ /u);
   }
-  await eventually(
-    () => call(lspTool, { action: "diagnostics", path: "b.ts" }),
-    /2322/u,
-  );
+  await eventually(() => call(lspTool, { action: "diagnostics", path: "b.ts" }), /2322/u);
   await call("write", { path: "b.ts", content: valid });
-  await eventually(
-    () => call(lspTool, { action: "diagnostics", path: "b.ts" }),
-    /"total": 0/u,
-  );
+  await eventually(() => call(lspTool, { action: "diagnostics", path: "b.ts" }), /"total": 0/u);
   const preview = z
     .object({
       token: z.string(),
@@ -337,21 +280,13 @@ try {
     action: "apply",
     token: blockedPreview.token,
   });
-  assert.equal(
-    blocked.isError,
-    true,
-    "nested rename writes must honor Pi's tool hooks",
-  );
+  assert.equal(blocked.isError, true, "nested rename writes must honor Pi's tool hooks");
   assert.match(JSON.stringify(blocked.result), /Fixture approval revoked/u);
   assert.match(await readFile(join(root, "b.ts"), "utf8"), /greet/u);
   assert.ok(
     session.sessionManager
       .getBranch()
-      .some(
-        (entry) =>
-          entry.type === "custom" &&
-          entry.customType === "studio:rename-recovery",
-      ),
+      .some((entry) => entry.type === "custom" && entry.customType === "studio:rename-recovery"),
   );
   blockWrites = false;
   await call("write", {
@@ -371,46 +306,36 @@ try {
   );
   await call(renameTool, { action: "apply", token: finalPreview.token });
   assert.match(await readFile(join(root, "a.ts"), "utf8"), /function welcome/u);
-  assert.match(
-    await readFile(join(root, "b.ts"), "utf8"),
-    /welcome\("hello"\)/u,
-  );
+  assert.match(await readFile(join(root, "b.ts"), "utf8"), /welcome\("hello"\)/u);
   await promisify(execFile)(
     process.execPath,
     [
-      fileURLToPath(
-        new URL("../node_modules/typescript/bin/tsc", import.meta.url),
-      ),
+      fileURLToPath(new URL("../node_modules/typescript/bin/tsc", import.meta.url)),
       "--project",
       join(root, "tsconfig.json"),
     ],
     { timeout: 15_000 },
   );
-  session.sessionManager.appendCustomMessageEntry(
-    "studio:diagnostics",
-    "Late diagnostic",
-    false,
-    {
-      toolCallId: written.toolCall.id,
-      snapshot: {
-        path: join(root, "b.ts"),
-        state: "received",
-        version: 99,
-        freshness: "versioned",
-        total: 1,
-        diagnostics: [
-          {
-            line: 2,
-            column: 1,
-            severity: "error",
-            message: "Retained late diagnostic",
-            source: "ts",
-            code: 2322,
-          },
-        ],
-      },
+  session.sessionManager.appendCustomMessageEntry("studio:diagnostics", "Late diagnostic", false, {
+    toolCallId: written.toolCall.id,
+    snapshot: {
+      path: join(root, "b.ts"),
+      state: "received",
+      version: 99,
+      freshness: "versioned",
+      total: 1,
+      diagnostics: [
+        {
+          line: 2,
+          column: 1,
+          severity: "error",
+          message: "Retained late diagnostic",
+          source: "ts",
+          code: 2322,
+        },
+      ],
     },
-  );
+  });
   await writeFile(
     join(root, "config/studio/config.toml"),
     "[display]\ninline_diagnostics = false\n[lsp]\nenabled = false\n",
@@ -426,10 +351,7 @@ try {
     renderContext,
   );
   assert.match(restored.render(100).join("\n"), /Retained late diagnostic/u);
-  assert.doesNotMatch(
-    callComponent.render(100).join("\n"),
-    /×|Retained late diagnostic/u,
-  );
+  assert.doesNotMatch(callComponent.render(100).join("\n"), /×|Retained late diagnostic/u);
   // Sessions saved before Tree-sitter keep their original LSP labels.
   const legacyContext = {
     ...policyContext,
@@ -450,10 +372,7 @@ try {
     theme,
     legacyContext,
   );
-  assert.match(
-    stripTerminalSequences(legacyCall.render(120).join("\n")),
-    /HistoricPolicy › retryDelay/u,
-  );
+  assert.match(stripTerminalSequences(legacyCall.render(120).join("\n")), /HistoricPolicy › retryDelay/u);
 
   // An edit uses Tree-sitter with LSP disabled, preserves the native BOM/CRLF, and
   // replays after the source file has been removed. A number inside a comment stays split.

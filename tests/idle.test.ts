@@ -110,12 +110,7 @@ await test("new input restarts the idle window; drafts and unknown usage fail cl
 });
 
 await test("active work, queued input, dialogs, and children prevent requests", () => {
-  for (const change of [
-    { settled: false },
-    { pendingInput: true },
-    { dialogs: 1 },
-    { children: 1 },
-  ]) {
+  for (const change of [{ settled: false }, { pendingInput: true }, { dialogs: 1 }, { children: 1 }]) {
     const f = fixture();
     f.controller.settled();
     Object.assign(f.snapshot, change);

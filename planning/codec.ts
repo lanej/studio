@@ -5,12 +5,7 @@ import { draftSchema } from "./plan.ts";
 import { savedCoverageSchema } from "../socrates/assessment.ts";
 import { deliveryPolicySchema } from "../socrates/delivery-policy.ts";
 import { isTrackedDecision, specDraft, specRecord } from "../socrates/spec.ts";
-import {
-  DocumentKind,
-  type EditableDocument,
-  type PlanDraft,
-  type SpecificationDraft,
-} from "./model.ts";
+import { DocumentKind, type EditableDocument, type PlanDraft, type SpecificationDraft } from "./model.ts";
 
 const specificationSchema = specRecord.shape.draft.unwrap();
 const requirementMetadata = specDraft.shape.requirements.element.pick({
@@ -93,8 +88,7 @@ function heading(path: string, table?: Record<string, unknown>): string {
 
 function checkHeading(field: Field, table?: Record<string, unknown>): void {
   const expected = heading(field.path, table);
-  if (field.heading !== expected)
-    throw new Error(`Keep the field heading ${expected} for ${field.path}`);
+  if (field.heading !== expected) throw new Error(`Keep the field heading ${expected} for ${field.path}`);
 }
 
 function metadata(value: unknown): string {
@@ -103,16 +97,9 @@ function metadata(value: unknown): string {
 
 function render(kind: DocumentKind, fields: Field[]): string {
   const content = fields.map(({ body }) => body).join("\n");
-  let token = createHash("sha256")
-    .update(`studio-document:v1:${kind}`)
-    .digest("hex")
-    .slice(0, 16);
-  while (content.includes(`studio:${token}`))
-    token = createHash("sha256").update(token).digest("hex").slice(0, 16);
-  const title =
-    kind === DocumentKind.Specification
-      ? "Specification"
-      : "Implementation plan";
+  let token = createHash("sha256").update(`studio-document:v1:${kind}`).digest("hex").slice(0, 16);
+  while (content.includes(`studio:${token}`)) token = createHash("sha256").update(token).digest("hex").slice(0, 16);
+  const title = kind === DocumentKind.Specification ? "Specification" : "Implementation plan";
   return [
     `# ${title}`,
     `<!-- studio-document:v1:${kind}:${token} -->`,
@@ -132,24 +119,14 @@ function render(kind: DocumentKind, fields: Field[]): string {
 class Fields {
   private readonly values = new Map<string, Field>();
   constructor(markdown: string, kind: DocumentKind) {
-    if (Buffer.byteLength(markdown) > limit)
-      throw new Error("The document exceeds the 1 MiB editing limit");
+    if (Buffer.byteLength(markdown) > limit) throw new Error("The document exceeds the 1 MiB editing limit");
     const lines = markdown.replaceAll("\r\n", "\n").split("\n");
-    const title =
-      kind === DocumentKind.Specification
-        ? "# Specification"
-        : "# Implementation plan";
-    if (lines.shift() !== title)
-      throw new Error(`Keep the document title: ${title}`);
-    const header =
-      /^<!-- studio-document:v1:(specification|plan):([a-f0-9]{16}) -->$/u.exec(
-        lines.shift() ?? "",
-      );
+    const title = kind === DocumentKind.Specification ? "# Specification" : "# Implementation plan";
+    if (lines.shift() !== title) throw new Error(`Keep the document title: ${title}`);
+    const header = /^<!-- studio-document:v1:(specification|plan):([a-f0-9]{16}) -->$/u.exec(lines.shift() ?? "");
     const token = header?.[2];
     if (header?.[1] !== kind || token === undefined)
-      throw new Error(
-        "The Studio document format marker is missing or invalid",
-      );
+      throw new Error("The Studio document format marker is missing or invalid");
     const start = `<!-- studio:${token}:`;
     const end = `<!-- /studio:${token} -->`;
     let index = 0;
@@ -160,26 +137,18 @@ class Fields {
         continue;
       }
       if (!line.startsWith(start) || !line.endsWith(" -->"))
-        throw new Error(
-          `Text outside a document field at line ${String(index + 3)}`,
-        );
+        throw new Error(`Text outside a document field at line ${String(index + 3)}`);
       const path = line.slice(start.length, -" -->".length);
       if (!/^[a-zA-Z0-9/-]+$/u.test(path) || this.values.has(path))
         throw new Error(`Invalid or repeated document field: ${path}`);
       const heading = lines[index + 1];
-      if (
-        heading === undefined ||
-        !/^#{2,4} /u.test(heading) ||
-        lines[index + 2] !== ""
-      )
+      if (heading === undefined || !/^#{2,4} /u.test(heading) || lines[index + 2] !== "")
         throw new Error(`Keep the heading and blank line for ${path}`);
       const close = lines.indexOf(end, index + 3);
       if (close === -1) throw new Error(`Missing closing boundary for ${path}`);
       const body = lines.slice(index + 3, close);
       if (body.some((entry) => entry.startsWith(start)))
-        throw new Error(
-          `Missing closing boundary before another field in ${path}`,
-        );
+        throw new Error(`Missing closing boundary before another field in ${path}`);
       this.values.set(path, {
         path,
         heading,
@@ -191,7 +160,7 @@ class Fields {
 
   private take(path: string): Field {
     const field = this.values.get(path);
-    if (field === undefined) throw new Error(`Missing document field: ${path}`);
+    if (!field) throw new Error(`Missing document field: ${path}`);
     this.values.delete(path);
     return field;
   }
@@ -211,8 +180,7 @@ class Fields {
     const body = field.body;
     const open = `${fence}toml\n`;
     const close = `\n${fence}`;
-    if (!body.startsWith(open) || !body.endsWith(close))
-      throw new Error(`Keep the TOML block for ${path}`);
+    if (!body.startsWith(open) || !body.endsWith(close)) throw new Error(`Keep the TOML block for ${path}`);
     try {
       const table = parseToml(body.slice(open.length, -close.length));
       checkHeading(field, table);
@@ -229,12 +197,7 @@ class Fields {
   entries(prefix: string, suffix: string): string[] {
     const keys = [...this.values.keys()]
       .filter((key) => key.startsWith(`${prefix}/`) && key.endsWith(suffix))
-      .map((key) =>
-        key.slice(
-          prefix.length + 1,
-          suffix.length === 0 ? undefined : -suffix.length,
-        ),
-      );
+      .map((key) => key.slice(prefix.length + 1, suffix.length === 0 ? undefined : -suffix.length));
     if (keys.some((key) => key.includes("/") || !/^[1-9]\d*$/u.test(key)))
       throw new Error(`Use numbered ${prefix} fields starting at 1`);
     keys.sort((left, right) => Number(left) - Number(right));
@@ -244,43 +207,23 @@ class Fields {
   }
 
   finish(): void {
-    if (this.values.size !== 0)
-      throw new Error(
-        `Unknown document fields: ${[...this.values.keys()].join(", ")}`,
-      );
+    if (this.values.size !== 0) throw new Error(`Unknown document fields: ${[...this.values.keys()].join(", ")}`);
   }
 }
 
-function add(
-  fields: Field[],
-  path: string,
-  heading: string,
-  body: string,
-): void {
+function add(fields: Field[], path: string, heading: string, body: string): void {
   fields.push({ path, heading, body });
 }
 
 export function renderSpecification(value: SpecificationDraft): string {
   const draft = specificationSchema.parse(value);
-  const fields: Field[] = [
-    { path: "objective", heading: "## Objective", body: draft.objective },
-  ];
+  const fields: Field[] = [{ path: "objective", heading: "## Objective", body: draft.objective }];
   draft.scope.forEach((scope, index) => {
-    add(
-      fields,
-      `scope/${String(index + 1)}`,
-      `## Scope ${String(index + 1)}`,
-      scope,
-    );
+    add(fields, `scope/${String(index + 1)}`, `## Scope ${String(index + 1)}`, scope);
   });
   draft.requirements.forEach((requirement, index) => {
     const path = `requirements/${String(index + 1)}`;
-    add(
-      fields,
-      `${path}/metadata`,
-      `## Requirement ${requirement.id}`,
-      metadata({ id: requirement.id }),
-    );
+    add(fields, `${path}/metadata`, `## Requirement ${requirement.id}`, metadata({ id: requirement.id }));
     add(fields, `${path}/outcome`, "### Outcome", requirement.outcome);
     add(fields, `${path}/acceptance`, "### Acceptance", requirement.acceptance);
   });
@@ -297,39 +240,21 @@ export function renderSpecification(value: SpecificationDraft): string {
           ? {
               id: decision.id,
               disposition: decision.disposition,
-              ...(decision.supersedes === undefined
-                ? {}
-                : { supersedes: decision.supersedes }),
+              ...(decision.supersedes === undefined ? {} : { supersedes: decision.supersedes }),
             }
           : {}),
       }),
     );
     add(fields, `${path}/decision`, "### Decision", decision.decision);
     add(fields, `${path}/evidence`, "### Evidence", decision.evidence);
-    if (tracked)
-      add(
-        fields,
-        `${path}/uncertainty`,
-        "### Remaining uncertainty",
-        decision.uncertainty,
-      );
+    if (tracked) add(fields, `${path}/uncertainty`, "### Remaining uncertainty", decision.uncertainty);
   });
-  if ("deliveryPolicy" in draft && draft.deliveryPolicy !== undefined)
-    add(
-      fields,
-      "delivery-policy",
-      "## Delivery policy",
-      metadata(draft.deliveryPolicy),
-    );
+  if ("deliveryPolicy" in draft && draft.deliveryPolicy)
+    add(fields, "delivery-policy", "## Delivery policy", metadata(draft.deliveryPolicy));
   draft.blockingQuestions.forEach((question, index) => {
-    add(
-      fields,
-      `questions/${String(index + 1)}`,
-      `## Open question ${String(index + 1)}`,
-      question,
-    );
+    add(fields, `questions/${String(index + 1)}`, `## Open question ${String(index + 1)}`, question);
   });
-  if ("coverage" in draft && draft.coverage !== undefined) {
+  if ("coverage" in draft && draft.coverage) {
     const coverage = draft.coverage;
     add(
       fields,
@@ -352,12 +277,7 @@ export function renderSpecification(value: SpecificationDraft): string {
         }),
       );
       if (assessment.reason !== undefined)
-        add(
-          fields,
-          `${path}/reason`,
-          "### Evidence or rationale",
-          assessment.reason,
-        );
+        add(fields, `${path}/reason`, "### Evidence or rationale", assessment.reason);
     });
   }
   return render(DocumentKind.Specification, fields);
@@ -366,43 +286,32 @@ export function renderSpecification(value: SpecificationDraft): string {
 export function parseSpecification(markdown: string): SpecificationDraft {
   const fields = new Fields(markdown, DocumentKind.Specification);
   const objective = fields.text("objective");
-  const scope = fields
-    .entries("scope", "")
-    .map((index) => fields.text(`scope/${index}`));
-  const requirements = fields
-    .entries("requirements", "/metadata")
-    .map((index) => {
-      const path = `requirements/${index}`;
-      return {
-        ...requirementMetadata.parse(fields.table(`${path}/metadata`)),
-        outcome: fields.text(`${path}/outcome`),
-        acceptance: fields.text(`${path}/acceptance`),
-      };
-    });
+  const scope = fields.entries("scope", "").map((index) => fields.text(`scope/${index}`));
+  const requirements = fields.entries("requirements", "/metadata").map((index) => {
+    const path = `requirements/${index}`;
+    return {
+      ...requirementMetadata.parse(fields.table(`${path}/metadata`)),
+      outcome: fields.text(`${path}/outcome`),
+      acceptance: fields.text(`${path}/acceptance`),
+    };
+  });
   const decisions = fields.entries("decisions", "/metadata").map((index) => {
     const path = `decisions/${index}`;
     const uncertainty = fields.optionalText(`${path}/uncertainty`);
     const table = fields.table(`${path}/metadata`);
     return {
-      ...("id" in table
-        ? decisionMetadata.parse(table)
-        : legacyDecisionMetadata.parse(table)),
+      ...("id" in table ? decisionMetadata.parse(table) : legacyDecisionMetadata.parse(table)),
       decision: fields.text(`${path}/decision`),
       evidence: fields.text(`${path}/evidence`),
       ...(uncertainty === undefined ? {} : { uncertainty }),
     };
   });
-  const blockingQuestions = fields
-    .entries("questions", "")
-    .map((index) => fields.text(`questions/${index}`));
+  const blockingQuestions = fields.entries("questions", "").map((index) => fields.text(`questions/${index}`));
   const deliveryTable = fields.optionalTable("delivery-policy");
-  const deliveryPolicy =
-    deliveryTable === undefined
-      ? undefined
-      : deliveryPolicySchema.parse(deliveryTable);
+  const deliveryPolicy = !deliveryTable ? undefined : deliveryPolicySchema.parse(deliveryTable);
   const coverageTable = fields.optionalTable("coverage");
   let coverage: unknown;
-  if (coverageTable !== undefined) {
+  if (coverageTable) {
     coverage = {
       ...coverageMetadata.parse(coverageTable),
       assessments: fields.entries("assessments", "/metadata").map((index) => {
@@ -422,32 +331,20 @@ export function parseSpecification(markdown: string): SpecificationDraft {
     requirements,
     decisions,
     blockingQuestions,
-    ...(deliveryPolicy === undefined ? {} : { deliveryPolicy }),
+    ...(!deliveryPolicy ? {} : { deliveryPolicy }),
     ...(coverage === undefined ? {} : { coverage }),
   });
 }
 
 export function renderPlan(value: PlanDraft): string {
   const draft = draftSchema.parse(value);
-  const fields: Field[] = [
-    { path: "summary", heading: "## Summary", body: draft.summary },
-  ];
+  const fields: Field[] = [{ path: "summary", heading: "## Summary", body: draft.summary }];
   if (draft.pullRequestMerge !== undefined)
-    add(
-      fields,
-      "merge-policy",
-      "## Pull request merge policy",
-      metadata({ pullRequestMerge: draft.pullRequestMerge }),
-    );
+    add(fields, "merge-policy", "## Pull request merge policy", metadata({ pullRequestMerge: draft.pullRequestMerge }));
   draft.tasks.forEach((task, index) => {
     const path = `tasks/${String(index + 1)}`;
     const { title, description, acceptance, ...options } = task;
-    add(
-      fields,
-      `${path}/metadata`,
-      `## Task ${String(index + 1)}`,
-      metadata(options),
-    );
+    add(fields, `${path}/metadata`, `## Task ${String(index + 1)}`, metadata(options));
     add(fields, `${path}/title`, "### Title", title);
     add(fields, `${path}/description`, "### Description", description);
     add(fields, `${path}/acceptance`, "### Acceptance", acceptance);
@@ -459,8 +356,7 @@ export function parsePlan(markdown: string): PlanDraft {
   const fields = new Fields(markdown, DocumentKind.Plan);
   const summary = fields.text("summary");
   const mergeTable = fields.optionalTable("merge-policy");
-  const mergePolicy =
-    mergeTable === undefined ? {} : planMergeMetadata.parse(mergeTable);
+  const mergePolicy = !mergeTable ? {} : planMergeMetadata.parse(mergeTable);
   const tasks = fields.entries("tasks", "/metadata").map((index) => {
     const path = `tasks/${index}`;
     return {
@@ -483,10 +379,7 @@ export function renderDocument(document: EditableDocument): string {
   }
 }
 
-export function parseDocument(
-  kind: DocumentKind,
-  markdown: string,
-): EditableDocument {
+export function parseDocument(kind: DocumentKind, markdown: string): EditableDocument {
   switch (kind) {
     case DocumentKind.Specification:
       return { kind, draft: parseSpecification(markdown) };

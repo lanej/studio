@@ -11,7 +11,5 @@ export const dispatchGate = {
 } as const;
 
 export function requireDispatch(): never {
-  throw new Error(
-    `${dispatchGate.reason} Inspect the original attempt with studio tasks ID --json before recovery.`,
-  );
+  throw new Error(`${dispatchGate.reason} Inspect the original attempt with studio tasks ID --json before recovery.`);
 }

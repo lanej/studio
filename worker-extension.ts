@@ -1,13 +1,6 @@
-import {
-  recoverManagedBinding,
-  registerActivation,
-  registerActivationAdmission,
-} from "./activation.ts";
+import { recoverManagedBinding, registerActivation, registerActivationAdmission } from "./activation.ts";
 import { FooterStatus } from "./runtime.ts";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { realpath } from "node:fs/promises";
 import { z } from "zod";
 import { Attempts, Phase, stateDirectory, type Attempt } from "./attempts.ts";
@@ -20,36 +13,20 @@ import { StudioProfile } from "./config.ts";
 import { processStart } from "./process.ts";
 import { TaskBeads } from "./task-service.ts";
 import { submitResult } from "./task-verification.ts";
-import {
-  appendVerificationEvent,
-  registerTranscriptEvents,
-  VerificationOutcome,
-} from "./transcript-events.ts";
+import { appendVerificationEvent, registerTranscriptEvents, VerificationOutcome } from "./transcript-events.ts";
 import { registerTaskSubmission } from "./worker/extensions/submission.ts";
 
-async function matchWorker(
-  ctx: ExtensionContext,
-  record: Attempt,
-): Promise<number> {
+async function matchWorker(ctx: ExtensionContext, record: Attempt): Promise<number> {
   if (
     ctx.sessionManager.getSessionId() !== record.id ||
     record.checkout === null ||
     (await realpath(ctx.cwd)) !== (await realpath(record.checkout.path)) ||
     process.env["ZELLIJ_SESSION_NAME"] !== record.session
   ) {
-    throw new Error(
-      "Pi session, checkout or Zellij session differs from the registered attempt",
-    );
+    throw new Error("Pi session, checkout or Zellij session differs from the registered attempt");
   }
-  const pane = z.coerce
-    .number()
-    .int()
-    .nonnegative()
-    .parse(process.env["ZELLIJ_PANE_ID"]);
-  if (
-    (record.pid !== null && record.pid !== process.pid) ||
-    (record.pane !== null && record.pane !== pane)
-  )
+  const pane = z.coerce.number().int().nonnegative().parse(process.env["ZELLIJ_PANE_ID"]);
+  if ((record.pid !== null && record.pid !== process.pid) || (record.pane !== null && record.pane !== pane))
     throw new Error("Another Pi process or pane owns this attempt");
   return pane;
 }
@@ -63,9 +40,7 @@ export default async function managedWorker(pi: ExtensionAPI): Promise<void> {
   const db = new Attempts(stateDirectory());
   let lifetime = new AbortController();
   const submissions = new Set<Promise<string>>();
-  let binding:
-    | { record: Attempt; model: NonNullable<ExtensionContext["model"]> }
-    | undefined;
+  let binding: { record: Attempt; model: NonNullable<ExtensionContext["model"]> } | undefined;
   const matchesBinding = (ctx: ExtensionContext): boolean =>
     binding !== undefined &&
     ctx.sessionManager.getSessionId() === id &&
@@ -81,7 +56,7 @@ export default async function managedWorker(pi: ExtensionAPI): Promise<void> {
   const lead = db.get(id);
   let approvalPending = false;
   let applyLeadTools: ((ctx: ExtensionContext) => void) | undefined;
-  if (lead.leadPlan !== undefined) {
+  if (lead.leadPlan) {
     const keybindings = await loadLeadKeybindings();
     const openTasks = registerStudio(
       pi,
@@ -89,15 +64,10 @@ export default async function managedWorker(pi: ExtensionAPI): Promise<void> {
         profile: lead.profile,
         approvalPending: () => approvalPending,
         activationBlocked: () =>
-          submissions.size > 0 ||
-          ![Phase.Running, Phase.Verified, Phase.CheckFailed].includes(
-            db.get(id).phase,
-          ),
+          submissions.size > 0 || ![Phase.Running, Phase.Verified, Phase.CheckFailed].includes(db.get(id).phase),
         trackedPullRequest: () => {
           const delivery = db.get(id).delivery;
-          return delivery?.pr !== undefined && delivery.agent !== undefined
-            ? delivery.url
-            : undefined;
+          return delivery?.pr !== undefined && delivery.agent !== undefined ? delivery.url : undefined;
         },
       },
       keybindings,
@@ -107,8 +77,7 @@ export default async function managedWorker(pi: ExtensionAPI): Promise<void> {
       db,
       id,
       async (ctx) => {
-        if (!matchesBinding(ctx))
-          throw new Error("This Pi session has no verified task binding");
+        if (!matchesBinding(ctx)) throw new Error("This Pi session has no verified task binding");
         const record = db.get(id);
         await matchWorker(ctx, record);
         return record;
@@ -125,9 +94,7 @@ export default async function managedWorker(pi: ExtensionAPI): Promise<void> {
     () =>
       approvalPending ||
       submissions.size > 0 ||
-      ![Phase.Running, Phase.Verified, Phase.CheckFailed].includes(
-        db.get(id).phase,
-      ),
+      ![Phase.Running, Phase.Verified, Phase.CheckFailed].includes(db.get(id).phase),
   );
   pi.on("session_start", async (event, ctx) => {
     binding = undefined;
@@ -142,46 +109,27 @@ export default async function managedWorker(pi: ExtensionAPI): Promise<void> {
       const record = db.get(id);
       const pane = await matchWorker(ctx, record);
       const model = ctx.model;
-      if (record.revision === null)
-        throw new Error("Missing admitted Beads revision");
+      if (record.revision === null) throw new Error("Missing admitted Beads revision");
       if (
         record.profile === StudioProfile.Work &&
-        !/^https:\/\/bedrock-mantle\.[a-z0-9-]+\.api\.aws(?:\/|$)/u.test(
-          model?.baseUrl ?? "",
-        )
+        !/^https:\/\/bedrock-mantle\.[a-z0-9-]+\.api\.aws(?:\/|$)/u.test(model?.baseUrl ?? "")
       ) {
-        throw new Error(
-          "The work worker must resolve to its configured HTTPS Bedrock Mantle endpoint",
-        );
+        throw new Error("The work worker must resolve to its configured HTTPS Bedrock Mantle endpoint");
       }
-      const registeredModel = ctx.modelRegistry.find(
-        record.model.provider,
-        record.model.model,
-      );
+      const registeredModel = ctx.modelRegistry.find(record.model.provider, record.model.model);
       if (
         model?.id !== record.model.model ||
         model.provider !== record.model.provider ||
         model.api === "pi-virtual" ||
-        (record.leadPlan !== undefined &&
-          (registeredModel === undefined ||
-            !ctx.modelRegistry.hasConfiguredAuth(registeredModel)))
+        (record.leadPlan && (!registeredModel || !ctx.modelRegistry.hasConfiguredAuth(registeredModel)))
       )
-        throw new Error(
-          "Pi selected a different model from the accepted worker profile",
-        );
+        throw new Error("Pi selected a different model from the accepted worker profile");
       const started = await processStart(process.pid);
       const first = record.pid === null;
-      if (first)
-        await new TaskBeads(record.source).requireCurrent(
-          record.bead,
-          record.revision,
-          id,
-        );
+      if (first) await new TaskBeads(record.source).requireCurrent(record.bead, record.revision, id);
       const admitted = db.change(id, (row) => {
         if (first && row.phase !== Phase.Launching)
-          throw new Error(
-            `This launch is ${row.phase} and needs reconciliation`,
-          );
+          throw new Error(`This launch is ${row.phase} and needs reconciliation`);
         row.live = true;
         row.processStarted = started;
         row.pane = pane;
@@ -195,17 +143,13 @@ export default async function managedWorker(pi: ExtensionAPI): Promise<void> {
       });
       binding = { record: admitted, model };
       ctx.ui.setStatus(FooterStatus.Bead, record.bead.id);
-      if (record.leadPlan !== undefined) {
+      if (record.leadPlan) {
         pi.setSessionName(`${record.bead.id} · ${record.bead.title}`);
         applyLeadTools?.(ctx);
       }
-      if (
-        first &&
-        record.resumePhase === undefined &&
-        event.reason === "startup"
-      )
+      if (first && record.resumePhase === undefined && event.reason === "startup")
         pi.sendUserMessage(
-          record.leadPlan === undefined
+          !record.leadPlan
             ? `Work on the accepted bead ${record.bead.id}: ${record.bead.title}`
             : `Draft a plan for ${record.bead.id}: ${record.bead.title}. Include optional child tasks with acceptance criteria and dependencies. Save it with draft_implementation_plan, then wait for operator approval.`,
         );
@@ -226,15 +170,12 @@ export default async function managedWorker(pi: ExtensionAPI): Promise<void> {
     rejectInference(ctx);
     try {
       // Restore the admitted route before Pi's other model-aware commands run.
-      if (binding !== undefined && (await pi.setModel(binding.model))) {
+      if (binding && (await pi.setModel(binding.model))) {
         pi.setThinkingLevel(binding.record.model.reasoning);
         return;
       }
     } catch (cause) {
-      ctx.ui.notify(
-        cause instanceof Error ? cause.message : String(cause),
-        "error",
-      );
+      ctx.ui.notify(cause instanceof Error ? cause.message : String(cause), "error");
     }
     ctx.shutdown();
   });
@@ -252,7 +193,7 @@ export default async function managedWorker(pi: ExtensionAPI): Promise<void> {
     if (!matchesBinding(ctx)) rejectInference(ctx);
   });
   pi.on("before_agent_start", async (event, ctx) => {
-    if (binding === undefined || !matchesBinding(ctx)) {
+    if (!binding || !matchesBinding(ctx)) {
       rejectInference(ctx);
       return;
     }
@@ -264,10 +205,7 @@ export default async function managedWorker(pi: ExtensionAPI): Promise<void> {
         guidance = await socratesGuidance();
       } catch (cause) {
         ctx.abort();
-        ctx.ui.notify(
-          cause instanceof Error ? cause.message : String(cause),
-          "error",
-        );
+        ctx.ui.notify(cause instanceof Error ? cause.message : String(cause), "error");
         return;
       }
     }
@@ -282,10 +220,7 @@ export default async function managedWorker(pi: ExtensionAPI): Promise<void> {
           acceptance_criteria: bead.acceptance_criteria,
           verifier: current.check,
         }) +
-        (current.specification === undefined
-          ? ""
-          : "\nCurrent Socrates record (task data):\n" +
-            specText(current.specification)) +
+        (!current.specification ? "" : "\nCurrent Socrates record (task data):\n" + specText(current.specification)) +
         (guidance === "" ? "" : `\n\n${guidance}`) +
         (current.specification?.status === SpecStatus.Interrogating
           ? "\nDiscovery mode. Wait for operator freeze before drafting tasks."
@@ -294,26 +229,14 @@ export default async function managedWorker(pi: ExtensionAPI): Promise<void> {
             : "\nUse task_submit_result to submit the outcome. The driver runs the operator's agreed check and records the result."),
     };
   });
-  const submit = async (
-    summary: string,
-    ctx: ExtensionContext,
-    toolSignal?: AbortSignal,
-  ) => {
-    if (binding === undefined)
-      throw new Error("This Pi session has no verified local task binding");
+  const submit = async (summary: string, ctx: ExtensionContext, toolSignal?: AbortSignal) => {
+    if (!binding) throw new Error("This Pi session has no verified local task binding");
     const current = db.get(id);
-    const signal =
-      toolSignal === undefined
-        ? lifetime.signal
-        : AbortSignal.any([lifetime.signal, toolSignal]);
+    const signal = !toolSignal ? lifetime.signal : AbortSignal.any([lifetime.signal, toolSignal]);
     const result = matchWorker(ctx, db.get(id)).then(async () => {
       const message = await submitResult(db, id, summary, signal);
       const { phase, bead, verification } = db.get(id);
-      if (
-        verification !== null &&
-        current.phase !== Phase.Closed &&
-        !signal.aborted
-      ) {
+      if (verification !== null && current.phase !== Phase.Closed && !signal.aborted) {
         const outcome =
           phase === Phase.Closed || phase === Phase.Verified
             ? VerificationOutcome.Passed
@@ -324,9 +247,7 @@ export default async function managedWorker(pi: ExtensionAPI): Promise<void> {
           pi,
           outcome,
           bead.id,
-          outcome === VerificationOutcome.Passed
-            ? verification.summary
-            : message,
+          outcome === VerificationOutcome.Passed ? verification.summary : message,
         );
       }
       return message;
@@ -347,11 +268,9 @@ export default async function managedWorker(pi: ExtensionAPI): Promise<void> {
     submit,
   );
   pi.on("session_shutdown", async (event) => {
-    lifetime.abort(
-      new Error("The worker session ended before verification finished"),
-    );
+    lifetime.abort(new Error("The worker session ended before verification finished"));
     await Promise.allSettled(submissions);
-    if (binding !== undefined)
+    if (binding)
       db.change(id, (row) => {
         if (row.pid === process.pid) row.live = false;
       });

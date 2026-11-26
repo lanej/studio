@@ -1,16 +1,8 @@
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
-import {
-  decisionId,
-  deliveryPolicySchema,
-  deliveryPolicyText,
-  draftDeliveryPolicy,
-} from "./delivery-policy.ts";
-export {
-  deliveryPolicySchema,
-  draftDeliveryPolicy,
-  type DeliveryPolicy,
-} from "./delivery-policy.ts";
+import { decisionId, deliveryPolicySchema, deliveryPolicyText, draftDeliveryPolicy } from "./delivery-policy.ts";
+
+export { deliveryPolicySchema, draftDeliveryPolicy, type DeliveryPolicy } from "./delivery-policy.ts";
 import { questionEvidence } from "./evidence.ts";
 import {
   coverageBasisCurrent,
@@ -78,29 +70,22 @@ export const specDraft = z
     deliveryPolicy: deliveryPolicySchema.optional(),
   })
   .superRefine((value, ctx) => {
-    const decisions = new Map(
-      value.decisions.map((entry) => [entry.id, entry]),
-    );
-    const replacements = value.decisions.flatMap((entry) =>
-      entry.supersedes === undefined ? [] : [entry.supersedes],
-    );
+    const decisions = new Map(value.decisions.map((entry) => [entry.id, entry]));
+    const replacements = value.decisions.flatMap((entry) => (entry.supersedes === undefined ? [] : [entry.supersedes]));
     if (
       decisions.size !== value.decisions.length ||
       new Set(replacements).size !== replacements.length ||
       value.decisions.some(
         (entry) =>
-          (entry.disposition === DecisionDisposition.Superseded &&
-            !replacements.includes(entry.id)) ||
+          (entry.disposition === DecisionDisposition.Superseded && !replacements.includes(entry.id)) ||
           (entry.supersedes !== undefined &&
             (Number(entry.id.slice(1)) <= Number(entry.supersedes.slice(1)) ||
-              decisions.get(entry.supersedes)?.disposition !==
-                DecisionDisposition.Superseded)),
+              decisions.get(entry.supersedes)?.disposition !== DecisionDisposition.Superseded)),
       )
     ) {
       ctx.addIssue({
         code: "custom",
-        message:
-          "Use unique decision IDs and link superseded decisions to their successors",
+        message: "Use unique decision IDs and link superseded decisions to their successors",
       });
     }
   });
@@ -126,12 +111,10 @@ export function applyDraftUpdate(
 ): z.infer<typeof assessedSpecDraft> {
   const review = coverageOnly.safeParse(input);
   const saved = draftCoverage(spec.draft);
-  if (review.success && review.data.coverage.domains !== undefined) {
+  if (review.success && review.data.coverage.domains) {
     const domains = review.data.coverage.domains;
     if (saved?.domains.some((domain) => !domains.includes(domain)) === true)
-      throw new Error(
-        "Supply the revised specification when removing a property domain",
-      );
+      throw new Error("Supply the revised specification when removing a property domain");
   }
   const draft = draftUpdate.parse(
     review.success
@@ -144,12 +127,12 @@ export function applyDraftUpdate(
         }
       : input,
   );
-  if (spec.exchange?.answer !== undefined) {
+  if (spec.exchange?.answer) {
     const id = spec.exchange.prompt.decisionId;
     const prior = trackedDecision(spec.draft, id);
     const updated = draft.decisions.find((entry) => entry.id === id);
     if (
-      updated === undefined ||
+      !updated ||
       (updated.disposition === prior?.disposition &&
         updated.evidence === prior.evidence &&
         updated.uncertainty === prior.uncertainty)
@@ -264,45 +247,27 @@ function deliveryDecision(draft: LeadSpecification["draft"]) {
   return trackedDecision(draft, draftDeliveryPolicy(draft)?.decisionId);
 }
 
-function resolvedDeliveryDecision(
-  entry: z.infer<typeof decision> | undefined,
-): boolean {
-  return (
-    entry?.disposition === DecisionDisposition.Resolved &&
-    entry.basis !== "assumed"
-  );
+function resolvedDeliveryDecision(entry: z.infer<typeof decision> | undefined): boolean {
+  return entry?.disposition === DecisionDisposition.Resolved && entry.basis !== "assumed";
 }
 
 /** A PR rule is settled only when its recorded decision has an evidenced outcome. */
-export function hasSettledDeliveryPolicy(
-  draft: LeadSpecification["draft"],
-): boolean {
+export function hasSettledDeliveryPolicy(draft: LeadSpecification["draft"]): boolean {
   return resolvedDeliveryDecision(deliveryDecision(draft));
 }
 
 /** Remaining decisions and evidence that prevent freezing a daily-driver specification. */
-export function specificationGaps(
-  spec: LeadSpecification,
-  currentRevision: string | null,
-): string[] {
+export function specificationGaps(spec: LeadSpecification, currentRevision: string | null): string[] {
   const draft = spec.draft;
   if (draft === null) return ["Draft the specification"];
   const gaps: string[] = [];
-  if (spec.acceptedRevision !== currentRevision)
-    gaps.push("Refresh the specification against the current brief");
-  if (!specDraft.safeParse(draft).success)
-    gaps.push("Review the saved decisions in the current specification format");
-  if (spec.exchange !== undefined)
-    gaps.push(
-      spec.exchange.answer === undefined
-        ? "Answer the pending question"
-        : "Incorporate the recorded answer",
-    );
+  if (spec.acceptedRevision !== currentRevision) gaps.push("Refresh the specification against the current brief");
+  if (!specDraft.safeParse(draft).success) gaps.push("Review the saved decisions in the current specification format");
+  if (spec.exchange)
+    gaps.push(!spec.exchange.answer ? "Answer the pending question" : "Incorporate the recorded answer");
   const policy = draftDeliveryPolicy(draft);
-  if (policy === undefined) {
-    gaps.push(
-      "Settle which beads produce pull requests and who may merge them",
-    );
+  if (!policy) {
+    gaps.push("Settle which beads produce pull requests and who may merge them");
   } else if (!hasSettledDeliveryPolicy(draft)) {
     gaps.push(
       `Record the PR production rules in resolved decision ${policy.decisionId} with repository evidence or an operator decision`,
@@ -310,31 +275,18 @@ export function specificationGaps(
   }
   gaps.push(...draft.blockingQuestions);
   for (const decision of draft.decisions) {
-    if (
-      isTrackedDecision(decision) &&
-      decision.disposition === DecisionDisposition.Open
-    )
+    if (isTrackedDecision(decision) && decision.disposition === DecisionDisposition.Open)
       gaps.push(`Resolve decision ${decision.id}`);
   }
   return [...gaps, ...propertyGaps(spec, currentRevision)];
 }
 
-export function propertyGaps(
-  spec: LeadSpecification,
-  currentRevision: string | null,
-): string[] {
+export function propertyGaps(spec: LeadSpecification, currentRevision: string | null): string[] {
   const gaps: string[] = [];
-  if (
-    draftCoverage(spec.draft) !== undefined &&
-    !coverageBasisCurrent(spec, currentRevision)
-  )
-    gaps.push(
-      "Reassess properties against the current specification and plan with /socrates",
-    );
-  if (spec.pendingReview !== undefined)
-    gaps.push(
-      "Review recent changes with /socrates and update any affected property assessments",
-    );
+  if (draftCoverage(spec.draft) !== undefined && !coverageBasisCurrent(spec, currentRevision))
+    gaps.push("Reassess properties against the current specification and plan with /socrates");
+  if (spec.pendingReview)
+    gaps.push("Review recent changes with /socrates and update any affected property assessments");
   for (const property of coverageProperties(spec.draft)) {
     if (property.status !== "satisfied" && property.status !== "not-applicable")
       gaps.push(`${property.label} · ${property.status}`);
@@ -349,9 +301,7 @@ export function specText(spec: LeadSpecification): string {
       "No specification drafted yet.",
       "",
       "Open properties",
-      ...coverageProperties(null).map(
-        ({ label, reason }) => `${label} · open · ${reason}`,
-      ),
+      ...coverageProperties(null).map(({ label, reason }) => `${label} · open · ${reason}`),
     ].join("\n");
   const coverage = draftCoverage(draft);
   const policy = draftDeliveryPolicy(draft);
@@ -367,87 +317,53 @@ export function specText(spec: LeadSpecification): string {
     "",
     "Requirements",
     ...draft.requirements.map(
-      (requirement) =>
-        `${requirement.id} · ${requirement.outcome}\nAcceptance · ${requirement.acceptance}`,
+      (requirement) => `${requirement.id} · ${requirement.outcome}\nAcceptance · ${requirement.acceptance}`,
     ),
     "",
     "Decisions",
     ...draft.decisions.map((entry) => {
       const basis = `${entry.decision} · ${entry.basis}: ${entry.evidence}`;
       if (!isTrackedDecision(entry)) return basis;
-      const history =
-        entry.supersedes === undefined
-          ? ""
-          : ` · Supersedes ${entry.supersedes}`;
+      const history = entry.supersedes === undefined ? "" : ` · Supersedes ${entry.supersedes}`;
       return `${entry.id} · ${entry.disposition} · ${basis}\nUncertainty · ${entry.uncertainty}${history}`;
     }),
     "",
-    ...(policy === undefined
-      ? []
-      : ["Pull request policy", deliveryPolicyText(policy), ""]),
+    ...(!policy ? [] : ["Pull request policy", deliveryPolicyText(policy), ""]),
     "Property assessments",
-    ...(properties.some(({ recorded }) => recorded) &&
-    !coverageBasisCurrent(spec, spec.acceptedRevision)
-      ? [
-          "Needs review · Reassess the saved evidence against the current brief, specification, plan, and answers.",
-        ]
+    ...(properties.some(({ recorded }) => recorded) && !coverageBasisCurrent(spec, spec.acceptedRevision)
+      ? ["Needs review · Reassess the saved evidence against the current brief, specification, plan, and answers."]
       : []),
-    ...(spec.pendingReview === undefined
-      ? []
-      : ["Recent changes are pending review."]),
-    ...properties.map(
-      ({ label, status, reason }) => `${label} · ${status} · ${reason}`,
-    ),
+    ...(!spec.pendingReview ? [] : ["Recent changes are pending review."]),
+    ...properties.map(({ label, status, reason }) => `${label} · ${status} · ${reason}`),
     ...(coverage?.focus === undefined
       ? []
-      : [
-          `Saved focus · ${properties.find(({ id }) => id === coverage.focus)?.label ?? coverage.focus}`,
-        ]),
+      : [`Saved focus · ${properties.find(({ id }) => id === coverage.focus)?.label ?? coverage.focus}`]),
     "",
-    ...(spec.exchange === undefined
+    ...(!spec.exchange
       ? []
       : [
           `Question · ${spec.exchange.prompt.decisionId} · ${spec.exchange.prompt.question}`,
-          ...(spec.exchange.answer === undefined
-            ? []
-            : [`Operator answer · ${spec.exchange.answer.text}`]),
+          ...(!spec.exchange.answer ? [] : [`Operator answer · ${spec.exchange.answer.text}`]),
           "",
         ]),
-    ...(draft.blockingQuestions.length > 0
-      ? ["Open questions", ...draft.blockingQuestions]
-      : []),
+    ...(draft.blockingQuestions.length > 0 ? ["Open questions", ...draft.blockingQuestions] : []),
   ].join("\n");
 }
 
-export function isTrackedDecision(
-  entry: z.infer<typeof legacyDecision>,
-): entry is z.infer<typeof decision> {
+export function isTrackedDecision(entry: z.infer<typeof legacyDecision>): entry is z.infer<typeof decision> {
   return "id" in entry;
 }
-export function preserveDecisions(
-  previous: LeadSpecification["draft"],
-  next: z.infer<typeof specDraft>,
-): void {
+
+export function preserveDecisions(previous: LeadSpecification["draft"], next: z.infer<typeof specDraft>): void {
   const priorPolicy = draftDeliveryPolicy(previous);
-  if (
-    priorPolicy !== undefined &&
-    !isDeepStrictEqual(priorPolicy, next.deliveryPolicy)
-  ) {
+  if (priorPolicy && !isDeepStrictEqual(priorPolicy, next.deliveryPolicy)) {
     const prior = deliveryDecision(previous);
-    if (
-      resolvedDeliveryDecision(prior) ||
-      prior?.disposition === DecisionDisposition.Superseded
-    ) {
+    if (resolvedDeliveryDecision(prior) || prior?.disposition === DecisionDisposition.Superseded) {
       const successor = deliveryDecision(next);
       let ancestor = successor?.supersedes;
       while (ancestor !== undefined && ancestor !== priorPolicy.decisionId)
-        ancestor = next.decisions.find(
-          (item) => item.id === ancestor,
-        )?.supersedes;
-      if (
-        ancestor !== priorPolicy.decisionId ||
-        !resolvedDeliveryDecision(successor)
-      )
+        ancestor = next.decisions.find((item) => item.id === ancestor)?.supersedes;
+      if (ancestor !== priorPolicy.decisionId || !resolvedDeliveryDecision(successor))
         throw new Error(
           `Supersede delivery decision ${priorPolicy.decisionId} with an evidenced, resolved decision before changing its PR production rules`,
         );
@@ -456,8 +372,7 @@ export function preserveDecisions(
   for (const entry of previous?.decisions ?? []) {
     if (!isTrackedDecision(entry)) continue;
     const updated = next.decisions.find(({ id }) => id === entry.id);
-    if (updated === undefined)
-      throw new Error(`Retain decision ${entry.id} in the record`);
+    if (!updated) throw new Error(`Retain decision ${entry.id} in the record`);
     if (entry.disposition === DecisionDisposition.Open) continue;
     const allowed =
       entry.disposition === DecisionDisposition.Superseded
@@ -471,8 +386,6 @@ export function preserveDecisions(
       updated.uncertainty !== entry.uncertainty ||
       updated.supersedes !== entry.supersedes
     )
-      throw new Error(
-        `Preserve settled decision ${entry.id} and link a successor if it changed`,
-      );
+      throw new Error(`Preserve settled decision ${entry.id} and link a successor if it changed`);
   }
 }

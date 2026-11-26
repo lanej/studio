@@ -25,9 +25,7 @@ export const discoverySchema = z.object({
       revision: z.string(),
       phase: z.enum(HandoffPhase),
       workers: planWorkersSchema.optional(),
-      owner: z
-        .object({ pid: z.number().int().positive(), started: z.string() })
-        .optional(),
+      owner: z.object({ pid: z.number().int().positive(), started: z.string() }).optional(),
       target: runtimeProjectSchema
         .extend({ id: z.uuid() })
         .refine(

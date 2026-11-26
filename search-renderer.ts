@@ -3,11 +3,7 @@ import { parseArgs } from "node:util";
 import { estimateShellUsage } from "./shell-usage.ts";
 import { analyzeShell, prepareShellSyntax } from "./shell-syntax.ts";
 import { registerCodingRenderer } from "./model-tools/rendering.ts";
-import {
-  type ShellHeredocs,
-  shellHeredocs,
-  prepareShellHeredoc,
-} from "./shell-heredoc.ts";
+import { type ShellHeredocs, shellHeredocs, prepareShellHeredoc } from "./shell-heredoc.ts";
 import {
   type ExtensionAPI,
   type Theme,
@@ -37,8 +33,7 @@ const originalArgs = z.object({ invocationArgs: z.unknown() });
 function highlightShellCommand(command: string, theme: Theme): string {
   const highlighted = highlightCode(command, "bash");
   const styles = analyzeShell(command)?.styles;
-  if (styles === undefined || styles.length > 256)
-    return highlighted.join("\n");
+  if (!styles || styles.length > 256) return highlighted.join("\n");
   let offset = 0;
   let index = 0;
   // Slice the full Bash rendering so substitutions retain their surrounding quote colors.
@@ -50,26 +45,15 @@ function highlightShellCommand(command: string, theme: Theme): string {
       let end = 0;
       while (index < styles.length) {
         const style = styles[index];
-        if (style === undefined || style.start >= offset + line.length) break;
+        if (!style || style.start >= offset + line.length) break;
         const start = style.start - offset;
         const column = visibleWidth(line.slice(0, end));
-        rendered += sliceByColumn(
-          syntax,
-          column,
-          visibleWidth(line.slice(0, start)) - column,
-        );
-        rendered += theme.fg(
-          style.role,
-          style.role === "syntaxFunction" ? theme.bold(style.raw) : style.raw,
-        );
+        rendered += sliceByColumn(syntax, column, visibleWidth(line.slice(0, start)) - column);
+        rendered += theme.fg(style.role, style.role === "syntaxFunction" ? theme.bold(style.raw) : style.raw);
         end = start + style.raw.length;
         index++;
       }
-      rendered += sliceByColumn(
-        syntax,
-        visibleWidth(line.slice(0, end)),
-        Infinity,
-      );
+      rendered += sliceByColumn(syntax, visibleWidth(line.slice(0, end)), Infinity);
       offset += line.length + 1;
       return rendered;
     })
@@ -91,11 +75,13 @@ type SearchFormat =
   | { kind: "excerpt" | "numbered" | "unnumbered"; language: string }
   | { kind: "filename"; language?: undefined; files?: SearchFile[] };
 
+type RipgrepOption = { type: "boolean"; short?: string; default: boolean } | { type: "string"; short?: string };
+
 // These rg switches select source lines without rewriting them. parseArgs
 // handles option values, short bundles like -nA8, long options, and --.
 const rgOptions = {
-  "line-number": { type: "boolean", short: "n" },
-  "with-filename": { type: "boolean", short: "H" },
+  "line-number": { type: "boolean", short: "n", default: false },
+  "with-filename": { type: "boolean", short: "H", default: false },
   "after-context": { type: "string", short: "A" },
   "before-context": { type: "string", short: "B" },
   context: { type: "string", short: "C" },
@@ -105,20 +91,20 @@ const rgOptions = {
   iglob: { type: "string" },
   type: { type: "string", short: "t" },
   "type-not": { type: "string", short: "T" },
-  "fixed-strings": { type: "boolean", short: "F" },
-  "ignore-case": { type: "boolean", short: "i" },
-  "smart-case": { type: "boolean", short: "S" },
-  "case-sensitive": { type: "boolean", short: "s" },
-  "word-regexp": { type: "boolean", short: "w" },
-  "line-regexp": { type: "boolean", short: "x" },
-  "no-heading": { type: "boolean" },
-  "no-ignore": { type: "boolean" },
-  "no-ignore-vcs": { type: "boolean" },
-  unrestricted: { type: "boolean", short: "u" },
-  follow: { type: "boolean", short: "L" },
+  "fixed-strings": { type: "boolean", short: "F", default: false },
+  "ignore-case": { type: "boolean", short: "i", default: false },
+  "smart-case": { type: "boolean", short: "S", default: false },
+  "case-sensitive": { type: "boolean", short: "s", default: false },
+  "word-regexp": { type: "boolean", short: "w", default: false },
+  "line-regexp": { type: "boolean", short: "x", default: false },
+  "no-heading": { type: "boolean", default: false },
+  "no-ignore": { type: "boolean", default: false },
+  "no-ignore-vcs": { type: "boolean", default: false },
+  unrestricted: { type: "boolean", short: "u", default: false },
+  follow: { type: "boolean", short: "L", default: false },
   color: { type: "string" },
-  hidden: { type: "boolean" },
-} as const;
+  hidden: { type: "boolean", default: false },
+} as const satisfies Record<string, RipgrepOption>;
 
 function ripgrepFormat(args: string[]): SearchFormat | undefined {
   try {
@@ -128,20 +114,14 @@ function ripgrepFormat(args: string[]): SearchFormat | undefined {
       allowPositionals: true,
       strict: true,
     });
-    const files =
-      values.regexp === undefined ? positionals.slice(1) : positionals;
+    const files = values.regexp === undefined ? positionals.slice(1) : positionals;
     const path = files[0];
-    const language =
-      files.length === 1 && path !== undefined
-        ? getLanguageFromPath(path)
-        : undefined;
-    const numbered = values["line-number"] === true;
-    if (values["with-filename"] === true || files.length > 1) {
-      const context = [
-        values["before-context"],
-        values["after-context"],
-        values.context,
-      ].some((value) => Number(value) > 0);
+    const language = files.length === 1 && path !== undefined ? getLanguageFromPath(path) : undefined;
+    const numbered = values["line-number"];
+    if (values["with-filename"] || files.length > 1) {
+      const context = [values["before-context"], values["after-context"], values.context].some(
+        (value) => Number(value) > 0,
+      );
       return {
         kind: "filename",
         files: files.map((path) => ({
@@ -180,31 +160,21 @@ function searchFormat(words: string[]): SearchFormat | undefined {
   return undefined;
 }
 
-function shellSearchFormat(
-  args: unknown,
-  output: string,
-): SearchFormat | undefined {
+function shellSearchFormat(args: unknown, output: string): SearchFormat | undefined {
   const parsed = searchArgs.safeParse(args);
   if (!parsed.success) return undefined;
-  const commands = analyzeShell(
-    parsed.data.sourceCommand ?? parsed.data.command,
-  )?.commands;
-  if (commands === undefined) return undefined;
-  const formats = commands
-    .filter(([command]) => command !== "cd")
-    .map(searchFormat);
+  const commands = analyzeShell(parsed.data.sourceCommand ?? parsed.data.command)?.commands;
+  if (!commands) return undefined;
+  const formats = commands.filter(([command]) => command !== "cd").map(searchFormat);
   if (formats.length !== commands.length && /^\//mu.test(output)) {
     // A CDPATH lookup may have printed this absolute path. Bare excerpts
     // cannot distinguish it from source; a numbered search can, unless the
     // path itself looks like a filename-prefixed search record.
-    if (
-      formats.some((format) => format?.kind !== "numbered") ||
-      /^\/[^\n]*?([:-])\d+\1/mu.test(output)
-    )
+    if (formats.some((format) => format?.kind !== "numbered") || /^\/[^\n]*?([:-])\d+\1/mu.test(output))
       return undefined;
   }
   const first = formats[0];
-  if (first === undefined || formats.length === 1) return first;
+  if (!first || formats.length === 1) return first;
   if (formats.every((format) => format?.kind === "filename"))
     return {
       kind: "filename",
@@ -212,25 +182,13 @@ function shellSearchFormat(
     };
   // The shell returns one stream without command boundaries. Bare rows need
   // a common interpretation across every possible producer, including || arms.
-  if (
-    formats.every(
-      (format) =>
-        format?.kind === first.kind && format.language === first.language,
-    )
-  )
-    return first;
-  return formats.every(
-    (format) => format?.kind === "numbered" || format?.kind === "filename",
-  )
+  if (formats.every((format) => format?.kind === first.kind && format.language === first.language)) return first;
+  return formats.every((format) => format?.kind === "numbered" || format?.kind === "filename")
     ? { kind: "filename" }
     : undefined;
 }
 
-function highlightExplicitFile(
-  line: string,
-  files: SearchFile[],
-  highlight: Highlighter,
-): string | undefined {
+function highlightExplicitFile(line: string, files: SearchFile[], highlight: Highlighter): string | undefined {
   let start: number | undefined;
   let language: string | undefined;
   for (const file of files) {
@@ -245,50 +203,32 @@ function highlightExplicitFile(
     }
     // Hyphenated filenames may themselves start with another filename and a
     // context separator. A row has no escaping to resolve that ambiguity.
-    if (start !== undefined && (start !== offset || language !== file.language))
-      return line;
+    if (start !== undefined && (start !== offset || language !== file.language)) return line;
     start = offset;
     language = file.language;
   }
   if (start === undefined) return undefined;
-  return language === undefined
-    ? line
-    : line.slice(0, start) + highlight(line.slice(start), language).join("\n");
+  return language === undefined ? line : line.slice(0, start) + highlight(line.slice(start), language).join("\n");
 }
 
-function highlightSearchRow(
-  line: string,
-  format: SearchFormat,
-  highlight: Highlighter,
-): string {
-  if (
-    line === "" ||
-    line === "--" ||
-    line.startsWith("rg:") ||
-    line.startsWith("binary file matches")
-  )
-    return line;
-  if (format.kind === "unnumbered")
-    return highlight(line, format.language).join("\n");
-  if (format.kind === "filename" && format.files !== undefined) {
+function highlightSearchRow(line: string, format: SearchFormat, highlight: Highlighter): string {
+  if (line === "" || line === "--" || line.startsWith("rg:") || line.startsWith("binary file matches")) return line;
+  if (format.kind === "unnumbered") return highlight(line, format.language).join("\n");
+  if (format.kind === "filename" && format.files) {
     const named = highlightExplicitFile(line, format.files, highlight);
     if (named !== undefined) return named;
   }
   const numbered = /^(\d+[:-])(.*)$/u.exec(line);
   if (numbered !== null) {
     const code = numbered[2] ?? "";
-    return format.language === undefined
-      ? line
-      : (numbered[1] ?? "") + highlight(code, format.language).join("\n");
+    return format.language === undefined ? line : (numbered[1] ?? "") + highlight(code, format.language).join("\n");
   }
   const match = /^(.+?)([:-])(\d+)\2(.*)$/u.exec(line);
-  const language =
-    match?.[1] === undefined ? undefined : getLanguageFromPath(match[1]);
+  const language = match?.[1] === undefined ? undefined : getLanguageFromPath(match[1]);
   const code = match?.[4];
   return language === undefined || code === undefined
     ? line
-    : line.slice(0, line.length - code.length) +
-        highlight(code, language).join("\n");
+    : line.slice(0, line.length - code.length) + highlight(code, language).join("\n");
 }
 
 export function highlightSearchOutput(
@@ -297,29 +237,16 @@ export function highlightSearchOutput(
   output: string,
   highlight: Highlighter = highlightCode,
 ): string {
-  if (
-    Buffer.byteLength(output) > MAX_HIGHLIGHT_BYTES ||
-    output.includes("\x1b")
-  )
-    return output;
+  if (Buffer.byteLength(output) > MAX_HIGHLIGHT_BYTES || output.includes("\x1b")) return output;
   const format: SearchFormat | undefined =
-    tool === "grep"
-      ? { kind: "filename" }
-      : tool === "bash"
-        ? shellSearchFormat(args, output)
-        : undefined;
-  if (format === undefined) return output;
-  const footer =
-    /\n\n\[(?:Showing[^\n]*Full output:|Command exited with code)[\s\S]*$/u.exec(
-      output,
-    );
+    tool === "grep" ? { kind: "filename" } : tool === "bash" ? shellSearchFormat(args, output) : undefined;
+  if (!format) return output;
+  const footer = /\n\n\[(?:Showing[^\n]*Full output:|Command exited with code)[\s\S]*$/u.exec(output);
   const text = footer === null ? output : output.slice(0, footer.index);
   const styled =
     format.kind === "excerpt"
       ? highlight(text, format.language)
-      : text
-          .split("\n")
-          .map((line) => highlightSearchRow(line, format, highlight));
+      : text.split("\n").map((line) => highlightSearchRow(line, format, highlight));
   return styled.join("\n") + (footer?.[0] ?? "");
 }
 
@@ -356,11 +283,7 @@ class HeredocShellCall extends Container {
     for (const [index, document] of heredocs.documents.entries()) {
       if (index > 0) {
         this.addChild(new Spacer(1));
-        this.addChild(
-          new HighlightedText(() =>
-            highlightShellCommand(document.header, theme),
-          ),
-        );
+        this.addChild(new HighlightedText(() => highlightShellCommand(document.header, theme)));
       }
       this.addChild(new Spacer(1));
       if (document.language === "markdown") {
@@ -368,20 +291,12 @@ class HeredocShellCall extends Container {
       } else {
         // The last newline separates the body from its closing delimiter.
         const source = document.body.replace(/\n$/u, "");
-        this.addChild(
-          new HighlightedText(() =>
-            highlightCode(source, document.language).join("\n"),
-          ),
-        );
+        this.addChild(new HighlightedText(() => highlightCode(source, document.language).join("\n")));
       }
     }
     if (heredocs.following !== "") {
       this.addChild(new Spacer(1));
-      this.addChild(
-        new HighlightedText(() =>
-          highlightShellCommand(heredocs.following, theme),
-        ),
-      );
+      this.addChild(new HighlightedText(() => highlightShellCommand(heredocs.following, theme)));
     }
   }
 }
@@ -395,63 +310,42 @@ export function registerSearchRendering(pi: ExtensionAPI): void {
     const base = next();
     if (name !== "bash" && name !== "grep") return base;
     const render = base?.renderResult;
-    if (render === undefined) return base;
-    const renderCall = base?.renderCall;
+    if (!render) return base;
+    const renderCall = base.renderCall;
     return {
       ...base,
-      ...(name === "bash" && renderCall !== undefined
+      ...(name === "bash" && renderCall
         ? {
             renderCall(args, theme, context) {
               // Pi owns the timer and reuses the header Text when a preview expands or collapses.
               const previous = context.lastComponent;
-              const header =
-                previous instanceof HeredocShellCall
-                  ? previous.header
-                  : previous;
+              const header = previous instanceof HeredocShellCall ? previous.header : previous;
               const component = renderCall(args, theme, {
                 ...context,
                 displayToolName: "$",
                 lastComponent: header instanceof Text ? header : undefined,
               });
               const parsed = shellCallArgs.safeParse(args);
-              if (!parsed.success || !(component instanceof Text))
-                return component;
+              if (!parsed.success || !(component instanceof Text)) return component;
               const { command, timeout } = parsed.data;
-              if (
-                command.trim() === "" ||
-                command.includes("\x1b") ||
-                Buffer.byteLength(command) > MAX_HIGHLIGHT_BYTES
-              )
+              if (command.trim() === "" || command.includes("\x1b") || Buffer.byteLength(command) > MAX_HIGHLIGHT_BYTES)
                 return component;
               const prompt = theme.fg("toolTitle", theme.bold("$"));
               // Replayed calls receive a final result without an args-complete event.
               const currentPreview =
-                previous instanceof HeredocShellCall &&
-                previous.command === command &&
-                previous.header === component
+                previous instanceof HeredocShellCall && previous.command === command && previous.header === component
                   ? previous
                   : undefined;
               const heredocs =
-                !context.expanded &&
-                (context.argsComplete ||
-                  context.executionStarted ||
-                  !context.isPartial)
+                !context.expanded && (context.argsComplete || context.executionStarted || !context.isPartial)
                   ? (currentPreview?.heredocs ?? shellHeredocs(command))
                   : undefined;
-              const syntax = highlightShellCommand(
-                heredocs?.documents[0].header ?? command,
-                theme,
-              );
+              const syntax = highlightShellCommand(heredocs?.documents[0].header ?? command, theme);
               const suffix =
-                timeout !== undefined && timeout !== 0
-                  ? theme.fg("muted", ` (timeout ${timeout.toString()}s)`)
-                  : "";
+                timeout !== undefined && timeout !== 0 ? theme.fg("muted", ` (timeout ${timeout.toString()}s)`) : "";
               component.setText(`${prompt} ${syntax}${suffix}`);
-              if (heredocs !== undefined) {
-                return (
-                  currentPreview ??
-                  new HeredocShellCall(component, command, heredocs, theme)
-                );
+              if (heredocs) {
+                return currentPreview ?? new HeredocShellCall(component, command, heredocs, theme);
               }
               return component;
             },
@@ -482,30 +376,23 @@ export function registerSearchRendering(pi: ExtensionAPI): void {
             ? undefined
             : estimateShellUsage(
                 context.displayToolName ?? name,
-                invocation.success
-                  ? (invocation.data.invocationArgs ?? args)
-                  : args,
+                invocation.success ? (invocation.data.invocationArgs ?? args) : args,
                 result,
               );
           return render(result, options, theme, {
             ...context,
             renderShellOutput(output, timerText) {
-              const styled = eligible
-                ? highlightSearchOutput(name, args, output)
-                : output;
+              const styled = eligible ? highlightSearchOutput(name, args, output) : output;
               const source =
                 styled === output
                   ? output
                       .split("\n")
-                      .map((line) =>
-                        line === "" ? "" : theme.fg("toolOutput", line),
-                      )
+                      .map((line) => (line === "" ? "" : theme.fg("toolOutput", line)))
                       .join("\n")
                   : styled;
               return shellOutputPreview(source, theme, {
                 expanded: options.expanded,
-                tokens:
-                  usage === undefined ? undefined : usage.call + usage.result,
+                tokens: !usage ? undefined : usage.call + usage.result,
                 elapsed: shellElapsed(timerText, context.durationMs, state),
               });
             },
@@ -516,8 +403,7 @@ export function registerSearchRendering(pi: ExtensionAPI): void {
             result,
             options,
             theme,
-            context.lastComponent !== undefined &&
-              painted.has(context.lastComponent)
+            context.lastComponent && painted.has(context.lastComponent)
               ? { ...context, lastComponent: undefined }
               : context,
           );
@@ -527,16 +413,10 @@ export function registerSearchRendering(pi: ExtensionAPI): void {
         const component: Component = {
           invalidate() {},
           render(width) {
-            const rows = wrapTextWithAnsi(
-              highlighted.trimEnd(),
-              Math.max(1, width),
-            );
+            const rows = wrapTextWithAnsi(highlighted.trimEnd(), Math.max(1, width));
             if (options.expanded || rows.length <= 15) return ["", ...rows];
             const hint = truncateToWidth(
-              theme.fg(
-                "muted",
-                `... (${(rows.length - 15).toString()} more lines,`,
-              ) +
+              theme.fg("muted", `... (${(rows.length - 15).toString()} more lines,`) +
                 ` ${context.keyHint("app.tools.expand", "to expand")}${theme.fg("muted", ")")}`,
               width,
             );

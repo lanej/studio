@@ -39,8 +39,7 @@ const runtime = await createAgentSessionRuntime(
       },
     });
     const model = services.modelRuntime.getModel(provider, modelId);
-    if (model === undefined)
-      throw new Error("Missing deterministic local model");
+    if (!model) throw new Error("Missing deterministic local model");
     const created = await createAgentSessionFromServices({
       services,
       sessionManager: target,

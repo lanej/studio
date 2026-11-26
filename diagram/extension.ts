@@ -1,17 +1,7 @@
-import {
-  defineTool,
-  keyText,
-  type ExtensionAPI,
-  type SessionEntry,
-} from "@earendil-works/pi-coding-agent";
+import { defineTool, keyText, type ExtensionAPI, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
 import { selectorText } from "@lanej/pi-components";
-import {
-  isEntry,
-  isMessageRole,
-  PiEntryType,
-  PiMessageRole,
-} from "../runtime.ts";
+import { isEntry, isMessageRole, PiEntryType, PiMessageRole } from "../runtime.ts";
 import { inspectDiagram } from "./inspector.ts";
 import { diagramParameters, parseDiagram } from "./model.ts";
 import { renderDiagram } from "./render.ts";
@@ -19,9 +9,7 @@ import { renderDiagram } from "./render.ts";
 export const diagramTool = "show_diagram";
 export const claudeDiagramTool = "ShowDiagram";
 
-type DiagramReceipt =
-  | { status: "displayed" | "unavailable" | "dismissed" }
-  | { status: "selected"; nodeId: string };
+type DiagramReceipt = { status: "displayed" | "unavailable" | "dismissed" } | { status: "selected"; nodeId: string };
 
 function latestDiagram(entries: SessionEntry[]) {
   const finished = new Map<string, string>();
@@ -30,15 +18,13 @@ function latestDiagram(entries: SessionEntry[]) {
     const message = entry.message;
     if (
       isMessageRole(message, PiMessageRole.ToolResult) &&
-      (message.toolName === diagramTool ||
-        message.toolName === claudeDiagramTool) &&
+      (message.toolName === diagramTool || message.toolName === claudeDiagramTool) &&
       !message.isError
     )
       finished.set(message.toolCallId, message.toolName);
     if (!isMessageRole(message, PiMessageRole.Assistant)) continue;
     for (const part of [...message.content].reverse()) {
-      if (part.type !== "toolCall" || finished.get(part.id) !== part.name)
-        continue;
+      if (part.type !== "toolCall" || finished.get(part.id) !== part.name) continue;
       try {
         return parseDiagram(part.arguments);
       } catch {
@@ -55,8 +41,7 @@ export function diagramDefinition(name = diagramTool) {
     label: "Show architecture",
     description:
       "Explain system design or interoperability with an inspectable C4 architecture diagram. Model one focal software system, its users and external systems. Add applications and data stores as containers to enable zoom. Label directed relationships with responsibilities or exchanged information and supply known protocols on concrete connections. Use context for the landscape and container for internal design. Only include a question to ask for a selection.",
-    promptSnippet:
-      "Show a C4 system context or container diagram and explore architecture boundaries or interfaces.",
+    promptSnippet: "Show a C4 system context or container diagram and explore architecture boundaries or interfaces.",
     exposure: "model-only",
     annotations: { readOnlyHint: true },
     executionMode: "sequential",
@@ -84,7 +69,7 @@ export function diagramDefinition(name = diagramTool) {
 
       const nodeId = await inspectDiagram(ctx, diagram, signal);
       const selected = diagram.nodes.find((node) => node.id === nodeId);
-      if (selected === undefined || signal?.aborted === true)
+      if (!selected || signal?.aborted === true)
         return {
           content: [
             {
@@ -120,10 +105,7 @@ export function diagramDefinition(name = diagramTool) {
             const shortcut = keyText("app.tools.expand");
             const content = context.expanded
               ? selectorText(JSON.stringify(args, null, 2))
-              : [
-                  "Recorded diagram",
-                  shortcut.length === 0 ? "" : `${shortcut} to inspect input`,
-                ]
+              : ["Recorded diagram", shortcut.length === 0 ? "" : `${shortcut} to inspect input`]
                   .filter(Boolean)
                   .join(" · ");
             return new Text(theme.fg("muted", content), 0, 0);
@@ -133,18 +115,9 @@ export function diagramDefinition(name = diagramTool) {
       return new Text(theme.fg("toolTitle", theme.bold("Architecture")), 0, 0);
     },
     renderResult(result, _options, theme, context) {
-      if (!context.isError && result.details?.status === "displayed")
-        return new Text("", 0, 0);
-      const text = result.content
-        .flatMap((item) =>
-          item.type === "text" ? [selectorText(item.text)] : [],
-        )
-        .join("\n");
-      return new Text(
-        theme.fg(context.isError ? "error" : "muted", text),
-        0,
-        0,
-      );
+      if (!context.isError && result.details?.status === "displayed") return new Text("", 0, 0);
+      const text = result.content.flatMap((item) => (item.type === "text" ? [selectorText(item.text)] : [])).join("\n");
+      return new Text(theme.fg(context.isError ? "error" : "muted", text), 0, 0);
     },
   });
 }
@@ -159,7 +132,7 @@ export function registerDiagrams(pi: ExtensionAPI): void {
     async handler(_args, ctx) {
       if (ctx.mode !== "tui") return;
       const diagram = latestDiagram(ctx.sessionManager.getBranch());
-      if (diagram === undefined) {
+      if (!diagram) {
         ctx.ui.notify("No diagram on this conversation branch.", "info");
         return;
       }

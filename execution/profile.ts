@@ -11,15 +11,10 @@ import {
 } from "../config.ts";
 import type { PlanWorkers } from "../planning/plan.ts";
 
-export function runtimeModelAllowed(
-  profile: StudioProfile,
-  model: { provider: string; baseUrl: string },
-): boolean {
+export function runtimeModelAllowed(profile: StudioProfile, model: { provider: string; baseUrl: string }): boolean {
   return profile === StudioProfile.Personal
     ? knownProvider(model.provider) === DefaultProvider.ChatGPTSubscription
-    : /^https:\/\/bedrock-mantle\.[a-z0-9-]+\.api\.aws(?:\/|$)/u.test(
-        model.baseUrl,
-      );
+    : /^https:\/\/bedrock-mantle\.[a-z0-9-]+\.api\.aws(?:\/|$)/u.test(model.baseUrl);
 }
 
 export async function assertRuntimeProfile(
@@ -34,18 +29,9 @@ export async function assertRuntimeProfile(
   });
   const roles = config.profiles[profile];
   const validate = (label: string, selection: ModelSelection | undefined) => {
-    const model =
-      selection === undefined
-        ? undefined
-        : runtime.getModel(selection.provider, selection.model);
-    if (
-      model === undefined ||
-      !runtime.hasConfiguredAuth(model.provider) ||
-      !runtimeModelAllowed(profile, model)
-    )
-      throw new Error(
-        `Configure and authenticate ${profile} ${label} before enabling execution`,
-      );
+    const model = !selection ? undefined : runtime.getModel(selection.provider, selection.model);
+    if (!model || !runtime.hasConfiguredAuth(model.provider) || !runtimeModelAllowed(profile, model))
+      throw new Error(`Configure and authenticate ${profile} ${label} before enabling execution`);
     return model;
   };
   for (const role of [AgentRole.Lead, AgentRole.Worker, AgentRole.Reviewer]) {

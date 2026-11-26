@@ -3,17 +3,9 @@ import { Command } from "commander";
 import { join } from "node:path";
 import { z } from "zod";
 import { withBeadsHttp } from "./beads-http-fixture.ts";
-import {
-  ExecutionBeads,
-  heartbeat,
-  verifyHeartbeatAuthority,
-} from "../execution/beads.ts";
+import { ExecutionBeads, heartbeat, verifyHeartbeatAuthority } from "../execution/beads.ts";
 import { StudioProfile, exampleConfig } from "../config.ts";
-import {
-  ExecutionStore,
-  executionSchema,
-  ExecutionPhase,
-} from "../execution/store.ts";
+import { ExecutionStore, executionSchema, ExecutionPhase } from "../execution/store.ts";
 import { reconcileAttempt, retainClaim } from "../execution/recovery.ts";
 import { maintainAttempt } from "../execution/supervisor.ts";
 import { writeFile } from "node:fs/promises";
@@ -21,9 +13,7 @@ import { draftSchema, planDigest } from "../planning/plan.ts";
 import { beadSchema, owner } from "../task-service.ts";
 import { randomUUID } from "node:crypto";
 
-const program = new Command()
-  .requiredOption("--bd <path>")
-  .requiredOption("--dolt <path>");
+const program = new Command().requiredOption("--bd <path>").requiredOption("--dolt <path>");
 program.parse();
 const options = program.opts<{ bd: string; dolt: string }>();
 await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
@@ -68,46 +58,14 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     second: `${root}.second`,
     held: `${root}.held`,
   };
-  await service.createGraph(
-    graph,
-    planDigest(draft),
-    "Runtime fixture",
-    draft,
-    ids,
-  );
-  await service.createGraph(
-    graph,
-    planDigest(draft),
-    "Runtime fixture",
-    draft,
-    ids,
-  );
-  assert.equal(
-    (await service.get(ids.second)).metadata["studio.pullRequestMerge"],
-    "manual",
-  );
-  const replay = () =>
-    service.createGraph(
-      graph,
-      planDigest(draft),
-      "Runtime fixture",
-      draft,
-      ids,
-    );
-  let mutation = await fixture.command([
-    "update",
-    ids.first,
-    "--description",
-    "Changed after approval",
-  ]);
+  await service.createGraph(graph, planDigest(draft), "Runtime fixture", draft, ids);
+  await service.createGraph(graph, planDigest(draft), "Runtime fixture", draft, ids);
+  assert.equal((await service.get(ids.second)).metadata["studio.pullRequestMerge"], "manual");
+  const replay = () => service.createGraph(graph, planDigest(draft), "Runtime fixture", draft, ids);
+  let mutation = await fixture.command(["update", ids.first, "--description", "Changed after approval"]);
   assert.equal(mutation.code, 0, mutation.stderr);
   await assert.rejects(replay, /reviewed brief/u);
-  mutation = await fixture.command([
-    "update",
-    ids.first,
-    "--description",
-    "Produce a prerequisite",
-  ]);
+  mutation = await fixture.command(["update", ids.first, "--description", "Produce a prerequisite"]);
   assert.equal(mutation.code, 0, mutation.stderr);
   mutation = await fixture.command(["dep", "remove", ids.second, ids.first]);
   assert.equal(mutation.code, 0, mutation.stderr);
@@ -140,9 +98,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     "--json",
   ]);
   assert.equal(interactiveCreated.code, 0, interactiveCreated.stderr);
-  const interactiveId = z
-    .object({ id: z.string() })
-    .parse(JSON.parse(interactiveCreated.stdout)).id;
+  const interactiveId = z.object({ id: z.string() }).parse(JSON.parse(interactiveCreated.stdout)).id;
   const untouchedInteractive = await service.get(interactiveId);
   const firstAttempt = randomUUID();
   const first = await service.claimNext(firstAttempt);
@@ -152,18 +108,9 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     undefined,
     "Dependencies, holds, and container must not enter ready admission",
   );
-  const raced = await fixture.command([
-    "create",
-    "--title",
-    "Ready race",
-    "--type",
-    "task",
-    "--json",
-  ]);
+  const raced = await fixture.command(["create", "--title", "Ready race", "--type", "task", "--json"]);
   assert.equal(raced.code, 0, raced.stderr);
-  const racedId = z
-    .object({ id: z.string() })
-    .parse(JSON.parse(raced.stdout)).id;
+  const racedId = z.object({ id: z.string() }).parse(JSON.parse(raced.stdout)).id;
   const ready = await fixture.command(["ready", "--json"]);
   assert.equal(ready.code, 0, ready.stderr);
   assert(
@@ -172,12 +119,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       .parse(JSON.parse(ready.stdout))
       .some((row) => row.id === racedId),
   );
-  const defer = await fixture.command([
-    "update",
-    racedId,
-    "--status",
-    "deferred",
-  ]);
+  const defer = await fixture.command(["update", racedId, "--status", "deferred"]);
   assert.equal(defer.code, 0, defer.stderr);
   assert.equal(
     await service.claimNext(randomUUID()),
@@ -204,8 +146,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       dolt_database: z.string().optional(),
     })
     .parse(JSON.parse(context.stdout));
-  project.beadsDatabase =
-    identity.database ?? identity.dolt_database ?? "studio_native";
+  project.beadsDatabase = identity.database ?? identity.dolt_database ?? "studio_native";
   const caller = process.cwd();
   process.chdir(fixture.directory);
   try {
@@ -235,9 +176,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     const recovered = store.attempt(firstAttempt);
     assert.equal(recovered.phase, ExecutionPhase.Queued);
     assert.equal(recovered.revision, bound.revision);
-    assert(
-      recovered.worker !== undefined && recovered.controller !== undefined,
-    );
+    assert(recovered.worker !== undefined && recovered.controller !== undefined);
     await heartbeat(project, firstAttempt, bound.id);
 
     // Close the task after the supervisor selects it but before the real CLI renews it.
@@ -245,11 +184,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     await maintainAttempt(store, project, firstAttempt, {
       reconcile: reconcileAttempt,
       heartbeat: async (...args) => {
-        await service.finishAccepted(
-          bound,
-          firstAttempt,
-          "Verified fixture result",
-        );
+        await service.finishAccepted(bound, firstAttempt, "Verified fixture result");
         store.change(firstAttempt, (row) => {
           row.phase = ExecutionPhase.Complete;
         });
@@ -267,37 +202,18 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
   }
 
   await assert.rejects(
-    () =>
-      heartbeat(
-        { ...project, source: { ...source, reviewOnly: true } },
-        firstAttempt,
-        bound.id,
-      ),
+    () => heartbeat({ ...project, source: { ...source, reviewOnly: true } }, firstAttempt, bound.id),
     /review-only/u,
   );
-  await assert.rejects(
-    heartbeat(project, randomUUID(), bound.id),
-    /claimed by/u,
-  );
+  await assert.rejects(heartbeat(project, randomUUID(), bound.id), /claimed by/u);
   const secondAttempt = randomUUID();
   const next = await service.claimNext(secondAttempt);
   assert.equal(next?.id, ids.second);
   await service.bind(beadSchema.parse(next), secondAttempt);
-  const externalClosure = await fixture.command(
-    ["close", ids.second],
-    owner(secondAttempt),
-  );
+  const externalClosure = await fixture.command(["close", ids.second], owner(secondAttempt));
   assert.equal(externalClosure.code, 0, externalClosure.stderr);
-  await assert.rejects(
-    heartbeat(project, secondAttempt, ids.second),
-    /closed/u,
-  );
-  const release = await fixture.command([
-    "update",
-    ids.held,
-    "--status",
-    "open",
-  ]);
+  await assert.rejects(heartbeat(project, secondAttempt, ids.second), /closed/u);
+  const release = await fixture.command(["update", ids.held, "--status", "open"]);
   assert.equal(release.code, 0, release.stderr);
   assert.equal(
     (await service.claimNext(randomUUID()))?.id,
@@ -313,9 +229,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
   const badAttempt = randomUUID();
   await service.claim(untouchedInteractive, badAttempt);
   const oldClaim = await service.get(interactiveId);
-  const blockedStore = new ExecutionStore(
-    join(fixture.directory, "interactive-claim-state"),
-  );
+  const blockedStore = new ExecutionStore(join(fixture.directory, "interactive-claim-state"));
   try {
     blockedStore.saveAttempt(
       executionSchema.parse({

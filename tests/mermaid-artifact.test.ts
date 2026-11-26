@@ -1,27 +1,14 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import {
-  mkdtemp,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test, type TestContext } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
-import {
-  mermaidSourceLimit,
-  renderMermaidArtifact,
-} from "../diagram/mermaid-artifact.ts";
+import { mermaidSourceLimit, renderMermaidArtifact } from "../diagram/mermaid-artifact.ts";
 
-const source =
-  "---\ntitle: Dispatch\n---\nsequenceDiagram\n  Lead->>Worker: Start\n";
-const png =
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j0isAAAAASUVORK5CYII=";
+const source = "---\ntitle: Dispatch\n---\nsequenceDiagram\n  Lead->>Worker: Start\n";
+const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j0isAAAAASUVORK5CYII=";
 const output = `if (dest.endsWith(".svg")) await writeFile(dest, '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg>');
 else await writeFile(dest, Buffer.from(${JSON.stringify(png)},"base64"));`;
 
@@ -72,16 +59,10 @@ await test("source survives a missing renderer; competing retries publish one co
   assert.deepEqual(a, b);
   assert.ok(a.status === "rendered");
   assert.equal(a.sourcePath, first.sourcePath);
-  assert.equal(
-    a.svgPath,
-    resolve(dirname(a.sourcePath), "rendered", "diagram.svg"),
-  );
+  assert.equal(a.svgPath, resolve(dirname(a.sourcePath), "rendered", "diagram.svg"));
   assert.match(await readFile(a.svgPath, "utf8"), /<path/u);
   assert.equal((await readFile(a.pngPath)).toString("base64"), png);
-  assert.deepEqual((await readdir(dirname(first.sourcePath))).sort(), [
-    "diagram.mmd",
-    "rendered",
-  ]);
+  assert.deepEqual((await readdir(dirname(first.sourcePath))).sort(), ["diagram.mmd", "rendered"]);
   const cached = await renderMermaidArtifact(root, source, {
     executable: missing,
   });
@@ -95,11 +76,7 @@ await test("a corrupt second output never publishes a partial pair", async (t) =
     `${output}
 if(dest.endsWith(".png")) await writeFile(dest,"Not a PNG");`,
   );
-  const result = await renderMermaidArtifact(
-    join(directory, "diagrams"),
-    source,
-    { executable },
-  );
+  const result = await renderMermaidArtifact(join(directory, "diagrams"), source, { executable });
   assert.ok(result.status === "source-only");
   assert.match(result.reason, /complete PNG/u);
   assert.deepEqual(await readdir(dirname(result.sourcePath)), ["diagram.mmd"]);
@@ -132,9 +109,7 @@ await test("timeouts and cancellation release the render and preserve the source
   } finally {
     clearTimeout(timer);
   }
-  assert.deepEqual(await readdir(dirname(timedOut.sourcePath)), [
-    "diagram.mmd",
-  ]);
+  assert.deepEqual(await readdir(dirname(timedOut.sourcePath)), ["diagram.mmd"]);
 });
 
 await test(
@@ -184,10 +159,7 @@ await test(
 await test("invalid requests and edits to a published source leave the original files alone", async (t) => {
   const directory = await workspace(t);
   const root = join(directory, "diagrams");
-  await assert.rejects(
-    renderMermaidArtifact(root, " ".repeat(mermaidSourceLimit + 1)),
-    /characters/u,
-  );
+  await assert.rejects(renderMermaidArtifact(root, " ".repeat(mermaidSourceLimit + 1)), /characters/u);
   const missing = join(directory, "missing");
   const result = await renderMermaidArtifact(root, source, {
     executable: missing,
@@ -206,8 +178,7 @@ await test("a missing export is repaired without replacing surviving or concurre
   const executable = await cli(directory, output);
   const original = await renderMermaidArtifact(root, source, { executable });
   assert.ok(original.status === "rendered");
-  const edited =
-    '<svg xmlns="http://www.w3.org/2000/svg"><title>My edits</title></svg>';
+  const edited = '<svg xmlns="http://www.w3.org/2000/svg"><title>My edits</title></svg>';
   await writeFile(original.svgPath, edited);
   const saved = join(directory, "saved.png");
   await rename(original.pngPath, saved);
@@ -215,10 +186,7 @@ await test("a missing export is repaired without replacing surviving or concurre
   // Only the missing format should require the renderer.
   const pngOnly = `assert.ok(dest.endsWith(".png"));\n${output}`;
   await cli(directory, pngOnly);
-  assert.deepEqual(
-    await renderMermaidArtifact(root, source, { executable }),
-    original,
-  );
+  assert.deepEqual(await renderMermaidArtifact(root, source, { executable }), original);
   assert.deepEqual(await readFile(original.pngPath), await readFile(saved));
   assert.equal(await readFile(original.svgPath, "utf8"), edited);
 
@@ -230,16 +198,10 @@ await test("a missing export is repaired without replacing surviving or concurre
     await link(${JSON.stringify(saved)}, ${JSON.stringify(original.pngPath)});
     ${pngOnly}`,
   );
-  assert.deepEqual(
-    await renderMermaidArtifact(root, source, { executable }),
-    original,
-  );
+  assert.deepEqual(await renderMermaidArtifact(root, source, { executable }), original);
   assert.equal((await stat(original.pngPath)).ino, (await stat(saved)).ino);
   assert.equal(await readFile(original.svgPath, "utf8"), edited);
-  assert.deepEqual((await readdir(dirname(original.sourcePath))).sort(), [
-    "diagram.mmd",
-    "rendered",
-  ]);
+  assert.deepEqual((await readdir(dirname(original.sourcePath))).sort(), ["diagram.mmd", "rendered"]);
 });
 
 await test(

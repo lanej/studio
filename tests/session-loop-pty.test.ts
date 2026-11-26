@@ -125,11 +125,7 @@ print("Causal drain ordering, SIGKILL-before-hangup, per-terminal FD reuse, orig
 `;
   const result = await promisify(execFile)(
     "python3",
-    [
-      "-c",
-      script,
-      fileURLToPath(new URL("../acceptance/session-loop.py", import.meta.url)),
-    ],
+    ["-c", script, fileURLToPath(new URL("../acceptance/session-loop.py", import.meta.url))],
     { timeout: 15_000 },
   );
   assert.match(result.stdout, /Causal drain ordering.*retention passed/u);

@@ -4,11 +4,9 @@ import { join } from "node:path";
 import { packageRoot } from "./package-resources.ts";
 
 export async function startSession(args: string[] = []): Promise<void> {
-  const child = spawn(
-    join(packageRoot, "scripts/pi"),
-    ["--extension", join(packageRoot, "extension.ts"), ...args],
-    { stdio: "inherit" },
-  );
+  const child = spawn(join(packageRoot, "scripts/pi"), ["--extension", join(packageRoot, "extension.ts"), ...args], {
+    stdio: "inherit",
+  });
   const interrupt = (): void => {
     child.kill("SIGINT");
   };
@@ -21,8 +19,7 @@ export async function startSession(args: string[] = []): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       child.once("error", reject);
       child.once("exit", (code, signal) => {
-        process.exitCode =
-          code ?? (signal === null ? 1 : 128 + constants.signals[signal]);
+        process.exitCode = code ?? (signal === null ? 1 : 128 + constants.signals[signal]);
         resolve();
       });
     });

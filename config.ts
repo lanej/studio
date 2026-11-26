@@ -4,10 +4,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { extname, isAbsolute, join } from "node:path";
 import { z } from "zod";
-import {
-  defaultPaneKeybindings,
-  paneKeybindingsSchema,
-} from "./pane-keybindings-config.ts";
+import { defaultPaneKeybindings, paneKeybindingsSchema } from "./pane-keybindings-config.ts";
 
 export enum StudioProfile {
   Work = "work",
@@ -40,6 +37,7 @@ export enum ModelCapability {
   Standard = "standard",
   Advanced = "advanced",
 }
+
 export function knownProvider(value: string): DefaultProvider | undefined {
   const parsed = z.enum(DefaultProvider).safeParse(value);
   return parsed.success ? parsed.data : undefined;
@@ -79,10 +77,7 @@ const optionalIntegration = (executable: string) =>
       executable: z
         .string()
         .min(1)
-        .refine(
-          (value) => !value.includes("/") || isAbsolute(value),
-          "Use an executable name or absolute path",
-        )
+        .refine((value) => !value.includes("/") || isAbsolute(value), "Use an executable name or absolute path")
         .default(executable),
     })
     .strict()
@@ -134,11 +129,7 @@ export const configSchema = z
       .prefault({}),
     display: z
       .strictObject({
-        min_split_columns: z
-          .number()
-          .int()
-          .positive()
-          .default(defaultMinSplitColumns),
+        min_split_columns: z.number().int().positive().default(defaultMinSplitColumns),
         inline_diagnostics: z.boolean().default(true),
         added_background: z
           .string()
@@ -163,10 +154,7 @@ export const configSchema = z
       .prefault({}),
     archives: z
       .object({
-        database: z
-          .string()
-          .refine(isAbsolute, "Use an absolute archive database path")
-          .optional(),
+        database: z.string().refine(isAbsolute, "Use an absolute archive database path").optional(),
       })
       .strict()
       .default({}),
@@ -180,9 +168,7 @@ export const configSchema = z
       .default({ enabled: true, idleMs: 300_000, minimumContextPercent: 60 }),
     beads: z
       .object({
-        workspace: z
-          .string()
-          .refine(isAbsolute, "Use an absolute Beads workspace path"),
+        workspace: z.string().refine(isAbsolute, "Use an absolute Beads workspace path"),
         database: z.string().min(1),
         branch: z.string().min(1),
         executable: z.string().min(1).default("bd"),
@@ -194,10 +180,7 @@ export const configSchema = z
         url: z.url(),
         projectId: z.uuid(),
         reviewOnly: z.boolean().optional(),
-        tokenFile: z
-          .string()
-          .refine(isAbsolute, "Use an absolute token-file path")
-          .optional(),
+        tokenFile: z.string().refine(isAbsolute, "Use an absolute token-file path").optional(),
       })
       .strict()
       .optional(),
@@ -212,29 +195,18 @@ export const configSchema = z
   .strict();
 export type StudioConfig = z.infer<typeof configSchema>;
 
-export function workerForTask(
-  roles: z.infer<typeof profile>,
-  assignment?: TaskAssignment,
-): ModelSelection {
-  if (assignment === undefined) return roles.worker;
+export function workerForTask(roles: z.infer<typeof profile>, assignment?: TaskAssignment): ModelSelection {
+  if (!assignment) return roles.worker;
   const model =
-    assignment.capability === ModelCapability.Standard
-      ? roles.worker
-      : roles.workerModels[assignment.capability];
-  if (model === undefined)
-    throw new Error(
-      `Configure the ${assignment.capability} worker model first`,
-    );
+    assignment.capability === ModelCapability.Standard ? roles.worker : roles.workerModels[assignment.capability];
+  if (!model) throw new Error(`Configure the ${assignment.capability} worker model first`);
   return { ...model, reasoning: assignment.reasoning };
 }
 
 export function configPath(): string {
   const explicit = process.env["STUDIO_CONFIG"];
   if (explicit !== undefined) return explicit;
-  const directory = join(
-    process.env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config"),
-    "studio",
-  );
+  const directory = join(process.env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config"), "studio");
   const toml = join(directory, "config.toml");
   const json = join(directory, "config.json");
   return existsSync(toml) || !existsSync(json) ? toml : json;
@@ -243,9 +215,7 @@ export function configPath(): string {
 export async function loadConfig(path = configPath()): Promise<StudioConfig> {
   try {
     const contents = await readFile(path, "utf8");
-    return configSchema.parse(
-      extname(path) === ".toml" ? parse(contents) : JSON.parse(contents),
-    );
+    return configSchema.parse(extname(path) === ".toml" ? parse(contents) : JSON.parse(contents));
   } catch (error) {
     if (
       z.object({ code: z.literal("ENOENT") }).safeParse(error).success &&
@@ -304,13 +274,7 @@ export const exampleConfig = {
     projectId: "11111111-1111-4111-8111-111111111111",
   },
   profiles: {
-    [StudioProfile.Work]: roles(
-      DefaultProvider.BedrockMantle,
-      "openai.gpt-6.1-sol",
-    ),
-    [StudioProfile.Personal]: roles(
-      DefaultProvider.ChatGPTSubscription,
-      "gpt-6.1-sol",
-    ),
+    [StudioProfile.Work]: roles(DefaultProvider.BedrockMantle, "openai.gpt-6.1-sol"),
+    [StudioProfile.Personal]: roles(DefaultProvider.ChatGPTSubscription, "gpt-6.1-sol"),
   },
 };

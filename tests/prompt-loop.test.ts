@@ -60,12 +60,7 @@ await test("loop intent survives lost dispatch acknowledgement; stop settles cur
   };
   try {
     controller.start();
-    for (const guard of [
-      "settled",
-      "pendingInput",
-      "editorText",
-      "dialogs",
-    ] as const) {
+    for (const guard of ["settled", "pendingInput", "editorText", "dialogs"] as const) {
       const previous = admission[guard];
       if (guard === "settled") admission.settled = false;
       if (guard === "pendingInput") admission.pendingInput = true;
@@ -135,17 +130,12 @@ await test("atomic ownership revisions reject another writer and stale controlle
       undefined,
     );
     assert.throws(() => second.save(record, undefined), /ownership changed/u);
-    const controller = new PromptLoop(
-      first,
-      record,
-      record.owner ?? assert.fail(),
-      {
-        snapshot: () => assert.fail(),
-        dispatch: () => assert.fail(),
-        changed: () => undefined,
-        schedule: () => assert.fail(),
-      },
-    );
+    const controller = new PromptLoop(first, record, record.owner ?? assert.fail(), {
+      snapshot: () => assert.fail(),
+      dispatch: () => assert.fail(),
+      changed: () => undefined,
+      schedule: () => assert.fail(),
+    });
     second.save(
       {
         ...record,

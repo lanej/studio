@@ -1,13 +1,5 @@
 import assert from "node:assert/strict";
-import {
-  access,
-  mkdir,
-  mkdtemp,
-  readFile,
-  realpath,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { test } from "node:test";
@@ -19,11 +11,7 @@ import {
   SettingsManager,
   ProjectTrustStore,
 } from "@earendil-works/pi-coding-agent";
-import {
-  lspTool,
-  registerCodeIntelligence,
-  renameTool,
-} from "../code-intelligence/extension.ts";
+import { lspTool, registerCodeIntelligence, renameTool } from "../code-intelligence/extension.ts";
 
 await test("native Pi trust gates automatic diagnostics, LSP queries and rename before server startup", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "pi-lsp-trust-")));
@@ -36,17 +24,13 @@ await test("native Pi trust gates automatic diagnostics, LSP queries and rename 
   await mkdir(agentDir);
   await mkdir(executableDirectory);
   await writeFile(join(root, "config.json"), "{}");
-  await writeFile(
-    join(root, "Cargo.toml"),
-    '[package]\nname = "untrusted"\nversion = "0.1.0"\n',
-  );
+  await writeFile(join(root, "Cargo.toml"), '[package]\nname = "untrusted"\nversion = "0.1.0"\n');
   await writeFile(
     join(executableDirectory, "rust-analyzer"),
     `#!${process.execPath}\nrequire("node:fs").writeFileSync(${JSON.stringify(marker)}, "executed");\nprocess.exit(1);\n`,
     { mode: 0o755 },
   );
-  process.env["PATH"] =
-    `${executableDirectory}${delimiter}${previousPath ?? ""}`;
+  process.env["PATH"] = `${executableDirectory}${delimiter}${previousPath ?? ""}`;
   process.env["STUDIO_CONFIG"] = join(root, "config.json");
   process.env["PI_CODING_AGENT_DIR"] = agentDir;
   const settings = SettingsManager.inMemory({}, { projectTrusted: false });
@@ -104,36 +88,23 @@ await test("native Pi trust gates automatic diagnostics, LSP queries and rename 
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
         },
       });
-      const context = session.extensionRunner.createToolContext(
-        "trust-fixture",
-        undefined,
-      );
+      const context = session.extensionRunner.createToolContext("trust-fixture", undefined);
       assert.equal(context.isProjectTrusted(), false);
       const written = await context.executeTool("write", {
         path: "main.rs",
         content: "fn main() {}\n",
       });
-      assert.equal(
-        written.isError,
-        false,
-        "untrusted LSP must not prevent an authorized edit",
-      );
+      assert.equal(written.isError, false, "untrusted LSP must not prevent an authorized edit");
       assert.match(JSON.stringify(written.result.content), /project trust/u);
       const replacement = {
         path: "main.rs",
         edits: [{ oldText: "fn main() {}", newText: "fn main() { panic!() }" }],
       };
-      for (const args of [
-        replacement,
-        ...["", " \t\n", false].map((reason) => ({ ...replacement, reason })),
-      ]) {
+      for (const args of [replacement, ...["", " \t\n", false].map((reason) => ({ ...replacement, reason }))]) {
         const rejected = await context.executeTool("edit", args);
         assert.equal(rejected.isError, true);
         assert.match(JSON.stringify(rejected.result.content), /reason/u);
-        assert.equal(
-          await readFile(join(root, "main.rs"), "utf8"),
-          "fn main() {}\n",
-        );
+        assert.equal(await readFile(join(root, "main.rs"), "utf8"), "fn main() {}\n");
       }
       const edited = await context.executeTool("edit", {
         reason: "Exercise diagnostics for an authorized Rust edit.",
@@ -142,10 +113,7 @@ await test("native Pi trust gates automatic diagnostics, LSP queries and rename 
         newText: "fn main() { let _value = 1; }",
       });
       assert.equal(edited.isError, false);
-      assert.equal(
-        await readFile(join(root, "main.rs"), "utf8"),
-        "fn main() { let _value = 1; }\n",
-      );
+      assert.equal(await readFile(join(root, "main.rs"), "utf8"), "fn main() { let _value = 1; }\n");
       assert.match(JSON.stringify(edited.result.content), /project trust/u);
       const numeric = await context.executeTool("edit", {
         reason: "Exercise a syntax-only edit in an untrusted project.",
@@ -156,15 +124,11 @@ await test("native Pi trust gates automatic diagnostics, LSP queries and rename 
       const syntax = z
         .object({
           studioSyntax: z.object({
-            replacements: z.array(
-              z.object({ original: z.string(), updated: z.string() }),
-            ),
+            replacements: z.array(z.object({ original: z.string(), updated: z.string() })),
           }),
         })
         .parse(numeric.result.details);
-      assert.deepEqual(syntax.studioSyntax.replacements, [
-        { original: "1", updated: "4" },
-      ]);
+      assert.deepEqual(syntax.studioSyntax.replacements, [{ original: "1", updated: "4" }]);
       for (const [name, input] of [
         [lspTool, { action: "diagnostics", path: "main.rs" }],
         [
@@ -183,11 +147,7 @@ await test("native Pi trust gates automatic diagnostics, LSP queries and rename 
         assert.equal(result.isError, true);
         assert.match(JSON.stringify(result.result.content), /project trust/u);
       }
-      await assert.rejects(
-        access(marker),
-        /ENOENT/u,
-        "untrusted operations must never launch the executable",
-      );
+      await assert.rejects(access(marker), /ENOENT/u, "untrusted operations must never launch the executable");
       // Native implicit trust alone must not authorize execution; an operator approval enables the same executable.
       settings.setProjectTrusted(true);
       assert.equal(context.isProjectTrusted(), true);
@@ -195,28 +155,14 @@ await test("native Pi trust gates automatic diagnostics, LSP queries and rename 
         action: "diagnostics",
         path: "main.rs",
       });
-      assert.equal(
-        implicit.isError,
-        true,
-        "native implicit trust is not project execution approval",
-      );
+      assert.equal(implicit.isError, true, "native implicit trust is not project execution approval");
       await assert.rejects(access(marker), /ENOENT/u);
       const approval = session.extensionRunner.getCommand("lsp-trust");
       assert.ok(approval !== undefined);
-      await approval.handler(
-        "",
-        session.extensionRunner.createCommandContext(),
-      );
-      await assert.rejects(
-        access(marker),
-        /ENOENT/u,
-        "declining approval must not start a server",
-      );
+      await approval.handler("", session.extensionRunner.createCommandContext());
+      await assert.rejects(access(marker), /ENOENT/u, "declining approval must not start a server");
       confirm = true;
-      await approval.handler(
-        "",
-        session.extensionRunner.createCommandContext(),
-      );
+      await approval.handler("", session.extensionRunner.createCommandContext());
       assert.equal(
         new ProjectTrustStore(agentDir).get(root),
         null,
@@ -236,22 +182,14 @@ await test("native Pi trust gates automatic diagnostics, LSP queries and rename 
         action: "diagnostics",
         path: "main.rs",
       });
-      assert.equal(
-        reloaded.isError,
-        true,
-        "session approval must not survive a reload",
-      );
+      assert.equal(reloaded.isError, true, "session approval must not survive a reload");
       await assert.rejects(access(marker), /ENOENT/u);
       new ProjectTrustStore(agentDir).set(root, true);
       await context.executeTool(lspTool, {
         action: "diagnostics",
         path: "main.rs",
       });
-      assert.equal(
-        await readFile(marker, "utf8"),
-        "executed",
-        "recorded native approval must enable server startup",
-      );
+      assert.equal(await readFile(marker, "utf8"), "executed", "recorded native approval must enable server startup");
       settings.setProjectTrusted(false);
       await rm(marker);
       const revoked = await context.executeTool(lspTool, {
@@ -273,8 +211,7 @@ await test("native Pi trust gates automatic diagnostics, LSP queries and rename 
     else process.env["PATH"] = previousPath;
     if (previousConfig === undefined) delete process.env["STUDIO_CONFIG"];
     else process.env["STUDIO_CONFIG"] = previousConfig;
-    if (previousAgentDir === undefined)
-      delete process.env["PI_CODING_AGENT_DIR"];
+    if (previousAgentDir === undefined) delete process.env["PI_CODING_AGENT_DIR"];
     else process.env["PI_CODING_AGENT_DIR"] = previousAgentDir;
     await rm(root, { recursive: true, force: true });
   }

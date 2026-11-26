@@ -2,19 +2,12 @@ import { safeGit } from "./git.ts";
 import { verificationSandbox } from "./sandbox.ts";
 import { z } from "zod";
 import { gitState, runCheck } from "../task-verification.ts";
-import {
-  processFailure,
-  processMatchesStart,
-  processStart,
-} from "../process.ts";
+import { processFailure, processMatchesStart, processStart } from "../process.ts";
 import { ExecutionStore, VerificationPhase } from "./store.ts";
 import { ExecutionBeads } from "./beads.ts";
 
 /** A verifier keeps its timeout and parent-liveness guard even if its control host dies. */
-export async function runVerification(
-  id: string,
-  token: string,
-): Promise<void> {
+export async function runVerification(id: string, token: string): Promise<void> {
   z.uuid().parse(token);
   const store = new ExecutionStore();
   const abort = new AbortController();
@@ -27,8 +20,8 @@ export async function runVerification(
       parent.launchToken !== token ||
       parent.pid === undefined ||
       parent.started === undefined ||
-      parent.checkout === undefined ||
-      parent.verification === undefined ||
+      !parent.checkout ||
+      !parent.verification ||
       parent.verifier?.phase !== VerificationPhase.Launching
     )
       throw new Error("No matching admitted verification intent");
@@ -37,18 +30,12 @@ export async function runVerification(
     const checkout = parent.checkout;
     const git = (args: string[], env?: NodeJS.ProcessEnv) =>
       safeGit(project.root, checkout.path, args, {
-        ...(env?.["GIT_INDEX_FILE"] === undefined
-          ? {}
-          : { indexFile: env["GIT_INDEX_FILE"] }),
+        ...(env?.["GIT_INDEX_FILE"] === undefined ? {} : { indexFile: env["GIT_INDEX_FILE"] }),
       });
     const parentPid = parent.pid;
     const parentStart = parent.started;
     store.change(id, (row) => {
-      if (
-        row.launchToken !== token ||
-        row.pid !== parentPid ||
-        row.verifier?.phase !== VerificationPhase.Launching
-      )
+      if (row.launchToken !== token || row.pid !== parentPid || row.verifier?.phase !== VerificationPhase.Launching)
         throw new Error("Verification authority changed before startup");
       row.verifier = {
         phase: VerificationPhase.Running,
@@ -60,18 +47,13 @@ export async function runVerification(
       if (!(await processMatchesStart(parentPid, parentStart)))
         throw new Error("The admitted control host exited during verification");
       const current = store.attempt(id);
-      if (
-        current.launchToken !== token ||
-        current.pid !== parentPid ||
-        current.bead === undefined ||
-        current.revision === undefined
-      )
+      if (current.launchToken !== token || current.pid !== parentPid || !current.bead || current.revision === undefined)
         throw new Error("Verification owner changed");
       await service.requireCurrent(current.bead, current.revision, id);
     };
     await fence();
     timer = setInterval(() => {
-      if (monitoring !== undefined) return;
+      if (monitoring) return;
       monitoring = fence()
         .catch(() => {
           abort.abort();
@@ -80,26 +62,14 @@ export async function runVerification(
           monitoring = undefined;
         });
     }, 1000);
-    const before = await gitState(
-      parent.checkout.path,
-      parent.checkout.branch,
-      git,
-    );
-    if (
-      before.gitHead !== parent.verification.gitHead ||
-      before.gitState !== parent.verification.gitState
-    )
+    const before = await gitState(parent.checkout.path, parent.checkout.branch, git);
+    if (before.gitHead !== parent.verification.gitHead || before.gitState !== parent.verification.gitState)
       throw new Error("The checkout changed after verification was admitted");
-    const sandbox = await verificationSandbox(
-      parent.checkout.path,
-      parent.check,
-      project.verificationReadPaths,
-      {
-        projectRoot: project.root,
-        tree: before.gitState,
-        branch: checkout.branch,
-      },
-    );
+    const sandbox = await verificationSandbox(parent.checkout.path, parent.check, project.verificationReadPaths, {
+      projectRoot: project.root,
+      tree: before.gitState,
+      branch: checkout.branch,
+    });
     let result: Awaited<ReturnType<typeof runCheck>>;
     try {
       result = await runCheck(
@@ -124,20 +94,12 @@ export async function runVerification(
     } finally {
       await sandbox.close();
     }
-    const after = await gitState(
-      parent.checkout.path,
-      parent.checkout.branch,
-      git,
-    );
+    const after = await gitState(parent.checkout.path, parent.checkout.branch, git);
     if (before.gitHead !== after.gitHead || before.gitState !== after.gitState)
       throw new Error("Verification changed checkout contents or identity");
     await fence();
     store.change(id, (row) => {
-      if (
-        row.launchToken !== token ||
-        row.verifier?.pid !== process.pid ||
-        row.verification === undefined
-      )
+      if (row.launchToken !== token || row.verifier?.pid !== process.pid || !row.verification)
         throw new Error("Verification result is for a retired owner");
       row.verification = {
         ...row.verification,
@@ -146,14 +108,12 @@ export async function runVerification(
       };
       row.verifier.phase = VerificationPhase.Complete;
     });
-    if (result.exitCode !== 0)
-      throw new Error(`Agreed verification failed: ${result.output}`);
+    if (result.exitCode !== 0) throw new Error(`Agreed verification failed: ${result.output}`);
   } catch (error) {
     store.change(id, (row) => {
       if (row.launchToken === token && row.verifier?.pid === process.pid) {
-        if (row.verification !== undefined) {
-          if (row.verifier.phase !== VerificationPhase.Complete)
-            row.verification.exitCode = -1;
+        if (row.verification) {
+          if (row.verifier.phase !== VerificationPhase.Complete) row.verification.exitCode = -1;
           row.verification.reason = processFailure(error).message;
         }
         row.verifier.phase = VerificationPhase.Complete;
@@ -161,7 +121,7 @@ export async function runVerification(
     });
     throw error;
   } finally {
-    if (timer !== undefined) clearInterval(timer);
+    if (timer) clearInterval(timer);
     await monitoring;
     store.close();
   }

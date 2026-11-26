@@ -1,10 +1,7 @@
 import { registerCodingRenderer } from "./model-tools/rendering.ts";
 import { basename } from "node:path";
 import { z } from "zod";
-import {
-  type ExtensionAPI,
-  getMarkdownTheme,
-} from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
 import { type Component, Markdown } from "@earendil-works/pi-tui";
 
 const readArgs = z.looseObject({
@@ -16,15 +13,13 @@ const readArgs = z.looseObject({
 const noDetails = z.strictObject({});
 
 /** Pi labels reads of SKILL.md as skills; only their complete expanded text changes presentation. */
-export function registerSkillRendering(
-  pi: Pick<ExtensionAPI, "registerToolRenderer">,
-): void {
+export function registerSkillRendering(pi: Pick<ExtensionAPI, "registerToolRenderer">): void {
   const painted = new WeakSet<Component>();
   registerCodingRenderer(pi, (name, next) => {
     const base = next();
     if (name !== "read") return base;
     const render = base?.renderResult;
-    if (render === undefined) return base;
+    if (!render) return base;
     return {
       ...base,
       renderResult(result, options, theme, context) {
@@ -33,15 +28,12 @@ export function registerSkillRendering(
             result,
             options,
             theme,
-            context.lastComponent !== undefined &&
-              painted.has(context.lastComponent)
+            context.lastComponent && painted.has(context.lastComponent)
               ? { ...context, lastComponent: undefined }
               : context,
           );
         const args = readArgs.safeParse(context.args);
-        const path = args.success
-          ? (args.data.file_path ?? args.data.path)
-          : undefined;
+        const path = args.success ? (args.data.file_path ?? args.data.path) : undefined;
         const block = result.content[0];
         if (
           !options.expanded ||
@@ -53,8 +45,7 @@ export function registerSkillRendering(
           basename(path) !== "SKILL.md" ||
           args.data.offset !== undefined ||
           args.data.limit !== undefined ||
-          (result.details !== undefined &&
-            !noDetails.safeParse(result.details).success) ||
+          (result.details !== undefined && !noDetails.safeParse(result.details).success) ||
           result.content.length !== 1 ||
           block?.type !== "text" ||
           block.text.trim() === "" ||

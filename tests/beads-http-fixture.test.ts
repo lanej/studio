@@ -41,11 +41,7 @@ setInterval(()=>{},1000);
     { mode: 0o700 },
   );
   let sequence = 0;
-  const run = async <T>(
-    mode: string,
-    use: Parameters<typeof withBeadsServer<T>>[2],
-    timeout = 2000,
-  ) => {
+  const run = async <T>(mode: string, use: Parameters<typeof withBeadsServer<T>>[2], timeout = 2000) => {
     const record = join(directory, `process-${String(++sequence)}.jsonl`);
     try {
       return await withBeadsServer(
@@ -66,8 +62,7 @@ setInterval(()=>{},1000);
       assert.ok(started !== undefined);
       assert.deepEqual(started.args, ["serve", "--addr", "127.0.0.1:0"]);
       assert.throws(() => process.kill(started.pid, 0), { code: "ESRCH" });
-      if (mode !== "exit" && mode !== "exit-after-bind")
-        assert.equal(receipts.at(-1)?.event, "stopped");
+      if (mode !== "exit" && mode !== "exit-after-bind") assert.equal(receipts.at(-1)?.event, "stopped");
     }
   };
   return {
@@ -92,10 +87,7 @@ await test("owned HTTP service announces its atomic port-zero bind across stdout
       assert.notEqual(url, occupiedUrl);
       assertRunning();
       assert.equal(await (await fetch(url)).text(), "owned listener");
-      assert.equal(
-        await (await fetch(occupiedUrl)).text(),
-        "occupied listener",
-      );
+      assert.equal(await (await fetch(occupiedUrl)).text(), "occupied listener");
     });
     assert.equal(await (await fetch(occupiedUrl)).text(), "occupied listener");
     await assert.rejects(
@@ -107,7 +99,7 @@ await test("owned HTTP service announces its atomic port-zero bind across stdout
   } finally {
     await new Promise<void>((resolve, reject) => {
       occupied.close((error) => {
-        if (error !== undefined) reject(error);
+        if (error) reject(error);
         else resolve();
       });
     });
@@ -130,19 +122,10 @@ await test("invalid address, oversized output, early exit, spawn error and start
       "http://127.0.0.1:1234/path",
       "http://user@127.0.0.1:1234",
     ])
-      await assert.rejects(
-        owned.run(url, never),
-        /Invalid.*address announcement/u,
-      );
+      await assert.rejects(owned.run(url, never), /Invalid.*address announcement/u);
     await assert.rejects(owned.run("oversize", never), /exceeded 8000 bytes/u);
-    await assert.rejects(
-      owned.run("exit", never),
-      /code 7.*fixture startup failed/u,
-    );
-    await assert.rejects(
-      owned.run("hang", never),
-      /did not announce.*fixture waiting/u,
-    );
+    await assert.rejects(owned.run("exit", never), /code 7.*fixture startup failed/u);
+    await assert.rejects(owned.run("hang", never), /did not announce.*fixture waiting/u);
     await assert.rejects(
       owned.run("exit-after-bind", async ({ assertRunning }) => {
         await delay(50);
@@ -150,11 +133,7 @@ await test("invalid address, oversized output, early exit, spawn error and start
       }),
     );
     await assert.rejects(
-      withBeadsServer(
-        join(owned.directory, "does-not-exist"),
-        { cwd: owned.directory, env: process.env },
-        never,
-      ),
+      withBeadsServer(join(owned.directory, "does-not-exist"), { cwd: owned.directory, env: process.env }, never),
       /ENOENT/u,
     );
   } finally {

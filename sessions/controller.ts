@@ -34,19 +34,13 @@ export class PromptLoop {
   private change(update: Partial<LoopRecord>): void {
     if (this.released) throw new Error("Loop controller has been released");
     const current = this.store.get(this.record.session);
-    if (current?.owner?.token !== this.owner.token)
-      throw new Error("Another process owns this loop");
-    this.record = this.store.save(
-      { ...this.record, ...update },
-      this.record.revision,
-    );
+    if (current?.owner?.token !== this.owner.token) throw new Error("Another process owns this loop");
+    this.record = this.store.save({ ...this.record, ...update }, this.record.revision);
     this.host.changed(this.record);
   }
   start(): void {
     if (this.record.needsInspection || this.record.intent !== null)
-      throw new Error(
-        "Inspect the uncertain iteration with /loop status, then /loop resume inspected",
-      );
+      throw new Error("Inspect the uncertain iteration with /loop status, then /loop resume inspected");
     this.change({
       state: "running",
       reason: "Waiting for cadence and idle input",
@@ -55,9 +49,7 @@ export class PromptLoop {
   }
   input(extension: boolean, prompt: string): void {
     this.candidate =
-      extension &&
-      prompt === this.record.prompt &&
-      this.dispatched === this.record.intent?.id
+      extension && prompt === this.record.prompt && this.dispatched === this.record.intent?.id
         ? this.dispatched
         : undefined;
   }
@@ -75,8 +67,7 @@ export class PromptLoop {
     this.start();
   }
   configure(prompt: string, cadenceMs: number): void {
-    if (this.record.intent !== null)
-      throw new Error("Inspect the uncertain iteration before reconfiguring");
+    if (this.record.intent !== null) throw new Error("Inspect the uncertain iteration before reconfiguring");
     this.stop();
     this.change({
       prompt,
@@ -118,10 +109,7 @@ export class PromptLoop {
         },
         intent: null,
         count: this.record.count + 1,
-        reason:
-          this.record.state === "running"
-            ? "Iteration settled; waiting for next cadence"
-            : this.record.reason,
+        reason: this.record.state === "running" ? "Iteration settled; waiting for next cadence" : this.record.reason,
       });
     }
     this.arm();
@@ -151,12 +139,7 @@ export class PromptLoop {
           this.pause("Target is no longer eligible; explicit resume required");
           return;
         }
-        if (
-          !now.settled ||
-          now.pendingInput ||
-          now.editorText.length > 0 ||
-          now.dialogs > 0
-        ) {
+        if (!now.settled || now.pendingInput || now.editorText.length > 0 || now.dialogs > 0) {
           this.arm();
           return;
         }
@@ -178,9 +161,7 @@ export class PromptLoop {
         this.clear();
         // A dispatch exception is not evidence that the provider received nothing.
         try {
-          this.pause(
-            `Uncertain dispatch: ${error instanceof Error ? error.message : String(error)}`,
-          );
+          this.pause(`Uncertain dispatch: ${error instanceof Error ? error.message : String(error)}`);
         } catch {
           this.released = true;
         }

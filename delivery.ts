@@ -68,52 +68,26 @@ export async function octo(cwd: string, ...args: string[]): Promise<unknown> {
   return JSON.parse(output);
 }
 
-export async function refreshPublication(
-  db: Attempts,
-  record: Attempt,
-): Promise<Attempt> {
+export async function refreshPublication(db: Attempts, record: Attempt): Promise<Attempt> {
   const delivery = record.delivery;
-  if (delivery === undefined || record.checkout === null)
-    throw new Error("No Octo publication is recorded");
+  if (!delivery || record.checkout === null) throw new Error("No Octo publication is recorded");
   if (delivery.octoSubmission === undefined)
-    throw new Error(
-      "Retry the same publish request to retrieve its Octo receipt",
-    );
+    throw new Error("Retry the same publish request to retrieve its Octo receipt");
   const cwd = record.checkout.path;
-  const current = receipt.parse(
-    await octo(cwd, "submission", delivery.octoSubmission),
-  );
-  if (current.id !== delivery.octoSubmission)
-    throw new Error("Octo returned a different publication");
-  if (
-    current.state !== "published" ||
-    current.tracking !== "active" ||
-    current.url === undefined
-  )
-    return record;
+  const current = receipt.parse(await octo(cwd, "submission", delivery.octoSubmission));
+  if (current.id !== delivery.octoSubmission) throw new Error("Octo returned a different publication");
+  if (current.state !== "published" || current.tracking !== "active" || current.url === undefined) return record;
   const url = current.url;
   const { agent } = registration.parse(
-    await octo(
-      cwd,
-      "agent",
-      "register",
-      "--harness",
-      "pi",
-      "--endpoint",
-      "local",
-      "--thread-id",
-      record.id,
-    ),
+    await octo(cwd, "agent", "register", "--harness", "pi", "--endpoint", "local", "--thread-id", record.id),
   );
-  if (agent.sessionId !== record.id)
-    throw new Error("Octo registered a different Pi session");
+  if (agent.sessionId !== record.id) throw new Error("Octo registered a different Pi session");
   const { pr } = tracked.parse(await octo(cwd, "pr", "show", url));
   if (pr.url !== url || pr.ownerAgentId !== agent.id)
     throw new Error("Octo publication and lead ownership do not match");
   return db.change(record.id, (row) => {
     const saved = row.delivery;
-    if (saved?.requestId !== delivery.requestId)
-      throw new Error("The Octo publication changed during reconciliation");
+    if (saved?.requestId !== delivery.requestId) throw new Error("The Octo publication changed during reconciliation");
     if (
       (saved.url !== undefined && saved.url !== url) ||
       (saved.pr !== undefined && saved.pr !== pr.id) ||
@@ -125,16 +99,10 @@ export async function refreshPublication(
   });
 }
 
-export async function publishLead(
-  bead: string,
-  title: string,
-  bodyFile: string,
-  base: string,
-): Promise<Attempt> {
+export async function publishLead(bead: string, title: string, bodyFile: string, base: string): Promise<Attempt> {
   const config = await loadConfig();
   await requireIntegration(config, "octo");
-  if (config.beadsService === undefined)
-    throw new Error("Configure the Beads service");
+  if (!config.beadsService) throw new Error("Configure the Beads service");
   const db = new Attempts(stateDirectory());
   try {
     const record = db.latest(config.beadsService.projectId, bead);
@@ -146,26 +114,17 @@ export async function publishLead(
       record.verification?.exitCode !== 0
     )
       throw new Error("Verify the managed lead result before publishing");
-    await new TaskBeads(record.source).requireCurrent(
-      record.bead,
-      record.revision,
-      record.id,
-    );
+    await new TaskBeads(record.source).requireCurrent(record.bead, record.revision, record.id);
     const cwd = record.checkout.path;
-    const output = async (...args: string[]) =>
-      (await run("git", args, { cwd })).trim();
+    const output = async (...args: string[]) => (await run("git", args, { cwd })).trim();
     const head = sha.parse(await output("rev-parse", "HEAD"));
     if (
       head !== record.verification.gitHead ||
-      (await output("rev-parse", "HEAD^{tree}")) !==
-        record.verification.gitState ||
-      (await output("symbolic-ref", "--short", "HEAD")) !==
-        record.checkout.branch ||
+      (await output("rev-parse", "HEAD^{tree}")) !== record.verification.gitState ||
+      (await output("symbolic-ref", "--short", "HEAD")) !== record.checkout.branch ||
       (await output("status", "--porcelain", "--untracked-files=all")) !== ""
     )
-      throw new Error(
-        "Publish requires the clean, committed revision verified by this lead",
-      );
+      throw new Error("Publish requires the clean, committed revision verified by this lead");
     const body = await readFile(resolve(bodyFile));
     const digest = createHash("sha256")
       .update(JSON.stringify([head, title, base]))
@@ -180,10 +139,8 @@ export async function publishLead(
         row.verification?.gitHead !== head
       )
         throw new Error("The verified lead changed before publication");
-      if (row.delivery !== undefined && row.delivery.requestDigest !== digest)
-        throw new Error(
-          "Inspect the existing Octo publication before supplying a different draft",
-        );
+      if (row.delivery && row.delivery.requestDigest !== digest)
+        throw new Error("Inspect the existing Octo publication before supplying a different draft");
       row.delivery ??= { requestId, requestDigest: digest, head, inbox: {} };
     });
     const directory = await mkdtemp(join(stateDirectory(), "publication-"));
@@ -222,8 +179,7 @@ export async function publishLead(
     const current = db.change(record.id, (row) => {
       if (
         row.delivery?.requestId !== requestId ||
-        (row.delivery.octoSubmission !== undefined &&
-          row.delivery.octoSubmission !== created.id)
+        (row.delivery.octoSubmission !== undefined && row.delivery.octoSubmission !== created.id)
       )
         throw new Error("The Octo submission no longer matches this lead");
       row.delivery.octoSubmission = created.id;
@@ -235,16 +191,11 @@ export async function publishLead(
   }
 }
 
-export async function leadDeliveryDecision(
-  bead: string,
-  head: string,
-  notice: string | undefined,
-): Promise<unknown> {
+export async function leadDeliveryDecision(bead: string, head: string, notice: string | undefined): Promise<unknown> {
   sha.parse(head);
   const config = await loadConfig();
   await requireIntegration(config, "octo");
-  if (config.beadsService === undefined)
-    throw new Error("Configure the Beads service");
+  if (!config.beadsService) throw new Error("Configure the Beads service");
   const db = new Attempts(stateDirectory());
   try {
     const record = db.latest(config.beadsService.projectId, bead);
@@ -261,36 +212,18 @@ export async function leadDeliveryDecision(
           cwd: record.checkout.path,
         })
       ).trim() !== "" ||
-      (
-        await run("git", ["rev-parse", "HEAD"], { cwd: record.checkout.path })
-      ).trim() !== head
+      (await run("git", ["rev-parse", "HEAD"], { cwd: record.checkout.path })).trim() !== head
     )
-      throw new Error(
-        "Verify and commit the current clean lead revision first",
-      );
-    await new TaskBeads(record.source).requireCurrent(
-      record.bead,
-      record.revision,
-      record.id,
-    );
+      throw new Error("Verify and commit the current clean lead revision first");
+    await new TaskBeads(record.source).requireCurrent(record.bead, record.revision, record.id);
     const { delivery } = await refreshPublication(db, record);
     if (delivery?.url === undefined || delivery.agent === undefined)
       throw new Error("Wait for Octo to enroll the lead pull request");
     const cwd = record.checkout.path;
     if (notice === undefined)
-      return await octo(
-        cwd,
-        "pr",
-        "ready",
-        delivery.url,
-        "--head",
-        head,
-        "--agent-id",
-        delivery.agent,
-      );
+      return await octo(cwd, "pr", "ready", delivery.url, "--head", head, "--agent-id", delivery.agent);
     z.uuid().parse(notice);
-    if (delivery.inbox[notice]?.id !== notice)
-      throw new Error("Inspect this PR's Ready notice in /octo-inbox first");
+    if (delivery.inbox[notice]?.id !== notice) throw new Error("Inspect this PR's Ready notice in /octo-inbox first");
     const result = z
       .looseObject({
         state: z.string(),
@@ -311,8 +244,7 @@ export async function leadDeliveryDecision(
           delivery.agent,
         ),
       );
-    if (result.pr !== delivery.url)
-      throw new Error("Octo returned a different merge subject");
+    if (result.pr !== delivery.url) throw new Error("Octo returned a different merge subject");
     if (result.chain !== undefined && result.entry !== undefined) {
       const binding = {
         notice,
@@ -321,10 +253,8 @@ export async function leadDeliveryDecision(
         entry: result.entry,
       };
       db.change(record.id, (row) => {
-        if (row.delivery?.pr !== delivery.pr || row.delivery === undefined)
-          throw new Error(
-            "The delivery binding changed during the merge request",
-          );
+        if (row.delivery?.pr !== delivery.pr || !row.delivery)
+          throw new Error("The delivery binding changed during the merge request");
         row.delivery.merge = binding;
       });
     }
@@ -353,11 +283,7 @@ export async function readDeliveryInbox(
     return { text: record.message, receipts: [] };
   const cwd = record.checkout.path;
   const { pr } = tracked.parse(await octo(cwd, "pr", "show", delivery.pr));
-  if (
-    pr.id !== delivery.pr ||
-    pr.url !== delivery.url ||
-    pr.ownerAgentId !== delivery.agent
-  )
+  if (pr.id !== delivery.pr || pr.url !== delivery.url || pr.ownerAgentId !== delivery.agent)
     throw new Error("This Pi session no longer owns the tracked pull request");
   const ready = new Map<string, string>();
   let after = 0;
@@ -376,8 +302,7 @@ export async function readDeliveryInbox(
       ),
     );
     for (const message of page.messages) {
-      if (!message.applicable || message.recipientAgentId !== delivery.agent)
-        continue;
+      if (!message.applicable || message.recipientAgentId !== delivery.agent) continue;
       let prId = message.workflowPrId;
       if (prId === undefined && message.actionId !== "") {
         const { action } = z
@@ -386,23 +311,15 @@ export async function readDeliveryInbox(
         prId = action.prId;
       }
       if (prId !== delivery.pr) continue;
-      if (message.readyHead !== undefined)
-        ready.set(message.id, message.readyHead);
-      if (db.get(record.id).delivery?.inbox[message.id]?.acknowledged === true)
-        continue;
+      if (message.readyHead !== undefined) ready.set(message.id, message.readyHead);
+      if (db.get(record.id).delivery?.inbox[message.id]?.acknowledged === true) continue;
       db.change(record.id, (row) => {
         const saved = row.delivery;
-        if (
-          saved === undefined ||
-          saved.pr !== delivery.pr ||
-          saved.agent !== delivery.agent
-        )
+        if (!saved || saved.pr !== delivery.pr || saved.agent !== delivery.agent)
           throw new Error("The delivery binding changed");
         const previous = saved.inbox[message.id];
-        if (previous !== undefined && previous.body !== message.body)
-          throw new Error(
-            "Octo returned different text for an existing notice",
-          );
+        if (previous && previous.body !== message.body)
+          throw new Error("Octo returned different text for an existing notice");
         saved.inbox[message.id] ??= {
           id: message.id,
           body: message.body,
@@ -410,30 +327,21 @@ export async function readDeliveryInbox(
         };
       });
       if (message.acknowledgedAtMs === undefined)
-        await octo(
-          cwd,
-          "acknowledge-message",
-          message.id,
-          "--agent-id",
-          delivery.agent,
-        );
+        await octo(cwd, "acknowledge-message", message.id, "--agent-id", delivery.agent);
       db.change(record.id, (row) => {
         const saved = row.delivery?.inbox[message.id];
-        if (saved !== undefined) saved.acknowledged = true;
+        if (saved) saved.acknowledged = true;
       });
     }
     if (!page.hasMore) break;
-    if (page.nextSequence <= after)
-      throw new Error("Octo inbox cursor did not advance");
+    if (page.nextSequence <= after) throw new Error("Octo inbox cursor did not advance");
     after = page.nextSequence;
   }
   const notices = Object.values(db.get(record.id).delivery?.inbox ?? {});
   const text = notices
     .map((notice) => {
       const head = ready.get(notice.id);
-      return head === undefined
-        ? `${notice.id}\n${notice.body}`
-        : `Ready · ${head}\n${notice.id}\n${notice.body}`;
+      return head === undefined ? `${notice.id}\n${notice.body}` : `Ready · ${head}\n${notice.id}\n${notice.body}`;
     })
     .join("\n\n");
   return {

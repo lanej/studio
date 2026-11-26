@@ -17,9 +17,7 @@ await test("a lost pane launch is sent once and a replaced server is never focus
   const sockets = join(root, "contract_version_1");
   const cache = join(
     root,
-    process.platform === "darwin"
-      ? "Library/Caches/org.Zellij-Contributors.Zellij"
-      : "zellij",
+    process.platform === "darwin" ? "Library/Caches/org.Zellij-Contributors.Zellij" : "zellij",
     "contract_version_1",
   );
   await mkdir(cache, { recursive: true });
@@ -28,9 +26,7 @@ await test("a lost pane launch is sent once and a replaced server is never focus
     ZELLIJ_SOCKET_DIR: root,
     ZELLIJ_PANE_ID: "terminal_0",
   };
-  const previous = Object.entries(environment).map(
-    ([key]) => [key, process.env[key]] as const,
-  );
+  const previous = Object.entries(environment).map(([key]) => [key, process.env[key]] as const);
   Object.assign(process.env, environment);
   t.after(() => {
     for (const [key, value] of previous) {
@@ -39,14 +35,9 @@ await test("a lost pane launch is sent once and a replaced server is never focus
     }
   });
 
-  const suffix = createHash("sha256")
-    .update(sockets)
-    .digest("hex")
-    .slice(0, 12);
+  const suffix = createHash("sha256").update(sockets).digest("hex").slice(0, 12);
   const index = new Database(join(cache, `session_index-${suffix}.sqlite`));
-  index.run(
-    "CREATE TABLE sessions (id TEXT, name TEXT); INSERT INTO sessions VALUES ('one', 'test');",
-  );
+  index.run("CREATE TABLE sessions (id TEXT, name TEXT); INSERT INTO sessions VALUES ('one', 'test');");
   index.close();
   const path = join(sockets, "one");
   let launches = 0;
@@ -54,12 +45,8 @@ await test("a lost pane launch is sent once and a replaced server is never focus
     let pending = Buffer.alloc(0);
     socket.on("data", (chunk: Buffer) => {
       pending = Buffer.concat([pending, chunk]);
-      if (pending.length < 4 || pending.length < 4 + pending.readUInt32LE())
-        return;
-      const { message } = fromBinary(
-        ClientToServerMsgSchema,
-        pending.subarray(4),
-      );
+      if (pending.length < 4 || pending.length < 4 + pending.readUInt32LE()) return;
+      const { message } = fromBinary(ClientToServerMsgSchema, pending.subarray(4));
       assert.equal(message.case, "action");
       assert.equal(message.value.terminalId, 0);
       const action = message.value.action?.actionType;
@@ -77,10 +64,7 @@ await test("a lost pane launch is sent once and a replaced server is never focus
   let zellij: Zellij;
   try {
     zellij = new Zellij("test", dirname(cache));
-    await assert.rejects(
-      zellij.launch(3, "trial", "/tmp", ["pi"]),
-      /outcome may be unknown/u,
-    );
+    await assert.rejects(zellij.launch(3, "trial", "/tmp", ["pi"]), /outcome may be unknown/u);
     assert.equal(launches, 1);
   } finally {
     await new Promise<void>((resolve) => {

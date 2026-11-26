@@ -1,11 +1,6 @@
 import { createRequire } from "node:module";
 import { basename, extname } from "node:path";
-import {
-  Language,
-  Parser,
-  type Node as SyntaxNode,
-  type Tree,
-} from "@vscode/tree-sitter-wasm";
+import { Language, Parser, type Node as SyntaxNode, type Tree } from "@vscode/tree-sitter-wasm";
 
 export type { SyntaxNode };
 export const maxSyntaxSourceBytes = 1024 * 1024;
@@ -63,18 +58,15 @@ let initialized: Promise<void> | undefined;
 
 export function loadLanguage(grammar: string): Promise<Language> {
   const cached = languages.get(grammar);
-  if (cached !== undefined) return cached;
+  if (cached) return cached;
   initialized ??= Parser.init({
-    locateFile: () =>
-      require.resolve("@vscode/tree-sitter-wasm/wasm/tree-sitter.wasm"),
+    locateFile: () => require.resolve("@vscode/tree-sitter-wasm/wasm/tree-sitter.wasm"),
   });
   const asset =
     grammar === "json"
       ? "@lumis-sh/wasm-json/tree-sitter-json.wasm"
       : `@vscode/tree-sitter-wasm/wasm/tree-sitter-${grammar}.wasm`;
-  const language = initialized.then(() =>
-    Language.load(require.resolve(asset)),
-  );
+  const language = initialized.then(() => Language.load(require.resolve(asset)));
   languages.set(grammar, language);
   return language;
 }

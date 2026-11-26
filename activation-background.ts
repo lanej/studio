@@ -35,45 +35,31 @@ export interface BackgroundAuthority {
   }[];
   reason: string;
 }
+
 function ownerUid(): number {
   const uid = process.getuid?.();
-  if (uid === undefined)
-    throw new Error(
-      "Native background runtime inspection requires a Unix owner",
-    );
+  if (uid === undefined) throw new Error("Native background runtime inspection requires a Unix owner");
   return uid;
 }
-function processBinding(
-  record: z.infer<typeof authoritySchema>,
-): BackgroundAuthority["process"] | undefined {
-  if (record.pid === undefined || record.started === undefined)
-    return undefined;
-  const result = spawnSync(
-    "ps",
-    ["-p", String(record.pid), "-o", "uid=,lstart="],
-    {
-      encoding: "utf8",
-      env: { ...process.env, LC_ALL: "C", TZ: "UTC" },
-    },
-  );
+
+function processBinding(record: z.infer<typeof authoritySchema>): BackgroundAuthority["process"] | undefined {
+  if (record.pid === undefined || record.started === undefined) return undefined;
+  const result = spawnSync("ps", ["-p", String(record.pid), "-o", "uid=,lstart="], {
+    encoding: "utf8",
+    env: { ...process.env, LC_ALL: "C", TZ: "UTC" },
+  });
   if (result.status !== 0 || result.stdout.trim().length === 0) {
     try {
       process.kill(record.pid, 0);
     } catch (error) {
-      if (z.object({ code: z.literal("ESRCH") }).safeParse(error).success)
-        return null;
+      if (z.object({ code: z.literal("ESRCH") }).safeParse(error).success) return null;
     }
     return undefined;
   }
   const match = result.stdout.trim().match(/^(\d+)\s+(.+)$/u);
-  if (match?.[2] === undefined || Number(match[1]) !== ownerUid())
-    return undefined;
+  if (match?.[2] === undefined || Number(match[1]) !== ownerUid()) return undefined;
   if (match[2] !== record.started) {
-    return /^[A-Z][a-z]{2} [A-Z][a-z]{2} [ \d]\d \d{2}:\d{2}:\d{2} \d{4}$/u.test(
-      record.started,
-    )
-      ? null
-      : undefined;
+    return /^[A-Z][a-z]{2} [A-Z][a-z]{2} [ \d]\d \d{2}:\d{2}:\d{2} \d{4}$/u.test(record.started) ? null : undefined;
   } // Both values use this owner's UTC OS start scheme.
   return {
     pid: record.pid,
@@ -101,20 +87,13 @@ export function backgroundAuthorities(): BackgroundAuthority[] {
   try {
     database.run("PRAGMA busy_timeout=1000");
     const rows = database
-      .query(
-        "SELECT kind,id,record FROM records WHERE kind IN ('supervisor','allocation','attempt')",
-      )
+      .query("SELECT kind,id,record FROM records WHERE kind IN ('supervisor','allocation','attempt')")
       .all();
     const authorities: BackgroundAuthority[] = [];
     for (const value of rows) {
       const row = rowSchema.parse(value);
       const record = authoritySchema.parse(JSON.parse(row.record));
-      if (
-        row.kind === "attempt" &&
-        record.phase === "complete" &&
-        record.launchSettled === true
-      )
-        continue;
+      if (row.kind === "attempt" && record.phase === "complete" && record.launchSettled === true) continue;
       const process = processBinding(record);
       if (process === null && row.kind !== "attempt") continue;
       authorities.push({

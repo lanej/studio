@@ -3,18 +3,9 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { createInterface } from "node:readline";
 import { z } from "zod";
-import {
-  processGroupExists,
-  processMatchesStart,
-  processStart,
-  run,
-  signalProcessGroup,
-} from "../process.ts";
+import { processGroupExists, processMatchesStart, processStart, run, signalProcessGroup } from "../process.ts";
 import { setTimeout as delay } from "node:timers/promises";
-import {
-  finishAllocationFixture,
-  settleOwnedAllocationGroup,
-} from "./helpers/allocation-cleanup.ts";
+import { finishAllocationFixture, settleOwnedAllocationGroup } from "./helpers/allocation-cleanup.ts";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -73,11 +64,7 @@ await test("independent task hosts serialize manager mutations and release on fa
     assert.equal(second.allocationOwner()?.attempt, attempt);
     release?.();
     await Promise.all([one, two]);
-    assert.deepEqual(order, [
-      "first entered",
-      "first finished",
-      "second entered",
-    ]);
+    assert.deepEqual(order, ["first entered", "first finished", "second entered"]);
     assert.equal(first.allocationOwner(), undefined);
     await assert.rejects(
       withAllocation(
@@ -116,16 +103,11 @@ await test("a dead allocation controller retains its lease while its manager pro
   let primary: { error: unknown } | undefined;
   try {
     const line: unknown[] = await once(reader, "line");
-    const receipt = z
-      .object({ child: z.number().int().positive() })
-      .parse(JSON.parse(z.string().parse(line[0])));
+    const receipt = z.object({ child: z.number().int().positive() }).parse(JSON.parse(z.string().parse(line[0])));
     assert(receipt.child > 0 && controller.pid !== undefined);
     const pid = controller.pid;
     const started = await processStart(pid);
-    identities.push(
-      { pid, started },
-      { pid: receipt.child, started: await processStart(receipt.child) },
-    );
+    identities.push({ pid, started }, { pid: receipt.child, started: await processStart(receipt.child) });
     assert.equal(await processMatchesStart(pid, started), true);
     assert.equal(
       await processMatchesStart(pid, "Prior controller start time"),
@@ -138,11 +120,7 @@ await test("a dead allocation controller retains its lease while its manager pro
     process.kill(pid, "SIGKILL");
     await stopped;
     assert.equal(await processMatchesStart(pid, started), false);
-    assert.equal(
-      processGroupExists(pid),
-      true,
-      "The owned manager child still holds the prior controller group",
-    );
+    assert.equal(processGroupExists(pid), true, "The owned manager child still holds the prior controller group");
     let entered = false;
     let checked: (() => void) | undefined;
     const waiting = new Promise<void>((resolve) => {
@@ -174,11 +152,7 @@ await test("a dead allocation controller retains its lease while its manager pro
     } finally {
       clearTimeout(deadline);
     }
-    assert.equal(
-      entered,
-      true,
-      "Allocation recovers once the old controller and its children are gone",
-    );
+    assert.equal(entered, true, "Allocation recovers once the old controller and its children are gone");
     assert.equal(store.allocationOwner(), undefined);
   } catch (error) {
     primary = { error };
@@ -197,14 +171,7 @@ await test("a dead allocation controller retains its lease while its manager pro
               try {
                 if (
                   (await processMatchesStart(identity.pid, identity.started)) &&
-                  (
-                    await run("/bin/ps", [
-                      "-p",
-                      String(identity.pid),
-                      "-o",
-                      "pgid=",
-                    ])
-                  ).trim() === String(group)
+                  (await run("/bin/ps", ["-p", String(identity.pid), "-o", "pgid="])).trim() === String(group)
                 )
                   return true;
               } catch {
@@ -219,8 +186,7 @@ await test("a dead allocation controller retains its lease while its manager pro
           wait: async () => {
             const deadline = Date.now() + 2000;
             while (processGroupExists(group)) {
-              if (Date.now() >= deadline)
-                throw new Error("Owned allocation group did not settle");
+              if (Date.now() >= deadline) throw new Error("Owned allocation group did not settle");
               await delay(10);
             }
           },
@@ -236,10 +202,7 @@ await test("a dead allocation controller retains its lease while its manager pro
         store.close();
       },
       dispose: async (safe) => {
-        if (!safe)
-          throw new Error(
-            `Retained allocation fixture at ${directory}: process settlement is unconfirmed`,
-          );
+        if (!safe) throw new Error(`Retained allocation fixture at ${directory}: process settlement is unconfirmed`);
         await rm(directory, { recursive: true, force: true });
       },
     });

@@ -16,21 +16,15 @@ export async function currentInteractiveTarget(): Promise<InteractiveTarget> {
   return { session, socket: zellij.identity, tab };
 }
 
-export async function verifyInteractiveTarget(
-  target: InteractiveTarget,
-): Promise<Zellij> {
+export async function verifyInteractiveTarget(target: InteractiveTarget): Promise<Zellij> {
   const zellij = new Zellij(target.session);
-  if (zellij.identity !== target.socket)
-    throw new Error("The approved tab belongs to a different Zellij server");
+  if (zellij.identity !== target.socket) throw new Error("The approved tab belongs to a different Zellij server");
   await zellij.requireUnsharedTab(target.tab);
   return zellij;
 }
 
 export function currentPaneId(): number {
-  const value = (process.env["ZELLIJ_PANE_ID"] ?? "").replace(
-    /^terminal_/u,
-    "",
-  );
+  const value = (process.env["ZELLIJ_PANE_ID"] ?? "").replace(/^terminal_/u, "");
   return tabId(value);
 }
 
@@ -44,20 +38,14 @@ export async function requireInteractivePane(
     throw new Error("Open the approved Zellij session to reach this worker");
   const zellij = await verifyInteractiveTarget(target);
   const current = (await zellij.panes()).find(
-    (item) =>
-      item.id === pane &&
-      item.tab_id === target.tab &&
-      !item.is_plugin &&
-      !item.exited,
+    (item) => item.id === pane && item.tab_id === target.tab && !item.is_plugin && !item.exited,
   );
   if (
     current?.terminal_command?.split(/\s+/u).includes(token) !== true ||
     current.pane_cwd == null ||
     (await realpath(current.pane_cwd)) !== repository
   )
-    throw new Error(
-      "The registered Pi pane changed or exited. Inspect the retained attempt before retrying",
-    );
+    throw new Error("The registered Pi pane changed or exited. Inspect the retained attempt before retrying");
   return zellij;
 }
 
@@ -80,7 +68,7 @@ export async function focusInteractivePane(
   const { interactive, pane, launchToken, pid, started } = attempt;
   if (
     !hasInteractivePane(attempt) ||
-    interactive === undefined ||
+    !interactive ||
     pane === undefined ||
     launchToken === undefined ||
     pid === undefined ||
@@ -90,12 +78,7 @@ export async function focusInteractivePane(
     throw new Error(
       `Attempt ${attempt.id} has no live worker in this session. Inspect its retained transcript and checkout.`,
     );
-  const zellij = await requireInteractivePane(
-    interactive,
-    pane,
-    launchToken,
-    repository,
-  );
+  const zellij = await requireInteractivePane(interactive, pane, launchToken, repository);
   signal?.throwIfAborted();
   await zellij.focus(pane);
 }

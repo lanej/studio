@@ -1,9 +1,6 @@
 import { type KeyId, matchesKey } from "@earendil-works/pi-tui";
 
-export {
-  defaultPaneKeybindings,
-  type PaneKeybindings,
-} from "./pane-keybindings-config.ts";
+export { defaultPaneKeybindings, type PaneKeybindings } from "./pane-keybindings-config.ts";
 
 export function matchesPaneKey(input: string, keys: readonly KeyId[]): boolean {
   return keys.some((key) => matchesKey(input, key));
@@ -39,9 +36,7 @@ export function paneKeyLabel(keys: readonly KeyId[]): string {
   if (key === undefined) return "";
   return key.replace(
     /[a-z][a-z0-9]*/giu,
-    (part) =>
-      labels.get(part) ??
-      (part === key && part.length === 1 ? part : part.toUpperCase()),
+    (part) => labels.get(part) ?? (part === key && part.length === 1 ? part : part.toUpperCase()),
   );
 }
 
@@ -50,10 +45,7 @@ export function paneKeyHint(keys: readonly KeyId[], action: string): string {
   return label.length === 0 ? "" : `${label} ${action}`;
 }
 
-export function paneKeyPair(
-  first: readonly KeyId[],
-  second: readonly KeyId[],
-): string {
+export function paneKeyPair(first: readonly KeyId[], second: readonly KeyId[]): string {
   const labels = [paneKeyLabel(first), paneKeyLabel(second)].filter(Boolean);
   return labels.join(labels[0] === "↑" && labels[1] === "↓" ? "" : "/");
 }

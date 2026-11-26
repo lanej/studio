@@ -1,10 +1,6 @@
 import { realpathSync } from "node:fs";
 import { DocumentKind, DocumentOwnerKind } from "../../planning/model.ts";
-import {
-  requirePlanningDocumentHooks,
-  documentReadTool,
-  documentOutcomeTool,
-} from "../../planning/document-hooks.ts";
+import { requirePlanningDocumentHooks, documentReadTool, documentOutcomeTool } from "../../planning/document-hooks.ts";
 import type { PaneKeybindings } from "../../pane-keybindings.ts";
 import type { OpenTasks } from "../../tasks/panel.ts";
 import { admittedDiagramAlias } from "../../model-tools/extension.ts";
@@ -14,10 +10,7 @@ import { renderPlanCall } from "../../plan-renderer.ts";
 import { lspTool, renameTool } from "../../code-intelligence/extension.ts";
 import { githubLink, renderReferences } from "../../github-links.ts";
 import { FooterStatus } from "../../runtime.ts";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { lstat, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { Type } from "typebox";
@@ -26,13 +19,7 @@ import { type Attempts, type Attempt, Phase } from "../../attempts.ts";
 import { readDeliveryInbox } from "../../delivery.ts";
 import { appendOctoEvents } from "../../transcript-events.ts";
 import { delegateTool } from "../../delegation.ts";
-import {
-  draftSchema,
-  LeadMode,
-  planDigest,
-  reviseDelivery,
-  TaskDelivery,
-} from "../../planning/plan.ts";
+import { draftSchema, LeadMode, planDigest, reviseDelivery, TaskDelivery } from "../../planning/plan.ts";
 import { SpecStatus } from "../../socrates/spec.ts";
 import { askTool, registerSocrates, specTool } from "./socrates.ts";
 import { reviewPlan, showTask } from "../../ui.ts";
@@ -51,12 +38,7 @@ const inspectTools = new Set([
   diagramTool,
   mermaidTool,
 ]);
-const implementationTools = new Set([
-  "write",
-  "edit",
-  "task_submit_result",
-  renameTool,
-]);
+const implementationTools = new Set(["write", "edit", "task_submit_result", renameTool]);
 
 async function worktreeWritePath(cwd: string, input: unknown): Promise<string> {
   const { path } = z.object({ path: z.string().min(1) }).parse(input);
@@ -76,13 +58,10 @@ async function worktreeWritePath(cwd: string, input: unknown): Promise<string> {
     try {
       const info = await lstat(ancestor);
       if (info.isSymbolicLink() || (await realpath(ancestor)) !== ancestor)
-        throw new Error(
-          "Lead edits cannot follow links in the managed worktree",
-        );
+        throw new Error("Lead edits cannot follow links in the managed worktree");
       break;
     } catch (error) {
-      if (!z.object({ code: z.literal("ENOENT") }).safeParse(error).success)
-        throw error;
+      if (!z.object({ code: z.literal("ENOENT") }).safeParse(error).success) throw error;
       ancestor = dirname(ancestor);
     }
   }
@@ -113,13 +92,8 @@ export function registerLeadControls(
           db.changeWithWitness(id, operationId, command, update, result),
         validate: async (currentContext) => {
           const record = await requireBinding(currentContext);
-          if (record.id !== id || record.revision === null)
-            throw new Error("The managed document binding changed");
-          await new TaskBeads(record.source).requireCurrent(
-            record.bead,
-            record.revision,
-            id,
-          );
+          if (record.id !== id || record.revision === null) throw new Error("The managed document binding changed");
+          await new TaskBeads(record.source).requireCurrent(record.bead, record.revision, id);
         },
       };
     },
@@ -128,32 +102,16 @@ export function registerLeadControls(
     },
   });
   const mode = () => db.get(id).leadPlan?.mode;
-  const socrates = registerSocrates(
-    pi,
-    db,
-    id,
-    requireBinding,
-    approvalPending,
-    openTasks,
-    keybindings,
-  );
+  const socrates = registerSocrates(pi, db, id, requireBinding, approvalPending, openTasks, keybindings);
   const permits = (name: string, ctx: ExtensionContext) => {
     const tool = admittedDiagramAlias(pi, name, ctx.model?.id) ?? name;
-    if (tool === delegateTool)
-      return pi.getActiveTools().includes(delegateTool);
+    if (tool === delegateTool) return pi.getActiveTools().includes(delegateTool);
     const spec = db.get(id).specification;
     if (tool === specTool || tool === askTool) {
-      return (
-        mode() === LeadMode.Planning &&
-        spec?.status === SpecStatus.Interrogating
-      );
+      return mode() === LeadMode.Planning && spec?.status === SpecStatus.Interrogating;
     }
-    if (tool === planTool && spec?.status === SpecStatus.Interrogating)
-      return false;
-    return (
-      inspectTools.has(tool) ||
-      (mode() === LeadMode.Implementing && implementationTools.has(tool))
-    );
+    if (tool === planTool && spec?.status === SpecStatus.Interrogating) return false;
+    return inspectTools.has(tool) || (mode() === LeadMode.Implementing && implementationTools.has(tool));
   };
   const applyTools = (ctx: ExtensionContext) => {
     pi.setActiveTools(
@@ -166,8 +124,7 @@ export function registerLeadControls(
   };
   const accepted = async (ctx: ExtensionContext) => {
     const record = await requireBinding(ctx);
-    if (record.revision === null)
-      throw new Error("The accepted Beads revision is missing");
+    if (record.revision === null) throw new Error("The accepted Beads revision is missing");
     return {
       record,
       revision: record.revision,
@@ -182,8 +139,7 @@ export function registerLeadControls(
   pi.on("session_before_fork", () => ({ cancel: true }));
   pi.on("user_bash", () => ({
     result: {
-      output:
-        "Run operator shell commands in another pane. This lead uses the agreed verifier for execution.",
+      output: "Run operator shell commands in another pane. This lead uses the agreed verifier for execution.",
       exitCode: 1,
       cancelled: false,
       truncated: false,
@@ -253,45 +209,26 @@ export function registerLeadControls(
       const { expectedRevision, ...candidate } = args;
       const draft = draftSchema.parse(candidate);
       db.change(id, (row) => {
-        if (row.leadPlan?.mode !== LeadMode.Planning)
-          throw new Error("This session is not drafting a plan");
+        if (row.leadPlan?.mode !== LeadMode.Planning) throw new Error("This session is not drafting a plan");
         const specification = row.specification;
-        if (specification !== undefined) {
+        if (specification) {
           if (
             specification.status !== SpecStatus.Frozen ||
             specification.draft === null ||
             specification.acceptedRevision !== row.revision
           )
-            throw new Error(
-              "Freeze the specification against the current Beads revision first",
-            );
-          const known = new Set(
-            specification.draft.requirements.map(
-              (requirement) => requirement.id,
-            ),
-          );
+            throw new Error("Freeze the specification against the current Beads revision first");
+          const known = new Set(specification.draft.requirements.map((requirement) => requirement.id));
           if (
             draft.tasks.some(
               (task) =>
-                task.requirements.length === 0 ||
-                task.requirements.some(
-                  (requirement) => !known.has(requirement),
-                ),
+                task.requirements.length === 0 || task.requirements.some((requirement) => !known.has(requirement)),
             )
           )
-            throw new Error(
-              "Every child task must link to a frozen requirement",
-            );
-          const covered = new Set(
-            draft.tasks.flatMap((task) => task.requirements),
-          );
-          if (
-            draft.tasks.length > 0 &&
-            [...known].some((requirement) => !covered.has(requirement))
-          )
-            throw new Error(
-              "Every frozen requirement must be covered by the task breakdown",
-            );
+            throw new Error("Every child task must link to a frozen requirement");
+          const covered = new Set(draft.tasks.flatMap((task) => task.requirements));
+          if (draft.tasks.length > 0 && [...known].some((requirement) => !covered.has(requirement)))
+            throw new Error("Every frozen requirement must be covered by the task breakdown");
         }
         documents.assertAgent(DocumentKind.Plan, row, ctx, expectedRevision);
         row.leadPlan = { ...row.leadPlan, draft };
@@ -309,25 +246,18 @@ export function registerLeadControls(
     },
   });
   pi.registerCommand("plan-delivery", {
-    description:
-      "Change a proposed task delivery: <task-key> <local|pull-request>",
+    description: "Change a proposed task delivery: <task-key> <local|pull-request>",
     async handler(argument, ctx) {
       await requireBinding(ctx);
       db.change(id, (row) => {
-        if (
-          row.leadPlan?.mode !== LeadMode.Planning ||
-          row.leadPlan.draft === null
-        )
+        if (row.leadPlan?.mode !== LeadMode.Planning || row.leadPlan.draft === null)
           throw new Error("No unapproved draft to revise");
         row.leadPlan = {
           ...row.leadPlan,
           draft: reviseDelivery(row.leadPlan.draft, argument),
         };
       });
-      ctx.ui.notify(
-        "Delivery proposal updated. Use /plan to review it.",
-        "info",
-      );
+      ctx.ui.notify("Delivery proposal updated. Use /plan to review it.", "info");
     },
   });
   pi.registerCommand("octo-inbox", {
@@ -335,25 +265,21 @@ export function registerLeadControls(
     async handler(_argument, ctx) {
       if (!ctx.isIdle()) throw new Error("Wait for the lead turn to settle");
       const record = await requireBinding(ctx);
-      if (record.delivery === undefined) {
+      if (!record.delivery) {
         ctx.ui.notify("This lead has no Octo publication yet", "info");
         return;
       }
       approvalPending(true);
       try {
         const inbox = await readDeliveryInbox(db, record);
-        if (inbox.url !== undefined)
-          appendOctoEvents(pi, ctx, inbox.url, inbox.receipts);
+        if (inbox.url !== undefined) appendOctoEvents(pi, ctx, inbox.url, inbox.receipts);
         await showTask(
           ctx,
           inbox.url === undefined
             ? inbox.text
             : [
                 githubLink(inbox.url) ?? inbox.url,
-                renderReferences(
-                  inbox.text.replace(/(?!\n)\p{Cc}/gu, ""),
-                  (link) => ctx.ui.theme.fg("accent", link),
-                ),
+                renderReferences(inbox.text.replace(/(?!\n)\p{Cc}/gu, ""), (link) => ctx.ui.theme.fg("accent", link)),
               ]
                 .filter((line) => line !== "")
                 .join("\n\n"),
@@ -376,30 +302,21 @@ export function registerLeadControls(
       if (!ctx.isIdle()) throw new Error("Wait for the lead turn to settle");
       const { record, revision, beads } = await accepted(ctx);
       const current = await beads.get(record.bead.id);
-      if (
-        current.assignee !== owner(id) ||
-        current.status !== "in_progress" ||
-        current.metadata["pi.attempt"] !== id
-      )
+      if (current.assignee !== owner(id) || current.status !== "in_progress" || current.metadata["pi.attempt"] !== id)
         throw new Error("This lead no longer owns the task");
       db.change(id, (row) => {
-        if (row.revision !== revision)
-          throw new Error("The accepted brief changed during refresh. Retry.");
+        if (row.revision !== revision) throw new Error("The accepted brief changed during refresh. Retry.");
         if (row.leadPlan?.mode === LeadMode.Applying)
-          throw new Error(
-            "Inspect the in-flight plan receipt before refreshing",
-          );
+          throw new Error("Inspect the in-flight plan receipt before refreshing");
         if (
           (row.phase !== Phase.Running &&
             row.phase !== Phase.Verified &&
             row.phase !== Phase.CheckFailed &&
             row.phase !== Phase.NeedsReview) ||
-          row.delivery?.merge !== undefined
+          row.delivery?.merge
         )
-          throw new Error(
-            "Settle the active verification or delivery before refreshing",
-          );
-        if (row.specification !== undefined) {
+          throw new Error("Settle the active verification or delivery before refreshing");
+        if (row.specification) {
           row.specHistory = [...(row.specHistory ?? []), row.specification];
           row.specification = {
             ...row.specification,
@@ -419,25 +336,20 @@ export function registerLeadControls(
         };
         row.phase = Phase.Running;
         row.verification = null;
-        row.message =
-          "The refreshed brief requires plan approval and verification";
+        row.message = "The refreshed brief requires plan approval and verification";
       });
       applyTools(ctx);
-      if (record.specification !== undefined) {
+      if (record.specification) {
         pi.sendUserMessage(
           "Reassess Socrates discovery against the refreshed Beads brief. Revisit only decisions the revised brief affects.",
         );
         return;
       }
-      ctx.ui.notify(
-        "Current Beads brief loaded. Draft and approve a new plan before editing.",
-        "info",
-      );
+      ctx.ui.notify("Current Beads brief loaded. Draft and approve a new plan before editing.", "info");
     },
   });
   pi.registerCommand("plan-approve", {
-    description:
-      "Review and approve the current plan and optional task breakdown",
+    description: "Review and approve the current plan and optional task breakdown",
     async handler(_argument, ctx) {
       if (!ctx.isIdle()) throw new Error("Wait for the lead turn to settle");
       const { record, revision, beads } = await accepted(ctx);
@@ -448,26 +360,13 @@ export function registerLeadControls(
       }
       const draft = plan.draft;
       const specification = record.specification;
-      if (
-        specification !== undefined &&
-        (specification.status !== SpecStatus.Frozen ||
-          specification.acceptedRevision !== revision)
-      )
-        throw new Error(
-          "The Socrates specification is not frozen against the current Beads revision",
-        );
+      if (specification && (specification.status !== SpecStatus.Frozen || specification.acceptedRevision !== revision))
+        throw new Error("The Socrates specification is not frozen against the current Beads revision");
       const digest = planDigest(draft);
       const specificationVersion = specification?.version;
       approvalPending(true);
       try {
-        if (
-          !(await reviewPlan(
-            ctx,
-            `Approve the plan for ${record.bead.id}`,
-            { draft },
-            "start implementation",
-          ))
-        )
+        if (!(await reviewPlan(ctx, `Approve the plan for ${record.bead.id}`, { draft }, "start implementation")))
           return;
         await beads.requireCurrent(record.bead, revision, id);
         db.change(id, (row) => {
@@ -489,13 +388,7 @@ export function registerLeadControls(
         });
         let result: Awaited<ReturnType<TaskBeads["applyPlan"]>>;
         try {
-          result = await beads.applyPlan(
-            record.bead,
-            revision,
-            id,
-            digest,
-            draft,
-          );
+          result = await beads.applyPlan(record.bead, revision, id, digest, draft);
         } catch (cause) {
           // A dropped batch acknowledgement may follow a committed task graph.
           // Keep the attempted digest and require reconciliation before another write.
@@ -510,13 +403,8 @@ export function registerLeadControls(
           throw cause;
         }
         db.change(id, (row) => {
-          if (
-            row.leadPlan?.mode !== LeadMode.Applying ||
-            row.leadPlan.digest !== digest
-          )
-            throw new Error(
-              "The pending plan changed before Beads confirmed it",
-            );
+          if (row.leadPlan?.mode !== LeadMode.Applying || row.leadPlan.digest !== digest)
+            throw new Error("The pending plan changed before Beads confirmed it");
           const sameFrozenBrief =
             result.revision !== revision &&
             row.revision === revision &&

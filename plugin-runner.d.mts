@@ -1,9 +1,4 @@
-import type {
-  AgentSession,
-  ExtensionAPI,
-  ExtensionContext,
-  ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import type { AgentSession, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 export function runChild(
   context: ExtensionContext,

@@ -30,7 +30,6 @@
         "@earendil-works/pi-coding-agent": "1.6.0",
         "@earendil-works/pi-tui": "1.6.0",
         "@modelcontextprotocol/sdk": "^1.32.2",
-        "@types/node": "^24.0.0",
         "bun-types": "1.4.5",
         "minimatch": "11.0.3",
         "openapi-typescript": "7.13.0",
@@ -49,6 +48,8 @@
   "patchedDependencies": {
     "@earendil-works/pi-coding-agent@1.6.0": "patches/pi-coding-agent-1.6.0.patch",
     "@earendil-works/pi-tui@1.6.0": "patches/pi-tui-right-column.patch",
+    "gaxios@7.3.1": "patches/gaxios@7.3.1.patch",
+    "bun-types@1.4.5": "patches/bun-types@1.4.5.patch",
     "pi-codex-tools@0.4.2": "patches/pi-codex-tools-0.4.2.patch",
   },
   "overrides": {

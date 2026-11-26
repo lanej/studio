@@ -2,16 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import {
-  defaultPaneKeybindings,
-  paneKeybindingsSchema,
-} from "../pane-keybindings-config.ts";
+import { defaultPaneKeybindings, paneKeybindingsSchema } from "../pane-keybindings-config.ts";
 import { TaskBrowser } from "../tasks/browser.ts";
 import { currentReviewFinding, type TaskSnapshot } from "../tasks/model.ts";
-import {
-  hasInteractivePane,
-  focusInteractivePane,
-} from "../execution/interactive-target.ts";
+import { hasInteractivePane, focusInteractivePane } from "../execution/interactive-target.ts";
 import { executionSchema, ExecutionPhase } from "../execution/store.ts";
 
 const theme: Pick<Theme, "fg" | "bg" | "bold" | "getBgAnsi"> = {
@@ -35,8 +29,7 @@ const related = {
   status: "in_progress",
   description: "Independent evidence for wide glyphs.",
 };
-const finding =
-  "Duplicated rule in `fit()` and `render()`.\x1b]52;c;private-data\x07";
+const finding = "Duplicated rule in `fit()` and `render()`.\x1b]52;c;private-data\x07";
 const attempt = executionSchema.parse({
   id: owner,
   project: "a93fe08d-5663-4c9b-bf6e-97a846663808",
@@ -53,6 +46,7 @@ const snapshot: TaskSnapshot = {
   limitReached: false,
   focusable: new Set([related.id]),
 };
+
 function browser(
   data = snapshot,
   initial?: string,
@@ -68,8 +62,7 @@ function browser(
       identity: "private-project",
       ...(emptyHint === undefined ? {} : { emptyHint }),
       load: () => Promise.resolve(data),
-      show: (id) =>
-        Promise.resolve(data.tasks.find((task) => task.id === id) ?? selected),
+      show: (id) => Promise.resolve(data.tasks.find((task) => task.id === id) ?? selected),
     },
     theme,
     () => height,
@@ -96,14 +89,8 @@ await test("the compact inspector preserves the current owner's reviewer finding
     assert.equal(text.includes("\x1b"), false, text);
     assert.doesNotMatch(text, /Changes requested|private-data/u);
   }
-  assert.equal(
-    currentReviewFinding({ ...selected, assignee: "another-owner" }, snapshot),
-    undefined,
-  );
-  assert.equal(
-    currentReviewFinding({ ...selected, status: "closed" }, snapshot),
-    undefined,
-  );
+  assert.equal(currentReviewFinding({ ...selected, assignee: "another-owner" }, snapshot), undefined);
+  assert.equal(currentReviewFinding({ ...selected, status: "closed" }, snapshot), undefined);
 });
 
 await test("pane focus follows the selected task and wide titles remain bounded", () => {
@@ -111,19 +98,12 @@ await test("pane focus follows the selected task and wide titles remain bounded"
     pane: { up: [], down: [], activate: "o", focusWorker: "g", close: [] },
     tasks: { quit: "x", refresh: [] },
   });
-  const { component, calls } = browser(
-    snapshot,
-    undefined,
-    undefined,
-    24,
-    bindings,
-  );
+  const { component, calls } = browser(snapshot, undefined, undefined, 24, bindings);
   const view = () => component.render(60).join("\n");
   const initial = view();
   assert.match(initial, /o inspect {2}x close/u);
   assert.doesNotMatch(initial, /move|refresh|Esc close/u);
-  for (const key of ["j", "\x1b[B", "r", "\r", "\x1b", "q"])
-    component.handleInput(key);
+  for (const key of ["j", "\x1b[B", "r", "\r", "\x1b", "q"]) component.handleInput(key);
   assert.equal(view(), initial);
   component.handleInput("\x1b[C");
   assert.deepEqual(calls, []);
@@ -158,11 +138,7 @@ await test("empty projects retain their source-specific planning guidance and ne
     attempts: [],
     focusable: new Set<string>(),
   };
-  for (const hint of [
-    "Draft a plan with /plan-draft <description>.",
-    "Review your draft with /plan.",
-    undefined,
-  ]) {
+  for (const hint of ["Draft a plan with /plan-draft <description>.", "Review your draft with /plan.", undefined]) {
     const { component, calls } = browser(empty, undefined, hint);
     for (const width of [80, 60]) {
       const rows = component.render(width);
@@ -171,10 +147,7 @@ await test("empty projects retain their source-specific planning guidance and ne
       assert.match(text, /No tasks yet/u);
       assert.equal(text.includes("\x1b"), false, text);
       assert(text.includes(hint ?? "Tasks added in Beads will appear here."));
-      assert.doesNotMatch(
-        text,
-        /private-project|Execution evidence|Changes requested/u,
-      );
+      assert.doesNotMatch(text, /private-project|Execution evidence|Changes requested/u);
     }
     for (const key of ["k", "j", "\x1b[C", "\r"]) component.handleInput(key);
     assert.deepEqual(calls, []);
@@ -245,11 +218,7 @@ await test("production pane eligibility keeps headless and reviewer tasks out of
         40,
       );
       const text = component.render(100).join("\n").replace(/\s+/gu, " ");
-      if (record === background)
-        assert.match(
-          text,
-          /Interactive guidance is unavailable for a background worker/u,
-        );
+      if (record === background) assert.match(text, /Interactive guidance is unavailable for a background worker/u);
       component.handleInput("\x1b[C");
       assert.deepEqual(calls, eligible ? [selected.id] : []);
     }

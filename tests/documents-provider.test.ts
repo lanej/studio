@@ -16,11 +16,7 @@ import {
   RejectionCode,
   SaveCommandSchema,
 } from "@lanej/copydesk/protocol";
-import {
-  ProviderError,
-  type SnapshotItem,
-  type SnapshotReader,
-} from "@lanej/copydesk";
+import { ProviderError, type SnapshotItem, type SnapshotReader } from "@lanej/copydesk";
 import {
   DefaultResourceLoader,
   ExtensionRunner,
@@ -31,26 +27,18 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { StudioDocumentProvider } from "../documents/provider.ts";
 import { Discoveries } from "../discovery/store.ts";
-import {
-  registerPlanningDocuments,
-  type PlanningDocuments,
-} from "../planning/documents.ts";
+import { registerPlanningDocuments, type PlanningDocuments } from "../planning/documents.ts";
 import { DocumentJournal, FeedbackState } from "../planning/feedback.ts";
 import { renderPlan } from "../planning/codec.ts";
 import { DocumentOwnerKind } from "../planning/model.ts";
 import { draftSchema } from "../planning/plan.ts";
-const expectation = (id: keyof typeof HOST_CONFORMANCE_CASES) =>
-  `${id}: ${HOST_CONFORMANCE_CASES[id]}`;
+
+const expectation = (id: keyof typeof HOST_CONFORMANCE_CASES) => `${id}: ${HOST_CONFORMANCE_CASES[id]}`;
 
 async function items(reader: SnapshotReader): Promise<SnapshotItem[]> {
   const result: SnapshotItem[] = [];
   try {
-    for (
-      let value = await reader.next();
-      value !== undefined;
-      value = await reader.next()
-    )
-      result.push(value);
+    for (let value = await reader.next(); value; value = await reader.next()) result.push(value);
   } finally {
     await reader.close();
   }
@@ -97,13 +85,7 @@ await test("Studio provider retains atomic wire witnesses, immutable read views 
                 conversationId: session.getSessionId(),
                 read: () => store.get(id),
                 changeWithWitness: (operationId, command, update, result) =>
-                  store.changeWithWitness(
-                    id,
-                    operationId,
-                    command,
-                    update,
-                    result,
-                  ),
+                  store.changeWithWitness(id, operationId, command, update, result),
                 validate: () => validate?.() ?? Promise.resolve(),
               };
             },
@@ -119,13 +101,7 @@ await test("Studio provider retains atomic wire witnesses, immutable read views 
       modelsPath: null,
       refreshOnCreate: false,
     });
-    const runner = new ExtensionRunner(
-      extensions,
-      runtime,
-      project,
-      session,
-      new ModelRegistry(model),
-    );
+    const runner = new ExtensionRunner(extensions, runtime, project, session, new ModelRegistry(model));
     runtime.getThinkingLevel = () => "off";
     let feedbackDispatches = 0;
     runtime.sendUserMessage = () => {
@@ -141,9 +117,7 @@ await test("Studio provider retains atomic wire witnesses, immutable read views 
     assert.ok(binding !== undefined);
     const provider = new StudioDocumentProvider(authority, binding);
     const firstReader = await provider.openSnapshot(provider.context);
-    const first = (
-      await items(await provider.openSnapshot(provider.context))
-    )[0];
+    const first = (await items(await provider.openSnapshot(provider.context)))[0];
     assert.ok(first?.kind === "document" && first.value.ref !== undefined);
     const command = create(SaveCommandSchema, {
       operationId: randomUUID(),
@@ -158,30 +132,19 @@ await test("Studio provider retains atomic wire witnesses, immutable read views 
     const oldItems = await items(firstReader);
     assert.equal(oldItems.length, 1);
     assert.ok(oldItems[0]?.kind === "document");
-    assert.equal(
-      oldItems[0].value.text,
-      first.value.text,
-      "the completed read view does not adopt a later write",
-    );
+    assert.equal(oldItems[0].value.text, first.value.text, "the completed read view does not adopt a later write");
     const database = new Database(join(state, "discoveries.sqlite"));
     try {
       const row = z
         .object({ record: z.string() })
-        .parse(
-          database
-            .query(
-              "SELECT record FROM operation_witnesses WHERE operation_id=?",
-            )
-            .get(command.operationId),
-        );
+        .parse(database.query("SELECT record FROM operation_witnesses WHERE operation_id=?").get(command.operationId));
       const witness = z
         .object({ id: z.string(), command: z.string(), result: z.string() })
         .parse(JSON.parse(row.record));
       assert.equal(witness.id, accepted.commitWitnessId);
       assert.equal(witness.command, toJsonString(SaveCommandSchema, command));
       assert.equal(
-        z.object({ presentation: z.string() }).parse(JSON.parse(witness.result))
-          .presentation,
+        z.object({ presentation: z.string() }).parse(JSON.parse(witness.result)).presentation,
         toJsonString(DocumentSnapshotSchema, accepted.document),
       );
     } finally {
@@ -190,25 +153,14 @@ await test("Studio provider retains atomic wire witnesses, immutable read views 
     store.change(selected, (row) => {
       row.leadPlan.draft = { ...initial, summary: "Intervening writer" };
     });
-    assert.deepEqual(
-      await provider.save(provider.context, command),
-      result,
-      expectation("save.intervening_writer"),
-    );
-    assert.equal(
-      store.get(selected).leadPlan.draft?.summary,
-      "Intervening writer",
-    );
+    assert.deepEqual(await provider.save(provider.context, command), result, expectation("save.intervening_writer"));
+    assert.equal(store.get(selected).leadPlan.draft?.summary, "Intervening writer");
     const reused = await provider.save(
       provider.context,
       create(SaveCommandSchema, { ...command, text: `${command.text}\n` }),
     );
     assert.ok(reused.result.case === "rejected");
-    assert.equal(
-      reused.result.value.code,
-      RejectionCode.OPERATION_ID_REUSED,
-      expectation("save.id_reused"),
-    );
+    assert.equal(reused.result.value.code, RejectionCode.OPERATION_ID_REUSED, expectation("save.id_reused"));
     const identical = await provider.save(
       provider.context,
       create(SaveCommandSchema, {
@@ -218,21 +170,13 @@ await test("Studio provider retains atomic wire witnesses, immutable read views 
       }),
     );
     assert.ok(identical.result.case === "rejected");
-    assert.equal(
-      identical.result.value.code,
-      RejectionCode.CONFLICT,
-      expectation("save.same_text_other_operation"),
-    );
+    assert.equal(identical.result.value.code, RejectionCode.CONFLICT, expectation("save.same_text_other_operation"));
     const stale = await provider.save(
       provider.context,
       create(SaveCommandSchema, { ...command, operationId: randomUUID() }),
     );
     assert.ok(stale.result.case === "rejected");
-    assert.equal(
-      stale.result.value.code,
-      RejectionCode.CONFLICT,
-      expectation("save.stale_candidate"),
-    );
+    assert.equal(stale.result.value.code, RejectionCode.CONFLICT, expectation("save.stale_candidate"));
     const feedback = create(FeedbackCommandSchema, {
       requestId: randomUUID(),
       ref: first.value.ref,
@@ -245,8 +189,7 @@ await test("Studio provider retains atomic wire witnesses, immutable read views 
     const queued = await provider.submitFeedback(provider.context, feedback);
     assert.equal(queued.state, WireFeedbackState.QUEUED);
     assert.ok(
-      queued.request !== undefined &&
-        equals(FeedbackCommandSchema, queued.request, feedback),
+      queued.request !== undefined && equals(FeedbackCommandSchema, queued.request, feedback),
       expectation("feedback.exact_unsaved_selection"),
     );
     assert.deepEqual(
@@ -255,36 +198,21 @@ await test("Studio provider retains atomic wire witnesses, immutable read views 
       expectation("feedback.duplicate_no_dispatch"),
     );
     await assert.rejects(
-      provider.submitFeedback(
-        provider.context,
-        create(FeedbackCommandSchema, { ...feedback, message: "Different" }),
-      ),
+      provider.submitFeedback(provider.context, create(FeedbackCommandSchema, { ...feedback, message: "Different" })),
       ProviderError,
     );
     const journal = new DocumentJournal(state);
     try {
       assert.ok(feedback.ref !== undefined);
       const feedbackOwner = selected;
-      selected = store.create(
-        project,
-        session.getSessionId(),
-        "Other feedback owner",
-      ).id;
+      selected = store.create(project, session.getSessionId(), "Other feedback owner").id;
       assert.deepEqual(
         await provider.submitFeedback(provider.context, feedback),
         queued,
         "an exact feedback retry recovers its receipt after owner selection changes",
       );
-      assert.equal(
-        feedbackDispatches,
-        0,
-        expectation("feedback.duplicate_no_dispatch"),
-      );
-      assert.equal(
-        journal.list().filter((row) => row.requestId === feedback.requestId)
-          .length,
-        1,
-      );
+      assert.equal(feedbackDispatches, 0, expectation("feedback.duplicate_no_dispatch"));
+      assert.equal(journal.list().filter((row) => row.requestId === feedback.requestId).length, 1);
       await assert.rejects(
         provider.submitFeedback(
           provider.context,
@@ -293,8 +221,7 @@ await test("Studio provider retains atomic wire witnesses, immutable read views 
             message: "Changed after selection",
           }),
         ),
-        (cause: unknown) =>
-          cause instanceof ProviderError && cause.code === "already_exists",
+        (cause: unknown) => cause instanceof ProviderError && cause.code === "already_exists",
       );
       await assert.rejects(
         provider.submitFeedback(
@@ -304,8 +231,7 @@ await test("Studio provider retains atomic wire witnesses, immutable read views 
             ref: { ...feedback.ref, ownerId: `discovery:${selected}` },
           }),
         ),
-        (cause: unknown) =>
-          cause instanceof ProviderError && cause.code === "already_exists",
+        (cause: unknown) => cause instanceof ProviderError && cause.code === "already_exists",
       );
       await assert.rejects(
         provider.submitFeedback(
@@ -315,14 +241,9 @@ await test("Studio provider retains atomic wire witnesses, immutable read views 
             requestId: randomUUID(),
           }),
         ),
-        (cause: unknown) =>
-          cause instanceof ProviderError &&
-          cause.code === "failed_precondition",
+        (cause: unknown) => cause instanceof ProviderError && cause.code === "failed_precondition",
       );
-      assert.deepEqual(
-        journal.get(feedback.requestId).state,
-        FeedbackState.Queued,
-      );
+      assert.deepEqual(journal.get(feedback.requestId).state, FeedbackState.Queued);
       selected = feedbackOwner;
       const parked = { ...feedback, requestId: randomUUID() };
       await provider.submitFeedback(provider.context, parked);
@@ -345,46 +266,30 @@ await test("Studio provider retains atomic wire witnesses, immutable read views 
       });
       await runner.emit({ type: "session_start", reason: "startup" });
       authority.capture(ctx);
+      await assert.rejects(provider.submitFeedback(provider.context, feedback), ProviderError);
       await assert.rejects(
-        provider.submitFeedback(provider.context, feedback),
-        ProviderError,
-      );
-      await assert.rejects(
-        async () =>
-          await provider.openSnapshot(
-            create(CallContextSchema, provider.context),
-          ),
+        async () => await provider.openSnapshot(create(CallContextSchema, provider.context)),
         ProviderError,
       );
       const nextBinding = authority.binding();
       assert.ok(nextBinding !== undefined);
       const next = new StudioDocumentProvider(authority, nextBinding);
-      const records = (
-        await items(await next.openSnapshot(next.context))
-      ).filter((item) => item.kind === "feedback");
+      const records = (await items(await next.openSnapshot(next.context))).filter((item) => item.kind === "feedback");
       assert.equal(
-        records.find(
-          (item) => item.value.request?.requestId === parked.requestId,
-        )?.value.state,
+        records.find((item) => item.value.request?.requestId === parked.requestId)?.value.state,
         WireFeedbackState.UNCERTAIN,
       );
       assert.equal(
-        records.find(
-          (item) => item.value.request?.requestId === answered.requestId,
-        )?.value.state,
+        records.find((item) => item.value.request?.requestId === answered.requestId)?.value.state,
         WireFeedbackState.ANSWERED,
         expectation("feedback.generation_terminal_preserved"),
       );
       assert.equal(
-        records.find(
-          (item) => item.value.request?.requestId === failed.requestId,
-        )?.value.state,
+        records.find((item) => item.value.request?.requestId === failed.requestId)?.value.state,
         WireFeedbackState.FAILED,
         expectation("feedback.generation_terminal_preserved"),
       );
-      const current = (await items(await next.openSnapshot(next.context))).find(
-        (item) => item.kind === "document",
-      );
+      const current = (await items(await next.openSnapshot(next.context))).find((item) => item.kind === "document");
       assert.ok(current?.kind === "document");
       let release: () => void = () => assert.fail("preflight was not entered");
       validate = () =>
@@ -401,11 +306,7 @@ await test("Studio provider retains atomic wire witnesses, immutable read views 
         }),
       );
       const originalOwner = selected;
-      selected = store.create(
-        project,
-        session.getSessionId(),
-        "Other owner",
-      ).id;
+      selected = store.create(project, session.getSessionId(), "Other owner").id;
       store.change(selected, (row) => {
         row.leadPlan.draft = {
           ...initial,
@@ -421,10 +322,7 @@ await test("Studio provider retains atomic wire witnesses, immutable read views 
         RejectionCode.WRONG_OWNER,
         expectation("owner.changed_during_preflight"),
       );
-      assert.equal(
-        store.get(originalOwner).leadPlan.draft?.summary,
-        "Intervening writer",
-      );
+      assert.equal(store.get(originalOwner).leadPlan.draft?.summary, "Intervening writer");
       const answeredBefore = journal.get(answered.requestId);
       const recoveredAnswer = await next.submitFeedback(next.context, answered);
       assert.equal(recoveredAnswer.state, WireFeedbackState.ANSWERED);
@@ -434,31 +332,20 @@ await test("Studio provider retains atomic wire witnesses, immutable read views 
         answeredBefore,
         "receipt recovery cannot alter terminal evidence or its original generation",
       );
-      assert.equal(
-        feedbackDispatches,
-        0,
-        expectation("feedback.duplicate_no_dispatch"),
-      );
+      assert.equal(feedbackDispatches, 0, expectation("feedback.duplicate_no_dispatch"));
       assert.deepEqual(store.get(selected), selectedBefore);
       assert.deepEqual(
         await next.save(next.context, command),
         result,
         "an exact witnessed retry recovers its original acceptance after selection changes",
       );
-      assert.deepEqual(
-        store.get(selected),
-        selectedBefore,
-        "historical acceptance cannot edit the current owner",
+      assert.deepEqual(store.get(selected), selectedBefore, "historical acceptance cannot edit the current owner");
+      const selectedView = (await items(await next.openSnapshot(next.context))).find(
+        (item) => item.kind === "document",
       );
-      const selectedView = (
-        await items(await next.openSnapshot(next.context))
-      ).find((item) => item.kind === "document");
       assert.ok(selectedView?.kind === "document");
       assert.match(selectedView.value.text, /Other owner remains current/u);
-      assert.equal(
-        store.get(originalOwner).leadPlan.draft?.summary,
-        "Intervening writer",
-      );
+      assert.equal(store.get(originalOwner).leadPlan.draft?.summary, "Intervening writer");
     } finally {
       journal.close();
     }

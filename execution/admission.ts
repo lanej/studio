@@ -12,9 +12,7 @@ interface AdmissionAttempt extends PathOwner {
   readonly bead?: unknown;
 }
 
-type OwnershipConflict =
-  | { kind: "whole-checkout" }
-  | { kind: "paths"; paths(): Iterable<PathMatch> };
+type OwnershipConflict = { kind: "whole-checkout" } | { kind: "paths"; paths(): Iterable<PathMatch> };
 
 interface PathMatch {
   readonly retained: string;
@@ -26,21 +24,15 @@ function* matchingPaths(
   candidate: readonly string[],
 ): Generator<PathMatch, void, unknown> {
   for (const left of retained)
-    for (const right of candidate)
-      if (worktreePathsOverlap(left, right))
-        yield { retained: left, candidate: right };
+    for (const right of candidate) if (worktreePathsOverlap(left, right)) yield { retained: left, candidate: right };
 }
 
 /** An unspecified runtime scope reserves the whole checkout in its project. */
-export function ownershipConflict(
-  retained: PathOwner,
-  candidate: PathOwner,
-): OwnershipConflict | undefined {
+export function ownershipConflict(retained: PathOwner, candidate: PathOwner): OwnershipConflict | undefined {
   if (retained.project !== candidate.project) return undefined;
   const retainedPaths = retained.owns;
   const candidatePaths = candidate.owns;
-  if (retainedPaths.length === 0 || candidatePaths.length === 0)
-    return { kind: "whole-checkout" };
+  if (retainedPaths.length === 0 || candidatePaths.length === 0) return { kind: "whole-checkout" };
   const paths = () => matchingPaths(retainedPaths, candidatePaths);
   return paths().next().done === true ? undefined : { kind: "paths", paths };
 }
@@ -60,6 +52,6 @@ export function* retainedConflicts<T extends AdmissionAttempt>(
     )
       continue;
     const ownership = ownershipConflict(blocker, candidate);
-    if (ownership !== undefined) yield { blocker, ownership };
+    if (ownership) yield { blocker, ownership };
   }
 }

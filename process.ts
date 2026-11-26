@@ -14,9 +14,7 @@ const failureSchema = z.object({
 export function processFailure(error: unknown): z.infer<typeof failureSchema> {
   if (error instanceof CommandError) return error.failure;
   const parsed = failureSchema.safeParse(error);
-  return parsed.success
-    ? parsed.data
-    : { message: error instanceof Error ? error.message : String(error) };
+  return parsed.success ? parsed.data : { message: error instanceof Error ? error.message : String(error) };
 }
 
 /** Propagate probe failures unless the OS reports that the group is absent. */
@@ -30,23 +28,16 @@ export function processGroupExists(group: number): boolean {
   }
 }
 
-export function processGroupHasLiveMembers(
-  group: number,
-  snapshot: string,
-): boolean {
+export function processGroupHasLiveMembers(group: number, snapshot: string): boolean {
   for (const row of snapshot.trim().split("\n")) {
     const fields = /^(\d+)\s+(\S+)$/u.exec(row.trim());
-    if (fields === null)
-      throw new Error("Unable to read process group state from ps");
+    if (fields === null) throw new Error("Unable to read process group state from ps");
     if (Number(fields[1]) === group && fields[2]?.[0] !== "Z") return true;
   }
   return false;
 }
 
-export function signalProcessGroup(
-  group: number,
-  signal: NodeJS.Signals,
-): void {
+export function signalProcessGroup(group: number, signal: NodeJS.Signals): void {
   try {
     process.kill(-group, signal);
   } catch (error) {
@@ -107,10 +98,7 @@ export async function processStart(pid: number): Promise<string> {
 }
 
 /** Compare the recorded start time because a later process can reuse the PID. */
-export async function processMatchesStart(
-  pid: number,
-  started: string,
-): Promise<boolean> {
+export async function processMatchesStart(pid: number, started: string): Promise<boolean> {
   try {
     return (await processStart(pid)) === started;
   } catch (error) {

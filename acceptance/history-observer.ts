@@ -6,10 +6,7 @@ import { z } from "zod";
 
 /** Test-only observation: never handles a key or changes editor/model state. */
 export default function observeHistory(pi: ExtensionAPI): void {
-  const destination = z
-    .string()
-    .min(1)
-    .parse(process.env["STUDIO_HISTORY_PROBE"]);
+  const destination = z.string().min(1).parse(process.env["STUDIO_HISTORY_PROBE"]);
   const generation = randomUUID();
   let settled = 0;
   let cycles = 0;

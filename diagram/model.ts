@@ -10,37 +10,27 @@ const text = (maxLength: number, description?: string) =>
     ...(description === undefined ? {} : { description }),
   });
 const strict = { additionalProperties: false };
-const viewParameter = Type.Union([
-  Type.Literal("context"),
-  Type.Literal("container"),
-]);
+const viewParameter = Type.Union([Type.Literal("context"), Type.Literal("container")]);
 
 export const diagramParameters = Type.Object(
   {
     title: text(120),
     systemId: Type.String({
       ...id,
-      description:
-        "ID of the software system in scope. All container nodes belong to this system.",
+      description: "ID of the software system in scope. All container nodes belong to this system.",
     }),
     view: Type.Optional(viewParameter),
     nodes: Type.Array(
       Type.Object(
         {
           id,
-          kind: Type.Union([
-            Type.Literal("person"),
-            Type.Literal("system"),
-            Type.Literal("container"),
-          ]),
+          kind: Type.Union([Type.Literal("person"), Type.Literal("system"), Type.Literal("container")]),
           label: text(100),
           detail: text(
             1000,
             "The role of this person or the responsibility of this software system, application or data store.",
           ),
-          technology: Type.Optional(
-            text(100, "Technology used by a container, when known."),
-          ),
+          technology: Type.Optional(text(100, "Technology used by a container, when known.")),
         },
         strict,
       ),
@@ -51,27 +41,16 @@ export const diagramParameters = Type.Object(
         {
           from: id,
           to: id,
-          label: text(
-            100,
-            "A verb phrase describing what the source does with the target.",
-          ),
+          label: text(100, "A verb phrase describing what the source does with the target."),
           technology: Type.Optional(
-            text(
-              100,
-              "Protocol, API, event or data format used by this relationship, when known.",
-            ),
+            text(100, "Protocol, API, event or data format used by this relationship, when known."),
           ),
         },
         strict,
       ),
       { maxItems: 48 },
     ),
-    question: Type.Optional(
-      text(
-        240,
-        "Ask the user to choose an architectural element. Omit for an explanation.",
-      ),
-    ),
+    question: Type.Optional(text(240, "Ask the user to choose an architectural element. Omit for an explanation.")),
   },
   strict,
 );
@@ -82,9 +61,7 @@ type Node = Diagram["nodes"][number];
 type Edge = Diagram["edges"][number];
 
 export function diagramNodeLabel(diagram: Diagram, node: Node): string {
-  return diagram.nodes.some(
-    (other) => other.id !== node.id && other.label === node.label,
-  )
+  return diagram.nodes.some((other) => other.id !== node.id && other.label === node.label)
     ? `${node.label} (${node.id})`
     : node.label;
 }
@@ -94,21 +71,17 @@ function plain(value: string): string {
     .replace(/\p{Bidi_Control}/gu, "")
     .replace(/\s+/gu, " ")
     .trim();
-  if (cleaned.length === 0)
-    throw new Error("Diagram text must contain visible characters");
+  if (cleaned.length === 0) throw new Error("Diagram text must contain visible characters");
   return cleaned;
 }
 
 function technology(item: { technology?: string }) {
-  return item.technology === undefined
-    ? {}
-    : { technology: plain(item.technology) };
+  return item.technology === undefined ? {} : { technology: plain(item.technology) };
 }
 
 function focalSystem(diagram: Diagram): Node {
   const system = diagram.nodes.find((node) => node.id === diagram.systemId);
-  if (system?.kind !== "system")
-    throw new Error("systemId must identify the software system in scope");
+  if (system?.kind !== "system") throw new Error("systemId must identify the software system in scope");
   return system;
 }
 
@@ -124,8 +97,7 @@ export function parseDiagram(input: unknown): Diagram {
   focalSystem(input);
   const ids = new Set<string>();
   const nodes = input.nodes.map((node) => {
-    if (ids.has(node.id))
-      throw new Error(`Duplicate diagram node ID: ${node.id}`);
+    if (ids.has(node.id)) throw new Error(`Duplicate diagram node ID: ${node.id}`);
     ids.add(node.id);
     return {
       id: node.id,
@@ -135,17 +107,12 @@ export function parseDiagram(input: unknown): Diagram {
       ...technology(node),
     };
   });
-  const containers = new Set(
-    nodes.filter((n) => n.kind === "container").map((n) => n.id),
-  );
+  const containers = new Set(nodes.filter((n) => n.kind === "container").map((n) => n.id));
   if (input.view === "container" && containers.size === 0)
-    throw new Error(
-      "A container view needs at least one application or data store inside the system",
-    );
+    throw new Error("A container view needs at least one application or data store inside the system");
   const edges = input.edges.map((edge) => {
     for (const endpoint of [edge.from, edge.to])
-      if (!ids.has(endpoint))
-        throw new Error(`Unknown diagram node ID: ${endpoint}`);
+      if (!ids.has(endpoint)) throw new Error(`Unknown diagram node ID: ${endpoint}`);
     if (
       (edge.from === input.systemId && containers.has(edge.to)) ||
       (edge.to === input.systemId && containers.has(edge.from))
@@ -165,9 +132,7 @@ export function parseDiagram(input: unknown): Diagram {
     title: plain(input.title),
     nodes,
     edges,
-    ...(input.question === undefined
-      ? {}
-      : { question: plain(input.question) }),
+    ...(input.question === undefined ? {} : { question: plain(input.question) }),
   };
 }
 
@@ -175,8 +140,7 @@ export function parseDiagram(input: unknown): Diagram {
 // connections it summarizes. Compare ordered endpoints so that callbacks in
 // the reverse direction remain visible.
 function contextEdges(diagram: Diagram, containers: Set<string>): Edge[] {
-  const isContext = (edge: Edge) =>
-    !containers.has(edge.from) && !containers.has(edge.to);
+  const isContext = (edge: Edge) => !containers.has(edge.from) && !containers.has(edge.to);
   const explicit = diagram.edges.filter(isContext);
   const summarized = new Set(explicit.map((edge) => `${edge.from}/${edge.to}`));
   const result: Edge[] = explicit.map(({ from, to, label }) => ({
@@ -189,12 +153,7 @@ function contextEdges(diagram: Diagram, containers: Set<string>): Edge[] {
     const from = containers.has(edge.from) ? diagram.systemId : edge.from;
     const to = containers.has(edge.to) ? diagram.systemId : edge.to;
     if (from === to || summarized.has(`${from}/${to}`)) continue;
-    if (
-      !result.some(
-        (other) =>
-          other.from === from && other.to === to && other.label === edge.label,
-      )
-    )
+    if (!result.some((other) => other.from === from && other.to === to && other.label === edge.label))
       result.push({ from, to, label: edge.label });
   }
   return result;
@@ -202,9 +161,7 @@ function contextEdges(diagram: Diagram, containers: Set<string>): Edge[] {
 
 export function diagramProjection(diagram: Diagram, view: DiagramView) {
   const system = focalSystem(diagram);
-  const containers = new Set(
-    diagram.nodes.filter((n) => n.kind === "container").map((n) => n.id),
-  );
+  const containers = new Set(diagram.nodes.filter((n) => n.kind === "container").map((n) => n.id));
   if (view === "context")
     return {
       system,
@@ -219,15 +176,11 @@ export function diagramProjection(diagram: Diagram, view: DiagramView) {
     if (containers.has(edge.from)) neighbors.add(edge.to);
     if (containers.has(edge.to)) neighbors.add(edge.from);
   }
-  const nodes = diagram.nodes.filter(
-    (n) => n.kind === "container" || neighbors.has(n.id),
-  );
+  const nodes = diagram.nodes.filter((n) => n.kind === "container" || neighbors.has(n.id));
   const visible = new Set(nodes.map((n) => n.id));
   return {
     system,
     nodes,
-    edges: diagram.edges.filter(
-      (e) => visible.has(e.from) && visible.has(e.to),
-    ),
+    edges: diagram.edges.filter((e) => visible.has(e.from) && visible.has(e.to)),
   };
 }

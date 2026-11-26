@@ -22,8 +22,7 @@ const review: PlanReview = {
       {
         key: "source",
         title: "Prepare \x1b[35mthe source\x1b[0m",
-        description:
-          "Keep the first scope local.\nPreserve the next paragraph.",
+        description: "Keep the first scope local.\nPreserve the next paragraph.",
         acceptance: "Local integration is verified.",
         requirements: ["R1"],
         owns: ["src/source.ts"],
@@ -52,9 +51,7 @@ const review: PlanReview = {
     { label: "Project", value: "/example/local-project" },
     { label: "Beads", value: "example-beads" },
   ],
-  publications: [
-    { label: "PR from publish", value: "Includes source, publish" },
-  ],
+  publications: [{ label: "PR from publish", value: "Includes source, publish" }],
   specification: "Objective · Scope is frozen.\n\nDecision · Merge manually.",
 };
 
@@ -151,27 +148,18 @@ test("review requires a rendered final viewport and Escape cancels at any positi
   const enter = "\r";
   approving.component.handleInput?.(enter);
   expect(approving.result.decision).toBeUndefined();
-  expect(
-    approving.component.render(80).map(stripTerminalSequences).at(-2),
-  ).toContain("Enter next page");
+  expect(approving.component.render(80).map(stripTerminalSequences).at(-2)).toContain("Enter next page");
   approving.component.handleInput?.(enter);
   expect(approving.result.decision).toBeUndefined();
-  expect(
-    approving.component.render(42).every((line) => visibleWidth(line) <= 42),
-  ).toBe(true);
+  expect(approving.component.render(42).every((line) => visibleWidth(line) <= 42)).toBe(true);
 
   // Buffered input can advance once, then waits for the next page to render.
   for (let i = 0; i < 100; i++) approving.component.handleInput?.(enter);
   expect(approving.result.decision).toBeUndefined();
-  expect(
-    approving.component.render(42).map(stripTerminalSequences).at(-2),
-  ).toContain("↓ More");
+  expect(approving.component.render(42).map(stripTerminalSequences).at(-2)).toContain("↓ More");
   for (let i = 0; i < 100; i++) {
     approving.component.handleInput?.(enter);
-    const footer = approving.component
-      .render(42)
-      .map(stripTerminalSequences)
-      .at(-2);
+    const footer = approving.component.render(42).map(stripTerminalSequences).at(-2);
     if (footer?.includes("Enter confirm") === true) break;
   }
   const final = approving.component
@@ -198,9 +186,7 @@ test("wide review uses the whole terminal and keeps the overview visible while d
   expect(plain[2]).toContain("Execution");
   expect(plain[2]).toContain("│  Task details");
   expect(plain.some((line) => line.includes("Task dependencies"))).toBe(true);
-  expect(
-    plain.some((line) => line.includes("Local integration is verified.")),
-  ).toBe(true);
+  expect(plain.some((line) => line.includes("Local integration is verified."))).toBe(true);
   expect(plain[0]).toMatch(/^╭─ Approve the change .*╮$/u);
   expect(plain.at(-2)).toContain("Enter next page");
   expect(plain.at(-1)).toMatch(/^╰─+╯$/u);
@@ -226,15 +212,11 @@ test("wide review waits for the longer overview when all details already fit", (
   const { component, result } = mountReview(14, {
     ...review,
     draft: {
-      summary: Array.from(
-        { length: 40 },
-        (_, i) => `Summary line ${String(i + 1)}`,
-      ).join("\n"),
+      summary: Array.from({ length: 40 }, (_, i) => `Summary line ${String(i + 1)}`).join("\n"),
       tasks: [],
     },
   });
-  const plain = () =>
-    component.render(120).map(stripTerminalSequences).join("\n");
+  const plain = () => component.render(120).map(stripTerminalSequences).join("\n");
   expect(plain()).toContain("Decision · Merge manually.");
   component.handleInput?.("\r");
   const middle = plain();
@@ -242,12 +224,7 @@ test("wide review waits for the longer overview when all details already fit", (
   expect(middle).toContain("Enter next page");
   expect(result.decision).toBeUndefined();
 
-  for (
-    let i = 0;
-    i < 20 && !plain().includes("Enter start implementation");
-    i++
-  )
-    component.handleInput?.("\r");
+  for (let i = 0; i < 20 && !plain().includes("Enter start implementation"); i++) component.handleInput?.("\r");
   const end = plain();
   expect(end).toContain("Summary line 40");
   expect(end).toContain("Decision · Merge manually.");

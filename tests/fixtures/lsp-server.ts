@@ -13,6 +13,7 @@ import {
   type InitializeResult,
 } from "vscode-languageserver-protocol/node";
 import { z } from "zod";
+
 const connection = createProtocolConnection(
   new StreamMessageReader(process.stdin),
   new StreamMessageWriter(process.stdout),
@@ -23,10 +24,7 @@ connection.onRequest(
   (): InitializeResult => ({
     capabilities: {
       positionEncoding: process.argv[2] === "encoding" ? "utf-8" : "utf-16",
-      textDocumentSync:
-        process.argv[2] === "no-sync"
-          ? TextDocumentSyncKind.None
-          : TextDocumentSyncKind.Incremental,
+      textDocumentSync: process.argv[2] === "no-sync" ? TextDocumentSyncKind.None : TextDocumentSyncKind.Incremental,
       definitionProvider: true,
       renameProvider: true,
     },
@@ -51,37 +49,25 @@ const publish = async (uri: string, version: number, text: string) => {
       : [],
   });
 };
-connection.onNotification(
-  DidOpenTextDocumentNotification.type,
-  async ({ textDocument }) => {
-    documents.set(textDocument.uri, textDocument);
-    await publish(textDocument.uri, textDocument.version, textDocument.text);
-  },
-);
-connection.onNotification(
-  DidChangeTextDocumentNotification.type,
-  async ({ textDocument, contentChanges }) => {
-    const change = contentChanges[0];
-    if (change === undefined) throw new Error("Missing synchronization change");
-    if (!("range" in change))
-      throw new Error("Expected negotiated incremental synchronization");
-    const text = change.text;
-    documents.set(textDocument.uri, { text, version: textDocument.version });
-    await publish(textDocument.uri, textDocument.version - 1, "BAD");
-    await publish(textDocument.uri, textDocument.version, text);
-  },
-);
-connection.onNotification(
-  DidCloseTextDocumentNotification.type,
-  ({ textDocument }) => {
-    documents.delete(textDocument.uri);
-  },
-);
+connection.onNotification(DidOpenTextDocumentNotification.type, async ({ textDocument }) => {
+  documents.set(textDocument.uri, textDocument);
+  await publish(textDocument.uri, textDocument.version, textDocument.text);
+});
+connection.onNotification(DidChangeTextDocumentNotification.type, async ({ textDocument, contentChanges }) => {
+  const change = contentChanges[0];
+  if (!change) throw new Error("Missing synchronization change");
+  if (!("range" in change)) throw new Error("Expected negotiated incremental synchronization");
+  const text = change.text;
+  documents.set(textDocument.uri, { text, version: textDocument.version });
+  await publish(textDocument.uri, textDocument.version - 1, "BAD");
+  await publish(textDocument.uri, textDocument.version, text);
+});
+connection.onNotification(DidCloseTextDocumentNotification.type, ({ textDocument }) => {
+  documents.delete(textDocument.uri);
+});
 connection.onRequest("fixture/openDocuments", () => [...documents.keys()]);
 connection.onRequest("textDocument/definition", (params: unknown) => {
-  const request = z
-    .object({ textDocument: z.object({ uri: z.string() }) })
-    .parse(params);
+  const request = z.object({ textDocument: z.object({ uri: z.string() }) }).parse(params);
   return [
     {
       uri: request.textDocument.uri,
@@ -104,9 +90,7 @@ connection.onRequest("textDocument/rename", (params: unknown): unknown => {
       documentChanges: [{ kind: "delete", uri: request.textDocument.uri }],
     };
   const uri =
-    request.newName === "escape"
-      ? new URL("../outside.ts", request.textDocument.uri).href
-      : request.textDocument.uri;
+    request.newName === "escape" ? new URL("../outside.ts", request.textDocument.uri).href : request.textDocument.uri;
   const edit = {
     range: { start: { line: 0, character: 0 }, end: { line: 0, character: 3 } },
     newText: request.newName,

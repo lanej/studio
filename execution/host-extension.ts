@@ -20,18 +20,10 @@ export default function runtimeHost(pi: ExtensionAPI): void {
       await executeAssignment(pi, ctx, id, controller.signal, token);
     } catch (error) {
       store.change(id, (record) => {
-        if (
-          record.launchToken !== token ||
-          (record.pid !== undefined && record.pid !== process.pid)
-        )
-          return;
-        record.launchSettled =
-          record.verifier === undefined ||
-          record.verifier.phase === VerificationPhase.Complete;
+        if (record.launchToken !== token || (record.pid !== undefined && record.pid !== process.pid)) return;
+        record.launchSettled = record.verifier === undefined || record.verifier.phase === VerificationPhase.Complete;
         record.phase =
-          !record.launchSettled || controller.signal.aborted
-            ? ExecutionPhase.Uncertain
-            : ExecutionPhase.Parked;
+          !record.launchSettled || controller.signal.aborted ? ExecutionPhase.Uncertain : ExecutionPhase.Parked;
         record.message = processFailure(error).message;
       });
       console.error(processFailure(error).message);
@@ -40,9 +32,7 @@ export default function runtimeHost(pi: ExtensionAPI): void {
       store.change(id, (record) => {
         if (
           record.launchToken === token &&
-          [ExecutionPhase.Complete, ExecutionPhase.AwaitingDecision].includes(
-            record.phase,
-          )
+          [ExecutionPhase.Complete, ExecutionPhase.AwaitingDecision].includes(record.phase)
         )
           record.launchSettled = true;
       });

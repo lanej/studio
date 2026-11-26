@@ -8,17 +8,13 @@ import { ExecutionBeads } from "./beads.ts";
 import { ExecutionPhase, ExecutionStore, type Execution } from "./store.ts";
 import type { RuntimeProject } from "./target.ts";
 
-export async function requireManualMergeAuthority(
-  project: RuntimeProject,
-): Promise<void> {
+export async function requireManualMergeAuthority(project: RuntimeProject): Promise<void> {
   const config = await loadConfig();
-  const configured = config.runtime.projects.find(
-    (item) => item.source.projectId === project.id,
-  );
+  const configured = config.runtime.projects.find((item) => item.source.projectId === project.id);
   if (
     !config.runtime.enabled ||
     !config.integrations.octo.enabled ||
-    configured === undefined ||
+    !configured ||
     realpathSync(configured.root) !== project.root ||
     configured.base !== project.base ||
     configured.source.reviewOnly === true ||
@@ -29,10 +25,7 @@ export async function requireManualMergeAuthority(
     );
 }
 
-export function hasManualMergeApproval(
-  attempt: Execution,
-  notice: { id: string; head: string },
-): boolean {
+export function hasManualMergeApproval(attempt: Execution, notice: { id: string; head: string }): boolean {
   const approval = attempt.manualMergeApproval;
   return (
     approval !== undefined &&
@@ -46,12 +39,10 @@ export function hasManualMergeApproval(
 
 function manualMergeSubject(row: Execution, head: string) {
   if (row.phase !== ExecutionPhase.Delivery || row.merged !== undefined)
-    throw new Error(
-      "Only a delivery-pending attempt can receive merge approval",
-    );
+    throw new Error("Only a delivery-pending attempt can receive merge approval");
   const bead = row.bead;
   if (
-    bead === undefined ||
+    !bead ||
     row.revision === undefined ||
     bead.status !== "in_progress" ||
     bead.assignee !== owner(row.id) ||
@@ -59,9 +50,7 @@ function manualMergeSubject(row: Execution, head: string) {
   )
     throw new Error("The attempt lacks its admitted task owner or revision");
   if (bead.metadata["studio.pullRequestMerge"] !== "manual")
-    throw new Error(
-      "This plan does not reserve PR merge approval for the operator",
-    );
+    throw new Error("This plan does not reserve PR merge approval for the operator");
   if (
     row.head !== head ||
     row.readyNotice?.head !== head ||
@@ -72,16 +61,9 @@ function manualMergeSubject(row: Execution, head: string) {
     row.url === undefined ||
     row.publication === undefined
   )
-    throw new Error(
-      "The supplied head is not the independently reviewed, ready head of this tracked PR",
-    );
-  if (
-    row.mergeReceipt !== undefined &&
-    !hasManualMergeApproval(row, row.readyNotice)
-  )
-    throw new Error(
-      "Reconcile the existing merge intent before approving another one",
-    );
+    throw new Error("The supplied head is not the independently reviewed, ready head of this tracked PR");
+  if (row.mergeReceipt !== undefined && !hasManualMergeApproval(row, row.readyNotice))
+    throw new Error("Reconcile the existing merge intent before approving another one");
   return {
     bead,
     revision: row.revision,
@@ -97,35 +79,21 @@ function manualMergeSubject(row: Execution, head: string) {
   };
 }
 
-export async function recordManualMergeApproval(
-  id: string,
-  head: string,
-): Promise<void> {
+export async function recordManualMergeApproval(id: string, head: string): Promise<void> {
   sha.parse(head);
   const store = new ExecutionStore();
   try {
     const target = manualMergeSubject(store.attempt(id), head);
     const project = store.project(target.project);
     await requireManualMergeAuthority(project);
-    const currentBead = await new ExecutionBeads(project.source).requireCurrent(
-      target.bead,
-      target.revision,
-      id,
-    );
+    const currentBead = await new ExecutionBeads(project.source).requireCurrent(target.bead, target.revision, id);
     if (currentBead.metadata["studio.pullRequestMerge"] !== "manual")
-      throw new Error(
-        "The current bead no longer reserves merge approval for the operator",
-      );
+      throw new Error("The current bead no longer reserves merge approval for the operator");
     await requireManualMergeAuthority(project);
     store.change(id, (row) => {
       const current = manualMergeSubject(row, head);
-      if (
-        !isDeepStrictEqual(current, target) ||
-        !isDeepStrictEqual(store.project(target.project), project)
-      )
-        throw new Error(
-          "The attempt or project changed during manual merge approval",
-        );
+      if (!isDeepStrictEqual(current, target) || !isDeepStrictEqual(store.project(target.project), project))
+        throw new Error("The attempt or project changed during manual merge approval");
       if (!hasManualMergeApproval(row, { id: current.notice, head })) {
         row.manualMergeApproval = {
           notice: current.notice,

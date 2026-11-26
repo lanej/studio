@@ -20,18 +20,15 @@ import { ModelCapability, ReasoningLevel } from "../config.ts";
 import { Discoveries } from "../discovery/store.ts";
 import { handoffDraft } from "../discovery/plan.ts";
 import { draftSchema, TaskDelivery } from "../planning/plan.ts";
-import {
-  registerPlanningDocuments,
-  getPlanningDocuments,
-} from "../planning/documents.ts";
+import { registerPlanningDocuments, getPlanningDocuments } from "../planning/documents.ts";
 import { renderPlan, renderSpecification } from "../planning/codec.ts";
 import { DocumentKind, type DocumentSnapshot } from "../planning/model.ts";
 import { coverageFresh, specificationToken } from "../socrates/assessment.ts";
 import { readySpecification } from "./fixtures/socrates.ts";
 import { SpecStatus } from "../socrates/spec.ts";
 import { DocumentJournal, FeedbackState } from "../planning/feedback.ts";
-const expectation = (id: keyof typeof HOST_CONFORMANCE_CASES) =>
-  `${id}: ${HOST_CONFORMANCE_CASES[id]}`;
+
+const expectation = (id: keyof typeof HOST_CONFORMANCE_CASES) => `${id}: ${HOST_CONFORMANCE_CASES[id]}`;
 
 await test(
   "native discovery document host guards both writers, save receipts, and queued owner identity",
@@ -73,13 +70,7 @@ await test(
         modelsPath: null,
         refreshOnCreate: false,
       });
-      const runner = new ExtensionRunner(
-        extensions,
-        runtime,
-        project,
-        session,
-        new ModelRegistry(model),
-      );
+      const runner = new ExtensionRunner(extensions, runtime, project, session, new ModelRegistry(model));
       runtime.appendEntry = (type, data) => {
         session.appendCustomEntry(type, data);
       };
@@ -124,16 +115,8 @@ await test(
         journal.run(
           "CREATE TRIGGER reject_reservation BEFORE INSERT ON document_saves BEGIN SELECT RAISE(ABORT, 'simulated reservation failure'); END",
         );
-        await assert.rejects(
-          host.save(request),
-          /simulated reservation failure/u,
-        );
-        assert.equal(
-          journal
-            .query("SELECT record FROM document_saves WHERE id=?")
-            .get(request.operationId),
-          null,
-        );
+        await assert.rejects(host.save(request), /simulated reservation failure/u);
+        assert.equal(journal.query("SELECT record FROM document_saves WHERE id=?").get(request.operationId), null);
         assert.equal(
           store.get(snapshot.ref.ownerId).leadPlan.draft?.summary,
           original.summary,
@@ -143,21 +126,14 @@ await test(
         authority.run(
           "CREATE TRIGGER reject_witness BEFORE INSERT ON operation_witnesses BEGIN SELECT RAISE(ABORT, 'simulated witness write failure'); END",
         );
-        await assert.rejects(
-          host.save(request),
-          /simulated witness write failure/u,
-        );
+        await assert.rejects(host.save(request), /simulated witness write failure/u);
         assert.equal(
           store.get(snapshot.ref.ownerId).leadPlan.draft?.summary,
           original.summary,
           expectation("save.rollback_before_commit"),
         );
         assert.equal(
-          authority
-            .query(
-              "SELECT record FROM operation_witnesses WHERE operation_id=?",
-            )
-            .get(request.operationId),
+          authority.query("SELECT record FROM operation_witnesses WHERE operation_id=?").get(request.operationId),
           null,
         );
         authority.run("DROP TRIGGER reject_witness");
@@ -181,14 +157,8 @@ await test(
           /historical receipt has no authoritative commit witness/u,
           expectation("save.incomplete_evidence"),
         );
-        await assert.rejects(
-          host.save({ ...request, operationId: randomUUID() }),
-          /draft changed/u,
-        );
-        assert.equal(
-          store.get(snapshot.ref.ownerId).leadPlan.draft?.summary,
-          operator.summary,
-        );
+        await assert.rejects(host.save({ ...request, operationId: randomUUID() }), /draft changed/u);
+        assert.equal(store.get(snapshot.ref.ownerId).leadPlan.draft?.summary, operator.summary);
       } finally {
         authority.close();
         journal.close();
@@ -206,10 +176,7 @@ await test(
       } finally {
         reservations.close();
       }
-      assert.equal(
-        store.get(snapshot.ref.ownerId).leadPlan.draft?.summary,
-        operator.summary,
-      );
+      assert.equal(store.get(snapshot.ref.ownerId).leadPlan.draft?.summary, operator.summary);
       await assert.rejects(
         draftTool.execute(
           "stale",
@@ -224,31 +191,15 @@ await test(
         ),
         /changed after the agent read/u,
       );
-      assert.equal(
-        store.get(snapshot.ref.ownerId).leadPlan.draft?.summary,
-        operator.summary,
-      );
-      assert.deepEqual(
-        await host.save(request),
-        accepted,
-        "lost save reply reconciles to the original acceptance",
-      );
-      await assert.rejects(
-        host.save({ ...request, markdown: renderPlan(original) }),
-        /operation ID already belongs/u,
-      );
+      assert.equal(store.get(snapshot.ref.ownerId).leadPlan.draft?.summary, operator.summary);
+      assert.deepEqual(await host.save(request), accepted, "lost save reply reconciles to the original acceptance");
+      await assert.rejects(host.save({ ...request, markdown: renderPlan(original) }), /operation ID already belongs/u);
 
       const read = runner.getToolDefinition("read_studio_documents");
       assert.ok(read !== undefined);
       // A single model batch can read B before trying to save a candidate prepared from A.
       // Executing its read must not silently retoken that already prepared candidate.
-      await read.execute(
-        "read-before-stale-write",
-        {},
-        undefined,
-        undefined,
-        busy,
-      );
+      await read.execute("read-before-stale-write", {}, undefined, undefined, busy);
       await assert.rejects(
         draftTool.execute(
           "stale-same-batch",
@@ -264,22 +215,13 @@ await test(
         /changed after the agent read/u,
       );
       const agent = { ...original, summary: "Agent's recomputed proposal" };
-      await draftTool.execute(
-        "fresh",
-        { ...agent, expectedRevision: accepted.revision },
-        undefined,
-        undefined,
-        busy,
-      );
+      await draftTool.execute("fresh", { ...agent, expectedRevision: accepted.revision }, undefined, undefined, busy);
       assert.deepEqual(
         await host.save(request),
         accepted,
         "recovery returns the original witness after another writer advances the document",
       );
-      assert.equal(
-        store.get(snapshot.ref.ownerId).leadPlan.draft?.summary,
-        agent.summary,
-      );
+      assert.equal(store.get(snapshot.ref.ownerId).leadPlan.draft?.summary, agent.summary);
       await assert.rejects(
         host.save({
           ...request,
@@ -291,10 +233,7 @@ await test(
         }),
         /draft changed/u,
       );
-      assert.equal(
-        store.get(snapshot.ref.ownerId).leadPlan.draft?.summary,
-        agent.summary,
-      );
+      assert.equal(store.get(snapshot.ref.ownerId).leadPlan.draft?.summary, agent.summary);
       host.capture(busy);
       const feedback = {
         requestId: randomUUID(),
@@ -308,41 +247,25 @@ await test(
       const queued = await host.feedback(feedback);
       assert.equal(queued.state, FeedbackState.Queued);
       assert.equal((await host.feedback(feedback)).requestId, queued.requestId);
-      await assert.rejects(
-        host.feedback({ ...feedback, message: "Different message" }),
-        /request ID already belongs/u,
-      );
+      await assert.rejects(host.feedback({ ...feedback, message: "Different message" }), /request ID already belongs/u);
 
-      const other = store.create(
-        project,
-        session.getSessionId(),
-        "Other discovery",
-      );
+      const other = store.create(project, session.getSessionId(), "Other discovery");
       session.appendCustomEntry("studio:discovery", {
         id: other.id,
         project: snapshot.ref.project,
         session: session.getSessionId(),
       });
       host.capture(busy);
-      assert.equal(
-        (await host.sync()).feedback[0]?.state,
-        FeedbackState.Parked,
-      );
+      assert.equal((await host.sync()).feedback[0]?.state, FeedbackState.Parked);
       assert.equal(store.get(other.id).leadPlan.draft, null);
-      await assert.rejects(
-        host.save({ ...request, operationId: randomUUID() }),
-        /no longer selected/u,
-      );
+      await assert.rejects(host.save({ ...request, operationId: randomUUID() }), /no longer selected/u);
       session.appendCustomEntry("studio:discovery", {
         id: snapshot.ref.ownerId,
         project: snapshot.ref.project,
         session: session.getSessionId(),
       });
       host.capture(busy);
-      assert.equal(
-        (await host.sync()).feedback[0]?.state,
-        FeedbackState.Queued,
-      );
+      assert.equal((await host.sync()).feedback[0]?.state, FeedbackState.Queued);
       await runner.emit({ type: "session_start", reason: "resume" });
       host.capture(busy);
       assert.equal(
@@ -369,33 +292,20 @@ await test(
       await new Promise((resolve) => setTimeout(resolve, 0));
       assert.ok(delivered !== undefined);
       assert.equal(
-        (await host.sync()).feedback.find(
-          (item) => item.requestId === live.requestId,
-        )?.state,
+        (await host.sync()).feedback.find((item) => item.requestId === live.requestId)?.state,
         FeedbackState.Dispatching,
         "sendUserMessage returning does not establish receipt",
       );
-      await runner.emitBeforeAgentStart(
-        { messageType: "user", prompt: delivered },
-        { cwd: project },
-      );
+      await runner.emitBeforeAgentStart({ messageType: "user", prompt: delivered }, { cwd: project });
       assert.equal(
-        (await host.sync()).feedback.find(
-          (item) => item.requestId === live.requestId,
-        )?.state,
+        (await host.sync()).feedback.find((item) => item.requestId === live.requestId)?.state,
         FeedbackState.Awaiting,
       );
       const outcome = runner.getToolDefinition("document_feedback_outcome");
       assert.ok(outcome !== undefined);
       await assert.rejects(
         async () =>
-          outcome.execute(
-            "wrong",
-            { requestId: "wrong", summary: "Not attributable" },
-            undefined,
-            undefined,
-            idle,
-          ),
+          outcome.execute("wrong", { requestId: "wrong", summary: "Not attributable" }, undefined, undefined, idle),
         /No matching active/u,
       );
       const responseDraft = {
@@ -420,9 +330,7 @@ await test(
         idle,
       );
       assert.equal(
-        (await host.sync()).feedback.find(
-          (item) => item.requestId === live.requestId,
-        )?.state,
+        (await host.sync()).feedback.find((item) => item.requestId === live.requestId)?.state,
         FeedbackState.Awaiting,
         "the outcome needs a persisted native response event",
       );
@@ -481,20 +389,14 @@ await test(
           canContinue: false,
         }),
       );
-      const answered = (await host.sync()).feedback.find(
-        (item) => item.requestId === live.requestId,
-      );
+      const answered = (await host.sync()).feedback.find((item) => item.requestId === live.requestId);
       assert.ok(answered !== undefined);
       assert.equal(answered.state, FeedbackState.Answered);
       assert.equal(answered.responseId, responseId);
       assert.equal(answered.changes.length, 1);
-      assert.equal(
-        answered.changes[0]?.afterRevision,
-        (await host.sync()).documents[0]?.revision,
-      );
+      assert.equal(answered.changes[0]?.afterRevision, (await host.sync()).documents[0]?.revision);
       assert.ok(
-        (answered.changes[0]?.range?.endLine ?? Infinity) <
-          renderPlan(responseDraft).split("\n").length,
+        (answered.changes[0]?.range?.endLine ?? Infinity) < renderPlan(responseDraft).split("\n").length,
         "outcome navigation identifies the changed section rather than the whole document",
       );
       await runner.emit({ type: "agent_settled", aborted: false });
@@ -521,16 +423,10 @@ await test(
       await new Promise((resolve) => setTimeout(resolve, 5100));
       assert.equal(host.pending(), false);
       assert.equal(
-        (await host.sync()).feedback.find(
-          (item) => item.requestId === lost.requestId,
-        )?.state,
+        (await host.sync()).feedback.find((item) => item.requestId === lost.requestId)?.state,
         FeedbackState.Uncertain,
       );
-      assert.equal(
-        delivered,
-        lostPrompt,
-        "uncertain feedback is never automatically replayed",
-      );
+      assert.equal(delivered, lostPrompt, "uncertain feedback is never automatically replayed");
 
       // Even if a branch changes outside the guarded command, a late old prompt must
       // not inherit another owner's fresh revision and mutate that owner's document.
@@ -548,37 +444,21 @@ await test(
       await new Promise((resolve) => setTimeout(resolve, 0));
       const successorPrompt = delivered;
       assert.notEqual(successorPrompt, lostPrompt);
-      await runner.emitBeforeAgentStart(
-        { messageType: "user", prompt: lostPrompt },
-        { cwd: project },
-      );
+      await runner.emitBeforeAgentStart({ messageType: "user", prompt: lostPrompt }, { cwd: project });
       host.capture(idle);
       await assert.rejects(
-        draftTool.execute(
-          "late-wrong-owner",
-          original,
-          undefined,
-          undefined,
-          idle,
-        ),
+        draftTool.execute("late-wrong-owner", original, undefined, undefined, idle),
         /no longer admitted/u,
       );
       assert.equal(store.get(other.id).leadPlan.draft, null);
       assert.equal(
-        (await host.sync()).feedback.find(
-          (item) => item.requestId === successor.requestId,
-        )?.state,
+        (await host.sync()).feedback.find((item) => item.requestId === successor.requestId)?.state,
         FeedbackState.Dispatching,
       );
       await runner.emit({ type: "agent_settled", aborted: true });
-      await runner.emitBeforeAgentStart(
-        { messageType: "user", prompt: successorPrompt },
-        { cwd: project },
-      );
+      await runner.emitBeforeAgentStart({ messageType: "user", prompt: successorPrompt }, { cwd: project });
       assert.equal(
-        (await host.sync()).feedback.find(
-          (item) => item.requestId === successor.requestId,
-        )?.state,
+        (await host.sync()).feedback.find((item) => item.requestId === successor.requestId)?.state,
         FeedbackState.Awaiting,
       );
       await runner.emit({ type: "agent_settled", aborted: true });
@@ -591,12 +471,8 @@ await test(
           draft: {
             objective: "Legacy",
             scope: ["Scope"],
-            requirements: [
-              { id: "R1", outcome: "Outcome", acceptance: "Observe" },
-            ],
-            decisions: [
-              { decision: "Preserve", basis: "decided", evidence: "Operator" },
-            ],
+            requirements: [{ id: "R1", outcome: "Outcome", acceptance: "Observe" }],
+            decisions: [{ decision: "Preserve", basis: "decided", evidence: "Operator" }],
             blockingQuestions: [],
           },
         };
@@ -629,15 +505,9 @@ await test(
       });
       host.capture(busy);
       const documents = (await host.sync()).documents;
-      const editablePlan = documents.find(
-        (item) => item.ref.kind === DocumentKind.Plan,
-      );
+      const editablePlan = documents.find((item) => item.ref.kind === DocumentKind.Plan);
       assert.ok(editablePlan !== undefined);
-      assert.equal(
-        editablePlan.writable,
-        true,
-        "a discovery proposal is editable before freeze",
-      );
+      assert.equal(editablePlan.writable, true, "a discovery proposal is editable before freeze");
       const { assignment, ...unassigned } = firstTask;
       assert.ok(assignment !== undefined);
       for (const tasks of [
@@ -664,19 +534,10 @@ await test(
         }),
       });
       const afterPlan = store.get(other.id);
-      assert.equal(
-        afterPlan.planSpecificationRevision,
-        specificationToken(reviewed),
-      );
-      assert.equal(
-        afterPlan.leadPlan.draft?.tasks[0]?.delivery,
-        TaskDelivery.Local,
-      );
+      assert.equal(afterPlan.planSpecificationRevision, specificationToken(reviewed));
+      assert.equal(afterPlan.leadPlan.draft?.tasks[0]?.delivery, TaskDelivery.Local);
       assert.ok(afterPlan.specification !== undefined);
-      assert.equal(
-        afterPlan.specification.coverageRevision,
-        reviewed.coverageRevision,
-      );
+      assert.equal(afterPlan.specification.coverageRevision, reviewed.coverageRevision);
       assert.equal(afterPlan.specification.pendingReview?.cause, "plan");
       assert.ok(!coverageFresh(afterPlan.specification, afterPlan.revision));
       await assert.rejects(
@@ -709,9 +570,7 @@ await test(
         }),
         /conflicts with decision/u,
       );
-      const staleAssessment = host
-        .capture(busy)
-        .find((item) => item.ref.kind === DocumentKind.Specification);
+      const staleAssessment = host.capture(busy).find((item) => item.ref.kind === DocumentKind.Specification);
       assert.ok(staleAssessment !== undefined);
       await host.save({
         operationId: randomUUID(),
@@ -722,18 +581,14 @@ await test(
           summary: "Changed again while assessment was already stale",
         }),
       });
-      const currentAssessment = host
-        .capture(busy)
-        .find((item) => item.ref.kind === DocumentKind.Specification);
+      const currentAssessment = host.capture(busy).find((item) => item.ref.kind === DocumentKind.Specification);
       assert.ok(currentAssessment !== undefined);
       assert.notEqual(
         staleAssessment.revision,
         currentAssessment.revision,
         "plan contents fence coverage proposals while an earlier review is pending",
       );
-      const specificationTool = runner.getToolDefinition(
-        "draft_socrates_specification",
-      );
+      const specificationTool = runner.getToolDefinition("draft_socrates_specification");
       assert.ok(specificationTool !== undefined);
       await runner.emitContext([]);
       await assert.rejects(
@@ -753,9 +608,7 @@ await test(
         undefined,
         busy,
       );
-      const editableSpec = host
-        .capture(busy)
-        .find((item) => item.ref.kind === DocumentKind.Specification);
+      const editableSpec = host.capture(busy).find((item) => item.ref.kind === DocumentKind.Specification);
       assert.ok(editableSpec?.writable === true);
       await assert.rejects(
         host.save({
@@ -796,36 +649,22 @@ await test(
         row.specification.approvalAt = new Date().toISOString();
       });
       const frozenDocuments = host.capture(busy);
-      assert.equal(
-        frozenDocuments.find(
-          (item) => item.ref.kind === DocumentKind.Specification,
-        )?.writable,
-        false,
-      );
-      assert.equal(
-        frozenDocuments.find((item) => item.ref.kind === DocumentKind.Plan)
-          ?.writable,
-        true,
-      );
-      assert.throws(
-        () => handoffDraft(store.get(other.id)),
-        /Reassess properties/u,
-      );
+      assert.equal(frozenDocuments.find((item) => item.ref.kind === DocumentKind.Specification)?.writable, false);
+      assert.equal(frozenDocuments.find((item) => item.ref.kind === DocumentKind.Plan)?.writable, true);
+      assert.throws(() => handoffDraft(store.get(other.id)), /Reassess properties/u);
       store.change(other.id, (row) => {
         row.specification = {
           ...reviewed,
           draft: { ...reviewed.draft, coverage: undefined },
         };
       });
-      const historical = host
-        .capture(busy)
-        .find((item) => item.ref.kind === DocumentKind.Specification);
+      const historical = host.capture(busy).find((item) => item.ref.kind === DocumentKind.Specification);
       assert.ok(historical !== undefined);
       assert.equal(historical.writable, false);
       assert.match(historical.reason ?? "", /complete property assessment/u);
       host.dispose();
     } finally {
-      if (api !== undefined) getPlanningDocuments(api)?.dispose();
+      if (api) getPlanningDocuments(api)?.dispose();
       store.close();
       if (previous === undefined) delete process.env["STUDIO_STATE_DIR"];
       else process.env["STUDIO_STATE_DIR"] = previous;

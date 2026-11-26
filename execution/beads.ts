@@ -1,18 +1,9 @@
 import { BeadsError, type components } from "@lanej/task-runtime/beads";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
-import {
-  TaskBeads,
-  ClaimRefused,
-  owner,
-  type NativeBead,
-} from "../task-service.ts";
+import { TaskBeads, ClaimRefused, owner, type NativeBead } from "../task-service.ts";
 import type { StudioProfile } from "../config.ts";
-import {
-  orderedTasks,
-  type LeadDraft,
-  type PlanWorkers,
-} from "../planning/plan.ts";
+import { orderedTasks, type LeadDraft, type PlanWorkers } from "../planning/plan.ts";
 import { run } from "../process.ts";
 import type { RuntimeProject } from "./target.ts";
 
@@ -20,6 +11,7 @@ import type { RuntimeProject } from "./target.ts";
 export function interactiveTask(bead: NativeBead): boolean {
   return Object.hasOwn(bead.metadata, "pi.plan_task");
 }
+
 export function requireUnattendedTask(bead: NativeBead): void {
   if (interactiveTask(bead))
     throw new Error(
@@ -29,10 +21,7 @@ export function requireUnattendedTask(bead: NativeBead): void {
 
 export class ExecutionBeads extends TaskBeads {
   private requireWritable(): void {
-    if (this.readOnlyAuthority)
-      throw new Error(
-        "This Beads authority is review-only; unattended mutation is disabled",
-      );
+    if (this.readOnlyAuthority) throw new Error("This Beads authority is review-only; unattended mutation is disabled");
   }
   private readonly readOnlyAuthority: boolean;
   constructor(settings: ConstructorParameters<typeof TaskBeads>[0]) {
@@ -84,19 +73,11 @@ export class ExecutionBeads extends TaskBeads {
       );
       ready = await list(Math.max(1, count.total));
     }
-    if (ready.has_more)
-      throw new Error(
-        "Ready-work inventory is truncated; no unattended claim was sent",
-      );
+    if (ready.has_more) throw new Error("Ready-work inventory is truncated; no unattended claim was sent");
     for (const candidate of ready.items) {
       if (Object.hasOwn(candidate.metadata ?? {}, "pi.plan_task")) continue;
       const before = await this.get(candidate.id);
-      if (
-        interactiveTask(before) ||
-        before.status !== "open" ||
-        before.assignee !== ""
-      )
-        continue;
+      if (interactiveTask(before) || before.status !== "open" || before.assignee !== "") continue;
       try {
         const revision = await this.claim(before, attempt);
         const detailed = await this.get(before.id);
@@ -113,9 +94,7 @@ export class ExecutionBeads extends TaskBeads {
             "pi.attempt": attempt,
           })
         )
-          throw new Error(
-            "The claimed task authority changed; inspect the retained claim before dispatch",
-          );
+          throw new Error("The claimed task authority changed; inspect the retained claim before dispatch");
         return detailed;
       } catch (error) {
         // Only a definite rejected CAS/readiness race permits trying another row.
@@ -137,10 +116,7 @@ export class ExecutionBeads extends TaskBeads {
         params: { query: { assignee: owner(attempt), limit: 1000 } },
       }),
     );
-    if (result.has_more)
-      throw new Error(
-        "Owned-claim reconciliation is truncated; inspect before retrying",
-      );
+    if (result.has_more) throw new Error("Owned-claim reconciliation is truncated; inspect before retrying");
     return Promise.all(result.items.map((item) => this.get(item.id)));
   }
   async bind(before: NativeBead, attempt: string): Promise<NativeBead> {
@@ -161,22 +137,13 @@ export class ExecutionBeads extends TaskBeads {
     );
     this.requireWritable();
     const current = await this.get(before.id);
-    if (current.revision !== result.revision)
-      throw new Error("Task changed while binding its native attempt");
+    if (current.revision !== result.revision) throw new Error("Task changed while binding its native attempt");
     return current;
   }
-  async finishAccepted(
-    before: NativeBead,
-    attempt: string,
-    summary: string,
-  ): Promise<NativeBead> {
+  async finishAccepted(before: NativeBead, attempt: string, summary: string): Promise<NativeBead> {
     this.requireWritable();
     const current = await this.get(before.id);
-    if (
-      current.status === "closed" &&
-      current.metadata["studio.completed"] === attempt
-    )
-      return current;
+    if (current.status === "closed" && current.metadata["studio.completed"] === attempt) return current;
     await this.requireCurrent(before, before.revision, attempt);
     this.requireWritable();
     const result = await this.result(
@@ -199,9 +166,7 @@ export class ExecutionBeads extends TaskBeads {
     );
     const confirmed = await this.get(before.id);
     if (confirmed.revision !== result.revision || confirmed.status !== "closed")
-      throw new Error(
-        "Completion needs reconciliation against the current task",
-      );
+      throw new Error("Completion needs reconciliation against the current task");
     return confirmed;
   }
   async createGraph(
@@ -217,9 +182,7 @@ export class ExecutionBeads extends TaskBeads {
     this.requireWritable();
     const root = z.string().parse(ids["root"]);
     const mergePolicy =
-      draft.pullRequestMerge === undefined
-        ? {}
-        : { "studio.pullRequestMerge": draft.pullRequestMerge };
+      draft.pullRequestMerge === undefined ? {} : { "studio.pullRequestMerge": draft.pullRequestMerge };
     const items: components["schemas"]["ApplyItem"][] = [
       {
         kind: "create",
@@ -247,9 +210,7 @@ export class ExecutionBeads extends TaskBeads {
       const worker = workers?.[task.key];
       if (
         (task.assignment === undefined) !== (worker === undefined) ||
-        (task.assignment !== undefined &&
-          (profile === undefined ||
-            worker?.reasoning !== task.assignment.reasoning))
+        (task.assignment && (profile === undefined || worker?.reasoning !== task.assignment.reasoning))
       )
         throw new Error(`Task ${task.key} needs its approved worker selection`);
       items.push(
@@ -269,12 +230,10 @@ export class ExecutionBeads extends TaskBeads {
               "studio.graph": id,
               "studio.approval": digest,
               "studio.task": task,
-              ...(worker === undefined ? {} : { "studio.worker": worker }),
+              ...(!worker ? {} : { "studio.worker": worker }),
               ...mergePolicy,
               ...(profile === undefined ? {} : { "studio.profile": profile }),
-              ...(interactive
-                ? { "studio.interactive": true, "studio.graph": id }
-                : {}),
+              ...(interactive ? { "studio.interactive": true, "studio.graph": id } : {}),
               "studio.root": root,
             },
           },
@@ -309,26 +268,16 @@ export class ExecutionBeads extends TaskBeads {
           },
         }),
       );
-      if (
-        Object.entries(ids).some(([key, value]) => result.keys[key] !== value)
-      )
+      if (Object.entries(ids).some(([key, value]) => result.keys[key] !== value))
         throw new Error("Beads returned a different graph identity");
     } catch (error) {
       // Deterministic create-only IDs make retries safe even when the first response is lost.
-      if (
-        error instanceof BeadsError &&
-        ![409, 500, 503].includes(error.status)
-      )
-        throw error;
-      const expected = items.flatMap((item) =>
-        item.create === undefined ? [] : [item.create],
-      );
-      const records = await Promise.all(
-        expected.map((item) => this.get(z.string().parse(item.id))),
-      );
+      if (error instanceof BeadsError && ![409, 500, 503].includes(error.status)) throw error;
+      const expected = items.flatMap((item) => (!item.create ? [] : [item.create]));
+      const records = await Promise.all(expected.map((item) => this.get(z.string().parse(item.id))));
       const matches = records.every((record, index) => {
         const item = expected[index];
-        if (item === undefined) return false;
+        if (!item) return false;
         return (
           record.title === item.title &&
           record.description === (item.description ?? "") &&
@@ -336,9 +285,7 @@ export class ExecutionBeads extends TaskBeads {
           record["issue_type"] === item.issue_type &&
           isDeepStrictEqual(
             Object.fromEntries(
-              Object.entries(record.metadata).filter(
-                ([key]) => !["pi.attempt", "studio.completed"].includes(key),
-              ),
+              Object.entries(record.metadata).filter(([key]) => !["pi.attempt", "studio.completed"].includes(key)),
             ),
             item.metadata ?? {},
           )
@@ -350,25 +297,16 @@ export class ExecutionBeads extends TaskBeads {
           this.client.GET("/v0/beads/dependencies", {
             params: {
               query: {
-                issue_id: records
-                  .slice(offset, offset + 100)
-                  .map((record) => record.id),
+                issue_id: records.slice(offset, offset + 100).map((record) => record.id),
               },
             },
           }),
         );
-        if (batch.missing.length > 0)
-          throw new Error(
-            "Approved graph changed during handoff reconciliation",
-          );
-        actualEdges.push(
-          ...batch.items.map((edge) =>
-            JSON.stringify([edge.issue_id, edge.depends_on_id, edge.type]),
-          ),
-        );
+        if (batch.missing.length > 0) throw new Error("Approved graph changed during handoff reconciliation");
+        actualEdges.push(...batch.items.map((edge) => JSON.stringify([edge.issue_id, edge.depends_on_id, edge.type])));
       }
       const expectedEdges = items.flatMap((item) =>
-        item.dep_add === undefined
+        !item.dep_add
           ? []
           : [
               JSON.stringify([
@@ -378,10 +316,7 @@ export class ExecutionBeads extends TaskBeads {
               ]),
             ],
       );
-      if (
-        !matches ||
-        !isDeepStrictEqual(actualEdges.sort(), expectedEdges.sort())
-      )
+      if (!matches || !isDeepStrictEqual(actualEdges.sort(), expectedEdges.sort()))
         throw new Error(
           "Graph creation is uncertain or its reviewed brief, metadata, or dependency edges changed; inspect the retained handoff",
         );
@@ -390,9 +325,7 @@ export class ExecutionBeads extends TaskBeads {
   }
 }
 
-export async function verifyHeartbeatAuthority(
-  project: RuntimeProject,
-): Promise<void> {
+export async function verifyHeartbeatAuthority(project: RuntimeProject): Promise<void> {
   // The pinned HTTP surface deliberately has no heartbeat verb. Never guess a route.
   const context = z
     .looseObject({
@@ -403,11 +336,10 @@ export async function verifyHeartbeatAuthority(
     })
     .parse(
       JSON.parse(
-        await run(
-          project.beadsExecutable,
-          ["-C", project.beadsWorkspace, "context", "--json"],
-          { cwd: project.beadsWorkspace, timeout: 15000 },
-        ),
+        await run(project.beadsExecutable, ["-C", project.beadsWorkspace, "context", "--json"], {
+          cwd: project.beadsWorkspace,
+          timeout: 15000,
+        }),
       ),
     );
   if (
@@ -416,32 +348,17 @@ export async function verifyHeartbeatAuthority(
     context.backend !== "dolt" ||
     context.dolt_mode !== "server"
   )
-    throw new Error(
-      "Heartbeat CLI workspace differs from the configured Beads service project",
-    );
+    throw new Error("Heartbeat CLI workspace differs from the configured Beads service project");
   const service = new ExecutionBeads(project.source);
   await service.verifyAuthority();
 }
-export async function heartbeat(
-  project: RuntimeProject,
-  attempt: string,
-  bead: string,
-): Promise<void> {
+
+export async function heartbeat(project: RuntimeProject, attempt: string, bead: string): Promise<void> {
   if (project.source.reviewOnly === true)
-    throw new Error(
-      "This Beads authority is review-only; heartbeats are disabled",
-    );
+    throw new Error("This Beads authority is review-only; heartbeats are disabled");
   await verifyHeartbeatAuthority(project);
-  await run(
-    project.beadsExecutable,
-    [
-      "-C",
-      project.beadsWorkspace,
-      "--actor",
-      owner(attempt),
-      "heartbeat",
-      bead,
-    ],
-    { cwd: project.beadsWorkspace, timeout: 15000 },
-  );
+  await run(project.beadsExecutable, ["-C", project.beadsWorkspace, "--actor", owner(attempt), "heartbeat", bead], {
+    cwd: project.beadsWorkspace,
+    timeout: 15000,
+  });
 }

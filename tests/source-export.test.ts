@@ -1,16 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import {
-  chmod,
-  copyFile,
-  mkdir,
-  mkdtemp,
-  readFile,
-  realpath,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -27,11 +17,7 @@ await test("manifest-only source exports preserve extension modules and the inst
     // Start from the checked-in snapshot boundary. Exporting from Git first
     // would regenerate its manifest and conceal a missing required module.
     const snapshot = join(temporary, "snapshot");
-    const names = z
-      .array(z.string())
-      .parse(
-        JSON.parse(await readFile(join(root, "source-files.json"), "utf8")),
-      );
+    const names = z.array(z.string()).parse(JSON.parse(await readFile(join(root, "source-files.json"), "utf8")));
     for (const name of names) {
       const target = join(snapshot, name);
       await mkdir(dirname(target), { recursive: true });
@@ -41,10 +27,7 @@ await test("manifest-only source exports preserve extension modules and the inst
     await mkdir(guard);
     const git = join(guard, "git");
     const gitProbe = join(temporary, "git-probed");
-    await writeFile(
-      git,
-      '#!/bin/sh\nprintf "unavailable\\n" >> "$STUDIO_EXPORT_GIT_PROBE"\nexit 1\n',
-    );
+    await writeFile(git, '#!/bin/sh\nprintf "unavailable\\n" >> "$STUDIO_EXPORT_GIT_PROBE"\nexit 1\n');
     await chmod(git, 0o755);
     const env = {
       ...process.env,
@@ -57,15 +40,8 @@ await test("manifest-only source exports preserve extension modules and the inst
       env,
       timeout: 15_000,
     });
-    assert.match(
-      await readFile(gitProbe, "utf8"),
-      /unavailable/u,
-      "the real source selector used its no-Git fallback",
-    );
-    assert.deepEqual(
-      await readFile(join(artifact, "keybindings.ts")),
-      await readFile(join(root, "keybindings.ts")),
-    );
+    assert.match(await readFile(gitProbe, "utf8"), /unavailable/u, "the real source selector used its no-Git fallback");
+    assert.deepEqual(await readFile(join(artifact, "keybindings.ts")), await readFile(join(root, "keybindings.ts")));
     for (const resource of [
       "package.json",
       "bun.lock",
@@ -81,10 +57,7 @@ await test("manifest-only source exports preserve extension modules and the inst
       "documents/provider.ts",
       "documents/workspace.ts",
     ]) {
-      assert.deepEqual(
-        await readFile(join(artifact, resource)),
-        await readFile(join(root, resource)),
-      );
+      assert.deepEqual(await readFile(join(artifact, resource)), await readFile(join(root, resource)));
     }
     // Resolve the daily and managed extension graphs before installing or loading them.
     await execute(
@@ -122,9 +95,7 @@ await test("manifest-only source exports preserve extension modules and the inst
       );
     assert.ok(
       (await Promise.all(report.paths.map((path) => realpath(path)))).includes(
-        await realpath(
-          fileURLToPath(import.meta.resolve("@lanej/copydesk/neovim")),
-        ),
+        await realpath(fileURLToPath(import.meta.resolve("@lanej/copydesk/neovim"))),
       ),
       "the exported Studio resource check resolves the installed editor package's public runtime",
     );

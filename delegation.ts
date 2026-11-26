@@ -1,30 +1,12 @@
 import { integrationStatus, requireIntegration } from "./integrations.ts";
 import { randomUUID } from "node:crypto";
-import {
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
-import type {
-  AgentSession,
-  ExtensionAPI,
-  ExtensionContext,
-  ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import type { AgentSession, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { z } from "zod";
-import {
-  AgentRole,
-  DefaultProvider,
-  StudioProfile,
-  knownProvider,
-  loadConfig,
-  ReasoningLevel,
-} from "./config.ts";
+import { AgentRole, DefaultProvider, StudioProfile, knownProvider, loadConfig, ReasoningLevel } from "./config.ts";
 import { processFailure, run } from "./process.ts";
 
 export const delegateTool = "studio_delegate";
@@ -66,11 +48,7 @@ const textResult = (text: string) => ({
   content: [{ type: "text" as const, text }],
   details: undefined,
 });
-const stateHome = () =>
-  join(
-    process.env["XDG_STATE_HOME"] ?? join(homedir(), ".local/state"),
-    "studio",
-  );
+const stateHome = () => join(process.env["XDG_STATE_HOME"] ?? join(homedir(), ".local/state"), "studio");
 const attemptRoot = () => join(stateHome(), "attempts");
 
 function save(attempt: Attempt): void {
@@ -99,29 +77,18 @@ function existing(): Attempt[] {
   try {
     return readdirSync(attemptRoot())
       .filter((name) => name.endsWith(".json"))
-      .map((name) =>
-        recordSchema.parse(
-          JSON.parse(readFileSync(join(attemptRoot(), name), "utf8")),
-        ),
-      );
+      .map((name) => recordSchema.parse(JSON.parse(readFileSync(join(attemptRoot(), name), "utf8"))));
   } catch (error) {
     if (processFailure(error).code === "ENOENT") return [];
     throw error;
   }
 }
 
-export function settledDelegates(
-  parent: string,
-): { id: string; path: string }[] {
+export function settledDelegates(parent: string): { id: string; path: string }[] {
   const attempts = existing().filter((attempt) => attempt.parent === parent);
-  if (attempts.some(unresolved))
-    throw new Error(
-      "Resolve the lead's outstanding delegation before archiving",
-    );
+  if (attempts.some(unresolved)) throw new Error("Resolve the lead's outstanding delegation before archiving");
   return attempts.flatMap((attempt) =>
-    attempt.sessionFile === undefined
-      ? []
-      : [{ id: attempt.id, path: attempt.sessionFile }],
+    attempt.sessionFile === undefined ? [] : [{ id: attempt.id, path: attempt.sessionFile }],
   );
 }
 
@@ -139,27 +106,14 @@ const inventory = z.object({
   }),
 });
 
-async function allocate(
-  attempt: Attempt,
-  primary: string,
-  executable: string,
-): Promise<z.infer<typeof allocation>> {
+async function allocate(attempt: Attempt, primary: string, executable: string): Promise<z.infer<typeof allocation>> {
   let receipt: z.infer<typeof allocation>;
   try {
     receipt = createEnvelope.parse(
       JSON.parse(
         await run(
           executable,
-          [
-            "create",
-            "--agent",
-            "pi",
-            "--owner-id",
-            attempt.id,
-            "--base",
-            attempt.source,
-            "--json",
-          ],
+          ["create", "--agent", "pi", "--owner-id", attempt.id, "--base", attempt.source, "--json"],
           { cwd: attempt.repository, timeout: 90_000 },
         ),
       ),
@@ -170,26 +124,15 @@ async function allocate(
     const stdout = await run(executable, ["status", "--json"], {
       cwd: attempt.repository,
     }).catch((error: unknown) => processFailure(error).stdout ?? "");
-    const scan = inventory.safeParse(
-      stdout.length > 0 ? JSON.parse(stdout) : null,
-    );
+    const scan = inventory.safeParse(stdout.length > 0 ? JSON.parse(stdout) : null);
     if (scan.success) {
-      const matches = scan.data.result.tasks.filter(
-        (task) => task.owner_id === attempt.id,
-      );
-      const recovered = allocation.safeParse(
-        matches.length === 1 ? matches[0] : null,
-      );
+      const matches = scan.data.result.tasks.filter((task) => task.owner_id === attempt.id);
+      const recovered = allocation.safeParse(matches.length === 1 ? matches[0] : null);
       if (recovered.success) attempt.worktree = recovered.data;
     }
-    throw new Error(
-      "Worktree allocation could not be confirmed. Inspect the recorded owner before retrying.",
-    );
+    throw new Error("Worktree allocation could not be confirmed. Inspect the recorded owner before retrying.");
   }
-  if (
-    receipt.owner_id !== attempt.id ||
-    receipt.path !== join(primary, ".worktrees", `pi-${receipt.id.slice(0, 8)}`)
-  )
+  if (receipt.owner_id !== attempt.id || receipt.path !== join(primary, ".worktrees", `pi-${receipt.id.slice(0, 8)}`))
     throw new Error("Worktree manager returned an unexpected allocation");
   attempt.worktree = receipt;
   const cwd = receipt.path;
@@ -205,23 +148,19 @@ async function allocate(
 export async function snapshotTools(
   cwd: string,
   sha: string,
-  execute: (args: string[]) => Promise<string> = (args) =>
-    run("git", args, { cwd }),
+  execute: (args: string[]) => Promise<string> = (args) => run("git", args, { cwd }),
 ): Promise<ToolDefinition[]> {
   const output = await execute(["ls-tree", "-rz", sha]);
   const blobs = new Map<string, string>();
   for (const entry of output.split("\0")) {
     const match = /^(100644|100755) blob ([a-f0-9]+)\t([\s\S]+)$/.exec(entry);
-    if (match?.[2] !== undefined && match[3] !== undefined)
-      blobs.set(match[3], match[2]);
+    if (match?.[2] !== undefined && match[3] !== undefined) blobs.set(match[3], match[2]);
   }
   const file = async (path: string) => {
     const oid = blobs.get(path);
-    if (oid === undefined)
-      throw new Error("Choose a regular file from the committed snapshot");
+    if (oid === undefined) throw new Error("Choose a regular file from the committed snapshot");
     const size = Number((await execute(["cat-file", "-s", oid])).trim());
-    if (!Number.isSafeInteger(size) || size > 256 * 1024)
-      throw new Error("File exceeds the 256 KiB inspection limit");
+    if (!Number.isSafeInteger(size) || size > 256 * 1024) throw new Error("File exceeds the 256 KiB inspection limit");
     const content = await execute(["cat-file", "blob", oid]);
     if (content.includes("\0")) throw new Error("Choose a text file");
     return content;
@@ -236,17 +175,14 @@ export async function snapshotTools(
     {
       name: "ls",
       label: "List files",
-      description:
-        "List the first 200 regular files in the committed snapshot.",
+      description: "List the first 200 regular files in the committed snapshot.",
       parameters: Type.Object({}),
-      execute: () =>
-        Promise.resolve(textResult([...blobs.keys()].slice(0, 200).join("\n"))),
+      execute: () => Promise.resolve(textResult([...blobs.keys()].slice(0, 200).join("\n"))),
     },
     {
       name: "find",
       label: "Find files",
-      description:
-        "Find up to 200 paths by literal substring in the committed snapshot.",
+      description: "Find up to 200 paths by literal substring in the committed snapshot.",
       parameters: query,
       execute: (_id, params) => {
         const { query: needle } = queryInput.parse(params);
@@ -263,30 +199,21 @@ export async function snapshotTools(
     {
       name: "read",
       label: "Read file",
-      description:
-        "Read a regular file at an exact path from the committed snapshot.",
+      description: "Read a regular file at an exact path from the committed snapshot.",
       parameters: pathParam,
-      execute: async (_id, params) =>
-        textResult(await file(pathInput.parse(params).path)),
+      execute: async (_id, params) => textResult(await file(pathInput.parse(params).path)),
     },
     {
       name: "grep",
       label: "Search file",
-      description:
-        "Search a single snapshot file for literal text. Returns up to 80 matching lines.",
+      description: "Search a single snapshot file for literal text. Returns up to 80 matching lines.",
       parameters: Type.Object({ ...query.properties, ...pathParam.properties }),
       execute: async (_id, params) => {
-        const { path, query: needle } = pathInput
-          .extend(queryInput.shape)
-          .parse(params);
+        const { path, query: needle } = pathInput.extend(queryInput.shape).parse(params);
         return textResult(
           (await file(path))
             .split("\n")
-            .flatMap((line, index) =>
-              line.includes(needle)
-                ? [`${String(index + 1)}: ${line.slice(0, 512)}`]
-                : [],
-            )
+            .flatMap((line, index) => (line.includes(needle) ? [`${String(index + 1)}: ${line.slice(0, 512)}`] : []))
             .slice(0, 80)
             .join("\n"),
         );
@@ -297,44 +224,23 @@ export async function snapshotTools(
 
 const queryInput = z.object({ query: z.string().min(1).max(512) });
 const pathInput = z.object({ path: z.string().min(1).max(4096) });
-const delegateInput = z
-  .object({ role: roleSchema, brief: z.string().trim().min(1).max(8000) })
-  .strict();
+const delegateInput = z.object({ role: roleSchema, brief: z.string().trim().min(1).max(8000) }).strict();
 
-export function registerDelegation(
-  pi: ExtensionAPI,
-  profile: () => StudioProfile | undefined,
-  onChange: () => void,
-) {
+export function registerDelegation(pi: ExtensionAPI, profile: () => StudioProfile | undefined, onChange: () => void) {
   const active = new Map<string, AbortController>();
   let enabled = false;
 
   const sessionBlocker = (ctx: ExtensionContext): string | undefined => {
-    if (ctx.sessionManager.getSessionFile() === undefined)
-      return "Delegation requires a persistent lead session";
-    if (
-      pi
-        .getAllTools()
-        .some(
-          ({ name }) =>
-            name === "Agent" ||
-            name === "subagent" ||
-            name === "SubagentWorkflow",
-        )
-    )
+    if (ctx.sessionManager.getSessionFile() === undefined) return "Delegation requires a persistent lead session";
+    if (pi.getAllTools().some(({ name }) => name === "Agent" || name === "subagent" || name === "SubagentWorkflow"))
       return "Unload the standalone subagent extension before using managed delegation";
     return undefined;
   };
   const syncTool = (ctx: ExtensionContext) => {
     const tools = pi.getActiveTools();
-    const available =
-      enabled && profile() !== undefined && sessionBlocker(ctx) === undefined;
+    const available = enabled && profile() !== undefined && sessionBlocker(ctx) === undefined;
     if (tools.includes(delegateTool) !== available)
-      pi.setActiveTools(
-        available
-          ? [...tools, delegateTool]
-          : tools.filter((name) => name !== delegateTool),
-      );
+      pi.setActiveTools(available ? [...tools, delegateTool] : tools.filter((name) => name !== delegateTool));
     return available;
   };
 
@@ -343,16 +249,13 @@ export function registerDelegation(
     syncTool(ctx);
     try {
       const config = await loadConfig();
-      enabled =
-        config.delegation.enabled &&
-        (await integrationStatus(config, "worktrees")).available;
+      enabled = config.delegation.enabled && (await integrationStatus(config, "worktrees")).available;
     } catch {
       // The driver's session initializer reports configuration errors.
     }
   });
   pi.on("before_agent_start", (event, ctx) => {
-    const available =
-      pi.getActiveTools().includes(delegateTool) && syncTool(ctx);
+    const available = pi.getActiveTools().includes(delegateTool) && syncTool(ctx);
     const guidance = available
       ? `Use ${delegateTool} to delegate repository inspection or review.`
       : "Managed delegation is unavailable in this session. If asked to delegate, tell the operator.";
@@ -368,15 +271,11 @@ export function registerDelegation(
     name: delegateTool,
     label: "Delegate repository inspection",
     defaultActive: false,
-    description:
-      "Ask an Explorer or Reviewer to inspect the committed repository in a managed worktree.",
+    description: "Ask an Explorer or Reviewer to inspect the committed repository in a managed worktree.",
     exposure: "model-only",
     parameters: Type.Object(
       {
-        role: Type.Union([
-          Type.Literal(AgentRole.Explorer),
-          Type.Literal(AgentRole.Reviewer),
-        ]),
+        role: Type.Union([Type.Literal(AgentRole.Explorer), Type.Literal(AgentRole.Reviewer)]),
         brief: Type.String({
           description:
             "For a Reviewer, give the capability, acceptance criteria, relevant project guidance, intended base, and available verification evidence. Leave the author's implementation explanation out so the reviewer can trace the code independently.",
@@ -391,21 +290,18 @@ export function registerDelegation(
       const config = await loadConfig();
       const managerExecutable = await requireIntegration(config, "worktrees");
       const selected = profile();
-      const roles =
-        selected === undefined ? undefined : config.profiles[selected];
+      const roles = selected === undefined ? undefined : config.profiles[selected];
       const settings = roles?.[role];
       const lead = roles?.[AgentRole.Lead];
       if (
         !enabled ||
         !config.delegation.enabled ||
-        settings === undefined ||
-        lead === undefined ||
+        !settings ||
+        !lead ||
         ctx.model?.provider !== lead.provider ||
         ctx.model.id !== lead.model
       )
-        throw new Error(
-          "Select an explicit driver profile with delegation enabled",
-        );
+        throw new Error("Select an explicit driver profile with delegation enabled");
       const blocker = sessionBlocker(ctx);
       if (blocker !== undefined) throw new Error(blocker);
       const model = ctx.modelRegistry.find(settings.provider, settings.model);
@@ -414,29 +310,17 @@ export function registerDelegation(
         model.id !== settings.model ||
         !ctx.modelRegistry.hasConfiguredAuth(model) ||
         (selected === StudioProfile.Personal &&
-          knownProvider(model.provider) !==
-            DefaultProvider.ChatGPTSubscription) ||
+          knownProvider(model.provider) !== DefaultProvider.ChatGPTSubscription) ||
         (selected === StudioProfile.Work &&
-          !/^https:\/\/bedrock-mantle\.[a-z0-9-]+\.api\.aws(?:\/|$)/.test(
-            model.baseUrl,
-          ))
+          !/^https:\/\/bedrock-mantle\.[a-z0-9-]+\.api\.aws(?:\/|$)/.test(model.baseUrl))
       )
-        throw new Error(
-          "The configured role model is unavailable in the selected profile",
-        );
+        throw new Error("The configured role model is unavailable in the selected profile");
       const parent = ctx.sessionManager.getSessionId();
       if (
         active.size >= 2 ||
-        existing().some(
-          (attempt) =>
-            attempt.parent === parent &&
-            unresolved(attempt) &&
-            !active.has(attempt.id),
-        )
+        existing().some((attempt) => attempt.parent === parent && unresolved(attempt) && !active.has(attempt.id))
       )
-        throw new Error(
-          "Delegation is at capacity or has an unresolved attempt",
-        );
+        throw new Error("Delegation is at capacity or has an unresolved attempt");
       const id = randomUUID();
       const controller = new AbortController();
       active.set(id, controller);
@@ -444,10 +328,7 @@ export function registerDelegation(
       let attempt: Attempt | undefined;
       let child: AgentSession | undefined;
       try {
-        const abort =
-          signal === undefined
-            ? controller.signal
-            : AbortSignal.any([signal, controller.signal]);
+        const abort = !signal ? controller.signal : AbortSignal.any([signal, controller.signal]);
         abort.throwIfAborted();
         const runner = await import("./plugin-runner.mjs");
         const [head, listing] = await Promise.all([
@@ -458,8 +339,7 @@ export function registerDelegation(
           run(managerExecutable, ["--version"], { cwd: ctx.cwd }),
         ]);
         const primary = listing.split("\0")[0]?.replace(/^worktree /, "");
-        if (primary === undefined || !isAbsolute(primary))
-          throw new Error("Cannot identify the primary checkout");
+        if (primary === undefined || !isAbsolute(primary)) throw new Error("Cannot identify the primary checkout");
         const source = commit.parse(head.trim());
         abort.throwIfAborted();
         attempt = {
@@ -499,12 +379,9 @@ export function registerDelegation(
             if (
               session.model?.provider !== model.provider ||
               session.model.id !== model.id ||
-              z.enum(ReasoningLevel).safeParse(session.thinkingLevel).data !==
-                settings.reasoning
+              z.enum(ReasoningLevel).safeParse(session.thinkingLevel).data !== settings.reasoning
             )
-              throw new Error(
-                "The child runtime changed the requested model or reasoning level",
-              );
+              throw new Error("The child runtime changed the requested model or reasoning level");
             record.session = session.sessionManager.getSessionId();
             const file = session.sessionManager.getSessionFile();
             if (file !== undefined) record.sessionFile = file;
@@ -513,15 +390,9 @@ export function registerDelegation(
         });
         const cancelled = abort.aborted || result.aborted;
         const failure = result.failure;
-        record.state = cancelled
-          ? State.Cancelled
-          : failure === undefined
-            ? State.Complete
-            : State.Failed;
+        record.state = cancelled ? State.Cancelled : failure === undefined ? State.Complete : State.Failed;
         save(record);
-        const summary = cancelled
-          ? "Child cancelled"
-          : (failure ?? result.responseText);
+        const summary = cancelled ? "Child cancelled" : (failure ?? result.responseText);
         return {
           ...textResult(summary.slice(0, 16_000)),
           details: {
@@ -533,9 +404,8 @@ export function registerDelegation(
           },
         };
       } catch (error) {
-        if (attempt !== undefined && unresolved(attempt)) {
-          attempt.state =
-            attempt.state === State.Ready ? State.Failed : State.Uncertain;
+        if (attempt && unresolved(attempt)) {
+          attempt.state = attempt.state === State.Ready ? State.Failed : State.Uncertain;
           save(attempt);
         }
         throw new Error(`Delegation ${id}: ${processFailure(error).message}`);
@@ -550,9 +420,7 @@ export function registerDelegation(
     blocks(parent: string): boolean {
       if (active.size > 0) return true;
       try {
-        return existing().some(
-          (attempt) => attempt.parent === parent && unresolved(attempt),
-        );
+        return existing().some((attempt) => attempt.parent === parent && unresolved(attempt));
       } catch {
         return true;
       }

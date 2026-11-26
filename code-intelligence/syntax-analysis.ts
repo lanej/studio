@@ -32,15 +32,8 @@ const numberKinds = new Set([
   "float_value",
 ]);
 
-function tokenAt(
-  root: SyntaxNode,
-  row: number,
-  column: number,
-): SyntaxNode | undefined {
-  const node = root.descendantForPosition(
-    { row, column },
-    { row, column: column + 1 },
-  );
+function tokenAt(root: SyntaxNode, row: number, column: number): SyntaxNode | undefined {
+  const node = root.descendantForPosition({ row, column }, { row, column: column + 1 });
   if (
     node === null ||
     !node.isNamed ||
@@ -77,15 +70,10 @@ function childIndex(parent: SyntaxNode, node: SyntaxNode): number {
 function sameSyntaxPosition(oldNode: SyntaxNode, newNode: SyntaxNode): boolean {
   let left = oldNode,
     right = newNode;
-  for (
-    let depth = 0;
-    depth < maxContextDepth && left.type === right.type;
-    depth++
-  ) {
+  for (let depth = 0; depth < maxContextDepth && left.type === right.type; depth++) {
     const oldParent = left.parent,
       newParent = right.parent;
-    if (oldParent === null || newParent === null)
-      return oldParent === null && newParent === null;
+    if (oldParent === null || newParent === null) return oldParent === null && newParent === null;
     const index = childIndex(oldParent, left);
     if (
       index < 0 ||
@@ -109,11 +97,7 @@ function replacement(
   const oldCode = oldLine.rawCode,
     newCode = newLine.rawCode;
   let first = 0;
-  while (
-    first < Math.min(oldCode.length, newCode.length) &&
-    oldCode[first] === newCode[first]
-  )
-    first++;
+  while (first < Math.min(oldCode.length, newCode.length) && oldCode[first] === newCode[first]) first++;
   if (oldCode === newCode) return undefined;
   const oldRow = Number(oldLine.beforeNumber) - 1,
     newRow = Number(newLine.afterNumber) - 1;
@@ -121,19 +105,17 @@ function replacement(
   for (const column of [first, first - 1]) {
     if (column < 0 || column >= newCode.length) continue;
     const updated = tokenAt(newRoot, newRow, column);
-    if (updated === undefined) continue;
+    if (!updated) continue;
     const start = updated.startPosition.column;
     const original = tokenAt(oldRoot, oldRow, start);
     if (
-      original === undefined ||
+      !original ||
       original.type !== updated.type ||
       original.startPosition.column !== start ||
       original.text === updated.text ||
-      (numberKinds.has(original.type) &&
-        original.text.startsWith("-") !== updated.text.startsWith("-")) ||
+      (numberKinds.has(original.type) && original.text.startsWith("-") !== updated.text.startsWith("-")) ||
       oldCode.slice(0, start) !== newCode.slice(0, start) ||
-      oldCode.slice(original.endPosition.column) !==
-        newCode.slice(updated.endPosition.column) ||
+      oldCode.slice(original.endPosition.column) !== newCode.slice(updated.endPosition.column) ||
       !sameSyntaxPosition(original, updated)
     )
       continue;
@@ -182,18 +164,13 @@ const types = new Set([
   "type_alias_declaration",
 ]);
 
-function declaration(
-  node: SyntaxNode,
-  source: string,
-  firstVisible: number,
-): string | undefined {
+function declaration(node: SyntaxNode, source: string, firstVisible: number): string | undefined {
   if (node.startPosition.row >= firstVisible) return undefined;
   let headerNode = node;
   if (node.type === "arrow_function" || node.type === "function_expression") {
     // Anonymous callbacks need no extra heading. Named bindings carry the name on their parent.
     const binding = node.parent;
-    if (binding?.childForFieldName("value")?.id === node.id)
-      headerNode = binding;
+    if (binding?.childForFieldName("value")?.id === node.id) headerNode = binding;
     else if (node.childForFieldName("name") === null) return undefined;
   }
   const firstChild = headerNode.firstNamedChild;
@@ -201,27 +178,18 @@ function declaration(
     headerNode.childForFieldName("name") ??
     headerNode.childForFieldName("type") ??
     (firstChild?.type === "function_name" ? firstChild : null);
-  const body =
-    node.childForFieldName("body") ?? node.childForFieldName("value");
+  const body = node.childForFieldName("body") ?? node.childForFieldName("value");
   if (body !== null && body.startIndex - headerNode.startIndex <= 512) {
-    const header = source
-      .slice(headerNode.startIndex, body.startIndex)
-      .trimEnd();
+    const header = source.slice(headerNode.startIndex, body.startIndex).trimEnd();
     const lines = header.split("\n");
     const label = lines
       .map((line) => line.trim())
       .join(" ")
       .replace(/\s*=\s*$/u, "");
-    if (
-      label.length > 0 &&
-      label.length <= 200 &&
-      headerNode.startPosition.row + lines.length - 1 < firstVisible
-    )
+    if (label.length > 0 && label.length <= 200 && headerNode.startPosition.row + lines.length - 1 < firstVisible)
       return label;
   }
-  return name !== null && name.startPosition.row < firstVisible
-    ? name.text
-    : undefined;
+  return name !== null && name.startPosition.row < firstVisible ? name.text : undefined;
 }
 
 function scopeAt(
@@ -235,8 +203,7 @@ function scopeAt(
   const first = changed[0],
     last = changed.at(-1),
     visible = hunk.find((line) => line[side] !== "");
-  if (first === undefined || last === undefined || visible === undefined)
-    return undefined;
+  if (!first || !last || !visible) return undefined;
   const start = {
     row: Number(first[side]) - 1,
     column: first.rawCode.length - first.rawCode.trimStart().length,
@@ -249,48 +216,29 @@ function scopeAt(
   const firstVisible = Number(visible[side]) - 1;
   let label: string | undefined;
   let depth = 0;
-  for (
-    let node = root.descendantForPosition(start, end);
-    node !== null;
-    node = node.parent
-  ) {
+  for (let node = root.descendantForPosition(start, end); node !== null; node = node.parent) {
     if (++depth > maxContextDepth) return undefined;
     if (!functions.has(node.type) && !types.has(node.type)) continue;
     if (label === undefined) {
       label = declaration(node, source, firstVisible);
     } else if (types.has(node.type) && node.startPosition.row < firstVisible) {
-      const owner =
-        node.childForFieldName("name") ?? node.childForFieldName("type");
+      const owner = node.childForFieldName("name") ?? node.childForFieldName("type");
       if (owner !== null) label = `${owner.text} › ${label}`;
       break;
     }
   }
-  return label !== undefined && label.length <= 240 && !/\p{Cc}/u.test(label)
-    ? label
-    : undefined;
+  return label !== undefined && label.length <= 240 && !/\p{Cc}/u.test(label) ? label : undefined;
 }
 
-export async function analyzeEditSyntax(
-  path: string,
-  before: string,
-  after: string,
-  diff: string,
-) {
-  if (
-    before.length > 1024 * 1024 ||
-    after.length > 1024 * 1024 ||
-    diff.length > 65536
-  )
-    return undefined;
+export async function analyzeEditSyntax(path: string, before: string, after: string, diff: string) {
+  if (before.length > 1024 * 1024 || after.length > 1024 * 1024 || diff.length > 65536) return undefined;
   const lines = parseDiffLines(diff);
   const oldLines = before.split("\n"),
     newLines = after.split("\n");
   for (const line of lines) {
     if (
-      (line.beforeNumber !== "" &&
-        oldLines[Number(line.beforeNumber) - 1] !== line.rawCode) ||
-      (line.afterNumber !== "" &&
-        newLines[Number(line.afterNumber) - 1] !== line.rawCode)
+      (line.beforeNumber !== "" && oldLines[Number(line.beforeNumber) - 1] !== line.rawCode) ||
+      (line.afterNumber !== "" && newLines[Number(line.afterNumber) - 1] !== line.rawCode)
     )
       return undefined;
   }
@@ -310,17 +258,14 @@ export async function analyzeEditSyntax(
         while (lines[index]?.prefix === "+") index++;
         if (index === start) {
           index++;
-        } else if (
-          added - start === index - added &&
-          replacements.length < 2048
-        ) {
+        } else if (added - start === index - added && replacements.length < 2048) {
           for (let i = added; i < index && replacements.length < 2048; i++) {
             if (performance.now() >= deadline) return undefined;
             const oldLine = lines[start + i - added],
               newLine = lines[i];
-            if (oldLine === undefined || newLine === undefined) continue;
+            if (!oldLine || !newLine) continue;
             const change = replacement(oldRoot, newRoot, oldLine, newLine, i);
-            if (change !== undefined) replacements.push(change);
+            if (change) replacements.push(change);
           }
         }
       }

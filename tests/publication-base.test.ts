@@ -7,37 +7,21 @@ import { test } from "bun:test";
 import { StudioProfile } from "../config.ts";
 import { deliverAssignment } from "../execution/delivery.ts";
 import { networkGit, safeGit } from "../execution/git.ts";
-import {
-  assertPublicationHead,
-  preparePublicationBase,
-} from "../execution/publication-base.ts";
-import {
-  ExecutionPhase,
-  ExecutionStore,
-  executionSchema,
-} from "../execution/store.ts";
+import { assertPublicationHead, preparePublicationBase } from "../execution/publication-base.ts";
+import { ExecutionPhase, ExecutionStore, executionSchema } from "../execution/store.ts";
 import { projectSchema } from "../execution/target.ts";
 import { TaskDelivery, draftSchema, planDigest } from "../planning/plan.ts";
 
-const git = async (cwd: string, ...args: string[]) =>
-  (await networkGit(cwd, args)).trim();
+const git = async (cwd: string, ...args: string[]) => (await networkGit(cwd, args)).trim();
 
-async function commit(
-  cwd: string,
-  message: string,
-  files: Record<string, string>,
-) {
-  for (const [path, content] of Object.entries(files))
-    await writeFile(join(cwd, path), content);
+async function commit(cwd: string, message: string, files: Record<string, string>) {
+  for (const [path, content] of Object.entries(files)) await writeFile(join(cwd, path), content);
   await git(cwd, "add", "--", ...Object.keys(files));
   await git(cwd, "commit", "--quiet", "-m", message);
   return git(cwd, "rev-parse", "HEAD");
 }
 
-async function createPublishingFixture(
-  directory: string,
-  store: ExecutionStore,
-) {
+async function createPublishingFixture(directory: string, store: ExecutionStore) {
   const root = join(directory, "project");
   const remote = join(directory, "origin.git");
   await mkdir(root);
@@ -47,12 +31,7 @@ async function createPublishingFixture(
   await git(root, "config", "user.email", "studio@example.invalid");
   await git(root, "remote", "add", "origin", remote);
   const shared = (first: string, last: string) =>
-    [
-      first,
-      ...Array.from({ length: 12 }, (_, i) => `line ${String(i + 1)}`),
-      last,
-      "",
-    ].join("\n");
+    [first, ...Array.from({ length: 12 }, (_, i) => `line ${String(i + 1)}`), last, ""].join("\n");
   await commit(root, "Upstream", {
     "shared.txt": shared("upstream", "before"),
   });
@@ -122,9 +101,7 @@ async function createPublishingFixture(
   });
   const digest = planDigest(draft);
   const rootId = "fixture-plan";
-  const ids = Object.fromEntries(
-    draft.tasks.map((task) => [task.key, `${rootId}.${task.key}`]),
-  );
+  const ids = Object.fromEntries(draft.tasks.map((task) => [task.key, `${rootId}.${task.key}`]));
   store.saveIntent(graph, {
     project: project.id,
     target: project,
@@ -178,11 +155,7 @@ async function createPublishingFixture(
       }),
     );
   }
-  const reviewPublisher = async (
-    key: string,
-    branch: string,
-    files: Record<string, string>,
-  ) => {
+  const reviewPublisher = async (key: string, branch: string, files: Record<string, string>) => {
     const attempt = store.attempts().find((row) => row.bead?.id === ids[key]);
     assert.ok(attempt !== undefined);
     const base = await preparePublicationBase(store, project, attempt);
@@ -225,8 +198,7 @@ async function createPublishingFixture(
       () => assert.fail("Unexpected correction"),
       () => Promise.resolve(),
       (_, ...args) => {
-        if (args[0] === "pr" && args[1] === "validate")
-          return Promise.resolve({ valid: true });
+        if (args[0] === "pr" && args[1] === "validate") return Promise.resolve({ valid: true });
         assert.deepEqual(args.slice(0, 2), ["pr", "publish"]);
         assert.equal(args[args.indexOf("--expected-head") + 1], candidate.head);
         throw reachedOcto;
@@ -261,9 +233,7 @@ async function createPublishingFixture(
 }
 
 async function withPublishedBead(
-  check: (
-    fixture: Awaited<ReturnType<typeof createPublishingFixture>>,
-  ) => Promise<void>,
+  check: (fixture: Awaited<ReturnType<typeof createPublishingFixture>>) => Promise<void>,
 ) {
   const directory = await mkdtemp(join(tmpdir(), "studio-publication-"));
   const store = new ExecutionStore(join(directory, "state"));
@@ -279,35 +249,16 @@ test(
   "the published Git branch includes only approved prerequisites and the publishing bead",
   () =>
     withPublishedBead(
-      async ({
-        directory,
-        root,
-        remote,
-        store,
-        project,
-        shared,
-        previous,
-        sibling,
-        prerequisite,
-        first,
-        publish,
-      }) => {
+      async ({ directory, root, remote, store, project, shared, previous, sibling, prerequisite, first, publish }) => {
         const { reviewed, branch, checkout, head } = first;
         const published = `refs/heads/${branch}`;
         assert.equal(await git(remote, "rev-parse", published), head);
-        assert.deepEqual(
-          (
-            await git(remote, "diff", "--name-only", `main...${published}`)
-          ).split("\n"),
-          ["publisher.txt", "shared.txt"],
-        );
-        assert.equal(
-          await git(remote, "show", `${published}:shared.txt`),
-          shared("upstream", "approved").trimEnd(),
-        );
-        const commits = (
-          await git(remote, "rev-list", `main..${published}`)
-        ).split("\n");
+        assert.deepEqual((await git(remote, "diff", "--name-only", `main...${published}`)).split("\n"), [
+          "publisher.txt",
+          "shared.txt",
+        ]);
+        assert.equal(await git(remote, "show", `${published}:shared.txt`), shared("upstream", "approved").trimEnd());
+        const commits = (await git(remote, "rev-list", `main..${published}`)).split("\n");
         for (const excluded of [previous, sibling, prerequisite])
           assert.ok(
             !commits.includes(excluded),
@@ -325,10 +276,7 @@ test(
           "-m",
           "Retained correction",
         );
-        assert.equal(
-          await git(checkout, "diff", "--name-only", head, unrelatedParent),
-          "",
-        );
+        assert.equal(await git(checkout, "diff", "--name-only", head, unrelatedParent), "");
         const corrected = store.change(reviewed.id, (row) => {
           row.head = unrelatedParent;
         });
@@ -341,10 +289,7 @@ test(
         await git(checkout, "rm", "unowned.txt");
         await git(checkout, "commit", "--quiet", "-m", "Restore approved tree");
         const linearHead = await git(checkout, "rev-parse", "HEAD");
-        assert.equal(
-          await git(checkout, "diff", "--name-only", head, linearHead),
-          "",
-        );
+        assert.equal(await git(checkout, "diff", "--name-only", head, linearHead), "");
         const linear = store.change(reviewed.id, (row) => {
           row.head = linearHead;
         });
@@ -355,22 +300,11 @@ test(
         // A retained allocation created before scope isolation can still have an approved worker-only diff.
         const oldBranch = "retained-publisher";
         const oldCheckout = join(directory, "retained-worker");
-        await git(
-          root,
-          "worktree",
-          "add",
-          "-b",
-          oldBranch,
-          oldCheckout,
-          prerequisite,
-        );
+        await git(root, "worktree", "add", "-b", oldBranch, oldCheckout, prerequisite);
         const oldHead = await commit(oldCheckout, "Retained publishing bead", {
           "publisher.txt": "Public result\n",
         });
-        assert.equal(
-          await git(root, "diff", "--name-only", prerequisite, oldHead),
-          "publisher.txt",
-        );
+        assert.equal(await git(root, "diff", "--name-only", prerequisite, oldHead), "publisher.txt");
         assert.ok(reviewed.checkout !== undefined);
         const oldId = randomUUID();
         const retained = executionSchema.parse({
@@ -390,15 +324,7 @@ test(
         });
         store.saveAttempt(retained);
         await assert.rejects(publish(retained), /PR publication ancestry/u);
-        assert.equal(
-          await git(
-            remote,
-            "for-each-ref",
-            "--format=%(refname)",
-            `refs/heads/${oldBranch}`,
-          ),
-          "",
-        );
+        assert.equal(await git(remote, "for-each-ref", "--format=%(refname)", `refs/heads/${oldBranch}`), "");
       },
     ),
   30_000,
@@ -407,50 +333,30 @@ test(
 test(
   "a later publisher preserves upstream edits to a prerequisite squash-merged through a sibling PR",
   () =>
-    withPublishedBead(
-      async ({
-        root,
-        remote,
-        store,
-        shared,
-        first,
-        reviewPublisher,
-        publish,
-        reachedOcto,
-      }) => {
-        await git(root, "switch", "main");
-        await git(root, "merge", "--squash", first.branch);
-        await git(root, "commit", "--quiet", "-m", "Squash first publisher");
-        const merged = await git(root, "rev-parse", "HEAD");
-        assert.notEqual(merged, first.head);
-        store.change(first.reviewed.id, (row) => {
-          row.phase = ExecutionPhase.Complete;
-          row.merged = merged;
-        });
-        const upstreamEdit = shared("upstream", "changed after squash merge");
-        const target = await commit(root, "Revise the shipped prerequisite", {
-          "shared.txt": upstreamEdit,
-        });
-        await git(root, "push", "origin", "main");
-        const later = await reviewPublisher("follow-up", "publish-follow-up", {
-          "follow-up.txt": "Follow-up result\n",
-        });
-        assert.equal(later.base, target);
-        await assert.rejects(
-          publish(later.reviewed),
-          (error: unknown) => error === reachedOcto,
-        );
-        const published = `refs/heads/${later.branch}`;
-        assert.equal(await git(remote, "rev-parse", published), later.head);
-        assert.equal(
-          await git(remote, "show", `${published}:shared.txt`),
-          upstreamEdit.trimEnd(),
-        );
-        assert.equal(
-          await git(remote, "diff", "--name-only", `main...${published}`),
-          "follow-up.txt",
-        );
-      },
-    ),
+    withPublishedBead(async ({ root, remote, store, shared, first, reviewPublisher, publish, reachedOcto }) => {
+      await git(root, "switch", "main");
+      await git(root, "merge", "--squash", first.branch);
+      await git(root, "commit", "--quiet", "-m", "Squash first publisher");
+      const merged = await git(root, "rev-parse", "HEAD");
+      assert.notEqual(merged, first.head);
+      store.change(first.reviewed.id, (row) => {
+        row.phase = ExecutionPhase.Complete;
+        row.merged = merged;
+      });
+      const upstreamEdit = shared("upstream", "changed after squash merge");
+      const target = await commit(root, "Revise the shipped prerequisite", {
+        "shared.txt": upstreamEdit,
+      });
+      await git(root, "push", "origin", "main");
+      const later = await reviewPublisher("follow-up", "publish-follow-up", {
+        "follow-up.txt": "Follow-up result\n",
+      });
+      assert.equal(later.base, target);
+      await assert.rejects(publish(later.reviewed), (error: unknown) => error === reachedOcto);
+      const published = `refs/heads/${later.branch}`;
+      assert.equal(await git(remote, "rev-parse", published), later.head);
+      assert.equal(await git(remote, "show", `${published}:shared.txt`), upstreamEdit.trimEnd());
+      assert.equal(await git(remote, "diff", "--name-only", `main...${published}`), "follow-up.txt");
+    }),
   30_000,
 );

@@ -22,28 +22,21 @@ await test("a branch meets its exact prerequisites at the join", () => {
       resume: ["chunk"],
       audit: ["chunk"],
     }),
-    [
-      "●   chunk",
-      "├─╮",
-      "● │ resume",
-      "│ │",
-      "│ ● audit",
-      "├─╯",
-      "●   publish",
-    ],
+    ["●   chunk", "├─╮", "● │ resume", "│ │", "│ ● audit", "├─╯", "●   publish"],
   );
 });
 
 await test("a task with no prerequisites does not acquire an incoming rail", () => {
-  assert.deepEqual(
-    picture({ left: [], right: [], save: ["left"], done: ["right", "save"] }),
-    ["●   left", "│", "│ ● right", "│ │", "● │ save", "╰─┤", "  ● done"],
-  );
-  assert.deepEqual(picture({ one: [], two: [], three: [] }), [
-    "● one",
-    "● two",
-    "● three",
+  assert.deepEqual(picture({ left: [], right: [], save: ["left"], done: ["right", "save"] }), [
+    "●   left",
+    "│",
+    "│ ● right",
+    "│ │",
+    "● │ save",
+    "╰─┤",
+    "  ● done",
   ]);
+  assert.deepEqual(picture({ one: [], two: [], three: [] }), ["● one", "● two", "● three"]);
 });
 
 await test("joining two waiting tasks does not attach an unrelated rail crossing the join", () => {
@@ -55,12 +48,7 @@ await test("joining two waiting tasks does not attach an unrelated rail crossing
     e: ["b", "c"],
     f: ["b", "c"],
   });
-  assert.deepEqual(lines.slice(4, 8), [
-    "● │ │ │ c",
-    "├─┆▸┤ │",
-    "╰─┆─┆─┤",
-    "  ● │ │ d",
-  ]);
+  assert.deepEqual(lines.slice(4, 8), ["● │ │ │ c", "├─┆▸┤ │", "╰─┆─┆─┤", "  ● │ │ d"]);
 });
 
 await test("a maximal fan leaves room for titles and marks each child once", () => {

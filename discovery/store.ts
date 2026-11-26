@@ -11,12 +11,7 @@ import {
   type OperationWitness,
 } from "../operation-witness.ts";
 import { LeadMode, type PlanWorkers } from "../planning/plan.ts";
-import {
-  discoverySchema,
-  HandoffPhase,
-  type Discovery,
-  type DiscoveryHandoff,
-} from "./model.ts";
+import { discoverySchema, HandoffPhase, type Discovery, type DiscoveryHandoff } from "./model.ts";
 import { bindHandoffApproval, prepareHandoff } from "./plan.ts";
 
 /** Discovery is private conversational state, not another task backlog. */
@@ -63,21 +58,17 @@ export class Discoveries {
   }
   list(project: string): Discovery[] {
     return this.db
-      .query(
-        "SELECT record FROM discoveries WHERE project=? ORDER BY rowid DESC",
-      )
+      .query("SELECT record FROM discoveries WHERE project=? ORDER BY rowid DESC")
       .all(realpathSync(project))
       .map(decode);
   }
   find(id: string): Discovery | undefined {
-    const row = this.db
-      .query("SELECT record FROM discoveries WHERE id=?")
-      .get(id);
+    const row = this.db.query("SELECT record FROM discoveries WHERE id=?").get(id);
     return row === null ? undefined : decode(row);
   }
   get(id: string): Discovery {
     const record = this.find(id);
-    if (record === undefined) throw new Error(`Unknown discovery: ${id}`);
+    if (!record) throw new Error(`Unknown discovery: ${id}`);
     return record;
   }
   create(project: string, conversation: string, title: string): Discovery {
@@ -90,16 +81,10 @@ export class Discoveries {
       history: [],
       leadPlan: { mode: LeadMode.Planning, draft: null },
     };
-    this.db
-      .query("INSERT INTO discoveries VALUES (?,?,?)")
-      .run(record.id, record.project, JSON.stringify(record));
+    this.db.query("INSERT INTO discoveries VALUES (?,?,?)").run(record.id, record.project, JSON.stringify(record));
     return record;
   }
-  change(
-    id: string,
-    update: (record: Discovery) => void,
-    handoff = false,
-  ): Discovery {
+  change(id: string, update: (record: Discovery) => void, handoff = false): Discovery {
     return transaction(this.db, () => this.update(id, update, handoff));
   }
   changeWithWitness(
@@ -109,34 +94,19 @@ export class Discoveries {
     update: (record: Discovery) => void,
     result: (record: Discovery) => string,
   ): OperationWitness {
-    return commitOperation(this.db, id, operationId, command, () =>
-      result(this.update(id, update)),
-    );
+    return commitOperation(this.db, id, operationId, command, () => result(this.update(id, update)));
   }
-  private update(
-    id: string,
-    update: (record: Discovery) => void,
-    handoff = false,
-  ): Discovery {
+  private update(id: string, update: (record: Discovery) => void, handoff = false): Discovery {
     const record = this.get(id);
-    if (
-      !handoff &&
-      record.handoff !== undefined &&
-      record.handoff.phase !== HandoffPhase.Complete
-    )
-      throw new Error(
-        "The approved handoff is pending or uncertain; reconcile it before editing this discovery",
-      );
+    if (!handoff && record.handoff && record.handoff.phase !== HandoffPhase.Complete)
+      throw new Error("The approved handoff is pending or uncertain; reconcile it before editing this discovery");
     update(record);
     const checked = discoverySchema.parse(record);
-    this.db
-      .query("UPDATE discoveries SET record=? WHERE id=?")
-      .run(JSON.stringify(checked), id);
+    this.db.query("UPDATE discoveries SET record=? WHERE id=?").run(JSON.stringify(checked), id);
     return checked;
   }
 }
+
 function decode(value: unknown): Discovery {
-  return discoverySchema.parse(
-    JSON.parse(z.object({ record: z.string() }).parse(value).record),
-  );
+  return discoverySchema.parse(JSON.parse(z.object({ record: z.string() }).parse(value).record));
 }

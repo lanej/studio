@@ -5,10 +5,7 @@ import { configPath, type StudioConfig } from "./config.ts";
 
 export type Integration = keyof StudioConfig["integrations"];
 
-export async function integrationStatus(
-  config: StudioConfig,
-  name: Integration,
-) {
+export async function integrationStatus(config: StudioConfig, name: Integration) {
   const { enabled, executable } = config.integrations[name];
   const candidates = isAbsolute(executable)
     ? [executable]
@@ -51,10 +48,7 @@ export async function inspectIntegrations(config: StudioConfig) {
   return { zellij, neovim, worktrees, octo };
 }
 
-export async function requireIntegration(
-  config: StudioConfig,
-  name: Integration,
-): Promise<string> {
+export async function requireIntegration(config: StudioConfig, name: Integration): Promise<string> {
   const status = await integrationStatus(config, name);
   if (!status.available) throw new Error(`${name}: ${status.reason}`);
   return status.executable;

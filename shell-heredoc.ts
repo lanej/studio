@@ -2,17 +2,12 @@ import { createRequire } from "node:module";
 import { parseArgs } from "node:util";
 import { getLanguageFromPath } from "@earendil-works/pi-coding-agent";
 import { Parser, type Language, type Tree } from "@vscode/tree-sitter-wasm";
-import {
-  loadLanguage,
-  type SyntaxNode,
-} from "./code-intelligence/tree-sitter.ts";
+import { loadLanguage, type SyntaxNode } from "./code-intelligence/tree-sitter.ts";
 
 let bash: Language | undefined;
 // Use Pi's registry. Loading all grammars on the first language marker keeps
 // sessions that never display a heredoc off that startup path.
-const requireHighlighter: (
-  id: "highlight.js",
-) => typeof import("highlight.js") = createRequire(import.meta.url);
+const requireHighlighter: (id: "highlight.js") => typeof import("highlight.js") = createRequire(import.meta.url);
 
 export async function prepareShellHeredoc(): Promise<void> {
   try {
@@ -38,9 +33,7 @@ function taggedLanguage(marker: string): string | undefined {
   const tag = marker.toLowerCase();
   const mapped = tag === "shell" ? "bash" : getLanguageFromPath(tag);
   const language = typeof mapped === "string" ? mapped : tag;
-  return requireHighlighter("highlight.js").getLanguage(language) === undefined
-    ? undefined
-    : language;
+  return requireHighlighter("highlight.js").getLanguage(language) === undefined ? undefined : language;
 }
 
 function literalArgument(node: SyntaxNode | null): string | undefined {
@@ -96,10 +89,7 @@ function readsGithubBody(command: SyntaxNode, gap: string): boolean {
   if (
     !(
       (noun === "issue" || noun === "pr") &&
-      (verb === "create" ||
-        verb === "edit" ||
-        verb === "comment" ||
-        (noun === "pr" && verb === "review"))
+      (verb === "create" || verb === "edit" || verb === "comment" || (noun === "pr" && verb === "review"))
     )
   )
     return false;
@@ -110,9 +100,7 @@ function readsGithubBody(command: SyntaxNode, gap: string): boolean {
       options: {
         "body-file": { type: "string", short: "F", multiple: true },
         repo: { type: "string", short: "R" },
-        ...(verb === "create" || verb === "edit"
-          ? ({ title: { type: "string", short: "t" } } as const)
-          : {}),
+        ...(verb === "create" || verb === "edit" ? ({ title: { type: "string", short: "t" } } as const) : {}),
         ...(noun === "pr" && (verb === "create" || verb === "edit")
           ? ({ base: { type: "string", short: "B" } } as const)
           : {}),
@@ -133,11 +121,7 @@ function outputRedirect(node: SyntaxNode | null): boolean {
   return (
     node?.type === "file_redirect" &&
     node.childForFieldName("descriptor")?.text !== "0" &&
-    node.children.some(
-      (child) =>
-        child !== null &&
-        [">", ">>", ">|", ">&", "&>", "&>>"].includes(child.type),
-    )
+    node.children.some((child) => child !== null && [">", ">>", ">|", ">&", "&>", "&>>"].includes(child.type))
   );
 }
 
@@ -147,17 +131,13 @@ function splitHeredoc(
   from: number,
 ): { document: ShellHeredoc; after: number } | undefined {
   const redirects = statement.childrenForFieldName("redirect");
-  const redirect = redirects.find(
-    (child) => child?.type === "heredoc_redirect",
-  );
+  const redirect = redirects.find((child) => child?.type === "heredoc_redirect");
   const command = statement.childForFieldName("body");
   if (
     command === null ||
     redirect === null ||
-    redirect === undefined ||
-    redirects.some(
-      (child) => child?.id !== redirect.id && !outputRedirect(child),
-    )
+    !redirect ||
+    redirects.some((child) => child?.id !== redirect.id && !outputRedirect(child))
   )
     return undefined;
   const children = redirect.children;
@@ -178,9 +158,7 @@ function splitHeredoc(
       (child) =>
         child?.type === "comment" ||
         outputRedirect(child) ||
-        (tag !== undefined &&
-          child?.type === "pipeline" &&
-          child.descendantsOfType("heredoc_redirect").length === 0),
+        (tag !== undefined && child?.type === "pipeline" && child.descendantsOfType("heredoc_redirect").length === 0),
     )
   )
     return undefined;
@@ -213,21 +191,14 @@ function splitHeredoc(
   if (
     tag === undefined &&
     ((!quoted && /[$`\\]/u.test(body)) ||
-      !readsGithubBody(
-        command,
-        source.slice(
-          command.endIndex,
-          redirects[0]?.startIndex ?? redirect.startIndex,
-        ),
-      ))
+      !readsGithubBody(command, source.slice(command.endIndex, redirects[0]?.startIndex ?? redirect.startIndex)))
   )
     return undefined;
   // A language marker describes the authored source, including literal shell
   // expressions. Keep it with the invocation so that its quoting stays visible.
   const header =
     tag === undefined
-      ? source.slice(from, redirect.startIndex).trimEnd() +
-        source.slice(start.endIndex, openingNewline)
+      ? source.slice(from, redirect.startIndex).trimEnd() + source.slice(start.endIndex, openingNewline)
       : source.slice(from, openingNewline);
   return {
     document: {
@@ -240,12 +211,7 @@ function splitHeredoc(
 }
 
 export function shellHeredocs(command: string): ShellHeredocs | undefined {
-  if (
-    bash === undefined ||
-    !command.includes("<<") ||
-    Buffer.byteLength(command) > 50_000 ||
-    /[^\P{Cc}\n\t]/u.test(command)
-  )
+  if (!bash || !command.includes("<<") || Buffer.byteLength(command) > 50_000 || /[^\P{Cc}\n\t]/u.test(command))
     return undefined;
   let parser: Parser | undefined;
   let tree: Tree | null = null;
@@ -256,24 +222,18 @@ export function shellHeredocs(command: string): ShellHeredocs | undefined {
     tree = parser.parse(command, null, {
       progressCallback: () => performance.now() >= deadline,
     });
-    if (
-      tree === null ||
-      tree.rootNode.hasError ||
-      tree.rootNode.descendantCount > 4096
-    )
-      return undefined;
+    if (tree === null || tree.rootNode.hasError || tree.rootNode.descendantCount > 4096) return undefined;
     let from = 0;
     let result: ShellHeredocs | undefined;
     for (const statement of tree.rootNode.namedChildren) {
       if (statement?.type !== "redirected_statement") continue;
       const part = splitHeredoc(command, statement, from);
-      if (part === undefined) continue;
-      if (result === undefined)
-        result = { documents: [part.document], following: "" };
+      if (!part) continue;
+      if (!result) result = { documents: [part.document], following: "" };
       else result.documents.push(part.document);
       from = part.after;
     }
-    if (result !== undefined) result.following = command.slice(from);
+    if (result) result.following = command.slice(from);
     return result;
   } catch {
     // Unsupported argument shapes and incomplete shell input keep the raw call.

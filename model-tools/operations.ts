@@ -1,24 +1,12 @@
-import type {
-  AgentToolUpdateCallback,
-  ExtensionToolContext,
-} from "@earendil-works/pi-coding-agent";
-import {
-  mkdtemp,
-  readFile as readPrivateReceipt,
-  rm,
-  writeFile as writePrivateInput,
-} from "node:fs/promises";
+import type { AgentToolUpdateCallback, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
+import { mkdtemp, readFile as readPrivateReceipt, rm, writeFile as writePrivateInput } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { packageRoot } from "../package-resources.ts";
 import { MAX_PATCH_BYTES, patchSuccess } from "./codex-patch-runner.mjs";
 import { patchEdits } from "./patch-edits.ts";
 import { patchDiagnosticTargets } from "./patch-diagnostics.ts";
-import {
-  piShellArguments,
-  quoteShellArgument,
-  type ShellRequest,
-} from "./shell.ts";
+import { piShellArguments, quoteShellArgument, type ShellRequest } from "./shell.ts";
 
 type Update = AgentToolUpdateCallback<unknown>;
 
@@ -29,11 +17,7 @@ async function callPi(
   input: unknown,
   onUpdate?: Update,
 ) {
-  const outcome = await ctx.executeTool(
-    tool,
-    input,
-    onUpdate === undefined ? {} : { onUpdate },
-  );
+  const outcome = await ctx.executeTool(tool, input, !onUpdate ? {} : { onUpdate });
   return { ...outcome.result, isError: outcome.isError };
 }
 
@@ -49,12 +33,7 @@ export function readFile(
   return callPi(ctx, "read", range, onUpdate);
 }
 
-export function writeFile(
-  ctx: ExtensionToolContext,
-  path: string,
-  content: string,
-  onUpdate?: Update,
-) {
+export function writeFile(ctx: ExtensionToolContext, path: string, content: string, onUpdate?: Update) {
   return callPi(ctx, "write", { path, content }, onUpdate);
 }
 
@@ -83,19 +62,11 @@ export function replaceText(
   );
 }
 
-export function runShell(
-  ctx: ExtensionToolContext,
-  request: ShellRequest,
-  onUpdate?: Update,
-) {
+export function runShell(ctx: ExtensionToolContext, request: ShellRequest, onUpdate?: Update) {
   return callPi(ctx, "bash", piShellArguments(ctx.cwd, request), onUpdate);
 }
 
-export async function applyPatch(
-  ctx: ExtensionToolContext,
-  patch: string,
-  signal?: AbortSignal,
-) {
+export async function applyPatch(ctx: ExtensionToolContext, patch: string, signal?: AbortSignal) {
   signal?.throwIfAborted();
   if (Buffer.byteLength(patch) > MAX_PATCH_BYTES)
     throw new Error(`Patch exceeds the ${String(MAX_PATCH_BYTES)}-byte limit.`);
@@ -121,10 +92,7 @@ export async function applyPatch(
     });
     const applied =
       !outcome.isError &&
-      outcome.content.some(
-        (item) =>
-          item.type === "text" && item.text.startsWith(`${patchSuccess}\n`),
-      );
+      outcome.content.some((item) => item.type === "text" && item.text.startsWith(`${patchSuccess}\n`));
     // Decoration travels outside shell stdout; the model receives the original
     // result and the transcript can replay the edit without reopening the file.
     const edits = applied
@@ -137,7 +105,7 @@ export async function applyPatch(
       details: applied
         ? {
             studioPatchApplied: true,
-            ...(edits === undefined ? {} : { studioPatchEdits: edits }),
+            ...(!edits ? {} : { studioPatchEdits: edits }),
             studioPatchTargets: patchDiagnosticTargets(patch),
           }
         : undefined,

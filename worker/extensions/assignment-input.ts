@@ -1,9 +1,7 @@
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { processFailure } from "../../process.ts";
 
-export function assignmentInputExtension(
-  check: () => Promise<void>,
-): ExtensionFactory {
+export function assignmentInputExtension(check: () => Promise<void>): ExtensionFactory {
   let turn = 0;
   return (pi) => {
     pi.on("input", async (event, ctx) => {

@@ -62,13 +62,7 @@ await test("actual SDK commands preserve live loop ownership, activation gates, 
       modelsPath: null,
       refreshOnCreate: false,
     });
-    const runner = new ExtensionRunner(
-      extensions,
-      runtime,
-      directory,
-      session,
-      new ModelRegistry(modelRuntime),
-    );
+    const runner = new ExtensionRunner(extensions, runtime, directory, session, new ModelRegistry(modelRuntime));
     runners.push(runner);
     runtime.getThinkingLevel = () => "off";
     runtime.appendEntry = (type, data) => {
@@ -96,8 +90,7 @@ await test("actual SDK commands preserve live loop ownership, activation gates, 
     return {
       runner,
       input: (data: string) => input?.(data),
-      command: (text: string) =>
-        command.handler(text, runner.createCommandContext()),
+      command: (text: string) => command.handler(text, runner.createCommandContext()),
     };
   };
   let store: LoopStore | undefined;
@@ -118,10 +111,7 @@ await test("actual SDK commands preserve live loop ownership, activation gates, 
     ])
       await assert.rejects(first.command(invalid));
     blocked = true;
-    await assert.rejects(
-      first.command("configure 0.01 Check progress"),
-      /ordinary foreground/u,
-    );
+    await assert.rejects(first.command("configure 0.01 Check progress"), /ordinary foreground/u);
     blocked = false;
     await first.command("configure 0.01 Check progress");
     await first.command("start");
@@ -160,11 +150,7 @@ await test("actual SDK commands preserve live loop ownership, activation gates, 
     assert.deepEqual(store.get(session.getSessionId())?.intent, intent);
     assert.equal(store.get(session.getSessionId())?.state, "paused");
     const countBeforeManual = store.get(session.getSessionId())?.count;
-    await third.runner.emitInput(
-      "Manual recovery inspection",
-      undefined,
-      "interactive",
-    );
+    await third.runner.emitInput("Manual recovery inspection", undefined, "interactive");
     await third.runner.emitBeforeAgentStart(
       { messageType: "user", prompt: "Manual recovery inspection" },
       { cwd: directory },
@@ -172,21 +158,12 @@ await test("actual SDK commands preserve live loop ownership, activation gates, 
     await third.runner.emit({ type: "agent_settled", aborted: false });
     assert.deepEqual(store.get(session.getSessionId())?.intent, intent);
     assert.equal(store.get(session.getSessionId())?.count, countBeforeManual);
-    assert.equal(
-      store.iterations(session.getSessionId())[0]?.state,
-      "uncertain",
-    );
-    assert.equal(
-      store.iterations(session.getSessionId())[0]?.acknowledgedAt,
-      undefined,
-    );
+    assert.equal(store.iterations(session.getSessionId())[0]?.state, "uncertain");
+    assert.equal(store.iterations(session.getSessionId())[0]?.acknowledgedAt, undefined);
     await delay(35);
     assert.equal(requests, 1);
     await assert.rejects(third.command("start"), /Inspect/u);
-    await assert.rejects(
-      third.command("resume inspected"),
-      /Read \/loop status/u,
-    );
+    await assert.rejects(third.command("resume inspected"), /Read \/loop status/u);
     await third.command("status");
     await third.command("resume inspected");
     await delay(35);
@@ -195,15 +172,10 @@ await test("actual SDK commands preserve live loop ownership, activation gates, 
       store.iterations(session.getSessionId()).map((row) => row.state),
       ["uncertain", "pending"],
     );
-    assert.ok(
-      store.iterations(session.getSessionId())[0]?.acknowledgedAt !== undefined,
-    );
+    assert.ok(store.iterations(session.getSessionId())[0]?.acknowledgedAt !== undefined);
     assert.notEqual(store.get(session.getSessionId())?.intent?.id, intent.id);
     await third.runner.emitInput("Check progress", undefined, "extension");
-    await third.runner.emitBeforeAgentStart(
-      { messageType: "user", prompt: "Check progress" },
-      { cwd: directory },
-    );
+    await third.runner.emitBeforeAgentStart({ messageType: "user", prompt: "Check progress" }, { cwd: directory });
     await third.command("stop");
     await third.runner.emit({ type: "agent_settled", aborted: false });
     assert.equal(store.get(session.getSessionId())?.state, "stopped");
@@ -221,10 +193,7 @@ await test("actual SDK commands preserve live loop ownership, activation gates, 
       toolName: "studio_delegate",
       args: {},
     });
-    await assert.rejects(
-      third.command("configure 0.01 Original stays fenced"),
-      /ordinary foreground/u,
-    );
+    await assert.rejects(third.command("configure 0.01 Original stays fenced"), /ordinary foreground/u);
     assert.equal(
       (
         await third.runner.emit({
@@ -236,10 +205,7 @@ await test("actual SDK commands preserve live loop ownership, activation gates, 
       true,
     );
     session.branch(originalLeaf);
-    await assert.rejects(
-      third.command("configure 0.01 Earlier branch stays fenced"),
-      /ordinary foreground/u,
-    );
+    await assert.rejects(third.command("configure 0.01 Earlier branch stays fenced"), /ordinary foreground/u);
     await third.runner.emit({ type: "session_shutdown", reason: "new" });
     session.newSession();
     session.appendMessage({
@@ -275,10 +241,7 @@ await test("actual SDK commands preserve live loop ownership, activation gates, 
     session.setSessionFile(originalFile);
     assert.equal(session.getSessionId(), originalSession);
     const fifth = await fixture();
-    await assert.rejects(
-      fifth.command("configure 0.01 Reload cannot clear child uncertainty"),
-      /ordinary foreground/u,
-    );
+    await assert.rejects(fifth.command("configure 0.01 Reload cannot clear child uncertainty"), /ordinary foreground/u);
     assert.equal(
       (
         await fifth.runner.emit({
@@ -292,8 +255,7 @@ await test("actual SDK commands preserve live loop ownership, activation gates, 
     assert.equal(store.get(originalSession)?.state, "paused");
   } finally {
     admission.fenced = originalFence;
-    for (const runner of runners)
-      await runner.emit({ type: "session_shutdown", reason: "quit" });
+    for (const runner of runners) await runner.emit({ type: "session_shutdown", reason: "quit" });
     store?.close();
     if (previous === undefined) delete process.env["STUDIO_STATE_DIR"];
     else process.env["STUDIO_STATE_DIR"] = previous;

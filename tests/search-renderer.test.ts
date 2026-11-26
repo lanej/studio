@@ -12,15 +12,8 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import {
-  type Component,
-  stripTerminalSequences,
-  visibleWidth,
-} from "@earendil-works/pi-tui";
-import {
-  highlightSearchOutput,
-  registerSearchRendering,
-} from "../search-renderer.ts";
+import { type Component, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
+import { highlightSearchOutput, registerSearchRendering } from "../search-renderer.ts";
 import { prepareShellSyntax } from "../shell-syntax.ts";
 
 await test("registered Bash renderer styles compound command positions without changing native layout or output detection", async () => {
@@ -58,8 +51,7 @@ await test("registered Bash renderer styles compound command positions without c
       plainCommands?: string[];
     }[] = [
       {
-        command:
-          "gh pr checks 15 --repo lanej/studio --watch --fail-fast --interval 10",
+        command: "gh pr checks 15 --repo lanej/studio --watch --fail-fast --interval 10",
         commands: ["gh"],
         flags: ["--repo", "--watch", "--fail-fast", "--interval"],
       },
@@ -67,19 +59,10 @@ await test("registered Bash renderer styles compound command positions without c
         command:
           'expected=729c3fa; gh pr checks 15 --repo lanej/studio --watch --fail-fast --interval 15 > /tmp/checks.log 2>&1 && test "$expected" = "$(gh pr view 15 --json headRefOid --jq .headRefOid)"; tail -15 /tmp/checks.log',
         commands: ["gh", "test", "tail"],
-        flags: [
-          "--repo",
-          "--watch",
-          "--fail-fast",
-          "--interval",
-          "--json",
-          "--jq",
-          "-15",
-        ],
+        flags: ["--repo", "--watch", "--fail-fast", "--interval", "--json", "--jq", "-15"],
       },
       {
-        command:
-          "gh run list --limit 15 --json databaseId --jq '.[].databaseId' | tail -15 || gh run view --log",
+        command: "gh run list --limit 15 --json databaseId --jq '.[].databaseId' | tail -15 || gh run view --log",
         commands: ["gh", "tail"],
         flags: ["--limit", "--json", "--jq", "-15", "--log"],
       },
@@ -116,8 +99,7 @@ await test("registered Bash renderer styles compound command positions without c
         flags: ["--help"],
       },
       {
-        command:
-          'echo "$(printf \'%s\' "$(gh pr view --json number)")"; tail -15',
+        command: 'echo "$(printf \'%s\' "$(gh pr view --json number)")"; tail -15',
         commands: ["echo", "printf", "gh", "tail"],
         flags: ["--json", "-15"],
       },
@@ -176,50 +158,21 @@ await test("registered Bash renderer styles compound command positions without c
       });
       assert.equal(state.startedAt, startedAt);
       const rendered = component.render(4000).join("\n");
-      assert.deepEqual(
-        component.render(4000).map(stripTerminalSequences),
-        originalRows,
-      );
+      assert.deepEqual(component.render(4000).map(stripTerminalSequences), originalRows);
       for (const executable of plainCommands)
         assert.ok(
-          !rendered.includes(
-            theme.fg("syntaxFunction", theme.bold(executable)),
-          ),
+          !rendered.includes(theme.fg("syntaxFunction", theme.bold(executable))),
           `${executable} must retain generic styling: ${command}`,
         );
       for (const executable of commands)
-        assert.ok(
-          rendered.includes(theme.fg("syntaxFunction", theme.bold(executable))),
-          `${executable}: ${command}`,
-        );
-      for (const flag of flags)
-        assert.ok(
-          rendered.includes(theme.fg("syntaxKeyword", flag)),
-          `${flag}: ${command}`,
-        );
-      for (const flag of [
-        "--assignment",
-        "--redirect",
-        "--quoted",
-        "--double",
-        "--literal",
-        "--comment",
-        "--heredoc",
-      ])
-        assert.ok(
-          !rendered.includes(theme.fg("syntaxKeyword", flag)),
-          `${flag}: ${command}`,
-        );
-      for (const width of [60, 128])
-        assert.ok(
-          component.render(width).every((line) => visibleWidth(line) <= width),
-        );
+        assert.ok(rendered.includes(theme.fg("syntaxFunction", theme.bold(executable))), `${executable}: ${command}`);
+      for (const flag of flags) assert.ok(rendered.includes(theme.fg("syntaxKeyword", flag)), `${flag}: ${command}`);
+      for (const flag of ["--assignment", "--redirect", "--quoted", "--double", "--literal", "--comment", "--heredoc"])
+        assert.ok(!rendered.includes(theme.fg("syntaxKeyword", flag)), `${flag}: ${command}`);
+      for (const width of [60, 128]) assert.ok(component.render(width).every((line) => visibleWidth(line) <= width));
     }
     const source = "const value = 1;";
-    for (const command of [
-      "rg pattern file.ts | cat",
-      "sed -n '1p' file.ts; echo done",
-    ]) {
+    for (const command of ["rg pattern file.ts | cat", "sed -n '1p' file.ts; echo done"]) {
       let calls = 0;
       assert.equal(
         highlightSearchOutput("bash", { command }, source, () => {
@@ -228,11 +181,7 @@ await test("registered Bash renderer styles compound command positions without c
         }),
         source,
       );
-      assert.equal(
-        calls,
-        0,
-        "Header classification must not broaden output language detection",
-      );
+      assert.equal(calls, 0, "Header classification must not broaden output language detection");
     }
   } finally {
     session.dispose();
@@ -268,11 +217,7 @@ await test("rg discovery highlights the source on match and context rows", async
     "cd 'operator && reviewer' && rg -n -A8 'one|two' 'lead plan.ts' | head -70",
     "rg -n 'needle;alternative' first.ts && rg -n 'one && two' second.ts",
   ])
-    assert.equal(
-      highlightSearchOutput("bash", { command }, output, color),
-      marked,
-      command,
-    );
+    assert.equal(highlightSearchOutput("bash", { command }, output, color), marked, command);
 
   const search = `rg -n -A8 'needle|alternative' ${path}`;
   for (const command of [
@@ -283,11 +228,7 @@ await test("rg discovery highlights the source on match and context rows", async
     `rg -n --replace '1:synthetic' needle ${path}`,
     `rg -n -A8 needle a.ts other.py`,
   ])
-    assert.equal(
-      highlightSearchOutput("bash", { command }, output, color),
-      output,
-      command,
-    );
+    assert.equal(highlightSearchOutput("bash", { command }, output, color), output, command);
 });
 
 await test("combined shell searches keep a language only when each output row can be attributed", async () => {
@@ -295,25 +236,15 @@ await test("combined shell searches keep a language only when each output row ca
   const numbered = "14:const value = 1;\n18-return value";
   const prefixed = "first.ts:14:const value = 1;\nsecond.py-18-return value";
   const color = (code: string, language: string) => [`[${language}]${code}`];
-  const render = (command: string, text: string) =>
-    highlightSearchOutput("bash", { command }, text, color);
+  const render = (command: string, text: string) => highlightSearchOutput("bash", { command }, text, color);
 
   assert.equal(
-    render(
-      "rg --with-filename -n value first.ts; rg --with-filename -n -A2 value second.py",
-      prefixed,
-    ),
+    render("rg --with-filename -n value first.ts; rg --with-filename -n -A2 value second.py", prefixed),
     "first.ts:14:[typescript]const value = 1;\nsecond.py-18-[python]return value",
   );
+  assert.equal(render("rg -n value first.ts && rg -n value second.py", numbered), numbered);
   assert.equal(
-    render("rg -n value first.ts && rg -n value second.py", numbered),
-    numbered,
-  );
-  assert.equal(
-    render(
-      "echo 'first.ts:14:const value = 1;'; rg -n --with-filename value second.py",
-      prefixed,
-    ),
+    render("echo 'first.ts:14:const value = 1;'; rg -n --with-filename value second.py", prefixed),
     prefixed,
   );
 });
@@ -321,37 +252,22 @@ await test("combined shell searches keep a language only when each output row ca
 await test("ripgrep filenames identify numbered and bare source across search filters", async () => {
   await prepareShellSyntax();
   const render = (command: string, output: string) =>
-    highlightSearchOutput("bash", { command }, output, (code, language) => [
-      `[${language}]${code}`,
-    ]);
+    highlightSearchOutput("bash", { command }, output, (code, language) => [`[${language}]${code}`]);
   const files = "001-lead-plan.ts delivery-rules.py";
-  for (const flags of [
-    "-u",
-    "-uu",
-    "-uuu",
-    "--color never",
-    "--color=auto --no-ignore-vcs",
-  ])
+  for (const flags of ["-u", "-uu", "-uuu", "--color never", "--color=auto --no-ignore-vcs"])
     assert.equal(
       render(`rg -n ${flags} needle src`, "src/app.ts:4:const needle = 1;"),
       "src/app.ts:4:[typescript]const needle = 1;",
     );
   assert.equal(
-    render(
-      "rg -n -H needle 001-lead-plan.ts",
-      "001-lead-plan.ts:4:const needle = 1;",
-    ),
+    render("rg -n -H needle 001-lead-plan.ts", "001-lead-plan.ts:4:const needle = 1;"),
     "001-lead-plan.ts:4:[typescript]const needle = 1;",
   );
   assert.equal(
-    render(
-      "rg -H needle 001-lead-plan.ts",
-      "001-lead-plan.ts:const needle = 1;",
-    ),
+    render("rg -H needle 001-lead-plan.ts", "001-lead-plan.ts:const needle = 1;"),
     "001-lead-plan.ts:[typescript]const needle = 1;",
   );
-  const rows =
-    "001-lead-plan.ts:const needle = 1;\ndelivery-rules.py-    return 2";
+  const rows = "001-lead-plan.ts:const needle = 1;\ndelivery-rules.py-    return 2";
   for (const command of [
     `rg -A1 needle ${files}`,
     "rg -H needle 001-lead-plan.ts && rg -H -A1 needle delivery-rules.py",
@@ -362,16 +278,7 @@ await test("ripgrep filenames identify numbered and bare source across search fi
     );
   // This could be a context line from a.ts or a matching line from a.ts-tools.py.
   const ambiguous = "a.ts-tools.py:needle";
-  assert.equal(
-    render("rg -A1 needle a.ts a.ts-tools.py", ambiguous),
-    ambiguous,
-  );
-  assert.equal(
-    render("rg needle a.ts a.ts-tools.py", ambiguous),
-    "a.ts-tools.py:[python]needle",
-  );
-  assert.equal(
-    render("rg -u --replace value needle app.ts", "app.ts:4:value"),
-    "app.ts:4:value",
-  );
+  assert.equal(render("rg -A1 needle a.ts a.ts-tools.py", ambiguous), ambiguous);
+  assert.equal(render("rg needle a.ts a.ts-tools.py", ambiguous), "a.ts-tools.py:[python]needle");
+  assert.equal(render("rg -u --replace value needle app.ts", "app.ts:4:value"), "app.ts:4:value");
 });

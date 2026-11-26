@@ -1,26 +1,9 @@
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-  ToolDefinition,
-  ToolInfo,
-} from "@earendil-works/pi-coding-agent";
-import {
-  claudeDiagramTool,
-  diagramDefinition,
-  diagramTool,
-} from "../diagram/extension.ts";
-import {
-  claudeMermaidTool,
-  mermaidDefinition,
-  mermaidTool,
-} from "../diagram/mermaid-tool.ts";
+import type { ExtensionAPI, ExtensionContext, ToolDefinition, ToolInfo } from "@earendil-works/pi-coding-agent";
+import { claudeDiagramTool, diagramDefinition, diagramTool } from "../diagram/extension.ts";
+import { claudeMermaidTool, mermaidDefinition, mermaidTool } from "../diagram/mermaid-tool.ts";
 import { claudeDialect } from "./dialects/claude.ts";
 import { codexDialect } from "./dialects/codex.ts";
-import {
-  type CodingOperation,
-  operationAvailable,
-  replacedTools,
-} from "./policy.ts";
+import { type CodingOperation, operationAvailable, replacedTools } from "./policy.ts";
 import { modelToolRenderers, type ToolDisplay } from "./rendering.ts";
 
 type Dialect = "claude" | "codex";
@@ -41,9 +24,7 @@ const dialects: {
 
 // Catalog IDs identify the model even when the provider is a Bedrock or OpenRouter route.
 export function toolDialect(modelId: string | undefined): Dialect | undefined {
-  return modelId === undefined
-    ? undefined
-    : dialects.find((dialect) => dialect.matches.test(modelId))?.name;
+  return modelId === undefined ? undefined : dialects.find((dialect) => dialect.matches.test(modelId))?.name;
 }
 
 interface DiagramAlias {
@@ -82,29 +63,16 @@ function diagramSource(entry: DiagramAlias, tools: readonly ToolInfo[]) {
   );
 }
 
-function ownsDiagramAlias(
-  entry: DiagramAlias,
-  tools: readonly ToolInfo[],
-): boolean {
+function ownsDiagramAlias(entry: DiagramAlias, tools: readonly ToolInfo[]): boolean {
   const base = diagramSource(entry, tools);
   const alias = tools.find((info) => info.name === entry.tool.name);
-  return (
-    base !== undefined &&
-    alias?.parameters === base.parameters &&
-    alias.sourceInfo === base.sourceInfo
-  );
+  return base !== undefined && alias?.parameters === base.parameters && alias.sourceInfo === base.sourceInfo;
 }
 
 // A managed lead admits a dialect spelling only for the same Studio-owned capability.
-export function admittedDiagramAlias(
-  pi: ExtensionAPI,
-  name: string,
-  modelId: string | undefined,
-): string | undefined {
+export function admittedDiagramAlias(pi: ExtensionAPI, name: string, modelId: string | undefined): string | undefined {
   const entry = diagramAliases.find((alias) => alias.tool.name === name);
-  return entry !== undefined &&
-    entry.dialect === toolDialect(modelId) &&
-    ownsDiagramAlias(entry, pi.getAllTools())
+  return entry && entry.dialect === toolDialect(modelId) && ownsDiagramAlias(entry, pi.getAllTools())
     ? entry.canonical
     : undefined;
 }
@@ -123,13 +91,8 @@ function available(
   );
 }
 
-export function registerModelTools(
-  pi: ExtensionAPI,
-  { coding = true } = {},
-): void {
-  const modelTools = coding
-    ? [...codingTools, ...diagramAliases]
-    : diagramAliases;
+export function registerModelTools(pi: ExtensionAPI, { coding = true } = {}): void {
+  const modelTools = coding ? [...codingTools, ...diagramAliases] : diagramAliases;
   let dialect: Dialect | undefined;
   const owned = new Map<string, ToolInfo["sourceInfo"]>();
   const select = (model: ExtensionContext["model"]) => {
@@ -149,11 +112,7 @@ export function registerModelTools(
       if (available(entry, dialect, active, tools)) next.add(entry.tool.name);
       else next.delete(entry.tool.name);
     }
-    if (
-      next.size !== active.size ||
-      [...next].some((name) => !active.has(name))
-    )
-      pi.setActiveTools([...next]);
+    if (next.size !== active.size || [...next].some((name) => !active.has(name))) pi.setActiveTools([...next]);
   };
 
   pi.on("session_start", (_event, ctx) => {
@@ -162,8 +121,7 @@ export function registerModelTools(
       const { tool } = entry;
       if (
         existing.has(tool.name) ||
-        (entry.operation === "diagram" &&
-          diagramSource(entry, pi.getAllTools()) === undefined)
+        (entry.operation === "diagram" && diagramSource(entry, pi.getAllTools()) === undefined)
       )
         continue;
       pi.registerTool({
@@ -174,12 +132,7 @@ export function registerModelTools(
         prepareLoadout(loadout) {
           const active = new Set(loadout.declared.map((item) => item.name));
           return {
-            hiddenDeclarations: available(
-              entry,
-              dialect,
-              active,
-              pi.getAllTools(),
-            )
+            hiddenDeclarations: available(entry, dialect, active, pi.getAllTools())
               ? entry.operation === "diagram"
                 ? [entry.canonical]
                 : [...replacedTools[entry.operation]]
@@ -187,23 +140,10 @@ export function registerModelTools(
           };
         },
         async execute(id, args, signal, update, context) {
-          if (
-            !available(
-              entry,
-              toolDialect(context.model?.id),
-              new Set(pi.getActiveTools()),
-              pi.getAllTools(),
-            )
-          )
-            throw new Error(
-              `${tool.name} is unavailable for the current model and active tools.`,
-            );
+          if (!available(entry, toolDialect(context.model?.id), new Set(pi.getActiveTools()), pi.getAllTools()))
+            throw new Error(`${tool.name} is unavailable for the current model and active tools.`);
           if (entry.operation === "diagram") {
-            const nested = await context.executeTool(
-              entry.canonical,
-              args,
-              update === undefined ? {} : { onUpdate: update },
-            );
+            const nested = await context.executeTool(entry.canonical, args, !update ? {} : { onUpdate: update });
             const result = { ...nested.result, isError: nested.isError };
             // Pi already charges the canonical call's usage to this alias.
             delete result.usage;
@@ -212,9 +152,7 @@ export function registerModelTools(
           return tool.execute(id, args, signal, update, context);
         },
       });
-      const registered = pi
-        .getAllTools()
-        .find((info) => info.name === tool.name);
+      const registered = pi.getAllTools().find((info) => info.name === tool.name);
       if (registered !== undefined && registered.parameters === tool.parameters)
         owned.set(tool.name, registered.sourceInfo);
     }
@@ -223,15 +161,9 @@ export function registerModelTools(
   // A hidden declaration stays active in Pi. Reject a stale canonical call while its alias is selected.
   pi.on("tool_call", (event, ctx) => {
     if (event.parentToolCallId !== undefined) return;
-    const entry = diagramAliases.find(
-      (alias) => alias.canonical === event.toolName,
-    );
-    if (entry === undefined || !pi.getActiveTools().includes(entry.tool.name))
-      return;
-    if (
-      admittedDiagramAlias(pi, entry.tool.name, ctx.model?.id) ===
-      entry.canonical
-    )
+    const entry = diagramAliases.find((alias) => alias.canonical === event.toolName);
+    if (!entry || !pi.getActiveTools().includes(entry.tool.name)) return;
+    if (admittedDiagramAlias(pi, entry.tool.name, ctx.model?.id) === entry.canonical)
       return {
         block: true,
         reason: `Use ${entry.tool.name} for the current model.`,

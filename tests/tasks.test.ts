@@ -1,12 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -16,11 +10,7 @@ import { retryAttempt } from "../execution/cli.ts";
 import { processStart } from "../process.ts";
 import { retainedConflicts } from "../execution/admission.ts";
 import { Database } from "bun:sqlite";
-import {
-  initTheme,
-  type ExtensionContext,
-  type Theme,
-} from "@earendil-works/pi-coding-agent";
+import { initTheme, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
 import { stripVTControlCharacters as stripAnsi } from "node:util";
 import { getThemeByName } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
@@ -36,11 +26,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { attemptSchema, Phase } from "../attempts.ts";
 import type { Task } from "../beads.ts";
-import {
-  exampleConfig,
-  runtimeProjectSchema,
-  StudioProfile,
-} from "../config.ts";
+import { exampleConfig, runtimeProjectSchema, StudioProfile } from "../config.ts";
 import {
   ExecutionPhase,
   ExecutionStore,
@@ -128,12 +114,7 @@ await test("the task source exposes recovery actions only for the exact enrolled
   });
   assert.ok(defaultSource !== undefined);
   assert.deepEqual(
-    [
-      defaultSource.label,
-      defaultSource.retry,
-      defaultSource.answer,
-      defaultSource.diff,
-    ],
+    [defaultSource.label, defaultSource.retry, defaultSource.answer, defaultSource.diff],
     ["Beads", undefined, undefined, undefined],
   );
 
@@ -143,12 +124,7 @@ await test("the task source exposes recovery actions only for the exact enrolled
   });
   assert.ok(approvedSource !== undefined);
   assert.deepEqual(
-    [
-      approvedSource.label,
-      typeof approvedSource.retry,
-      typeof approvedSource.answer,
-      typeof approvedSource.diff,
-    ],
+    [approvedSource.label, typeof approvedSource.retry, typeof approvedSource.answer, typeof approvedSource.diff],
     ["enrolled-project", "function", "function", "function"],
   );
 });
@@ -214,12 +190,7 @@ await test("retry revalidates admission, live writers, remote authority and the 
           project_id: project,
           backend: "dolt",
           dolt_mode: "server",
-          capabilities: [
-            "project.enforce",
-            "issues.get",
-            "issues.create",
-            "issues.update",
-          ],
+          capabilities: ["project.enforce", "issues.get", "issues.create", "issues.update"],
         }),
       );
     else {
@@ -286,10 +257,7 @@ await test("retry revalidates admission, live writers, remote authority and the 
     race = () => {};
     store.enroll(enrolled);
     store.saveAttempt(admitted);
-    await assert.rejects(
-      retryAttempt(id),
-      /queued, but the runtime did not start.*disabled/u,
-    );
+    await assert.rejects(retryAttempt(id), /queued, but the runtime did not start.*disabled/u);
     assert.equal(store.attempt(id).phase, ExecutionPhase.Queued);
     assert.equal(store.attempts().length, 1);
     assert.equal(store.attempt(id).verification?.exitCode, 42);
@@ -333,16 +301,7 @@ await test("retained conflicts match admitted queue order, project and ownership
     owns: [],
   };
   const conflicts = Array.from(
-    retainedConflicts(queued, [
-      empty,
-      foreign,
-      done,
-      sibling,
-      earlier,
-      queued,
-      later,
-      parked,
-    ]),
+    retainedConflicts(queued, [empty, foreign, done, sibling, earlier, queued, later, parked]),
   );
   assert.deepEqual(
     conflicts.map(({ blocker }) => blocker.id),
@@ -387,16 +346,11 @@ await test("parked details use the current owner and scheduler path rules", () =
   assert.match(details, /First: src\/core \/ src\/core\/file.ts/u);
   assert.match(details, /Second: ownership unspecified/u);
   assert.doesNotMatch(details, /Foreign/u);
-  assert.equal(
-    parkedDetails({ ...task, assignee: "someone-else" }, view),
-    undefined,
-  );
+  assert.equal(parkedDetails({ ...task, assignee: "someone-else" }, view), undefined);
   assert.match(
     parkedDetails(task, {
       ...view,
-      attempts: [
-        { ...owned, phase: ExecutionPhase.Uncertain, verification: undefined },
-      ],
+      attempts: [{ ...owned, phase: ExecutionPhase.Uncertain, verification: undefined }],
     }) ?? "",
     /Uncertain execution.*\nLast completed step: unknown/u,
   );
@@ -453,9 +407,7 @@ await test("retained diff snapshots refresh with same-attempt evidence and clear
       },
       retry: (id) => {
         retried = id;
-        return retryFails
-          ? Promise.reject(new Error("RETRY_UNCERTAIN"))
-          : Promise.resolve();
+        return retryFails ? Promise.reject(new Error("RETRY_UNCERTAIN")) : Promise.resolve();
       },
     },
     theme,
@@ -623,14 +575,8 @@ await test("narrow and wide inspectors explain missing evidence and block unsafe
 });
 
 await test("task narratives preserve a rejected receipt without declaring its open successor runnable", () => {
-  assert.match(
-    taskNarrative(rejected, snapshot),
-    /verifier exited 42.*retained this attempt for review/u,
-  );
-  assert.match(
-    taskNarrative(successor, snapshot),
-    /prerequisite has not been observed closed/u,
-  );
+  assert.match(taskNarrative(rejected, snapshot), /verifier exited 42.*retained this attempt for review/u);
+  assert.match(taskNarrative(successor, snapshot), /prerequisite has not been observed closed/u);
   const unavailable = taskNarrative(successor, {
     ...snapshot,
     evidenceError: "database unavailable",
@@ -640,9 +586,7 @@ await test("task narratives preserve a rejected receipt without declaring its op
   assert.match(
     taskNarrative(rejected, {
       ...snapshot,
-      attempts: [
-        { ...attempt, phase: ExecutionPhase.Running, verification: undefined },
-      ],
+      attempts: [{ ...attempt, phase: ExecutionPhase.Running, verification: undefined }],
     }),
     /last recorded/u,
   );
@@ -655,17 +599,11 @@ await test("task narratives preserve a rejected receipt without declaring its op
     verification: undefined,
   };
   assert.match(
-    taskNarrative(
-      { ...rejected, assignee: `pi:${attempt.id}` },
-      { ...snapshot, attempts: [attempt, current] },
-    ),
+    taskNarrative({ ...rejected, assignee: `pi:${attempt.id}` }, { ...snapshot, attempts: [attempt, current] }),
     /exited 42/u,
   );
   assert.match(
-    taskNarrative(
-      { id: "foreign", title: "External state", status: "custom_state" },
-      snapshot,
-    ),
+    taskNarrative({ id: "foreign", title: "External state", status: "custom_state" }, snapshot),
     /custom_state/u,
   );
 });
@@ -684,16 +622,8 @@ await test("historical failures remain inspectable without attributing absent or
     } else {
       assert.match(narrative, /Historical/u);
       assert.match(narrative, /Beads currently reports “in_progress”/u);
-      assert.match(
-        narrative,
-        assignee === undefined
-          ? /no explicit current owner/u
-          : /different owner/u,
-      );
-      assert.match(
-        retainedEvidence(task, snapshot),
-        /Historical\/unattributed receipt/u,
-      );
+      assert.match(narrative, assignee === undefined ? /no explicit current owner/u : /different owner/u);
+      assert.match(retainedEvidence(task, snapshot), /Historical\/unattributed receipt/u);
     }
   }
 });
@@ -705,24 +635,15 @@ await test("evidence reads are project scoped, read only, and distinguish unavai
     assert.equal(existsSync(join(directory, "runtime.sqlite")), false);
     const db = new Database(join(directory, "runtime.sqlite"));
     db.run("CREATE TABLE records(kind TEXT,id TEXT,record TEXT)");
-    for (const record of [
-      attempt,
-      { ...attempt, project: randomUUID(), id: randomUUID() },
-    ])
-      db.query("INSERT INTO records VALUES ('attempt',?,?)").run(
-        record.id,
-        JSON.stringify(record),
-      );
+    for (const record of [attempt, { ...attempt, project: randomUUID(), id: randomUUID() }])
+      db.query("INSERT INTO records VALUES ('attempt',?,?)").run(record.id, JSON.stringify(record));
     db.close();
     assert.deepEqual(
       readTaskEvidence(project, directory).attempts.map((item) => item.id),
       [attempt.id],
     );
     writeFileSync(join(directory, "runtime.sqlite"), "unreadable database");
-    assert.match(
-      readTaskEvidence(project, directory).evidenceError ?? "",
-      /database/u,
-    );
+    assert.match(readTaskEvidence(project, directory).evidenceError ?? "", /database/u);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -748,9 +669,7 @@ await test("compact task browser keeps titles, hides identity, follows dependenc
   };
   const assignedSnapshot = {
     ...snapshot,
-    tasks: snapshot.tasks.map((task) =>
-      task.id === assigned.id ? assigned : task,
-    ),
+    tasks: snapshot.tasks.map((task) => (task.id === assigned.id ? assigned : task)),
   };
   const browser = new TaskBrowser(
     assignedSnapshot,
@@ -762,10 +681,7 @@ await test("compact task browser keeps titles, hides identity, follows dependenc
           ...assignedSnapshot,
           tasks: [...assignedSnapshot.tasks].reverse(),
         }),
-      show: (id) =>
-        Promise.resolve(
-          assignedSnapshot.tasks.find((task) => task.id === id) ?? assigned,
-        ),
+      show: (id) => Promise.resolve(assignedSnapshot.tasks.find((task) => task.id === id) ?? assigned),
     },
     theme,
     () => 20,
@@ -774,14 +690,8 @@ await test("compact task browser keeps titles, hides identity, follows dependenc
   );
   const render = () => browser.render(60).map(stripAnsi).join("\n");
   assert.match(render(), /! Reject the unsafe result +· +fast · low/u);
-  assert.match(
-    browser.render(34).map(stripAnsi).join("\n"),
-    /! Reject the unsafe result/u,
-  );
-  assert.doesNotMatch(
-    browser.render(34).map(stripAnsi).join("\n"),
-    /fast · low/u,
-  );
+  assert.match(browser.render(34).map(stripAnsi).join("\n"), /! Reject the unsafe result/u);
+  assert.doesNotMatch(browser.render(34).map(stripAnsi).join("\n"), /fast · low/u);
   assert.doesNotMatch(render(), /canonical-long|in_progress|Status:/u);
   browser.handleInput("j");
   render();
@@ -817,8 +727,7 @@ await test("compact task browser keeps titles, hides identity, follows dependenc
       () => {},
     ).render(columns);
     assert.equal(view.length, rows);
-    for (const line of view)
-      assert.equal(visibleWidth(line), columns, stripAnsi(line));
+    for (const line of view) assert.equal(visibleWidth(line), columns, stripAnsi(line));
   }
 });
 
@@ -945,11 +854,7 @@ await test("live refresh preserves the focused task and Escape closes the floati
   });
   await refresh;
   await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.deepEqual(
-    shown,
-    [successor.id],
-    "inspection requested during refresh must run afterwards",
-  );
+  assert.deepEqual(shown, [successor.id], "inspection requested during refresh must run afterwards");
   browser.handleInput("\t");
   view();
   browser.handleInput("j");
@@ -987,9 +892,7 @@ await test("the worker answer drawer owns focus above the lead draft and restore
   tui.addChild(lead);
   tui.setFocus(lead);
   const messages: string[] = [];
-  let earlyInput:
-    | Parameters<ExtensionContext["ui"]["onTerminalInput"]>[0]
-    | undefined;
+  let earlyInput: Parameters<ExtensionContext["ui"]["onTerminalInput"]>[0] | undefined;
   initTheme("dark", false);
   const theme = getThemeByName("dark");
   assert.ok(theme !== undefined);
@@ -1010,15 +913,11 @@ await test("the worker answer drawer owns focus above the lead draft and restore
       }, reject);
     });
   let widget: (Component & { dispose?(): void }) | undefined;
-  const setWidget: ExtensionContext["ui"]["setWidget"] = (
-    _key,
-    content,
-    options,
-  ) => {
+  const setWidget: ExtensionContext["ui"]["setWidget"] = (_key, content, options) => {
     widget?.dispose?.();
     aboveEditor.clear();
     widget = undefined;
-    if (content === undefined) return;
+    if (!content) return;
     assert.equal(options?.placement, "aboveEditor");
     assert.ok(typeof content === "function");
     widget = content(tui, theme);
@@ -1041,8 +940,7 @@ await test("the worker answer drawer owns focus above the lead draft and restore
     },
   };
   const send = (key: string) => {
-    if (earlyInput?.(key)?.consume !== true && !isKeyRelease(key))
-      tui.getFocusedComponent()?.handleInput?.(key);
+    if (earlyInput?.(key)?.consume !== true && !isKeyRelease(key)) tui.getFocusedComponent()?.handleInput?.(key);
   };
   const view = () => tui.getFocusedComponent()?.render(68).join("\n") ?? "";
   const panel = new TaskPanel();
@@ -1066,11 +964,7 @@ await test("the worker answer drawer owns focus above the lead draft and restore
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
   const inspector = tui.getFocusedComponent();
   assert.ok(inspector !== null && inspector !== lead);
-  const reply = panel.editAnswer(
-    ctx,
-    "Which behavior should the worker use?",
-    "Restore graph focus",
-  );
+  const reply = panel.editAnswer(ctx, "Which behavior should the worker use?", "Restore graph focus");
   assert.equal(tui.getFocusedComponent(), aboveEditor.children[0]);
   const drawer = view().split("\n").map(stripAnsi).join("\n");
   assert.match(drawer, /Worker question.*Restore graph focus/u);
@@ -1152,21 +1046,11 @@ await test("the worker answer drawer owns focus above the lead draft and restore
     pane: { close: [] },
     tasks: { quit: "x" },
   });
-  const earlyClose = panel.open(
-    ctx,
-    () => Promise.resolve(source),
-    undefined,
-    bindings,
-  );
+  const earlyClose = panel.open(ctx, () => Promise.resolve(source), undefined, bindings);
   send("x");
   await earlyClose;
   assert.equal(tui.getFocusedComponent(), lead);
-  const remapped = panel.open(
-    ctx,
-    () => Promise.resolve(source),
-    undefined,
-    bindings,
-  );
+  const remapped = panel.open(ctx, () => Promise.resolve(source), undefined, bindings);
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
   const loading = view().split("\n").map(stripAnsi);
   assert.match(loading[0] ?? "", /^╭─ Tasks · Loading….*╮$/u);
@@ -1177,9 +1061,7 @@ await test("the worker answer drawer owns focus above the lead draft and restore
   send("x");
   await remapped;
   assert.equal(tui.getFocusedComponent(), lead);
-  await panel.open(ctx, () =>
-    Promise.reject(new Error("Current service unavailable")),
-  );
+  await panel.open(ctx, () => Promise.reject(new Error("Current service unavailable")));
   assert.deepEqual(messages, ["Current service unavailable"]);
   send("!");
   assert.equal(lead.getValue(), "unsen!t");
@@ -1198,8 +1080,7 @@ await test("automatic refresh revalidates an explicitly inspected task outside a
     {
       label: "Canary",
       identity: project,
-      load: () =>
-        Promise.resolve({ ...snapshot, tasks: [rejected], limitReached: true }),
+      load: () => Promise.resolve({ ...snapshot, tasks: [rejected], limitReached: true }),
       show: (id) => {
         shown.push(id);
         return Promise.resolve({ ...successor, status: "closed" });
@@ -1214,15 +1095,9 @@ await test("automatic refresh revalidates an explicitly inspected task outside a
   browser.render(60);
   await browser.refresh();
   assert.deepEqual(shown, [successor.id]);
-  assert.match(
-    browser.render(60).map(stripAnsi).join("\n"),
-    /Wait for the prerequisite/u,
-  );
+  assert.match(browser.render(60).map(stripAnsi).join("\n"), /Wait for the prerequisite/u);
   browser.handleInput("\x1b[D");
-  assert.match(
-    browser.render(60).map(stripAnsi).join("\n"),
-    /› ● Wait for the prerequisite/u,
-  );
+  assert.match(browser.render(60).map(stripAnsi).join("\n"), /› ● Wait for the prerequisite/u);
 });
 
 await test("a list projection does not erase expanded task details during refresh", async () => {
@@ -1306,14 +1181,8 @@ await test("delivery distinguishes approved intent from bound publication and hi
     }),
     /Unknown/u,
   );
-  assert.match(
-    view(localTask),
-    /PR not expected.*Local result reference unavailable/su,
-  );
-  assert.match(
-    view({ ...localTask, assignee: `pi:${local.id}` }),
-    /Local result · a{40}/u,
-  );
+  assert.match(view(localTask), /PR not expected.*Local result reference unavailable/su);
+  assert.match(view({ ...localTask, assignee: `pi:${local.id}` }), /Local result · a{40}/u);
   const published = {
     ...local,
     bead: { ...local.bead, metadata: metadata("pull-request") },
@@ -1326,10 +1195,7 @@ await test("delivery distinguishes approved intent from bound publication and hi
     metadata: metadata("pull-request"),
     assignee: `pi:${published.id}`,
   };
-  assert.equal(
-    taskDelivery(prTask, { ...snapshot, attempts: [published] }).url,
-    published.url,
-  );
+  assert.equal(taskDelivery(prTask, { ...snapshot, attempts: [published] }).url, published.url);
   assert.equal(
     taskDelivery(prTask, {
       ...snapshot,
@@ -1337,10 +1203,7 @@ await test("delivery distinguishes approved intent from bound publication and hi
     }).url,
     undefined,
   );
-  assert.match(
-    view(prTask, published),
-    /PR published.*https:\/\/github.com\/example\/repo\/pull\/7/u,
-  );
+  assert.match(view(prTask, published), /PR published.*https:\/\/github.com\/example\/repo\/pull\/7/u);
   assert.match(
     view(prTask, {
       ...published,
@@ -1361,22 +1224,10 @@ await test("delivery distinguishes approved intent from bound publication and hi
     metadata: { ...prTask.metadata, "studio.completed": completed.id },
   };
   assert.match(view(closed, completed), /PR published/u);
-  assert.match(
-    view(
-      { ...closed, status: "open", assignee: `pi:${randomUUID()}` },
-      completed,
-    ),
-    /Unknown/u,
-  );
+  assert.match(view({ ...closed, status: "open", assignee: `pi:${randomUUID()}` }, completed), /Unknown/u);
   assert.match(view({ ...closed, status: "open" }, completed), /Unknown/u);
-  assert.match(
-    view(closed, { ...completed, phase: ExecutionPhase.Parked }),
-    /Unknown/u,
-  );
-  assert.match(
-    view({ ...prTask, assignee: `pi:${randomUUID()}` }, published),
-    /Unknown.*current owner/u,
-  );
+  assert.match(view(closed, { ...completed, phase: ExecutionPhase.Parked }), /Unknown/u);
+  assert.match(view({ ...prTask, assignee: `pi:${randomUUID()}` }, published), /Unknown.*current owner/u);
   assert.match(view({ ...prTask, metadata: undefined }, published), /Unknown/u);
   assert.match(
     view(
@@ -1391,10 +1242,7 @@ await test("delivery distinguishes approved intent from bound publication and hi
     ),
     /Unknown/u,
   );
-  assert.match(
-    view({ ...prTask, metadata: metadata("local") }, published),
-    /Unknown/u,
-  );
+  assert.match(view({ ...prTask, metadata: metadata("local") }, published), /Unknown/u);
   assert.match(
     view(
       {
@@ -1405,26 +1253,11 @@ await test("delivery distinguishes approved intent from bound publication and hi
     ),
     /Unknown.*differs/u,
   );
-  assert.match(
-    view({ ...prTask, metadata: metadata(), assignee: undefined }, published),
-    /PR not expected/u,
-  );
-  assert.doesNotMatch(
-    view({ ...prTask, metadata: metadata(), assignee: undefined }, published),
-    /PR published/u,
-  );
-  assert.match(
-    deliveryText(prTask, { ...snapshot, evidenceError: "unreadable" }),
-    /Unknown.*unavailable/u,
-  );
-  assert.match(
-    deliveryText({ ...rejected, assignee: undefined }, snapshot),
-    /Unknown.*not recorded/u,
-  );
-  assert.match(
-    deliveryText(rejected, snapshot),
-    /Unknown.*evidence differs or is unavailable/u,
-  );
+  assert.match(view({ ...prTask, metadata: metadata(), assignee: undefined }, published), /PR not expected/u);
+  assert.doesNotMatch(view({ ...prTask, metadata: metadata(), assignee: undefined }, published), /PR published/u);
+  assert.match(deliveryText(prTask, { ...snapshot, evidenceError: "unreadable" }), /Unknown.*unavailable/u);
+  assert.match(deliveryText({ ...rejected, assignee: undefined }, snapshot), /Unknown.*not recorded/u);
+  assert.match(deliveryText(rejected, snapshot), /Unknown.*evidence differs or is unavailable/u);
 });
 
 await test("interactive delivery uses readonly scoped receipts and exact current approval binding", () => {
@@ -1501,10 +1334,7 @@ await test("interactive delivery uses readonly scoped receipts and exact current
     const observed = { ...snapshot, ...readTaskEvidence(project, directory) };
     assert.deepEqual(readFileSync(join(directory, "attempts.sqlite")), before);
     assert.equal(observed.interactiveAttempts?.length, 1);
-    assert.match(
-      text(task, observed),
-      /PR not yet published.*Publication request/su,
-    );
+    assert.match(text(task, observed), /PR not yet published.*Publication request/su);
     const published = attemptSchema.parse({
       ...receipt,
       delivery: {
@@ -1532,43 +1362,20 @@ await test("interactive delivery uses readonly scoped receipts and exact current
     assert.match(
       text(task, {
         ...observed,
-        interactiveAttempts: [
-          { ...receipt, bead: { ...receipt.bead, metadata: {} } },
-        ],
+        interactiveAttempts: [{ ...receipt, bead: { ...receipt.bead, metadata: {} } }],
       }),
       /Unknown.*unavailable/su,
     );
-    assert.equal(
-      taskDelivery(task, view).url,
-      "https://github.com/example/studio/pull/7",
-    );
-    assert.match(
-      text(task, { ...view, evidenceError: "runtime unavailable" }),
-      /PR published/u,
-    );
+    assert.equal(taskDelivery(task, view).url, "https://github.com/example/studio/pull/7");
+    assert.match(text(task, { ...view, evidenceError: "runtime unavailable" }), /PR published/u);
     assert.match(
       text(task, { ...view, interactiveEvidenceError: "corrupt" }),
       /Unknown.*Interactive evidence unavailable/su,
     );
-    assert.match(
-      text({ ...task, assignee: `pi:${randomUUID()}` }, view),
-      /Unknown.*current owner/su,
-    );
-    assert.match(
-      text({ ...task, parent: "different" }, view),
-      /Unknown.*parent/su,
-    );
-    assert.match(
-      text({ ...task, metadata: { ...metadata, "pi.plan": "changed" } }, view),
-      /Unknown.*differs/su,
-    );
-    assert.match(
-      text(
-        { ...task, metadata: { ...metadata, "pi.plan_key": "wrong" } },
-        view,
-      ),
-      /Unknown/su,
-    );
+    assert.match(text({ ...task, assignee: `pi:${randomUUID()}` }, view), /Unknown.*current owner/su);
+    assert.match(text({ ...task, parent: "different" }, view), /Unknown.*parent/su);
+    assert.match(text({ ...task, metadata: { ...metadata, "pi.plan": "changed" } }, view), /Unknown.*differs/su);
+    assert.match(text({ ...task, metadata: { ...metadata, "pi.plan_key": "wrong" } }, view), /Unknown/su);
     assert.match(text({ ...task, metadata: {} }, view), /Unknown/su);
     const verification = {
       summary: "Verified",
@@ -1589,22 +1396,10 @@ await test("interactive delivery uses readonly scoped receipts and exact current
         "pi.result": verification,
       },
     };
+    assert.match(text(completed, { ...view, interactiveAttempts: [finished] }), /PR published/u);
+    assert.match(text({ ...completed, status: "open" }, { ...view, interactiveAttempts: [finished] }), /Unknown/su);
     assert.match(
-      text(completed, { ...view, interactiveAttempts: [finished] }),
-      /PR published/u,
-    );
-    assert.match(
-      text(
-        { ...completed, status: "open" },
-        { ...view, interactiveAttempts: [finished] },
-      ),
-      /Unknown/su,
-    );
-    assert.match(
-      text(
-        { ...completed, assignee: `pi:${randomUUID()}` },
-        { ...view, interactiveAttempts: [finished] },
-      ),
+      text({ ...completed, assignee: `pi:${randomUUID()}` }, { ...view, interactiveAttempts: [finished] }),
       /Unknown/su,
     );
     assert.match(
@@ -1629,26 +1424,18 @@ await test("interactive delivery uses readonly scoped receipts and exact current
       bead: { ...receipt.bead, metadata: localMetadata },
     };
     assert.match(
-      text(
-        { ...task, metadata: localMetadata },
-        { ...view, interactiveAttempts: [local] },
-      ),
+      text({ ...task, metadata: localMetadata }, { ...view, interactiveAttempts: [local] }),
       /PR not expected.*Local result reference unavailable/su,
     );
     assert.match(
       text(task, {
         ...observed,
-        interactiveAttempts: [
-          { ...receipt, phase: Phase.CheckFailed, message: "Checks failed" },
-        ],
+        interactiveAttempts: [{ ...receipt, phase: Phase.CheckFailed, message: "Checks failed" }],
       }),
       /Blocked.*Checks failed/su,
     );
     db.run("UPDATE attempts SET record='malformed' WHERE project=?", [project]);
-    assert.match(
-      readTaskEvidence(project, directory).interactiveEvidenceError ?? "",
-      /JSON/u,
-    );
+    assert.match(readTaskEvidence(project, directory).interactiveEvidenceError ?? "", /JSON/u);
     db.run("DELETE FROM attempts WHERE project=?", [project]);
     insert.run(
       project,
@@ -1658,16 +1445,10 @@ await test("interactive delivery uses readonly scoped receipts and exact current
         source: { ...receipt.source, projectId: randomUUID() },
       }),
     );
-    assert.match(
-      readTaskEvidence(project, directory).interactiveEvidenceError ?? "",
-      /project differs/u,
-    );
+    assert.match(readTaskEvidence(project, directory).interactiveEvidenceError ?? "", /project differs/u);
     db.run("DELETE FROM attempts WHERE project=?", [project]);
     insert.run(project, "wrong-child", JSON.stringify(receipt));
-    assert.match(
-      readTaskEvidence(project, directory).interactiveEvidenceError ?? "",
-      /task differs/u,
-    );
+    assert.match(readTaskEvidence(project, directory).interactiveEvidenceError ?? "", /task differs/u);
     db.run("DELETE FROM attempts WHERE project=?", [project]);
     insert.run(
       project,
@@ -1677,10 +1458,7 @@ await test("interactive delivery uses readonly scoped receipts and exact current
         delivery: { ...receipt.delivery, url: "https://example.com/not-a-pr" },
       }),
     );
-    assert.match(
-      readTaskEvidence(project, directory).interactiveEvidenceError ?? "",
-      /url/u,
-    );
+    assert.match(readTaskEvidence(project, directory).interactiveEvidenceError ?? "", /url/u);
     db.close();
     assert.equal(existsSync(join(directory, "attempts.sqlite-journal")), false);
   } finally {
@@ -1704,10 +1482,7 @@ await test("completed no-command receipts are distinct from unconfirmed verifier
   const details = display(noCommand);
   assert.match(details, /no executable check was agreed/iu);
   assert.match(details, /acceptance relies on independent review/iu);
-  assert.doesNotMatch(
-    details,
-    /Verification failed|no confirmed exit|verification passed/u,
-  );
+  assert.doesNotMatch(details, /Verification failed|no confirmed exit|verification passed/u);
   for (const row of [
     { ...noCommand, verifier: undefined },
     { ...noCommand, verifier: { phase: VerificationPhase.Running } },

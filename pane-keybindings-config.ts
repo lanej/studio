@@ -34,20 +34,17 @@ const specialKeys = [
   "f11",
   "f12",
 ] as const satisfies readonly KeyId[];
-const baseKeys = new Map<string, string>(
-  specialKeys.map((key) => [key.toLowerCase(), key]),
-);
+const baseKeys = new Map<string, string>(specialKeys.map((key) => [key.toLowerCase(), key]));
 baseKeys.set("return", "enter");
 baseKeys.set("esc", "escape");
 const printable = /^[!-~]$/u;
+
 function canonicalKey(value: string): string {
   const lower = value.trim().toLowerCase();
   const prefix = /^(?:(?:ctrl|shift|alt|super)\+)*/u.exec(lower)?.[0] ?? "";
   const parts = prefix.split("+");
   // Preserve repeats so the grammar rejects duplicate modifiers.
-  const sorted = modifiers.flatMap((modifier) =>
-    parts.filter((part) => part === modifier),
-  );
+  const sorted = modifiers.flatMap((modifier) => parts.filter((part) => part === modifier));
   const base = lower.slice(prefix.length);
   return [...sorted, baseKeys.get(base) ?? base].join("+");
 }
@@ -58,24 +55,17 @@ const keySchema = z
   .pipe(
     z.custom<KeyId>((value) => {
       if (typeof value !== "string") return false;
-      const base = value.replace(
-        /^(?:ctrl\+)?(?:shift\+)?(?:alt\+)?(?:super\+)?/u,
-        "",
-      );
+      const base = value.replace(/^(?:ctrl\+)?(?:shift\+)?(?:alt\+)?(?:super\+)?/u, "");
       // Pi only matches Escape without modifiers, even with CSI-u reporting.
       if (base === "escape" && value !== base) return false;
-      return (
-        baseKeys.has(base.toLowerCase()) ||
-        (printable.test(base) && base !== '"')
-      );
+      return baseKeys.has(base.toLowerCase()) || (printable.test(base) && base !== '"');
     }, "Invalid Pi key identifier"),
   );
+
 function binding(...defaults: KeyId[]) {
   return z
     .union([keySchema, z.array(keySchema)])
-    .transform((value) => [
-      ...new Set(typeof value === "string" ? [value] : value),
-    ])
+    .transform((value) => [...new Set(typeof value === "string" ? [value] : value)])
     .default(() => [...defaults]);
 }
 
@@ -131,10 +121,7 @@ export const paneKeybindingsSchema = paneGroups.superRefine((bindings, ctx) => {
   const { lead, picker, pane, tasks, decision } = bindings;
   const claims = new Map<string, string>();
   const reported = new Set<string>();
-  function check(
-    group: keyof PaneKeybindings,
-    actions: Record<string, KeyId[]>,
-  ) {
+  function check(group: keyof PaneKeybindings, actions: Record<string, KeyId[]>) {
     for (const [action, keys] of Object.entries(actions)) {
       const name = `${group}.${action}`;
       for (const key of keys) {
@@ -144,11 +131,7 @@ export const paneKeybindingsSchema = paneGroups.superRefine((bindings, ctx) => {
           continue;
         }
         // These controls all dismiss the focused picker or browser.
-        if (
-          previous === "pane.close" &&
-          (name === "lead.openPicker" || name === "tasks.quit")
-        )
-          continue;
+        if (previous === "pane.close" && (name === "lead.openPicker" || name === "tasks.quit")) continue;
         const conflict = `${name} conflicts with ${previous} on ${key}`;
         if (reported.has(conflict)) continue;
         reported.add(conflict);

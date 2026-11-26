@@ -7,20 +7,9 @@ import { join } from "node:path";
 import { z } from "zod";
 import { registerRuntimeCommands } from "./execution/cli.ts";
 import { startSession } from "./session.ts";
-import {
-  BeadsReader,
-  taskDetails,
-  taskLabel,
-  taskSchema,
-  taskTree,
-} from "./beads.ts";
+import { BeadsReader, taskDetails, taskLabel, taskSchema, taskTree } from "./beads.ts";
 import { dispatchGate } from "./capabilities.ts";
-import {
-  configPath,
-  studioProfileSchema,
-  exampleConfig,
-  loadConfig,
-} from "./config.ts";
+import { configPath, studioProfileSchema, exampleConfig, loadConfig } from "./config.ts";
 
 enum HelpTopic {
   Tasks = "tasks",
@@ -31,9 +20,7 @@ enum HelpTopic {
 
 const program = new Command()
   .name("studio")
-  .description(
-    "Start a daily-driver Pi session or run and inspect an existing bead",
-  )
+  .description("Start a daily-driver Pi session or run and inspect an existing bead")
   .version("0.1.0")
   .action(async () => {
     await startSession();
@@ -61,47 +48,29 @@ program
     ).conflicts("example"),
   )
   .addOption(
-    new Option(
-      "--region <region>",
-      "Mantle AWS region (or AWS_REGION/AWS_DEFAULT_REGION)",
-    )
+    new Option("--region <region>", "Mantle AWS region (or AWS_REGION/AWS_DEFAULT_REGION)")
       .implies({ piModels: true })
       .conflicts("example"),
   )
-  .action(
-    async (options: {
-      example?: boolean;
-      piModels?: boolean | string;
-      region?: string;
-    }) => {
-      if (options.piModels !== undefined && options.piModels !== false) {
-        const { generatePiModels } = await import("./pi-models.ts");
-        output(
-          await generatePiModels(
-            options.region,
-            typeof options.piModels === "string" ? options.piModels : undefined,
-          ),
-        );
-        return;
-      }
+  .action(async (options: { example?: boolean; piModels?: boolean | string; region?: string }) => {
+    if (options.piModels !== undefined && options.piModels !== false) {
+      const { generatePiModels } = await import("./pi-models.ts");
       output(
-        options.example === true
-          ? exampleConfig
-          : { path: configPath(), configuration: await loadConfig() },
+        await generatePiModels(options.region, typeof options.piModels === "string" ? options.piModels : undefined),
       );
-    },
-  );
+      return;
+    }
+    output(options.example === true ? exampleConfig : { path: configPath(), configuration: await loadConfig() });
+  });
 program
   .command("doctor")
-  .description(
-    "Verify the configured task source and inspect the managed-launch gate",
-  )
+  .description("Verify the configured task source and inspect the managed-launch gate")
   .action(async () => {
     const config = await loadConfig();
     let beads: { configured: boolean; readable?: boolean; error?: string } = {
       configured: false,
     };
-    if (config.beads !== undefined) {
+    if (config.beads) {
       try {
         await new BeadsReader(config.beads).verify();
         beads = { configured: true, readable: true };
@@ -118,7 +87,7 @@ program
       verified: boolean;
       error?: string;
     } = { configured: false, verified: false };
-    if (config.beadsService !== undefined) {
+    if (config.beadsService) {
       try {
         const { TaskBeads } = await import("./task-service.ts");
         await new TaskBeads(config.beadsService).verifyAuthority();
@@ -145,21 +114,17 @@ program
       !resources.available ||
       beads.readable === false ||
       (beadsService.configured && !beadsService.verified) ||
-      Object.values(integrations).some(
-        (integration) => integration.enabled && !integration.present,
-      )
+      Object.values(integrations).some((integration) => integration.enabled && !integration.present)
         ? 1
         : 0;
   });
 program
   .command("tasks [id]")
-  .description(
-    "Inspect a Beads task or containment tree (maximum 1000 records)",
-  )
+  .description("Inspect a Beads task or containment tree (maximum 1000 records)")
   .option("--json", "Print structured task data")
   .action(async (id: string | undefined, options: { json?: boolean }) => {
     const config = await loadConfig();
-    if (config.beadsService !== undefined) {
+    if (config.beadsService) {
       const { TaskBeads } = await import("./task-service.ts");
       const service = new TaskBeads(config.beadsService);
       const projectId = config.beadsService.projectId;
@@ -179,33 +144,27 @@ program
         if (options.json === true) output({ projectId, task, attempt });
         else {
           console.log(taskDetails(taskSchema.parse(task), projectId));
-          if (attempt !== null)
-            console.log(`${attempt.phase} · ${attempt.message}`);
+          if (attempt !== null) console.log(`${attempt.phase} · ${attempt.message}`);
         }
       } else {
         const page = await service.list();
         const tasks = z.array(taskSchema).parse(page.items);
-        if (options.json === true)
-          output({ projectId, tasks, possiblyTruncated: page.has_more });
+        if (options.json === true) output({ projectId, tasks, possiblyTruncated: page.has_more });
         else {
           for (const row of taskTree(tasks)) console.log(taskLabel(row));
-          if (page.has_more)
-            console.error(
-              "Additional tasks are available. Inspect a task by its full ID.",
-            );
+          if (page.has_more) console.error("Additional tasks are available. Inspect a task by its full ID.");
         }
       }
       return;
     }
-    if (config.beads === undefined)
+    if (!config.beads)
       throw new Error(
         `Configure an explicit Beads workspace, database, and branch in ${configPath()}; discovery never initializes one`,
       );
     const reader = new BeadsReader(config.beads);
     if (id !== undefined && id.length > 0) {
       const task = await reader.show(id);
-      if (options.json === true)
-        output({ workspace: config.beads.workspace, task });
+      if (options.json === true) output({ workspace: config.beads.workspace, task });
       else console.log(taskDetails(task, config.beads.workspace));
     } else {
       const tasks = await reader.list();
@@ -216,50 +175,36 @@ program
           possiblyTruncated: tasks.length === 1000,
         });
       else {
-        console.log(
-          `Beads: ${config.beads.workspace} / ${config.beads.database}@${config.beads.branch}`,
-        );
+        console.log(`Beads: ${config.beads.workspace} / ${config.beads.database}@${config.beads.branch}`);
         for (const row of taskTree(tasks)) console.log(taskLabel(row));
         if (tasks.length === 1000)
-          console.error(
-            "Result may be truncated at 1000 tasks; inspect a task by its full ID.",
-          );
+          console.error("Result may be truncated at 1000 tasks; inspect a task by its full ID.");
       }
     }
   });
 program
   .command("start <bead-id> [verifier...]")
-  .description(
-    "Start or focus a bead lead. Pass the agreed check as argv after --",
-  )
+  .description("Start or focus a bead lead. Pass the agreed check as argv after --")
   .addOption(
-    new Option("--profile <name>", "work or personal")
-      .choices(studioProfileSchema.options)
-      .makeOptionMandatory(),
+    new Option("--profile <name>", "work or personal").choices(studioProfileSchema.options).makeOptionMandatory(),
   )
   .option("--worker", "Start a direct worker without a lead plan")
   .option("--tab-id <id>", "Place a new worker in this Zellij tab")
-  .action(
-    async (
-      id: string,
-      verifier: string[],
-      options: { profile: string; tabId?: string; worker?: boolean },
-    ) => {
-      if (verifier.length > 0 && !process.argv.slice(2).includes("--"))
-        throw new Error("Place the agreed verification command after --");
-      const { tabId } = await import("./zellij.ts");
-      const { startTask } = await import("./task-run.ts");
-      output(
-        await startTask(
-          id,
-          studioProfileSchema.parse(options.profile),
-          verifier,
-          options.tabId === undefined ? undefined : tabId(options.tabId),
-          options.worker !== true,
-        ),
-      );
-    },
-  );
+  .action(async (id: string, verifier: string[], options: { profile: string; tabId?: string; worker?: boolean }) => {
+    if (verifier.length > 0 && !process.argv.slice(2).includes("--"))
+      throw new Error("Place the agreed verification command after --");
+    const { tabId } = await import("./zellij.ts");
+    const { startTask } = await import("./task-run.ts");
+    output(
+      await startTask(
+        id,
+        studioProfileSchema.parse(options.profile),
+        verifier,
+        options.tabId === undefined ? undefined : tabId(options.tabId),
+        options.worker !== true,
+      ),
+    );
+  });
 program
   .command("resume <bead-id>")
   .description("Resume a settled lead in its existing worktree")
@@ -267,12 +212,7 @@ program
   .action(async (id: string, options: { tabId?: string }) => {
     const { resumeLead } = await import("./task-run.ts");
     const { tabId } = await import("./zellij.ts");
-    output(
-      await resumeLead(
-        id,
-        options.tabId === undefined ? undefined : tabId(options.tabId),
-      ),
-    );
+    output(await resumeLead(id, options.tabId === undefined ? undefined : tabId(options.tabId)));
   });
 program
   .command("publish <bead-id>")
@@ -280,17 +220,10 @@ program
   .requiredOption("--title <title>", "Reviewed PR title")
   .requiredOption("--body-file <path>", "Reviewed PR description")
   .requiredOption("--base <branch>", "GitHub base branch")
-  .action(
-    async (
-      id: string,
-      options: { title: string; bodyFile: string; base: string },
-    ) => {
-      const { publishLead } = await import("./delivery.ts");
-      output(
-        await publishLead(id, options.title, options.bodyFile, options.base),
-      );
-    },
-  );
+  .action(async (id: string, options: { title: string; bodyFile: string; base: string }) => {
+    const { publishLead } = await import("./delivery.ts");
+    output(await publishLead(id, options.title, options.bodyFile, options.base));
+  });
 program
   .command("ready <bead-id>")
   .description("Record owner assessment of current PR feedback in Octo")
@@ -319,10 +252,7 @@ program
   .command("skill")
   .description("Read compact agent guidance without configuration or services")
   .addOption(
-    new Option(
-      "--topic <topic>",
-      "tasks, compaction, profiles, or dispatch",
-    ).choices(Object.values(HelpTopic)),
+    new Option("--topic <topic>", "tasks, compaction, profiles, or dispatch").choices(Object.values(HelpTopic)),
   )
   .action((options: { topic?: string }) => {
     const topics = {
@@ -335,10 +265,7 @@ program
       [HelpTopic.Dispatch]:
         "From the repository in Zellij: studio start BEAD_ID --profile work -- make test. Supply a check that covers the accepted criteria; omit it for human review. Repeat the command to focus the registered worker. Use /task-submit SUMMARY in its Pi pane. Inspect studio tasks BEAD_ID --json for the result.",
     } satisfies Record<HelpTopic, string>;
-    const topic =
-      options.topic === undefined
-        ? undefined
-        : z.enum(HelpTopic).parse(options.topic);
+    const topic = options.topic === undefined ? undefined : z.enum(HelpTopic).parse(options.topic);
     console.log(
       topic !== undefined
         ? topics[topic]
@@ -365,7 +292,7 @@ function completionCandidates(words: string[]): string[] {
   const options = () => command.createHelp().visibleOptions(command);
   const commands = () => command.createHelp().visibleCommands(command);
   for (const word of words.slice(0, -1)) {
-    if (pending !== undefined) {
+    if (pending) {
       if (pending.required || !word.startsWith("-")) {
         pending = undefined;
         continue;
@@ -375,18 +302,13 @@ function completionCandidates(words: string[]): string[] {
     if (word === "--") return [];
     if (word.startsWith("-")) {
       const [flag] = word.split("=", 1);
-      const option = options().find(
-        (item) => item.short === flag || item.long === flag,
-      );
-      if (option === undefined) return [];
-      if (!word.includes("=") && (option.required || option.optional))
-        pending = option;
+      const option = options().find((item) => item.short === flag || item.long === flag);
+      if (!option) return [];
+      if (!word.includes("=") && (option.required || option.optional)) pending = option;
       continue;
     }
-    const child = commands().find(
-      (item) => item.name() === word || item.aliases().includes(word),
-    );
-    if (child !== undefined && positional === 0) {
+    const child = commands().find((item) => item.name() === word || item.aliases().includes(word));
+    if (child && positional === 0) {
       // Commander's implicit help command describes its parent's command tree.
       // Do not switch to that synthetic command, which has no children itself.
       if (child.name() === "help") help = true;
@@ -395,32 +317,23 @@ function completionCandidates(words: string[]): string[] {
   }
   let candidates: string[];
   const equals = prefix.indexOf("=");
-  if (pending !== undefined && (pending.required || !prefix.startsWith("-"))) {
+  if (pending && (pending.required || !prefix.startsWith("-"))) {
     candidates = pending.argChoices ?? [];
   } else if (prefix.startsWith("-") && equals !== -1) {
-    const option = options().find(
-      (item) => item.long === prefix.slice(0, equals),
-    );
-    candidates = (option?.argChoices ?? []).map(
-      (value) => `${prefix.slice(0, equals + 1)}${value}`,
-    );
+    const option = options().find((item) => item.long === prefix.slice(0, equals));
+    candidates = (option?.argChoices ?? []).map((value) => `${prefix.slice(0, equals + 1)}${value}`);
   } else if (prefix.startsWith("-")) {
     candidates = options().flatMap((option) =>
-      [option.short, option.long].filter(
-        (flag): flag is string => flag !== undefined,
-      ),
+      [option.short, option.long].filter((flag): flag is string => flag !== undefined),
     );
   } else {
-    candidates =
-      positional === 0 ? commands().map((child) => child.name()) : [];
+    candidates = positional === 0 ? commands().map((child) => child.name()) : [];
     if (!help) {
       const argument = command.registeredArguments[positional];
       candidates.push(...(argument?.argChoices ?? []));
     }
   }
-  return [...new Set(candidates)]
-    .filter((candidate) => candidate.startsWith(prefix))
-    .sort();
+  return [...new Set(candidates)].filter((candidate) => candidate.startsWith(prefix)).sort();
 }
 
 function completionScript(shell: string): string {
@@ -480,18 +393,11 @@ complete -c studio -f -a '(__studio_candidates)'
 program
   .command("completion")
   .description("Generate opt-in standalone shell completion (offline)")
-  .addArgument(
-    new Argument("[shell]", "shell to generate").choices([
-      "bash",
-      "zsh",
-      "fish",
-    ]),
-  )
+  .addArgument(new Argument("[shell]", "shell to generate").choices(["bash", "zsh", "fish"]))
   .addOption(new Option("--query", "Query offline candidates").hideHelp())
   .addHelpText("after", `\n${completionSetup}`)
   .action((shell: string | undefined) => {
-    if (shell === undefined)
-      throw new Error("Usage: studio completion <bash|zsh|fish>");
+    if (shell === undefined) throw new Error("Usage: studio completion <bash|zsh|fish>");
     console.log(completionScript(shell));
   });
 
@@ -500,9 +406,7 @@ try {
   const queryIndex = process.argv.indexOf("--query");
   if (process.argv[2] === "completion" && queryIndex === 3) {
     const separator = process.argv.indexOf("--", queryIndex);
-    const candidates = completionCandidates(
-      separator === -1 ? [] : process.argv.slice(separator + 1),
-    );
+    const candidates = completionCandidates(separator === -1 ? [] : process.argv.slice(separator + 1));
     if (candidates.length > 0) console.log(candidates.join("\n"));
   } else await program.parseAsync();
 } catch (error) {

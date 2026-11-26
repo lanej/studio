@@ -27,14 +27,10 @@ export const diagnosticSnapshot = z.object({
     .default([]),
 });
 export type DiagnosticSnapshot = z.infer<typeof diagnosticSnapshot>;
-export function snapshot(
-  path: string,
-  result: Diagnostics | undefined,
-): DiagnosticSnapshot {
-  if (result === undefined) return { path, state: "pending", diagnostics: [] };
-  const issues = result.items.filter(
-    (item) => item.severity === undefined || item.severity <= 2,
-  );
+
+export function snapshot(path: string, result: Diagnostics | undefined): DiagnosticSnapshot {
+  if (!result) return { path, state: "pending", diagnostics: [] };
+  const issues = result.items.filter((item) => item.severity === undefined || item.severity <= 2);
   return {
     path,
     state: "received",
@@ -48,26 +44,24 @@ export function snapshot(
       endLine: item.range.end.line + 1,
       endColumn: item.range.end.character + 1,
       severity: item.severity === 2 ? "warning" : "error",
-      message: (typeof item.message === "string"
-        ? item.message
-        : item.message.value
-      ).slice(0, 2000),
+      message: (typeof item.message === "string" ? item.message : item.message.value).slice(0, 2000),
       ...(item.source === undefined ? {} : { source: item.source }),
       ...(item.code === undefined ? {} : { code: item.code }),
     })),
   };
 }
+
 export function diagnosticGlyph(severity: "error" | "warning") {
   return severity === "error" ? "×" : "⚠";
 }
+
 const clean = (text: string) => text.replace(/\p{Cc}/gu, " ");
+
 function diagnosticKey(item: DiagnosticSnapshot["diagnostics"][number]) {
   return JSON.stringify([item.severity, item.message]);
 }
 
-export function groupDiagnostics(
-  diagnostics: DiagnosticSnapshot["diagnostics"],
-) {
+export function groupDiagnostics(diagnostics: DiagnosticSnapshot["diagnostics"]) {
   const groups = new Map<
     string,
     {
@@ -80,7 +74,7 @@ export function groupDiagnostics(
     const key = diagnosticKey(item);
     const position = `${String(item.line)}:${String(item.column)}`;
     const group = groups.get(key);
-    if (group === undefined) {
+    if (!group) {
       groups.set(key, {
         severity: item.severity,
         text: clean(item.message),
@@ -90,10 +84,7 @@ export function groupDiagnostics(
       group.locations.add(position);
     }
   }
-  return [...groups.values()].sort(
-    (a, b) =>
-      Number(a.severity === "warning") - Number(b.severity === "warning"),
-  );
+  return [...groups.values()].sort((a, b) => Number(a.severity === "warning") - Number(b.severity === "warning"));
 }
 
 export function diagnosticMessageRows(
@@ -115,9 +106,7 @@ export function diagnosticMessageRows(
     const indent = width > 2 ? "  " : "";
     return [
       ...wrap(metadata),
-      ...wrapTextWithAnsi(text, Math.max(1, width - indent.length)).map(
-        (row) => indent + row,
-      ),
+      ...wrapTextWithAnsi(text, Math.max(1, width - indent.length)).map((row) => indent + row),
     ];
   }
   return wrapTextWithAnsi(text, width - gutter).map(
@@ -140,42 +129,24 @@ export function diagnosticRows(
         `Diagnostics · ${value.state === "pending" ? "checking…" : clean(value.message ?? "unavailable")}`,
       ),
     );
-  const errors = value.diagnostics.filter(
-    (item) => item.severity === "error",
-  ).length;
-  const warnings = value.diagnostics.filter(
-    (item) => item.severity === "warning",
-  ).length;
-  const count = (number: number, singular: string) =>
-    `${String(number)} ${singular}${number === 1 ? "" : "s"}`;
+  const errors = value.diagnostics.filter((item) => item.severity === "error").length;
+  const warnings = value.diagnostics.filter((item) => item.severity === "warning").length;
+  const count = (number: number, singular: string) => `${String(number)} ${singular}${number === 1 ? "" : "s"}`;
   const heading =
     value.total === 0
       ? "Diagnostics · no errors or warnings reported"
       : `Diagnostics · ${count(errors, "error")} · ${count(warnings, "warning")}${value.truncated === true ? " shown" : ""}`;
-  const remaining = value.diagnostics.filter(
-    (item) => inlineLines?.has(item.line) !== true,
-  );
+  const remaining = value.diagnostics.filter((item) => inlineLines?.has(item.line) !== true);
   const items = groupDiagnostics(remaining);
   const visible = expanded ? items : items.slice(0, 2);
   return [
-    ...(items.length > 0 ||
-    remaining.length === value.diagnostics.length ||
-    value.truncated === true
+    ...(items.length > 0 || remaining.length === value.diagnostics.length || value.truncated === true
       ? wrap(theme.fg("muted", theme.bold(heading)))
       : []),
-    ...visible.flatMap((group) =>
-      diagnosticMessageRows(group, theme, width, expanded),
-    ),
+    ...visible.flatMap((group) => diagnosticMessageRows(group, theme, width, expanded)),
     ...(items.length > visible.length
-      ? wrap(
-          theme.fg(
-            "muted",
-            `… ${count(items.length - visible.length, "more message")}`,
-          ),
-        )
+      ? wrap(theme.fg("muted", `… ${count(items.length - visible.length, "more message")}`))
       : []),
-    ...(value.freshness === "unversioned"
-      ? wrap(theme.fg("muted", "Server did not report a document version"))
-      : []),
+    ...(value.freshness === "unversioned" ? wrap(theme.fg("muted", "Server did not report a document version")) : []),
   ];
 }

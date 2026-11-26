@@ -1,12 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  diagramNodeLabel,
-  diagramProjection,
-  initialView,
-  parseDiagram,
-  type Diagram,
-} from "../diagram/model.ts";
+import { diagramNodeLabel, diagramProjection, initialView, parseDiagram, type Diagram } from "../diagram/model.ts";
 
 const architecture: Diagram = {
   title: "Tracking",
@@ -92,10 +86,7 @@ await test("container zoom retains concrete endpoints and never invents an imple
         detail: "Receives reports.",
       },
     ],
-    edges: [
-      ...architecture.edges,
-      { from: "tracking", to: "partner", label: "Reports outcomes" },
-    ],
+    edges: [...architecture.edges, { from: "tracking", to: "partner", label: "Reports outcomes" }],
   });
   const zoom = diagramProjection(diagram, initialView(diagram));
   assert.equal(zoom.system.id, "tracking");
@@ -130,14 +121,8 @@ await test("context-only architectures work and the boundary has a valid identit
     edges: [],
   };
   assert.equal(parseDiagram(context).systemId, "carrier");
-  assert.throws(
-    () => parseDiagram({ ...context, view: "container" }),
-    /at least one application/,
-  );
-  assert.throws(
-    () => parseDiagram({ ...architecture, systemId: "api" }),
-    /systemId/,
-  );
+  assert.throws(() => parseDiagram({ ...context, view: "container" }), /at least one application/);
+  assert.throws(() => parseDiagram({ ...architecture, systemId: "api" }), /systemId/);
   assert.throws(
     () =>
       parseDiagram({
@@ -174,8 +159,5 @@ await test("display names and responsibilities are safe plain text and IDs disam
   const api = diagram.nodes.find((n) => n.id === "api");
   assert.ok(api !== undefined);
   assert.equal(diagramNodeLabel(diagram, api), "Tracking (api)");
-  assert.throws(
-    () => parseDiagram({ ...diagram, question: "   " }),
-    /visible characters/,
-  );
+  assert.throws(() => parseDiagram({ ...diagram, question: "   " }), /visible characters/);
 });

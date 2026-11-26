@@ -7,11 +7,7 @@ import {
 
 export interface ImplementationWatchOptions {
   changed: () => void;
-  read?:
-    | ((
-        source: ImplementationSource,
-      ) => Promise<ImplementationObservation | undefined>)
-    | undefined;
+  read?: ((source: ImplementationSource) => Promise<ImplementationObservation | undefined>) | undefined;
   pollMs?: number | undefined;
 }
 
@@ -19,15 +15,8 @@ export interface ImplementationWatchOptions {
 export function createImplementationWatch(options: ImplementationWatchOptions) {
   const read = options.read ?? readImplementation;
   const interval =
-    options.pollMs !== undefined &&
-    Number.isFinite(options.pollMs) &&
-    options.pollMs > 0
-      ? options.pollMs
-      : 5000;
-  const pending = new Map<
-    string,
-    Promise<ImplementationObservation | undefined>
-  >();
+    options.pollMs !== undefined && Number.isFinite(options.pollMs) && options.pollMs > 0 ? options.pollMs : 5000;
+  const pending = new Map<string, Promise<ImplementationObservation | undefined>>();
   let current: ImplementationSource | undefined;
   let key: string | undefined;
   let observed: ImplementationObservation | undefined;
@@ -36,18 +25,13 @@ export function createImplementationWatch(options: ImplementationWatchOptions) {
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   const cancelTimer = () => {
-    if (timer !== undefined) clearTimeout(timer);
+    if (timer) clearTimeout(timer);
     timer = undefined;
   };
-  const active = (expected: string, epoch: number) =>
-    !disposed && generation === epoch && key === expected;
-  const refresh = async (
-    source: ImplementationSource,
-    expectedKey: string,
-    epoch: number,
-  ) => {
+  const active = (expected: string, epoch: number) => !disposed && generation === epoch && key === expected;
+  const refresh = async (source: ImplementationSource, expectedKey: string, epoch: number) => {
     const previous = pending.get(expectedKey);
-    if (previous !== undefined) {
+    if (previous) {
       // Returning to A during an A → B → A switch must get a new A read.
       await previous.catch(() => undefined);
     }
@@ -61,8 +45,7 @@ export function createImplementationWatch(options: ImplementationWatchOptions) {
       result = {
         key: expectedKey,
         state: "unavailable",
-        message:
-          error instanceof Error ? error.message : "Beads could not be read.",
+        message: error instanceof Error ? error.message : "Beads could not be read.",
       };
     } finally {
       if (pending.get(expectedKey) === operation) pending.delete(expectedKey);
@@ -80,15 +63,11 @@ export function createImplementationWatch(options: ImplementationWatchOptions) {
     if (!active(expectedKey, epoch)) return;
     timer = setTimeout(() => {
       timer = undefined;
-      if (current !== undefined) request(current, expectedKey, epoch);
+      if (current) request(current, expectedKey, epoch);
     }, interval);
     timer.unref();
   };
-  const request = (
-    source: ImplementationSource,
-    expected: string,
-    epoch: number,
-  ) => {
+  const request = (source: ImplementationSource, expected: string, epoch: number) => {
     refresh(source, expected, epoch).catch(() => {
       // An observer may disappear as its UI is torn down. Stop that observer only.
       if (active(expected, epoch)) cancelTimer();
@@ -98,19 +77,16 @@ export function createImplementationWatch(options: ImplementationWatchOptions) {
   return {
     setSource(source: ImplementationSource | undefined): void {
       if (disposed) return;
-      const next =
-        source === undefined ? undefined : implementationRead(source);
+      const next = !source ? undefined : implementationRead(source);
       current = source;
       if (next?.key === key) return;
       generation++;
       const epoch = generation;
       cancelTimer();
       key = next?.key;
-      observed =
-        next === undefined ? undefined : { key: next.key, state: "loading" };
+      observed = !next ? undefined : { key: next.key, state: "loading" };
       options.changed();
-      if (source !== undefined && next !== undefined)
-        request(source, next.key, epoch);
+      if (source && next) request(source, next.key, epoch);
     },
     observation(): ImplementationObservation | undefined {
       return observed;

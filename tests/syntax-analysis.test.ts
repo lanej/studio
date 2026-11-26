@@ -2,12 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { analyzeEditSyntax } from "../code-intelligence/syntax-analysis.ts";
 
-const change = async (
-  path: string,
-  source: string,
-  original: string,
-  updated: string,
-) => {
+const change = async (path: string, source: string, original: string, updated: string) => {
   const lines = source.split("\n");
   const row = lines.findIndex((line) => line.includes(original));
   const oldLine = lines[row];
@@ -20,21 +15,9 @@ const change = async (
 
 await test("Tree-sitter compares number leaves and extracts enclosing declarations across languages", async () => {
   const fixtures = [
-    [
-      "policy.tsx",
-      "const retry = (job: string) => {\n  return 1500;\n};",
-      "retry = (job: string) =>",
-    ],
-    [
-      "policy.py",
-      "class Policy:\n  def retry(self, job):\n    return 1500",
-      "Policy › def retry(self, job):",
-    ],
-    [
-      "policy.rb",
-      "class Policy\n  def retry(job)\n    1500\n  end\nend",
-      "Policy › def retry(job)",
-    ],
+    ["policy.tsx", "const retry = (job: string) => {\n  return 1500;\n};", "retry = (job: string) =>"],
+    ["policy.py", "class Policy:\n  def retry(self, job):\n    return 1500", "Policy › def retry(self, job):"],
+    ["policy.rb", "class Policy\n  def retry(job)\n    1500\n  end\nend", "Policy › def retry(job)"],
     [
       "policy.go",
       "package p\nfunc (p Policy) Retry(job string) int {\n  return 1500\n}\n",
@@ -45,16 +28,8 @@ await test("Tree-sitter compares number leaves and extracts enclosing declaratio
       "impl Policy {\n  fn retry(&self, job: Job) -> u32 {\n    1500\n  }\n}",
       "Policy › fn retry(&self, job: Job) -> u32",
     ],
-    [
-      "policy.cpp",
-      "class Policy {\n int retry() {\n   return 1500;\n }\n};",
-      "Policy › int retry()",
-    ],
-    [
-      "Policy.java",
-      "class Policy {\n  int retry() {\n    return 1500;\n  }\n}",
-      "Policy › int retry()",
-    ],
+    ["policy.cpp", "class Policy {\n int retry() {\n   return 1500;\n }\n};", "Policy › int retry()"],
+    ["Policy.java", "class Policy {\n  int retry() {\n    return 1500;\n  }\n}", "Policy › int retry()"],
     ["policy.sh", "retry() {\n  local delay=1500\n}", "retry()"],
     ["policy.json", '{\n  "delay": 1500\n}', undefined],
   ] as const;
@@ -74,11 +49,7 @@ await test("Tree-sitter compares number leaves and extracts enclosing declaratio
       ],
       path,
     );
-    assert.deepEqual(
-      result.scopes,
-      label === undefined ? [] : [{ row: 0, label }],
-      path,
-    );
+    assert.deepEqual(result.scopes, label === undefined ? [] : [{ row: 0, label }], path);
   }
 });
 
@@ -117,22 +88,14 @@ await test("edits in comments, quoted prose and regexes, syntax changes, and mal
     assert.ok(result !== undefined, path);
     assert.deepEqual(result.replacements, [], source);
   }
-  assert.equal(
-    await change("broken.ts", "function f( { return 1500;", "1500", "3000"),
-    undefined,
-  );
-  assert.equal(
-    await change("prose.txt", "wait 1500 milliseconds", "1500", "3000"),
-    undefined,
-  );
+  assert.equal(await change("broken.ts", "function f( { return 1500;", "1500", "3000"), undefined);
+  assert.equal(await change("prose.txt", "wait 1500 milliseconds", "1500", "3000"), undefined);
 });
 
 await test("each numbered hunk has its own scope and inserted or deleted lines use the matching revision", async () => {
-  const before =
-    "class Policy {\n retry() {\n  return 2;\n }\n}\nfunction other() {\n  return 1500;\n}";
+  const before = "class Policy {\n retry() {\n  return 2;\n }\n}\nfunction other() {\n  return 1500;\n}";
   const after = before.replace("return 2", "return 4").replace("1500", "3000");
-  const diff =
-    "   ...\n-3   return 2;\n+3   return 4;\n   ...\n-7   return 1500;\n+7   return 3000;";
+  const diff = "   ...\n-3   return 2;\n+3   return 4;\n   ...\n-7   return 1500;\n+7   return 3000;";
   const result = await analyzeEditSyntax("retry.ts", before, after, diff);
   assert.deepEqual(result?.scopes, [
     { row: 1, label: "Policy › retry()" },
@@ -143,30 +106,16 @@ await test("each numbered hunk has its own scope and inserted or deleted lines u
     [2, 5],
   );
   const removed = before.replace("  return 2;\n", "");
-  assert.deepEqual(
-    (await analyzeEditSyntax("retry.ts", before, removed, "-3   return 2;"))
-      ?.scopes,
-    [{ row: 0, label: "Policy › retry()" }],
-  );
-  assert.deepEqual(
-    (await analyzeEditSyntax("retry.ts", removed, before, "+3   return 2;"))
-      ?.scopes,
-    [{ row: 0, label: "Policy › retry()" }],
-  );
-  assert.equal(
-    await analyzeEditSyntax(
-      "retry.ts",
-      before,
-      after,
-      "-3   return 9;\n+3   return 4;",
-    ),
-    undefined,
-  );
+  assert.deepEqual((await analyzeEditSyntax("retry.ts", before, removed, "-3   return 2;"))?.scopes, [
+    { row: 0, label: "Policy › retry()" },
+  ]);
+  assert.deepEqual((await analyzeEditSyntax("retry.ts", removed, before, "+3   return 2;"))?.scopes, [
+    { row: 0, label: "Policy › retry()" },
+  ]);
+  assert.equal(await analyzeEditSyntax("retry.ts", before, after, "-3   return 9;\n+3   return 4;"), undefined);
   const header = "type Policy = {";
   const original = `${header}\n limit: 2;\n};`;
-  assert.deepEqual((await change("policy.ts", original, "2", "4"))?.scopes, [
-    { row: 0, label: "type Policy" },
-  ]);
+  assert.deepEqual((await change("policy.ts", original, "2", "4"))?.scopes, [{ row: 0, label: "type Policy" }]);
   assert.deepEqual(
     (
       await analyzeEditSyntax(
@@ -207,11 +156,7 @@ await test("bundled grammars distinguish numeric leaves from untyped values", as
 await test("matching syntax roles are required for every compact token", async () => {
   const before = "function policy() {\n  retries = 2;\n}";
   const after = "class Policy {\n  retries = 4;\n}";
-  const diff =
-    "-1 function policy() {\n-2   retries = 2;\n+1 class Policy {\n+2   retries = 4;";
+  const diff = "-1 function policy() {\n-2   retries = 2;\n+1 class Policy {\n+2   retries = 4;";
   // Both assignments have identical surrounding text, but the new number initializes a class field.
-  assert.deepEqual(
-    (await analyzeEditSyntax("policy.ts", before, after, diff))?.replacements,
-    [],
-  );
+  assert.deepEqual((await analyzeEditSyntax("policy.ts", before, after, diff))?.replacements, []);
 });
