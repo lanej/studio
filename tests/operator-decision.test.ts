@@ -104,7 +104,7 @@ await test("background question results are disjoint and new answers cannot reus
   assert.equal(resumed, 1);
 });
 
-await test("answering revalidates exact request, writer, admission, authority and whole-record CAS; acknowledgement replay has no queue effect", async () => {
+await test("answering tolerates lease renewal while guarding request, writer, admission and authority; acknowledgement replay has no queue effect", async () => {
   const directory = await mkdtemp(join(tmpdir(), "studio-decision-"));
   const previousState = process.env["STUDIO_STATE_DIR"],
     previousConfig = process.env["STUDIO_CONFIG"];
@@ -299,6 +299,13 @@ await test("answering revalidates exact request, writer, admission, authority an
       ),
       [id],
     );
+    const renewedAt = store.attempt(id).heartbeatAt + 1;
+    race = () => {
+      race = () => {};
+      store.change(id, (row) => {
+        row.heartbeatAt = renewedAt;
+      });
+    };
     const simultaneous = await Promise.allSettled([
       answerDecision(id, request.id, "accepted marker"),
       answerDecision(id, request.id, "accepted marker"),
@@ -315,6 +322,7 @@ await test("answering revalidates exact request, writer, admission, authority an
     );
     const answered = store.attempt(id);
     assert.equal(answered.phase, ExecutionPhase.Queued);
+    assert.equal(answered.heartbeatAt, renewedAt);
     assert.equal(answered.operatorDecisions?.length, 1);
     assert.equal(latestDecision(answered)?.answer?.text, "accepted marker");
     assert.equal(answered.launchToken, undefined);

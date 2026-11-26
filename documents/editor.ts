@@ -18,6 +18,30 @@ const processBinding = z.object({
   connection: z.string(),
 });
 
+interface RetainedDocumentPane {
+  zellij: Zellij;
+  pid: number;
+  started: string;
+  manifestPath: string;
+}
+
+declare global {
+  var studioRetainedDocumentPanes:
+    | Map<number, RetainedDocumentPane>
+    | undefined;
+}
+
+globalThis.studioRetainedDocumentPanes ??= new Map();
+const retainedPanes = globalThis.studioRetainedDocumentPanes;
+
+export async function preserveDocumentPanesOnQuit(): Promise<void> {
+  for (const [pane, retained] of retainedPanes) {
+    const started = await processStart(retained.pid).catch(() => "");
+    if (started !== retained.started) continue;
+    await retained.zellij.keepFloatingPaneOnExit(pane, retained.manifestPath);
+  }
+}
+
 /** Studio owns the pane and process proof; the independent core owns its protocol. */
 export class StudioEditorLauncher implements EditorLauncher {
   private zellij: Zellij | undefined;
@@ -145,6 +169,7 @@ export class StudioEditorLauncher implements EditorLauncher {
           "-c",
           "lua dofile(vim.env.EDITOR_INTEROP_RUNTIME .. '/bootstrap.lua')",
         ],
+        "pinned-floating",
       );
     } catch (cause) {
       const recovered = await this.observe();
@@ -195,9 +220,10 @@ export class StudioEditorLauncher implements EditorLauncher {
       throw new Error(
         "The Neovim process does not belong to the issued Studio pane",
       );
-    const live = (await this.zellij.panes()).find(
-      (entry) => entry.id === pane && !entry.exited && !entry.is_plugin,
+    const livePanes = (await this.zellij.panes()).filter(
+      (entry) => !entry.exited && !entry.is_plugin,
     );
+    const live = livePanes.find((entry) => entry.id === pane);
     if (
       live === undefined ||
       (this.pane === undefined &&
@@ -213,6 +239,16 @@ export class StudioEditorLauncher implements EditorLauncher {
       throw new Error("The editor activation changed during registration");
     this.pane = pane;
     this.registered = { pid: registration.processId, started };
+    // A closed workspace can leave a dirty editor alive across a Studio reload.
+    const liveIds = new Set(livePanes.map((entry) => entry.id));
+    for (const id of retainedPanes.keys()) {
+      if (!liveIds.has(id)) retainedPanes.delete(id);
+    }
+    retainedPanes.set(pane, {
+      zellij: this.zellij,
+      ...this.registered,
+      manifestPath: request.manifestPath,
+    });
     this.attachmentId ??= JSON.stringify({
       server: this.zellij.identity,
       pane,
