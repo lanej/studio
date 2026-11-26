@@ -1,3 +1,5 @@
+import type { PaneKeybindings } from "../pane-keybindings.ts";
+import type { OpenTasks } from "../tasks/panel.ts";
 import { renderPlanCall } from "../plan-renderer.ts";
 import type {
   ExtensionAPI,
@@ -65,6 +67,8 @@ export function registerDiscovery(
   pi: ExtensionAPI,
   profile: () => string | undefined,
   onSelectionChange?: () => void,
+  openTasks?: OpenTasks,
+  keybindings?: PaneKeybindings,
 ) {
   let pending = false;
   let runningDiscoveryCommand = false;
@@ -225,6 +229,8 @@ export function registerDiscovery(
     },
     {
       discovery: true,
+      openTasks,
+      keybindings,
       subject: "this discovery; Beads is not required",
       identity: (record) => record.id,
       label: (record) => record.title,

@@ -110,8 +110,8 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
         noPromptTemplates: true,
         noThemes: true,
         extensionFactories: [
-          (pi) => {
-            if (fullStudio) studioExtension(pi);
+          async (pi) => {
+            if (fullStudio) await studioExtension(pi);
             else registerDirectory(pi, () => children);
             if (standaloneTool !== undefined)
               pi.registerTool({

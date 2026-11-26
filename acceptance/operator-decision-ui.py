@@ -25,7 +25,6 @@ try:
     terminal.contains("operator-decision-fixture-ready")
     terminal.send(f"/tasks {fixture['task']}\r")
     terminal.contains("Operator decision evidence")
-    terminal.send("\x1bt")
     def select_answer():
         for _ in range(32):
             terminal.send("\t")

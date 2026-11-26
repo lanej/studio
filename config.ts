@@ -4,6 +4,10 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { extname, isAbsolute, join } from "node:path";
 import { z } from "zod";
+import {
+  defaultPaneKeybindings,
+  paneKeybindingsSchema,
+} from "./pane-keybindings-config.ts";
 
 export enum StudioProfile {
   Work = "work",
@@ -92,6 +96,7 @@ export const runtimeProjectSchema = z
 
 export const configSchema = z
   .object({
+    keybindings: paneKeybindingsSchema,
     runtime: z
       .object({
         enabled: z.boolean().default(false),
@@ -245,6 +250,7 @@ const roles = (provider: string, model: string) => ({
 });
 
 export const exampleConfig = {
+  keybindings: defaultPaneKeybindings,
   runtime: { enabled: false, concurrency: 2, pollMs: 5000, projects: [] },
   display: {
     min_split_columns: defaultMinSplitColumns,

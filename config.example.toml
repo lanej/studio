@@ -7,6 +7,42 @@ min_split_columns = 40
 # added_background = "#304639"
 # removed_background = "#47343f"
 
+# Global lead shortcuts are opt-in. For example, set openPicker to a free chord
+# to open the picker while drafting. Run /reload in Pi to apply changes.
+# Each action takes a Pi key name, an array of aliases, or [] to disable it.
+[keybindings.lead]
+openPicker = []
+openWorkers = []
+openTasks = []
+toggleStatus = []
+
+[keybindings.picker]
+workers = "w"
+tasks = "t"
+status = "s"
+
+[keybindings.pane]
+up = ["up", "k"]
+down = ["down", "j"]
+activate = "enter"
+close = ["escape", "ctrl+c"]
+pageUp = "pageUp"
+pageDown = "pageDown"
+focusWorker = "right"
+
+[keybindings.tasks]
+back = "left"
+refresh = "r"
+nextLink = "tab"
+previousLink = "shift+tab"
+quit = "q"
+
+# Question scrolling in the multiline answer editor. Text editing uses Pi's
+# own keybindings.json, including tui.input.submit, tui.input.newLine, and tui.select.cancel.
+[keybindings.decision]
+pageUp = "pageUp"
+pageDown = "pageDown"
+
 # Managed explorers and reviewers are enabled for an eligible lead.
 # To opt out, uncomment both lines.
 # [delegation]
