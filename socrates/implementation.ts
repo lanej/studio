@@ -1,6 +1,10 @@
 import { readTaskEvidence } from "../tasks/evidence.ts";
 import { workerAssignments, type WorkerAssignment } from "../tasks/workers.ts";
-import type { ReasoningLevel, StudioConfig, TaskAssignment } from "../config.ts";
+import type {
+  ReasoningLevel,
+  StudioConfig,
+  TaskAssignment,
+} from "../config.ts";
 import { TaskStatus, knownTaskStatus } from "../beads.ts";
 import { HandoffPhase, type Discovery } from "../discovery/store.ts";
 import {
