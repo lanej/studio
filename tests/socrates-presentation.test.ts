@@ -456,11 +456,11 @@ await test("the side panel wraps unresolved reasons and fills the remaining rows
   assert.equal(changedFrozen.prioritizeSpecification, true);
   assert.match(
     renderSocratesSections(changedFrozen, theme, 33, 20).join(" "),
-    /Brief changed.*Recheck/u,
+    /Brief changed.*↺/u,
   );
   const stale = observe({ ...ready, coverageRevision: undefined });
   assert.equal(stale.prioritizeSpecification, true);
   const short = renderSocratesSections(stale, theme, 33, 18).join(" ");
-  assert.match(short, /Recheck.*Previous assessment/u);
+  assert.match(short, /↺.*Previous assessment/u);
   assert.match(short, /\+\d+ more properties/u);
 });

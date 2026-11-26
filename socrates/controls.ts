@@ -1,3 +1,5 @@
+import type { PaneKeybindings } from "../pane-keybindings.ts";
+import type { OpenTasks } from "../tasks/panel.ts";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -57,9 +59,13 @@ export function registerSocrates(
   id: string,
   requireBinding: (ctx: ExtensionContext) => Promise<Attempt>,
   approvalPending: (active: boolean) => void,
+  openTasks?: OpenTasks,
+  keybindings?: PaneKeybindings,
 ) {
   return registerSocratesControls(pi, db, id, requireBinding, approvalPending, {
     subject: "the accepted Beads task",
+    openTasks,
+    keybindings,
     identity: (record) => record.id,
     label: (record) => record.bead.id,
     snapshot: (ctx) =>
@@ -85,6 +91,8 @@ export function registerSocratesControls<T extends SocratesState>(
   approvalPending: (active: boolean) => void,
   scope: {
     subject: string;
+    openTasks?: OpenTasks | undefined;
+    keybindings?: PaneKeybindings | undefined;
     identity(record: T): string;
     label(record: T): string;
     snapshot?(ctx: ExtensionContext): T | undefined;
@@ -101,7 +109,7 @@ export function registerSocratesControls<T extends SocratesState>(
     }
     approvalPending(true);
     try {
-      await showTask(ctx, specText(record.specification));
+      await showTask(ctx, specText(record.specification), "floating");
     } finally {
       approvalPending(false);
     }
@@ -129,6 +137,8 @@ export function registerSocratesControls<T extends SocratesState>(
           };
     },
     viewSpecification,
+    scope.openTasks,
+    scope.keybindings,
   );
   // Pi emits user messages only when delivered, including queued guidance. Its own
   // command prompts also use the user role, but do not change the operator's brief.

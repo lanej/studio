@@ -12,7 +12,7 @@ import { realpath } from "node:fs/promises";
 import { Type } from "typebox";
 import { z } from "zod";
 import { Attempts, Phase, stateDirectory, type Attempt } from "./attempts.ts";
-import studioExtension from "./extension.ts";
+import { loadLeadKeybindings, registerStudio } from "./extension.ts";
 import { registerLeadControls } from "./lead-extension.ts";
 import { socratesGuidance } from "./socrates/guidance.ts";
 import { SpecStatus, specText } from "./socrates/spec.ts";
@@ -54,7 +54,7 @@ async function matchWorker(
   return pane;
 }
 
-export default function managedWorker(pi: ExtensionAPI): void {
+export default async function managedWorker(pi: ExtensionAPI): Promise<void> {
   registerActivationAdmission(pi);
   const id = process.env["STUDIO_ATTEMPT"];
   if (id === undefined) return;
@@ -82,21 +82,26 @@ export default function managedWorker(pi: ExtensionAPI): void {
   let approvalPending = false;
   let applyLeadTools: ((ctx: ExtensionContext) => void) | undefined;
   if (lead.leadPlan !== undefined) {
-    studioExtension(pi, {
-      profile: lead.profile,
-      approvalPending: () => approvalPending,
-      activationBlocked: () =>
-        submissions.size > 0 ||
-        ![Phase.Running, Phase.Verified, Phase.CheckFailed].includes(
-          db.get(id).phase,
-        ),
-      trackedPullRequest: () => {
-        const delivery = db.get(id).delivery;
-        return delivery?.pr !== undefined && delivery.agent !== undefined
-          ? delivery.url
-          : undefined;
+    const keybindings = await loadLeadKeybindings();
+    const openTasks = registerStudio(
+      pi,
+      {
+        profile: lead.profile,
+        approvalPending: () => approvalPending,
+        activationBlocked: () =>
+          submissions.size > 0 ||
+          ![Phase.Running, Phase.Verified, Phase.CheckFailed].includes(
+            db.get(id).phase,
+          ),
+        trackedPullRequest: () => {
+          const delivery = db.get(id).delivery;
+          return delivery?.pr !== undefined && delivery.agent !== undefined
+            ? delivery.url
+            : undefined;
+        },
       },
-    });
+      keybindings,
+    );
     applyLeadTools = registerLeadControls(
       pi,
       db,
@@ -111,6 +116,8 @@ export default function managedWorker(pi: ExtensionAPI): void {
       (active) => {
         approvalPending = active;
       },
+      openTasks,
+      keybindings,
     );
   }
   registerActivation(

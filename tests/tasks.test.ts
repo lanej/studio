@@ -16,9 +16,21 @@ import { retryAttempt } from "../execution/cli.ts";
 import { processStart } from "../process.ts";
 import { retainedConflicts } from "../execution/supervisor.ts";
 import { Database } from "bun:sqlite";
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import {
+  initTheme,
+  type ExtensionContext,
+  type Theme,
+} from "@earendil-works/pi-coding-agent";
 import { stripVTControlCharacters as stripAnsi } from "node:util";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { getThemeByName } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
+import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
+import {
+  Input,
+  ProcessTerminal,
+  TuiMainScreen,
+  type OverlayHandle,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
 import { attemptSchema, Phase } from "../attempts.ts";
 import type { Task } from "../beads.ts";
 import { StudioProfile } from "../config.ts";
@@ -31,6 +43,7 @@ import {
   type Execution,
 } from "../execution/store.ts";
 import { retryWriterFence } from "../execution/recovery.ts";
+import { paneKeybindingsSchema } from "../pane-keybindings-config.ts";
 import { TaskBrowser } from "../tasks/browser.ts";
 import { TaskPanel } from "../tasks/panel.ts";
 import { readTaskEvidence } from "../tasks/evidence.ts";
@@ -678,7 +691,7 @@ await test("compact task browser keeps titles, hides identity, follows dependenc
   browser.handleInput("\r");
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.match(render(), /verifier exited 42/u);
-  browser.handleInput("\x1b");
+  browser.handleInput("\x1b[D");
   assert.match(render(), /› ! Reject the unsafe result/u);
   browser.handleInput("r");
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -740,7 +753,7 @@ await test("failed external links and late detail replies preserve the operator'
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.match(failedView(), /Dependency lookup unavailable/u);
   assert.doesNotMatch(failedView(), /No tasks in this source/u);
-  fail.handleInput("\x1b");
+  fail.handleInput("\x1b[D");
   assert.match(failedView(), /› ! Reject the unsafe result/u);
 
   let release: ((task: typeof rejected) => void) | undefined;
@@ -767,11 +780,10 @@ await test("failed external links and late detail replies preserve the operator'
   const view = () => browser.render(60).map(stripAnsi).join("\n");
   view();
   browser.handleInput("\r");
-  browser.handleInput("\x1b");
+  browser.handleInput("\x1b[D");
   browser.handleInput("j");
-  browser.handleInput("\r");
   assert.match(view(), /› ○ Wait for the prerequisite/u);
-  assert.match(view(), /j\/k move/u);
+  assert.match(view(), /↑↓ move/u);
   release?.(rejected);
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(calls, [rejected.id]);
@@ -779,17 +791,16 @@ await test("failed external links and late detail replies preserve the operator'
   browser.handleInput("\r");
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(calls, [rejected.id, successor.id]);
-  assert.match(view(), /j\/k scroll/u);
+  assert.match(view(), /↑↓ scroll/u);
 });
 
-await test("live refresh keeps navigation and serializes reads while explicit focus can leave the panel open", async () => {
+await test("live refresh preserves the focused task and Escape closes the floating browser", async () => {
   const theme: Pick<Theme, "fg" | "bg" | "bold" | "getBgAnsi"> = {
     fg: (_color, value) => value,
     bg: (_color, value) => value,
     bold: (value) => value,
     getBgAnsi: () => "",
   };
-  let focused = false;
   let closed = false;
   let reads = 0;
   let release: ((value: TaskSnapshot) => void) | undefined;
@@ -817,17 +828,9 @@ await test("live refresh keeps navigation and serializes reads while explicit fo
     () => {
       closed = true;
     },
-    undefined,
-    {
-      focused: () => focused,
-      leave: () => {
-        focused = false;
-      },
-    },
   );
   const view = () => browser.render(60).map(stripAnsi).join("\n");
-  assert.match(view(), /Alt\+T inspect/u);
-  focused = true;
+  assert.match(view(), /Enter inspect/u);
   browser.handleInput("j");
   assert.match(view(), /› ○ Wait for the prerequisite/u);
   const refresh = browser.refresh();
@@ -855,93 +858,153 @@ await test("live refresh keeps navigation and serializes reads while explicit fo
     before,
     "refresh must preserve inspector scroll and disclosure selection",
   );
-  browser.handleInput("\x1b");
-  assert.equal(focused, false);
-  assert.equal(closed, false, "Escape must leave the status panel open");
-  assert.match(view(), /Alt\+T inspect/u);
-  focused = true;
-  browser.handleInput("\x1bt");
-  assert.equal(focused, false);
-  focused = true;
   browser.handleInput("\x1b[D");
   assert.match(view(), /› ○ Wait for the prerequisite/u);
-  browser.handleInput("q");
+  browser.handleInput("\x1b");
   assert.equal(closed, true);
   browser.dispose();
   await browser.refresh();
   assert.equal(reads, 2, "disposed panels must not read again");
 });
 
-await test("closing during the initial read prevents a late panel from mounting", async () => {
-  let release: ((value: TaskSnapshot) => void) | undefined;
-  const loaded = new Promise<TaskSnapshot>((resolve) => {
-    release = resolve;
-  });
-  let mounts = 0;
-  const panel = new TaskPanel();
-  const opened = panel.open(
-    {
-      hasUI: true,
-      ui: {
-        custom: () => {
-          mounts++;
-          return Promise.reject(new Error("A closed panel must not mount"));
-        },
-        notify: () => {},
-      },
-    },
-    {
-      key: "old session",
-      label: "Canary",
-      identity: project,
-      load: () => loaded,
-      show: () => Promise.resolve(rejected),
-      focusPane: () => Promise.resolve(),
-    },
-  );
-  panel.close();
-  release?.(snapshot);
-  await opened;
-  assert.equal(mounts, 0);
-
-  let reject: ((error: Error) => void) | undefined;
-  const failed = new Promise<TaskSnapshot>((_resolve, fail) => {
-    reject = fail;
-  });
+await test("task and answer panes own input immediately and discard stale reads after close", async () => {
+  class TestTui extends TuiMainScreen {
+    override requestRender(): void {}
+  }
+  const terminal = new ProcessTerminal();
+  terminal.hideCursor = () => {};
+  const tui = new TestTui(terminal);
+  const lead = new Input();
+  lead.setValue("unsent");
+  tui.setFocus(lead);
+  const messages: string[] = [];
+  let earlyInput:
+    | Parameters<ExtensionContext["ui"]["onTerminalInput"]>[0]
+    | undefined;
+  initTheme("dark", false);
+  const theme = getThemeByName("dark");
+  assert.ok(theme !== undefined);
+  const custom: ExtensionContext["ui"]["custom"] = (factory, options) =>
+    new Promise((resolve, reject) => {
+      let handle: OverlayHandle | undefined;
+      let closed = false;
+      void Promise.resolve(
+        factory(tui, theme, new KeybindingsManager(), (result) => {
+          closed = true;
+          handle?.hide();
+          resolve(result);
+        }),
+      ).then((component) => {
+        if (closed) return;
+        handle = tui.showOverlay(component);
+        options?.onHandle?.(handle);
+      }, reject);
+    });
   const ctx = {
     hasUI: true,
     ui: {
-      custom: () => {
-        mounts++;
-        return Promise.reject(new Error("A closed panel must not mount"));
+      custom,
+      notify: (message: string) => {
+        messages.push(message);
       },
-      notify: () => {},
+      onTerminalInput: (guard: NonNullable<typeof earlyInput>) => {
+        earlyInput = guard;
+        return () => {
+          earlyInput = undefined;
+        };
+      },
     },
   };
+  const send = (key: string) => {
+    if (earlyInput?.(key)?.consume !== true)
+      tui.getFocusedComponent()?.handleInput?.(key);
+  };
+  const view = () => tui.getFocusedComponent()?.render(68).join("\n") ?? "";
+  const panel = new TaskPanel();
+  let rejectRead: ((error: Error) => void) | undefined;
   const source = {
-    key: "old session",
     label: "Canary",
     identity: project,
-    load: () => failed,
+    load: () =>
+      new Promise<TaskSnapshot>((_resolve, reject) => {
+        rejectRead = reject;
+      }),
     show: () => Promise.resolve(rejected),
     focusPane: () => Promise.resolve(),
   };
-  const obsolete = panel.open(ctx, source);
-  panel.close();
-  reject?.(new Error("Old session disconnected"));
-  await obsolete;
-  assert.equal(
-    mounts,
-    0,
-    "obsolete read failures must not interrupt the current lead",
-  );
-  await assert.rejects(
-    panel.open(ctx, {
+  const parent = panel.open(ctx, () =>
+    Promise.resolve({
       ...source,
-      load: () => Promise.reject(new Error("Current service unavailable")),
+      load: () => Promise.resolve(snapshot),
     }),
-    /Current service unavailable/u,
   );
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  const inspector = tui.getFocusedComponent();
+  assert.ok(inspector !== null && inspector !== lead);
+  const reply = panel.editAnswer(ctx, "Which behavior should the worker use?");
+  // The action key and the first word can arrive in a single terminal read.
+  send("q");
+  send("\x1b[113;1:3u"); // Kitty key release
+  send("uit");
+  assert.equal(lead.getValue(), "unsent");
+  await Promise.resolve();
+  assert.equal(earlyInput, undefined);
+  send("\r");
+  assert.equal(await reply, "quit");
+  assert.equal(tui.getFocusedComponent(), inspector);
+  const quickCancel = panel.editAnswer(ctx, "Still needed?");
+  send("\x1b");
+  assert.equal(await quickCancel, undefined);
+  assert.equal(earlyInput, undefined);
+  assert.equal(tui.getFocusedComponent(), inspector);
+  panel.close();
+  await parent;
+  assert.equal(tui.getFocusedComponent(), lead);
+  const opened = panel.open(ctx, () => Promise.resolve(source));
+  send("j"); // The opening command and another key arrive in one terminal read.
+  assert.equal(lead.getValue(), "unsent");
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  assert.match(view(), /Loading/u);
+  send("\r");
+  send("j");
+  send("\x1b");
+  await opened;
+  assert.equal(tui.getFocusedComponent(), lead);
+  assert.equal(lead.getValue(), "unsent");
+  rejectRead?.(new Error("Old session disconnected"));
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  assert.equal(tui.getFocusedComponent(), lead);
+  assert.deepEqual(messages, []);
+  const bindings = paneKeybindingsSchema.parse({
+    pane: { close: [] },
+    tasks: { quit: "x" },
+  });
+  const earlyClose = panel.open(
+    ctx,
+    () => Promise.resolve(source),
+    undefined,
+    bindings,
+  );
+  send("x");
+  await earlyClose;
+  assert.equal(tui.getFocusedComponent(), lead);
+  const remapped = panel.open(
+    ctx,
+    () => Promise.resolve(source),
+    undefined,
+    bindings,
+  );
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  assert.match(view(), /Loading… +x close/u);
+  for (const key of ["q", "\x1b", "\x03"]) send(key);
+  assert.match(view(), /Loading/u);
+  send("x");
+  await remapped;
+  assert.equal(tui.getFocusedComponent(), lead);
+  await panel.open(ctx, () =>
+    Promise.reject(new Error("Current service unavailable")),
+  );
+  assert.deepEqual(messages, ["Current service unavailable"]);
 });
 
 await test("automatic refresh revalidates an explicitly inspected task outside a bounded listing", async () => {
