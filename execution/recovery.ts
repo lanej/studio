@@ -1,35 +1,19 @@
-import { processFailure, run } from "../process.ts";
+import { processGroupExists, processMatchesStart, run } from "../process.ts";
 import { isDeepStrictEqual } from "node:util";
 import { approvedHandoffTask } from "./publication-graph.ts";
 import { sameBrief } from "../task-service.ts";
 import { loadConfig, studioProfileSchema, AgentRole, selection, workerForTask, type StudioConfig } from "../config.ts";
-import { draftSchema } from "../lead-plan.ts";
+import { draftSchema } from "../planning/plan.ts";
 import { ExecutionBeads, interactiveTask } from "./beads.ts";
 import { assertRuntimeProfile } from "./profile.ts";
-import {
-  type ExecutionStore,
-  ExecutionPhase,
-  VerificationPhase,
-  pendingDecision,
-  type Execution,
-  type RuntimeProject,
-} from "./store.ts";
-import { alive } from "./supervisor.ts";
+import { type ExecutionStore, ExecutionPhase, VerificationPhase, pendingDecision, type Execution } from "./store.ts";
+import type { RuntimeProject } from "./target.ts";
 
-export function groupExists(pid: number): boolean {
-  try {
-    process.kill(-pid, 0);
-    return true;
-  } catch (error) {
-    if (processFailure(error).code === "ESRCH") return false;
-    throw error;
-  }
-}
 /** A missing receipt is uncertainty, never evidence that a writer is gone. */
 export async function writerFence(record: Execution): Promise<boolean> {
   if (record.launchSettled || record.launchToken === undefined) return false;
   if (record.pid === undefined || record.started === undefined) return true;
-  if ((await alive(record.pid, record.started)) || groupExists(record.pid)) return true;
+  if ((await processMatchesStart(record.pid, record.started)) || processGroupExists(record.pid)) return true;
   const verifier = record.verifier;
   if (verifier && verifier.phase !== VerificationPhase.Complete) {
     if (
@@ -40,10 +24,10 @@ export async function writerFence(record: Execution): Promise<boolean> {
     )
       return true;
     if (
-      (await alive(verifier.pid, verifier.started)) ||
-      groupExists(verifier.pid) ||
-      (await alive(verifier.childPid, verifier.childStarted)) ||
-      groupExists(verifier.childPid)
+      (await processMatchesStart(verifier.pid, verifier.started)) ||
+      processGroupExists(verifier.pid) ||
+      (await processMatchesStart(verifier.childPid, verifier.childStarted)) ||
+      processGroupExists(verifier.childPid)
     )
       return true;
   }
@@ -56,7 +40,7 @@ export async function retryWriterFence(record: Execution): Promise<boolean> {
   if (record.verifier && record.verifier.phase !== VerificationPhase.Complete) return true;
   if (record.pid === undefined) return record.started !== undefined;
   if (record.started === undefined) return true;
-  return (await alive(record.pid, record.started)) || groupExists(record.pid);
+  return (await processMatchesStart(record.pid, record.started)) || processGroupExists(record.pid);
 }
 
 export async function retainClaim(
@@ -84,11 +68,12 @@ export async function retainClaim(
   if (!roles) throw new Error(`Configure the approved ${profile} profile; another profile will not be substituted`);
   const metadata = bound.metadata["studio.task"];
   const intent = store.taskHandoffIntent(admission.project, bound.id);
-  const task = intent
-    ? approvedHandoffTask(store, store.project(admission.project), bound, intent).task
-    : metadata === undefined
-      ? undefined
-      : draftSchema.shape.tasks.element.parse(metadata);
+  const task =
+    intent !== undefined
+      ? approvedHandoffTask(store, store.project(admission.project), bound, intent).task
+      : metadata === undefined
+        ? undefined
+        : draftSchema.shape.tasks.element.parse(metadata);
   const interactive = intent?.interactive;
   const pinned = bound.metadata["studio.worker"];
   if (task?.assignment)
@@ -135,7 +120,12 @@ export async function reconcileAttempt(store: ExecutionStore, project: RuntimePr
   if (record.phase === ExecutionPhase.Complete) return;
   if (pendingDecision(record) !== undefined) {
     if (record.phase === ExecutionPhase.AwaitingDecision && record.launchSettled) return;
-    if (record.pid !== undefined && record.started !== undefined && (await alive(record.pid, record.started))) return;
+    if (
+      record.pid !== undefined &&
+      record.started !== undefined &&
+      (await processMatchesStart(record.pid, record.started))
+    )
+      return;
     if (await writerFence(record)) {
       store.change(id, (row) => {
         row.phase = ExecutionPhase.Uncertain;
@@ -178,7 +168,12 @@ export async function reconcileAttempt(store: ExecutionStore, project: RuntimePr
   }
   if (record.phase === ExecutionPhase.Queued || record.launchSettled || record.phase === ExecutionPhase.Parked) return;
   if (record.interactive && record.launchToken !== undefined && record.pid === undefined) return;
-  if (record.pid !== undefined && record.started !== undefined && (await alive(record.pid, record.started))) return;
+  if (
+    record.pid !== undefined &&
+    record.started !== undefined &&
+    (await processMatchesStart(record.pid, record.started))
+  )
+    return;
   if (await writerFence(record)) {
     store.change(id, (row) => {
       row.phase = ExecutionPhase.Uncertain;

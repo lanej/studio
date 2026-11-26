@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { ActivityState, ConditionState } from "@lanej/pi-components";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { LeadMode, draftSchema } from "../lead-plan.ts";
+import { LeadMode, draftSchema } from "../planning/plan.ts";
 import { renderSocratesSections } from "../socrates/sidebar.ts";
 import { readySpecification } from "./fixtures/socrates.ts";
 import { coverageToken } from "../socrates/assessment.ts";

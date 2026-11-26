@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { selection, taskAssignmentSchema, type StudioConfig } from "./config.ts";
-import { describeWorkerAssignment } from "./lead-plan.ts";
+import { describeWorkerAssignment } from "./planning/plan.ts";
 import { run } from "./process.ts";
 
 export enum TaskStatus {

@@ -17,8 +17,9 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { registerDiscovery } from "../discovery/extension.ts";
 import { ModelCapability, ReasoningLevel } from "../config.ts";
-import { Discoveries, handoffDraft } from "../discovery/store.ts";
-import { draftSchema, TaskDelivery } from "../lead-plan.ts";
+import { Discoveries } from "../discovery/store.ts";
+import { handoffDraft } from "../discovery/plan.ts";
+import { draftSchema, TaskDelivery } from "../planning/plan.ts";
 import { registerPlanningDocuments, getPlanningDocuments } from "../planning/documents.ts";
 import { renderPlan, renderSpecification } from "../planning/codec.ts";
 import { DocumentKind, type DocumentSnapshot } from "../planning/model.ts";

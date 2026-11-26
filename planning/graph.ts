@@ -1,13 +1,11 @@
 // Adapted from Smart Plan src/plan-validate.ts at 3e51e33acd63a7743391e21598042438746aafa0.
 // Copyright (c) 2026 Jacopo Nardiello. See LICENSE.smart-plan.
+import { worktreePathsOverlap } from "../worktree-path.ts";
+
 interface GraphTask {
   key: string;
   blockedBy: string[];
   owns: string[];
-}
-
-function ownsOverlap(a: string, b: string): boolean {
-  return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
 }
 
 /** Assign each task to one plus the longest prerequisite chain. */
@@ -34,7 +32,7 @@ export function taskWaves(tasks: GraphTask[]): Map<string, number> {
   for (const [index, task] of tasks.entries()) {
     for (const other of tasks.slice(index + 1)) {
       if (layers.get(task.key) !== layers.get(other.key)) continue;
-      if (task.owns.some((a) => other.owns.some((b) => ownsOverlap(a, b))))
+      if (task.owns.some((a) => other.owns.some((b) => worktreePathsOverlap(a, b))))
         throw new Error(`${task.key} and ${other.key} own overlapping paths in the same wave`);
     }
   }

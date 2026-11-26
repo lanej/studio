@@ -7,7 +7,7 @@ import { z } from "zod";
 import { configSchema, studioProfileSchema, selection } from "./config.ts";
 import { deliverySchema } from "./delivery-record.ts";
 import { specRecord } from "./socrates/spec.ts";
-import { leadPlanSchema } from "./lead-plan.ts";
+import { leadPlanSchema } from "./planning/plan.ts";
 import { beadSchema, verificationSchema } from "./task-service.ts";
 import {
   commitOperation,

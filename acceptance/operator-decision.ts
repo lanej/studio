@@ -15,10 +15,9 @@ import { fixtureMetricsEnv } from "./beads-fixture.ts";
 import { loadConfig, AgentRole, StudioProfile, ReasoningLevel } from "../config.ts";
 import { ExecutionBeads } from "../execution/beads.ts";
 import { ExecutionStore, ExecutionPhase, pendingDecision } from "../execution/store.ts";
-import { alive } from "../execution/supervisor.ts";
 import { retryWriterFence } from "../execution/recovery.ts";
-import { draftSchema, planDigest } from "../lead-plan.ts";
-import { run } from "../process.ts";
+import { draftSchema, planDigest } from "../planning/plan.ts";
+import { processMatchesStart, run } from "../process.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const options = new Command()
@@ -572,15 +571,19 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     await writeFile(join(options.output, "provider-requests.json"), JSON.stringify(requests, null, 2));
     const hosts = [];
     for (const record of store.attempts()) {
-      if (record.pid !== undefined && record.started !== undefined && (await alive(record.pid, record.started))) {
+      if (
+        record.pid !== undefined &&
+        record.started !== undefined &&
+        (await processMatchesStart(record.pid, record.started))
+      ) {
         try {
           process.kill(-record.pid, "SIGTERM");
         } catch {
           /* This owned host may have finished. */
         }
         const deadline = Date.now() + 5000;
-        while (Date.now() < deadline && (await alive(record.pid, record.started))) await delay(20);
-        const exited = !(await alive(record.pid, record.started));
+        while (Date.now() < deadline && (await processMatchesStart(record.pid, record.started))) await delay(20);
+        const exited = !(await processMatchesStart(record.pid, record.started));
         if (!exited) process.kill(-record.pid, "SIGKILL");
         hosts.push({
           attempt: record.id,

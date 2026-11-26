@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { z } from "zod";
 import { Attempts, Phase, stateDirectory, type Attempt } from "./attempts.ts";
-import { LeadMode } from "./lead-plan.ts";
+import { LeadMode } from "./planning/plan.ts";
 import { loadConfig } from "./config.ts";
 import { run } from "./process.ts";
 import { TaskBeads } from "./task-service.ts";

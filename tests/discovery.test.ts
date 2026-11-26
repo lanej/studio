@@ -14,11 +14,12 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { randomUUID } from "node:crypto";
 import { registerDiscovery } from "../discovery/extension.ts";
-import { Discoveries, HandoffPhase } from "../discovery/store.ts";
+import { Discoveries } from "../discovery/store.ts";
+import { HandoffPhase } from "../discovery/model.ts";
 import { readySpecification } from "./fixtures/socrates.ts";
 import { specificationToken } from "../socrates/assessment.ts";
 import { SpecStatus } from "../socrates/spec.ts";
-import { draftSchema } from "../lead-plan.ts";
+import { draftSchema } from "../planning/plan.ts";
 import {
   configSchema,
   DefaultProvider,
@@ -201,6 +202,22 @@ await test("daily-driver Socrates starts by title and resumes the picker selecti
     const socrates = runner.getCommand("socrates");
     const picker = runner.getCommand("discoveries");
     assert.ok(socrates !== undefined && picker !== undefined);
+    const commandNames = ["socrates", "spec-freeze"];
+    const toolNames = ["ask_user_question", "draft_socrates_specification"];
+    assert.deepEqual(
+      extensions
+        .flatMap(({ commands }) => [...commands.keys()])
+        .filter((name) => commandNames.includes(name))
+        .sort(),
+      commandNames,
+    );
+    assert.deepEqual(
+      extensions
+        .flatMap(({ tools }) => [...tools.keys()])
+        .filter((name) => toolNames.includes(name))
+        .sort(),
+      toolNames,
+    );
 
     await socrates.handler("", ctx);
     assert.deepEqual(

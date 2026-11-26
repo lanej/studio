@@ -9,31 +9,17 @@ import { configPath, loadConfig } from "../config.ts";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { requireIntegration } from "../integrations.ts";
 import { packageRoot } from "../package-resources.ts";
-import { processFailure, processStart } from "../process.ts";
+import { processFailure, processMatchesStart, processStart } from "../process.ts";
 import { owner } from "../task-service.ts";
+import { ownershipConflict, retainedConflicts } from "./admission.ts";
 import { ExecutionBeads, interactiveTask, heartbeat, verifyHeartbeatAuthority } from "./beads.ts";
-import {
-  ExecutionStore,
-  ExecutionPhase,
-  executionSchema,
-  unsettled,
-  type Execution,
-  type RuntimeProject,
-} from "./store.ts";
+import { ExecutionStore, ExecutionPhase, executionSchema, unsettled, type Execution } from "./store.ts";
+import type { RuntimeProject } from "./target.ts";
 import { assertRuntimeProfile } from "./profile.ts";
 import { verifyInteractiveTarget } from "./interactive-target.ts";
 import type { Zellij } from "../zellij.ts";
 
 export type LaunchWorkerPane = (zellij: Zellij, ...args: Parameters<Zellij["launch"]>) => Promise<number>;
-
-export async function alive(pid: number, started: string): Promise<boolean> {
-  try {
-    return (await processStart(pid)) === started;
-  } catch (error) {
-    if (processFailure(error).code === 1) return false;
-    throw error;
-  }
-}
 
 export async function ensureRuntime(): Promise<void> {
   const config = await loadConfig();
@@ -41,7 +27,7 @@ export async function ensureRuntime(): Promise<void> {
   const store = new ExecutionStore();
   try {
     const current = store.supervisor();
-    if (current && (await alive(current.pid, current.started))) {
+    if (current && (await processMatchesStart(current.pid, current.started))) {
       if (current.stop) throw new Error("Runtime is stopping; inspect status before restarting");
       return;
     }
@@ -63,27 +49,6 @@ export async function ensureRuntime(): Promise<void> {
   } finally {
     store.close();
   }
-}
-
-export function overlaps(left: Execution, right: Execution): boolean {
-  return (
-    left.project === right.project &&
-    (left.owns.length === 0 ||
-      right.owns.length === 0 ||
-      left.owns.some((a) => right.owns.some((b) => a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`))))
-  );
-}
-/** Retained admission and queue order fence writers in the same project. */
-export function retainedConflicts(attempt: Execution, attempts: Execution[]): Execution[] {
-  const position = attempts.findIndex((row) => row.id === attempt.id);
-  return attempts.filter(
-    (other, index) =>
-      other.id !== attempt.id &&
-      other.bead !== undefined &&
-      other.phase !== ExecutionPhase.Complete &&
-      (other.phase !== ExecutionPhase.Queued || index < position) &&
-      overlaps(attempt, other),
-  );
 }
 
 export async function maintainAttempt(
@@ -138,7 +103,7 @@ export async function serveRuntime(signal?: AbortSignal, launchWorkerPane?: Laun
   const id = randomUUID();
   const started = await processStart(process.pid);
   const previous = store.supervisor();
-  if (previous && (await alive(previous.pid, previous.started))) {
+  if (previous && (await processMatchesStart(previous.pid, previous.started))) {
     store.close();
     throw new Error("A live Studio runtime already owns scheduling");
   }
@@ -193,12 +158,12 @@ export async function serveRuntime(signal?: AbortSignal, launchWorkerPane?: Laun
           for (const attempt of attempts.filter(
             (record) => record.project === project.id && record.phase === ExecutionPhase.Queued,
           )) {
-            const retainedConflict = retainedConflicts(attempt, attempts).length > 0;
+            const retainedConflict = retainedConflicts(attempt, attempts).next().done !== true;
             if (
               live.filter((record) => ![ExecutionPhase.Delivery, ExecutionPhase.Waiting].includes(record.phase))
                 .length >= config.runtime.concurrency ||
               retainedConflict ||
-              live.some((other) => overlaps(attempt, other))
+              live.some((other) => ownershipConflict(other, attempt) !== undefined)
             )
               continue;
             if (!attempt.interactive) await launchHost(store, attempt, project);

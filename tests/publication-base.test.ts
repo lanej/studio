@@ -8,8 +8,9 @@ import { StudioProfile } from "../config.ts";
 import { deliverAssignment } from "../execution/delivery.ts";
 import { networkGit, safeGit } from "../execution/git.ts";
 import { assertPublicationHead, preparePublicationBase } from "../execution/publication-base.ts";
-import { ExecutionPhase, ExecutionStore, executionSchema, projectSchema } from "../execution/store.ts";
-import { TaskDelivery, draftSchema, planDigest } from "../lead-plan.ts";
+import { ExecutionPhase, ExecutionStore, executionSchema } from "../execution/store.ts";
+import { projectSchema } from "../execution/target.ts";
+import { TaskDelivery, draftSchema, planDigest } from "../planning/plan.ts";
 
 const git = async (cwd: string, ...args: string[]) => (await networkGit(cwd, args)).trim();
 

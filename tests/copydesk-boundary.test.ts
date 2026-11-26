@@ -50,14 +50,15 @@ function modulePath(filename: string, specifier: string): string {
 }
 
 await test("planning and task runtime retain authority without importing editor adapters", () => {
-  for (const filename of [...sources("planning"), ...sources("vendor/task-runtime"), "socrates/controls.ts"]) {
+  const leadAdapters = ["lead/extensions/managed.ts", "lead/extensions/socrates.ts"];
+  for (const filename of [...sources("planning"), ...sources("vendor/task-runtime"), ...leadAdapters]) {
     for (const specifier of moduleReferences(filename)) {
       const target = modulePath(filename, specifier);
       assert.ok(
         !target.startsWith("documents/") && !target.startsWith("@lanej/copydesk"),
         `${filename} imports editor implementation ${specifier}`,
       );
-      if (filename === "socrates/controls.ts" || filename === "planning/document-hooks.ts") {
+      if (leadAdapters.includes(filename) || filename === "planning/document-hooks.ts") {
         assert.ok(
           !target.startsWith("planning/documents"),
           `${filename} depends on the concrete document authority rather than its hooks`,

@@ -709,7 +709,7 @@ def seed(project, env, source_url):
 import {{ Discoveries }} from {json.dumps(str(root / 'discovery/store.ts'))};
 import {{ SpecStatus }} from {json.dumps(str(root / 'socrates/spec.ts'))};
 import {{ coverageToken, specificationToken }} from {json.dumps(str(root / 'socrates/assessment.ts'))};
-import {{ draftSchema,planDigest }} from {json.dumps(str(root / 'lead-plan.ts'))};
+import {{ draftSchema,planDigest }} from {json.dumps(str(root / 'planning/plan.ts'))};
 import {{ runtimeProjectSchema }} from {json.dumps(str(root / 'config.ts'))};
 import {{ SessionManager }} from '@earendil-works/pi-coding-agent';
 const store = new Discoveries();
@@ -825,11 +825,12 @@ def check_publication_review(terminal_type, project, env, output, source_url):
         "integrations": {name: {"enabled": True, "executable": "/usr/bin/false"} for name in ("worktrees", "octo")},
     }))
     source = """
-import { Discoveries, applyDeliveryPolicy, handoffDraft } from './discovery/store.ts';
+import { applyDeliveryPolicy, handoffDraft } from './discovery/plan.ts';
+import { Discoveries } from './discovery/store.ts';
 import { directoryProfileType } from './directory.ts';
 import { coverageToken, specificationToken } from './socrates/assessment.ts';
 import { SpecStatus } from './socrates/spec.ts';
-import { draftSchema } from './lead-plan.ts';
+import { draftSchema } from './planning/plan.ts';
 import { SessionManager } from '@earendil-works/pi-coding-agent';
 const project = process.argv[1], store = new Discoveries(), session = SessionManager.create(project);
 const discovery = store.create(project, session.getSessionId(), 'Event export and guide');

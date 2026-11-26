@@ -2,7 +2,8 @@ import { realpath } from "node:fs/promises";
 import { z } from "zod";
 import { tabId, Zellij } from "../zellij.ts";
 import { processStart } from "../process.ts";
-import { ExecutionPhase, type Execution, type InteractiveTarget } from "./store.ts";
+import { ExecutionPhase, type Execution } from "./store.ts";
+import type { InteractiveTarget } from "./target.ts";
 
 export async function currentInteractiveTarget(): Promise<InteractiveTarget> {
   const session = z

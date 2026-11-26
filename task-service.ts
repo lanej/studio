@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import type { StudioConfig } from "./config.ts";
-import { orderedTasks, draftSchema, TaskDelivery, type LeadDraft } from "./lead-plan.ts";
+import { orderedTasks, draftSchema, TaskDelivery, type LeadDraft } from "./planning/plan.ts";
 
 export const beadSchema = z.looseObject({
   id: z.string().min(1),

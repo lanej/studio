@@ -3,7 +3,7 @@ import { Phase, type Attempt } from "../attempts.ts";
 import { selectorText } from "@lanej/pi-components";
 import { z } from "zod";
 import { isDeepStrictEqual } from "node:util";
-import { draftSchema, TaskDelivery } from "../lead-plan.ts";
+import { draftSchema, TaskDelivery } from "../planning/plan.ts";
 import { knownRelationship, knownTaskStatus, parentId, TaskRelationship, TaskStatus, type Task } from "../beads.ts";
 import {
   ExecutionPhase,
@@ -12,7 +12,7 @@ import {
   pendingDecision,
   type Execution,
 } from "../execution/store.ts";
-import { retainedConflicts } from "../execution/supervisor.ts";
+import { retainedConflicts } from "../execution/admission.ts";
 
 export interface TaskSnapshot {
   tasks: Task[];
@@ -99,24 +99,19 @@ export function parkedDetails(task: Task, snapshot: TaskSnapshot): string | unde
     : attempt.summary.length > 0
       ? "Last evidenced step: worker report recorded."
       : "Last completed step: unknown.";
-  const waiting = snapshot.attempts.filter(
-    (other) =>
-      other.id !== attempt.id &&
-      other.phase === ExecutionPhase.Queued &&
-      retainedConflicts(other, snapshot.attempts).some((blocker) => blocker.id === attempt.id),
-  );
-  const blocked = waiting.map((other) => {
-    const paths =
-      attempt.owns.length === 0 || other.owns.length === 0
-        ? "ownership unspecified"
-        : attempt.owns
-            .flatMap((a) =>
-              other.owns
-                .filter((b) => a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`))
-                .map((b) => (a === b ? a : `${a} / ${b}`)),
-            )
-            .join(", ");
-    return `${other.bead?.title ?? other.bead?.id ?? other.id}: ${paths}`;
+  const blocked = snapshot.attempts.flatMap((other) => {
+    if (other.id === attempt.id || other.phase !== ExecutionPhase.Queued) return [];
+    for (const { blocker, ownership } of retainedConflicts(other, snapshot.attempts)) {
+      if (blocker.id !== attempt.id) continue;
+      const paths =
+        ownership.kind === "whole-checkout"
+          ? "ownership unspecified"
+          : Array.from(ownership.paths(), ({ retained, candidate }) =>
+              retained === candidate ? retained : `${retained} / ${candidate}`,
+            ).join(", ");
+      return [`${other.bead?.title ?? other.bead?.id ?? other.id}: ${paths}`];
+    }
+    return [];
   });
   return [
     state,

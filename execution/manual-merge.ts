@@ -5,7 +5,8 @@ import { loadConfig } from "../config.ts";
 import { sha } from "../delivery-record.ts";
 import { owner } from "../task-service.ts";
 import { ExecutionBeads } from "./beads.ts";
-import { ExecutionPhase, ExecutionStore, type Execution, type RuntimeProject } from "./store.ts";
+import { ExecutionPhase, ExecutionStore, type Execution } from "./store.ts";
+import type { RuntimeProject } from "./target.ts";
 
 export async function requireManualMergeAuthority(project: RuntimeProject): Promise<void> {
   const config = await loadConfig();

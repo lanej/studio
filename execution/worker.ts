@@ -10,7 +10,7 @@ import { requireIntegration } from "../integrations.ts";
 import { snapshotTools } from "../delegation.ts";
 import { processStart, run } from "../process.ts";
 import { gitState } from "../task-verification.ts";
-import { TaskDelivery } from "../lead-plan.ts";
+import { TaskDelivery } from "../planning/plan.ts";
 import {
   ExecutionStore,
   ExecutionPhase,
@@ -19,8 +19,8 @@ import {
   hasUnappliedAnswer,
   pendingDecision,
   type Execution,
-  type RuntimeProject,
 } from "./store.ts";
+import type { RuntimeProject } from "./target.ts";
 import { reviewRevision } from "./review.ts";
 import { beadSchema } from "../task-service.ts";
 import { requireUnattendedTask, ExecutionBeads, heartbeat } from "./beads.ts";
@@ -160,7 +160,7 @@ export async function executeAssignment(
     if (!attempt.bead || attempt.revision === undefined) throw new Error("Missing admitted task identity");
     requireUnattendedTask(attempt.bead);
     const handoff = store.taskHandoffIntent(project.id, attempt.bead.id);
-    if (handoff) approvedHandoffTask(store, project, attempt.bead, handoff);
+    if (handoff !== undefined) approvedHandoffTask(store, project, attempt.bead, handoff);
     if (ctx.cwd !== project.root || !ctx.isProjectTrusted())
       throw new Error("Approve Pi project trust for the enrolled repository before execution");
     const started = await processStart(process.pid);

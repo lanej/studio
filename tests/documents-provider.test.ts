@@ -31,7 +31,7 @@ import { registerPlanningDocuments, type PlanningDocuments } from "../planning/d
 import { DocumentJournal, FeedbackState } from "../planning/feedback.ts";
 import { renderPlan } from "../planning/codec.ts";
 import { DocumentOwnerKind } from "../planning/model.ts";
-import { draftSchema } from "../lead-plan.ts";
+import { draftSchema } from "../planning/plan.ts";
 
 const expectation = (id: keyof typeof HOST_CONFORMANCE_CASES) => `${id}: ${HOST_CONFORMANCE_CASES[id]}`;
 

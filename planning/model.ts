@@ -1,6 +1,6 @@
 import { isAbsolute } from "node:path";
 import { z } from "zod";
-import type { LeadDraft } from "../lead-plan.ts";
+import type { LeadDraft } from "./plan.ts";
 import type { LeadSpecification, assessedSpecDraft } from "../socrates/spec.ts";
 
 export enum DocumentKind {

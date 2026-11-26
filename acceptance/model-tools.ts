@@ -20,8 +20,8 @@ import { registerCodeIntelligence } from "../code-intelligence/extension.ts";
 import { registerDiagrams } from "../diagram/extension.ts";
 import { mermaidDefinition, registerMermaidTool } from "../diagram/mermaid-tool.ts";
 import { delegateTool, registerDelegation } from "../delegation.ts";
-import { registerLeadControls } from "../lead-extension.ts";
-import { LeadMode } from "../lead-plan.ts";
+import { registerLeadControls } from "../lead/extensions/managed.ts";
+import { LeadMode } from "../planning/plan.ts";
 import { registerModelTools } from "../model-tools/extension.ts";
 import { registerPlanningDocuments } from "../planning/documents.ts";
 
@@ -791,6 +791,16 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
     await managed.session.prompt("Inspect the managed planning tools");
     assert.deepEqual(diagramToolNames(requests[0]), foreignAlias ? ["ShowDiagram", "render_mermaid"] : claudeDiagrams);
     const managedTools = payload.parse(requests[0]).tools.map(({ name }) => name);
+    const socratesTools = ["ask_user_question", "draft_socrates_specification"];
+    assert.deepEqual(
+      managed.session
+        .getAllTools()
+        .map(({ name }) => name)
+        .filter((name) => socratesTools.includes(name))
+        .sort(),
+      socratesTools,
+    );
+    assert.ok(!managedTools.some((name) => socratesTools.includes(name)));
     assert.ok(managedTools.includes("read"));
     assert.ok(!managedTools.includes(delegateTool));
     assert.ok(!managedTools.some((name) => ["Read", "Bash", "Edit", "Write", "write", "edit", "bash"].includes(name)));

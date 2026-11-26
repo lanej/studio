@@ -11,14 +11,16 @@ import { isDeepStrictEqual } from "node:util";
 import { selectorText } from "@lanej/pi-components";
 import { z } from "zod";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/models";
-import { registerSocratesControls } from "../socrates/controls.ts";
+import { registerSocratesControls } from "../lead/extensions/socrates.ts";
 import { SpecStatus } from "../socrates/spec.ts";
 import { loadConfig, ModelCapability, ReasoningLevel, studioProfileSchema, workerForTask } from "../config.ts";
 import { socratesGuidance } from "../socrates/guidance.ts";
-import { LeadMode, TaskDelivery, describePlan, draftSchema, planDigest, reviseDelivery } from "../lead-plan.ts";
+import { LeadMode, TaskDelivery, describePlan, draftSchema, planDigest, reviseDelivery } from "../planning/plan.ts";
 import { isEntry, PiEntryType } from "../runtime.ts";
 import { reviewHandoff } from "./handoff-review.ts";
-import { saveDiscoveryPlan, Discoveries, handoffDraft, type Discovery } from "./store.ts";
+import { saveDiscoveryPlan, handoffDraft } from "./plan.ts";
+import { Discoveries } from "./store.ts";
+import type { Discovery } from "./model.ts";
 
 const selectionType = "studio:discovery";
 const markerSchema = z.object({

@@ -6,7 +6,7 @@ import { defaultPaneKeybindings, matchesPaneKey, paneKeyHint, paneKeyPair } from
 import { selectorText } from "@lanej/pi-components";
 import { pendingDecision, ExecutionPhase } from "../execution/store.ts";
 import { githubLink } from "../github-links.ts";
-import { taskStatusGlyph, withTaskAssignment } from "../ui.ts";
+import { taskStatusGlyph, withTaskAssignment } from "./presentation.ts";
 import {
   currentReviewFinding,
   needsAttention,

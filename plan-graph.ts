@@ -1,5 +1,5 @@
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
-import { taskWaves } from "./smart-plan-graph.ts";
+import { taskWaves } from "./planning/graph.ts";
 
 interface GraphTask {
   readonly key: string;

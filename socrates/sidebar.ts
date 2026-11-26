@@ -10,7 +10,7 @@ import {
   type StatusTheme,
 } from "@lanej/pi-components";
 import { planGraph, renderGraphPrefix } from "../plan-graph.ts";
-import { withTaskAssignment } from "../ui.ts";
+import { withTaskAssignment } from "../tasks/presentation.ts";
 import { renderBeadProgress } from "./bead-progress.ts";
 import { taskMarks } from "./columns.ts";
 import { renderWorkerCompact, type WorkerSidebarView } from "./worker-section.ts";

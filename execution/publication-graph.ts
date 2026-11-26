@@ -1,16 +1,19 @@
 import { isDeepStrictEqual } from "node:util";
 import { sha } from "../delivery-record.ts";
-import { Discoveries, HandoffPhase } from "../discovery/store.ts";
+import { HandoffPhase } from "../discovery/model.ts";
+import { Discoveries } from "../discovery/store.ts";
 import {
   publicationPrerequisites as prerequisiteTasks,
   planDigest,
   TaskDelivery,
   type LeadDraft,
-} from "../lead-plan.ts";
+} from "../planning/plan.ts";
 import type { NativeBead } from "../task-service.ts";
-import { ExecutionPhase, type Execution, type ExecutionStore, type RuntimeProject } from "./store.ts";
+import type { RetainedHandoffIntent } from "./handoff-model.ts";
+import { ExecutionPhase } from "./phase.ts";
+import type { Execution, ExecutionStore } from "./store.ts";
+import type { RuntimeProject } from "./target.ts";
 
-type Intent = NonNullable<ReturnType<ExecutionStore["taskHandoffIntent"]>>;
 type PlanTask = LeadDraft["tasks"][number];
 
 function requirePublicationTarget(approved: RuntimeProject, current: RuntimeProject): void {
@@ -23,7 +26,7 @@ function requirePublicationTarget(approved: RuntimeProject, current: RuntimeProj
     throw new Error("The publishing repository, target branch, or Beads authority differs from the approved handoff");
 }
 
-function approvedDraft(store: ExecutionStore, project: RuntimeProject, intent: Intent): LeadDraft {
+function approvedDraft(store: ExecutionStore, project: RuntimeProject, intent: RetainedHandoffIntent): LeadDraft {
   if (intent.draft && intent.project === project.id) {
     if (intent.target) {
       requirePublicationTarget(intent.target, project);
@@ -58,7 +61,7 @@ function approvedDraft(store: ExecutionStore, project: RuntimeProject, intent: I
   }
 }
 
-function requireApprovedBead(bead: NativeBead, task: PlanTask, draft: LeadDraft, intent: Intent): void {
+function requireApprovedBead(bead: NativeBead, task: PlanTask, draft: LeadDraft, intent: RetainedHandoffIntent): void {
   if (
     bead.id !== intent.ids[task.key] ||
     bead.metadata["studio.graph"] !== intent.id ||
@@ -78,7 +81,7 @@ export function approvedHandoffTask(
   store: ExecutionStore,
   project: RuntimeProject,
   bead: NativeBead,
-  intent: Intent,
+  intent: RetainedHandoffIntent,
 ): { draft: LeadDraft; task: PlanTask } {
   const draft = approvedDraft(store, project, intent);
   const task = draft.tasks.find((entry) => intent.ids[entry.key] === bead.id);
@@ -101,7 +104,7 @@ export function publicationPrerequisites(
   if (!bead || attempt.project !== project.id)
     throw new Error("Publication requires an admitted bead in the enrolled project");
   const intent = store.taskHandoffIntent(project.id, bead.id);
-  if (!intent) {
+  if (intent === undefined) {
     if (
       bead.metadata["studio.graph"] !== undefined ||
       bead.metadata["studio.approval"] !== undefined ||

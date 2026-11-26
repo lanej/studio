@@ -6,7 +6,8 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { Type } from "typebox";
 import { z } from "zod";
 import { ExecutionBeads } from "./beads.ts";
-import { ExecutionStore, ExecutionPhase, type Execution, type RuntimeProject } from "./store.ts";
+import { ExecutionStore, ExecutionPhase, type Execution } from "./store.ts";
+import type { RuntimeProject } from "./target.ts";
 
 export function writableTools(
   project: RuntimeProject,

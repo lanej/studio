@@ -13,16 +13,17 @@ import {
   ExecutionPhase,
   VerificationPhase,
   executionSchema,
-  projectSchema,
   pendingDecision,
   latestDecision,
 } from "../execution/store.ts";
+import { projectSchema } from "../execution/target.ts";
 import { recordDecision, answerDecision, requireDecisionPublicationReconciled } from "../execution/decisions.ts";
 import { retryAttempt } from "../execution/cli.ts";
 import { reconcileAttempt } from "../execution/recovery.ts";
-import { maintainAttempt, retainedConflicts } from "../execution/supervisor.ts";
+import { retainedConflicts } from "../execution/admission.ts";
+import { maintainAttempt } from "../execution/supervisor.ts";
 import { parseBackgroundResult, resumeReviewedAssignment } from "../execution/worker.ts";
-import { TaskDelivery } from "../lead-plan.ts";
+import { TaskDelivery } from "../planning/plan.ts";
 
 await test("background question results are disjoint and new answers cannot reuse old approval", async () => {
   assert.deepEqual(
@@ -245,7 +246,7 @@ await test("answering tolerates lease renewal while guarding request, writer, ad
       bead: { ...initial.bead, id: "blocked" },
     });
     assert.deepEqual(
-      retainedConflicts(overlap, [store.attempt(id), overlap]).map((row) => row.id),
+      Array.from(retainedConflicts(overlap, [store.attempt(id), overlap]), ({ blocker }) => blocker.id),
       [id],
     );
     const renewedAt = store.attempt(id).heartbeatAt + 1;

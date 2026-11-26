@@ -4,7 +4,7 @@ import { stripVTControlCharacters } from "node:util";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { implementationColumn } from "../socrates/columns.ts";
 import { implementationPresentation, ImplementationState } from "../socrates/implementation.ts";
-import { LeadMode, draftSchema } from "../lead-plan.ts";
+import { LeadMode, draftSchema } from "../planning/plan.ts";
 import { renderStatusSidebar, renderWorkerCompact, type WorkerSidebarView } from "../socrates/sidebar.ts";
 import { renderWorkerDock } from "../socrates/worker-section.ts";
 import type { WorkerAssignment } from "../tasks/workers.ts";

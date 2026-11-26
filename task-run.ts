@@ -11,7 +11,7 @@ import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { Attempts, Phase, stateDirectory, type Attempt } from "./attempts.ts";
 import { AgentRole, DefaultProvider, StudioProfile, type StudioConfig, knownProvider, loadConfig } from "./config.ts";
-import { LeadMode } from "./lead-plan.ts";
+import { LeadMode } from "./planning/plan.ts";
 import { processFailure, processStart, run } from "./process.ts";
 import { ClaimRefused, owner, TaskBeads } from "./task-service.ts";
 import { Zellij } from "./zellij.ts";

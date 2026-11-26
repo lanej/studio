@@ -24,7 +24,7 @@ def check_worker_sidebar(terminal_type, project, env, output, authority, served_
     source = """
 import { SessionManager } from '@earendil-works/pi-coding-agent';
 import { Discoveries } from './discovery/store.ts';
-import { draftSchema, planDigest } from './lead-plan.ts';
+import { draftSchema, planDigest } from './planning/plan.ts';
 import { runtimeProjectSchema } from './config.ts';
 import { coverageToken } from './socrates/assessment.ts';
 import { ExecutionStore, executionSchema } from './execution/store.ts';

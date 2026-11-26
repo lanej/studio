@@ -1,7 +1,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { ConditionState, conditionMark, selectorText } from "@lanej/pi-components";
-import { type LeadDraft, publicationGroups } from "../lead-plan.ts";
+import { type LeadDraft, publicationGroups } from "../planning/plan.ts";
 import { planGraph, planGraphColor, renderGraphPrefix } from "../plan-graph.ts";
 import { coverageBasisCurrent, coverageProperties } from "../socrates/assessment.ts";
 import { conditionStates } from "../socrates/columns.ts";

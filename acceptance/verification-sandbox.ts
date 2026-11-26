@@ -2,8 +2,7 @@ import assert from "node:assert/strict";
 import { access, lstat, mkdir, mkdtemp, readFile, rm, writeFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
-import { run, processStart } from "../process.ts";
-import { alive } from "../execution/supervisor.ts";
+import { processMatchesStart, processStart, run } from "../process.ts";
 import { assertVerificationIsolation, verificationSandbox } from "../execution/sandbox.ts";
 import { safeGit } from "../execution/git.ts";
 import { gitState, runCheck } from "../task-verification.ts";
@@ -284,7 +283,7 @@ try {
       assert.equal(await readFile(join(lingering.cwd, "build-output/late-result"), "utf8"), "true");
       assert.equal(await readFile(join(checkout, "source.txt"), "utf8"), "reviewed source");
       const settled = Date.now() + 3000;
-      while (await alive(childPid, childStart)) {
+      while (await processMatchesStart(childPid, childStart)) {
         if (Date.now() >= settled) {
           process.kill(childPid, "SIGKILL");
           throw new Error("Detached fixture did not settle");
@@ -292,7 +291,8 @@ try {
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
     } finally {
-      if (detached && (await alive(detached.pid, detached.started))) process.kill(detached.pid, "SIGKILL");
+      if (detached && (await processMatchesStart(detached.pid, detached.started)))
+        process.kill(detached.pid, "SIGKILL");
       await lingering.close();
     }
   }

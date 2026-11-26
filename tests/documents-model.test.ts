@@ -16,7 +16,7 @@ import {
   type WritableSpecificationDraft,
 } from "../planning/model.ts";
 import { documentRevision } from "../planning/revisions.ts";
-import { TaskDelivery, draftSchema, pullRequestMergeSchema } from "../lead-plan.ts";
+import { TaskDelivery, draftSchema, pullRequestMergeSchema } from "../planning/plan.ts";
 import { coverageDomains, coveragePropertyCatalog, coverageStatuses } from "../socrates/assessment.ts";
 import { deliveryPolicySchema } from "../socrates/delivery-policy.ts";
 import { DecisionDisposition, assessedSpecDraft, specDraft, specRecord } from "../socrates/spec.ts";
@@ -82,7 +82,7 @@ const plan = draftSchema.parse({
       acceptance: "Saving changes the correct Studio record",
       blockedBy: [],
       requirements: ["R1"],
-      owns: ["documents", "socrates/controls.ts"],
+      owns: ["documents", "lead/extensions/socrates.ts"],
       check: ["bun", "test", "tests/documents-model.test.ts"],
       hold: false,
       delivery: TaskDelivery.PullRequest,

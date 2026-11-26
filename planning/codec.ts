@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { z } from "zod";
-import { draftSchema } from "../lead-plan.ts";
+import { draftSchema } from "./plan.ts";
 import { savedCoverageSchema } from "../socrates/assessment.ts";
 import { deliveryPolicySchema } from "../socrates/delivery-policy.ts";
 import { isTrackedDecision, specDraft, specRecord } from "../socrates/spec.ts";

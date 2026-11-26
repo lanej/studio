@@ -8,7 +8,7 @@ import {
   TaskDelivery,
   type LeadDraft,
   type PlanWorkers,
-} from "../lead-plan.ts";
+} from "../planning/plan.ts";
 import { reviewContextValue } from "../plan-review.ts";
 import { specText, type LeadSpecification } from "../socrates/spec.ts";
 import { handoffOverview } from "./handoff-overview.ts";

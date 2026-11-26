@@ -1,9 +1,7 @@
-import type { ExtensionContext, Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { matchesKey, Text, truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { selectorText } from "@lanej/pi-components";
 import { floatingPaneHeight, floatingPaneOptions, framePaneRows, paintPaneLine, paneMouse } from "./floating-pane.ts";
-import { knownTaskStatus, TaskStatus } from "./beads.ts";
-import type { TaskAssignment } from "./config.ts";
 import { NavigationKey } from "./runtime.ts";
 import { renderPlanReview, type PlanReview } from "./plan-review.ts";
 
@@ -14,31 +12,6 @@ const documentOverlay = {
   overlay: true,
   overlayOptions: { width: "100%", maxHeight: "100%", margin: 1 },
 } as const;
-
-const statusTones = {
-  [TaskStatus.Open]: { glyph: "○", tone: "muted" },
-  [TaskStatus.InProgress]: { glyph: "◐", tone: "accent" },
-  [TaskStatus.Blocked]: { glyph: "×", tone: "error" },
-  [TaskStatus.Deferred]: { glyph: "–", tone: "warning" },
-  [TaskStatus.Closed]: { glyph: "●", tone: "success" },
-} satisfies Record<TaskStatus, { glyph: string; tone: ThemeColor }>;
-
-export function taskStatusGlyph(status: string, theme: Pick<Theme, "fg">): string {
-  const recognized = knownTaskStatus(status);
-  const { glyph, tone } = recognized === undefined ? { glyph: "?", tone: "muted" as const } : statusTones[recognized];
-  return theme.fg(tone, glyph);
-}
-
-export function withTaskAssignment(
-  row: string,
-  assignment: TaskAssignment | undefined,
-  width: number,
-  muted: (text: string) => string,
-): string {
-  if (!assignment) return row;
-  const suffix = `  ·  ${assignment.capability} · ${assignment.reasoning}`;
-  return visibleWidth(row) + visibleWidth(suffix) <= width ? row + muted(suffix) : row;
-}
 
 export async function showTask(
   ctx: CustomContext,

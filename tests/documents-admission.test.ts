@@ -18,7 +18,7 @@ import { ModelCapability, ReasoningLevel } from "../config.ts";
 import { Discoveries } from "../discovery/store.ts";
 import { registerPlanningDocuments, getPlanningDocuments, revisionFor } from "../planning/documents.ts";
 import { FeedbackState } from "../planning/feedback.ts";
-import { draftSchema } from "../lead-plan.ts";
+import { draftSchema } from "../planning/plan.ts";
 import { renderPlan } from "../planning/codec.ts";
 import { DocumentKind, documentSnapshotSchema } from "../planning/model.ts";
 import { coverageFresh } from "../socrates/assessment.ts";

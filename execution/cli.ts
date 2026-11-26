@@ -99,7 +99,7 @@ export function registerRuntimeCommands(program: Command): void {
     .description("Inspect runtime ownership, attempts, retained sessions and policy")
     .action(async () => {
       const { ExecutionStore } = await import("./store.ts");
-      const { alive } = await import("./supervisor.ts");
+      const { processMatchesStart } = await import("../process.ts");
       const { mergePolicy } = await import("./policy.ts");
       const store = new ExecutionStore();
       try {
@@ -117,7 +117,7 @@ export function registerRuntimeCommands(program: Command): void {
             {
               supervisor: supervisor ?? null,
               allocationOwner: store.allocationOwner() ?? null,
-              live: supervisor !== undefined && (await alive(supervisor.pid, supervisor.started)),
+              live: supervisor !== undefined && (await processMatchesStart(supervisor.pid, supervisor.started)),
               projects,
               attempts: store.attempts(),
             },
