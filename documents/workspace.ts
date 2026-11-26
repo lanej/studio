@@ -42,7 +42,11 @@ export function registerDocumentWorkspace(pi: ExtensionAPI): void {
     bound = undefined;
     const previous = workspace;
     workspace = undefined;
-    if (quitting && context !== undefined && context.mode === PiMode.Tui) {
+    if (
+      quitting &&
+      context !== undefined &&
+      piModeSchema.parse(context.mode) === PiMode.Tui
+    ) {
       const { preserveDocumentPanesOnQuit } = await import("./editor.ts");
       await preserveDocumentPanesOnQuit().catch(report);
     }
