@@ -214,6 +214,22 @@ await test("daily-driver Socrates starts by title and resumes the picker selecti
     const socrates = runner.getCommand("socrates");
     const picker = runner.getCommand("discoveries");
     assert.ok(socrates !== undefined && picker !== undefined);
+    const commandNames = ["socrates", "spec-freeze"];
+    const toolNames = ["ask_user_question", "draft_socrates_specification"];
+    assert.deepEqual(
+      extensions
+        .flatMap(({ commands }) => [...commands.keys()])
+        .filter((name) => commandNames.includes(name))
+        .sort(),
+      commandNames,
+    );
+    assert.deepEqual(
+      extensions
+        .flatMap(({ tools }) => [...tools.keys()])
+        .filter((name) => toolNames.includes(name))
+        .sort(),
+      toolNames,
+    );
 
     await socrates.handler("", ctx);
     assert.deepEqual(

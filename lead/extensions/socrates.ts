@@ -1,10 +1,10 @@
-import { DocumentKind } from "../planning/model.ts";
+import { DocumentKind } from "../../planning/model.ts";
 import {
   getPlanningDocumentHooks,
   type PlanningDocumentHooks,
-} from "../planning/document-hooks.ts";
-import type { PaneKeybindings } from "../pane-keybindings.ts";
-import type { OpenTasks } from "../tasks/panel.ts";
+} from "../../planning/document-hooks.ts";
+import type { PaneKeybindings } from "../../pane-keybindings.ts";
+import type { OpenTasks } from "../../tasks/panel.ts";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -12,8 +12,8 @@ import type {
 import { Text } from "@earendil-works/pi-tui";
 import { isDeepStrictEqual } from "node:util";
 import { Type } from "typebox";
-import type { Attempt, Attempts } from "../attempts.ts";
-import { LeadMode } from "../lead-plan.ts";
+import type { Attempt, Attempts } from "../../attempts.ts";
+import { LeadMode } from "../../lead-plan.ts";
 import {
   assessedSpecDraft,
   applyDraftUpdate,
@@ -29,12 +29,15 @@ import {
   specificationGaps,
   type ReviewInput,
   type SpecQuestion,
-} from "./spec.ts";
-import { deliveryPolicyParameter } from "./delivery-policy.ts";
-import { questionEvidenceParameter } from "./evidence.ts";
-import { questionLinks, renderQuestionEvidence } from "./links.ts";
-import { chooseQuestion, QuestionSelectionKind } from "./selector.ts";
-import { socratesGuidance } from "./guidance.ts";
+} from "../../socrates/spec.ts";
+import { deliveryPolicyParameter } from "../../socrates/delivery-policy.ts";
+import { questionEvidenceParameter } from "../../socrates/evidence.ts";
+import { questionLinks, renderQuestionEvidence } from "../../socrates/links.ts";
+import {
+  chooseQuestion,
+  QuestionSelectionKind,
+} from "../../socrates/selector.ts";
+import { socratesGuidance } from "../../socrates/guidance.ts";
 import {
   coverageDomains,
   coverageFresh,
@@ -44,20 +47,15 @@ import {
   coverageToken,
   pendingCoverageReview,
   specificationToken,
-} from "./assessment.ts";
-import { registerDiscoveryReview } from "./review-context.ts";
-import { registerSocratesPresentation } from "./presentation.ts";
-import type { ImplementationSource } from "./implementation.ts";
-import { BeadChanged, TaskBeads } from "../task-service.ts";
-import { reviewPlan, showTask } from "../ui.ts";
+} from "../../socrates/assessment.ts";
+import { registerDiscoveryReview } from "../../socrates/review-context.ts";
+import { registerSocratesPresentation } from "../../socrates/presentation.ts";
+import type { SocratesState } from "../../socrates/implementation.ts";
+import { BeadChanged, TaskBeads } from "../../task-service.ts";
+import { reviewPlan, showTask } from "../../ui.ts";
 
 export const askTool = "ask_user_question";
 export const specTool = "draft_socrates_specification";
-
-export type SocratesState = Pick<
-  ImplementationSource,
-  "revision" | "approved" | "handoff" | "specification" | "leadPlan"
->;
 
 export function registerSocrates(
   pi: ExtensionAPI,

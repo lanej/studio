@@ -95,7 +95,7 @@ const plan = draftSchema.parse({
       acceptance: "Saving changes the correct Studio record",
       blockedBy: [],
       requirements: ["R1"],
-      owns: ["documents", "socrates/controls.ts"],
+      owns: ["documents", "lead/extensions/socrates.ts"],
       check: ["bun", "test", "tests/documents-model.test.ts"],
       hold: false,
       delivery: TaskDelivery.PullRequest,

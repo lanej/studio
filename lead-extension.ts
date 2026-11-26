@@ -34,7 +34,11 @@ import {
   TaskDelivery,
 } from "./lead-plan.ts";
 import { SpecStatus } from "./socrates/spec.ts";
-import { askTool, registerSocrates, specTool } from "./socrates/controls.ts";
+import {
+  askTool,
+  registerSocrates,
+  specTool,
+} from "./lead/extensions/socrates.ts";
 import { reviewPlan, showTask } from "./ui.ts";
 import { BeadChanged, owner, TaskBeads } from "./task-service.ts";
 

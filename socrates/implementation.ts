@@ -32,6 +32,11 @@ export interface ImplementationSource {
   bead?: NativeBead | undefined;
 }
 
+export type SocratesState = Pick<
+  ImplementationSource,
+  "revision" | "approved" | "handoff" | "specification" | "leadPlan"
+>;
+
 export enum ImplementationState {
   Proposed = "proposed",
   Unknown = "unknown",

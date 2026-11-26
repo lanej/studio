@@ -22,6 +22,7 @@ import termios
 import time
 
 import pyte
+from socrates_fixture import message_text
 from task_panel_session import task_panel_session
 from PIL import Image, ImageDraw, ImageFont
 
@@ -102,14 +103,18 @@ class DiscoveryProvider(BaseHTTPRequestHandler):
             answer = review_answer
         else:
             assert "Harmony" in prompt and "Selected discovery · " in prompt, prompt
-            discovery_context = prompt.rsplit("Selected discovery · ", 1)[1]
-            title = discovery_context.splitlines()[0]
+            title = prompt.rsplit("Selected discovery · ", 1)[1].splitlines()[0]
             user_message = next(message for message in reversed(request["messages"]) if message["role"] == "user")
             resumed = "Resume Socrates discovery" in str(user_message.get("content"))
             if title == "Explore independently":
-                assert "Keep the lead free for research" in discovery_context, prompt
+                discovery_context = next(
+                    (text for message in request["messages"]
+                     if (text := message_text(message)).startswith("Current saved discovery\n")),
+                    "",
+                )
+                assert "Keep the lead free for research" in discovery_context, discovery_context
                 if resumed:
-                    assert "Operator answer · After review" in discovery_context, prompt
+                    assert "Operator answer · After review" in discovery_context, discovery_context
             action = "Discovery resumed" if resumed else "Discovery remains open"
             answer = f"{action}: {title}."
         self.send_response(200)

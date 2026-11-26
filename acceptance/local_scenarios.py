@@ -226,6 +226,8 @@ def exercise_question_exchange(case: Case) -> None:
     terminal.until("question stays open after Escape", lambda:
                    "Question remains open" in case.capture(pane))
     assert spec()["exchange"] == first
+    (artifacts / "socrates-question-after-escape.json").write_text(
+        json.dumps(spec()["exchange"], indent=2) + "\n")
     terminal.send_to_pane(pane, "/spec-freeze\r")
     terminal.until("open question blocks freeze", lambda:
                    "Continue /socrates before freezing" in " ".join(terminal.capture_pane(pane).split()) and
@@ -256,8 +258,11 @@ def exercise_question_exchange(case: Case) -> None:
     terminal.send_to_pane(pane, "An answer against the old brief.\r")
     terminal.until("stale answer is rejected", lambda:
                    "accepted brief, revision or owner changed" in " ".join(case.capture(pane).split()))
-    assert "answer" not in spec()["exchange"], spec()
-    old_revision = spec()["acceptedRevision"]
+    stale = spec()
+    assert "answer" not in stale["exchange"], stale
+    (artifacts / "socrates-stale-answer-refusal.json").write_text(
+        json.dumps(stale, indent=2) + "\n")
+    old_revision = stale["acceptedRevision"]
     terminal.send_to_pane(pane, "/plan-refresh\r")
     terminal.until("free-text question reevaluated against new revision", lambda:
                    RECEIPT.question in terminal.capture_pane(pane) and
@@ -313,6 +318,15 @@ def freeze_specification(case: Case, *, interview: bool) -> None:
     terminal.until("frozen specification has a plan", lambda:
                    spec().get("status") == "frozen" and
                    case.snapshot()["attempt"]["leadPlan"]["draft"] is not None)
+    frozen = case.snapshot()
+    assert frozen["attempt"]["leadPlan"]["mode"] == "planning", frozen
+    assert "pi.plan" not in frozen["task"]["metadata"], frozen
+    children = json.loads(case.harness.execute([
+        case.harness.options.bd, "--sandbox", "list", "--all", "--parent", bead, "--limit", "0", "--json",
+    ]).stdout)
+    assert children == [], children
+    (case.harness.artifacts / f"{case.scenario.value}-frozen-before-approval.json").write_text(
+        json.dumps({"snapshot": frozen, "children": children}, indent=2) + "\n")
 
 
 def approve_lead_plan(case: Case) -> ApprovedPlan:
@@ -379,6 +393,8 @@ def approve_lead_plan(case: Case) -> ApprovedPlan:
                    for edge in views[child]["dependencies"]), views[child]
     assert any(edge["id"] == plan["children"]["inspect"] and edge["dependency_type"] == "blocks"
                for edge in views[plan["children"]["verify"]]["dependencies"])
+    (case.harness.artifacts / f"{case.scenario.value}-handoff-approved.json").write_text(
+        json.dumps(approved, indent=2) + "\n")
     terminal.send_to_pane(pane, "/plan-approve\r")
     terminal.until("second approval refused", lambda: "No draft to approve" in pane_text(pane))
     assert fresh(bead)["attempt"]["leadPlan"] == plan

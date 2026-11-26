@@ -5,7 +5,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { isDeepStrictEqual } from "node:util";
 import { describePlan } from "../lead-plan.ts";
-import type { SocratesState } from "./controls.ts";
+import type { SocratesState } from "./implementation.ts";
 import { missingReviewInput } from "./assessment.ts";
 import { reviewInput, specText } from "./spec.ts";
 

@@ -8,21 +8,9 @@ The optional [Neovim document workspace](docs/neovim-documents.md) opens full sp
 
 ## Package layout
 
-`cli.ts`, `extension.ts`, `lead-extension.ts`, and `worker-extension.ts` are stable entry points. Internal code is grouped by capability when its owner and callers are clear:
+`cli.ts` is the CLI entrypoint. Pi loads `extension.ts` for the daily lead and `worker-extension.ts` for a task-bound session. The managed lead composes its controls through `lead-extension.ts`.
 
-| Location | Responsibility |
-| --- | --- |
-| `socrates/controls.ts` | Socrates commands and tools, pending-question presentation, answer persistence, revision checks, specification freeze and approval |
-| `socrates/spec.ts` | Persisted specification, question and decision schemas and transitions |
-| `socrates/assessment.ts` | Applicable property catalog, evidence requirements, and assessment freshness |
-| `socrates/presentation.ts` | Project saved assessments and live session activity into the status widget and inspection panel |
-| `socrates/guidance.ts`, `socrates/host.md` | Load the bundled Socrates skill and adapt it to the managed Pi host |
-| `socrates/selector.ts` | Adapt persisted questions and evidence to the reusable selector; own typed-answer choice and cancellation |
-| `socrates/evidence.ts`, `socrates/links.ts` | Validate question evidence and resolve its source links in the managed checkout |
-| [`@lanej/pi-components`](vendor/pi-components/README.md) | Independent terminal components: selectors, condition states, activity indicators, and responsive evidence inspection |
-| `tests/`, `acceptance/` | Workflow checks and independently runnable native acceptance fixtures |
-
-The selector returns an item index or cancellation. Socrates owns the typed-answer option, pending question, answer persistence, accepted revisions and approvals. Keep question side-chat orchestration with its Socrates caller and reusable interaction widgets in the component package. Task browsing and plan review remain with their existing callers in `ui.ts`; add further capability directories when they have a clear owner rather than creating empty layers. Shared skill paths resolve relative to this package, including when it is installed from a managed worktree.
+The shared Socrates registration lives in [`lead/extensions/socrates.ts`](lead/extensions/socrates.ts). The floating task browser is composed in [`tasks/panel.ts`](tasks/panel.ts). For capability ownership, role extensions and the design system, see the [Studio architecture guide](docs/architecture.md).
 
 ## Install
 

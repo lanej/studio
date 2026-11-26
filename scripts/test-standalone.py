@@ -102,6 +102,25 @@ with tempfile.TemporaryDirectory(prefix="studio-standalone-") as temporary:
     assert json.loads(run([str(launcher), "config", "--example"])) == json.loads(source_config)
     first = launcher.resolve()
     assert data_change_guidance in run(read_socrates_guidance, cwd=first.parents[1])
+    run([bun, "--no-env-file", "-e", """
+import assert from "node:assert/strict";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+for (const path of ["./extension.ts", "./worker-extension.ts"]) {
+    const url = import.meta.resolve(path);
+    assert.equal(fileURLToPath(url), resolve(path));
+    const entrypoint = await import(url);
+    assert.equal(typeof entrypoint.default, "function");
+}
+
+const adapterPath = "./lead/extensions/socrates.ts";
+const adapterUrl = import.meta.resolve(adapterPath);
+assert.equal(fileURLToPath(adapterUrl), resolve(adapterPath));
+const adapter = await import(adapterUrl);
+assert.equal(typeof adapter.registerSocratesControls, "function");
+assert.equal(typeof adapter.registerSocrates, "function");
+"""], cwd=first.parents[1])
     installed_guidance = first.parents[1] / guidance_path
     moved_guidance = installed_guidance.rename(work / "data-change-planning.md")
     try:

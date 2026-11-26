@@ -64,7 +64,7 @@ await test("planning and task runtime retain authority without importing editor 
   for (const filename of [
     ...sources("planning"),
     ...sources("vendor/task-runtime"),
-    "socrates/controls.ts",
+    "lead/extensions/socrates.ts",
   ]) {
     for (const specifier of moduleReferences(filename)) {
       const target = modulePath(filename, specifier);
@@ -74,7 +74,7 @@ await test("planning and task runtime retain authority without importing editor 
         `${filename} imports editor implementation ${specifier}`,
       );
       if (
-        filename === "socrates/controls.ts" ||
+        filename === "lead/extensions/socrates.ts" ||
         filename === "planning/document-hooks.ts"
       ) {
         assert.ok(

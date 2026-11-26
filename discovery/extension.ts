@@ -14,7 +14,7 @@ import { isDeepStrictEqual } from "node:util";
 import { selectorText } from "@lanej/pi-components";
 import { z } from "zod";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/models";
-import { registerSocratesControls } from "../socrates/controls.ts";
+import { registerSocratesControls } from "../lead/extensions/socrates.ts";
 import { SpecStatus } from "../socrates/spec.ts";
 import {
   loadConfig,
