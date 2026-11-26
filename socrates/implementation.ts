@@ -1,11 +1,10 @@
 import { readTaskEvidence } from "../tasks/evidence.ts";
 import { workerAssignments, type WorkerAssignment } from "../tasks/workers.ts";
-import type { StudioConfig, TaskAssignment } from "../config.ts";
+import type { ReasoningLevel, StudioConfig, TaskAssignment } from "../config.ts";
 import { TaskStatus, knownTaskStatus } from "../beads.ts";
 import { HandoffPhase, type Discovery } from "../discovery/store.ts";
 import {
   LeadMode,
-  describeWorkerAssignment,
   deliveryOutcome,
   orderedTasks,
   planDigest,
@@ -50,7 +49,7 @@ export enum ImplementationPhase {
   Tracking = "tracking",
 }
 
-export type ImplementationField = {
+type TextField = {
   label:
     | "Acceptance"
     | "Worker"
@@ -59,11 +58,15 @@ export type ImplementationField = {
     | "Depends on"
     | "Owns"
     | "Admission"
-    | "Delivery"
     | "Verification"
     | "Bead";
   value: string;
 };
+
+export type ImplementationField =
+  | TextField
+  | { label: "Reasoning"; value: ReasoningLevel }
+  | { label: "Delivery"; value: string; pending: boolean };
 
 export interface ImplementationRow {
   id: string;
@@ -462,16 +465,14 @@ export function implementationPresentation(
       link?.discovery === true
         ? source.handoff?.workers?.[task.key]
         : undefined;
-    const field = (label: ImplementationField["label"], value?: string) =>
+    const field = (label: TextField["label"], value?: string) =>
       value === undefined || value === "" ? [] : [{ label, value }];
-    const fields = [
+    const fields: ImplementationField[] = [
       ...field("Acceptance", task.acceptance),
-      ...field(
-        "Worker",
-        task.assignment === undefined
-          ? undefined
-          : describeWorkerAssignment(task.assignment),
-      ),
+      ...field("Worker", task.assignment?.capability),
+      ...(task.assignment === undefined
+        ? []
+        : [{ label: "Reasoning", value: task.assignment.reasoning } as const]),
       ...field(
         "Model",
         worker === undefined ? undefined : `${worker.provider}/${worker.model}`,
@@ -485,7 +486,7 @@ export function implementationPresentation(
           : task.owns.join(", "),
       ),
       ...field("Admission", task.hold === true ? "On hold" : undefined),
-      ...field("Delivery", delivery),
+      { label: "Delivery", value: delivery, pending: unassigned },
       ...field(
         "Verification",
         task.check === undefined || task.check.length === 0

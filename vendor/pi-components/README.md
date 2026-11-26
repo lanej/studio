@@ -1,3 +1,5 @@
 # Vendored Pi components
 
 Runtime source from [lanej/dotfiles at b4163590](https://github.com/lanej/dotfiles/tree/b416359039587ca36d0ec9bc0f7509da0833b933/tools/pi-components). Studio includes the reusable selector, condition status and activity primitives, conditions panel, two-column status dock, and foldable inspector so they remain available outside dotfiles. The [component guide](https://github.com/lanej/dotfiles/blob/b416359039587ca36d0ec9bc0f7509da0833b933/tools/pi-components/README.md) covers the complete API and runnable example. Refresh the exported sources together; the original package retains its own development tooling and interaction tests. Studio's strict profile checks this snapshot alongside its consumers.
+
+The status pill renderer comes from [lanej/dotfiles at e152ddd9](https://github.com/lanej/dotfiles/commit/e152ddd92ab59fc31246b2fc8e99151947018e0d) and uses Studio’s existing review-tone fallback.

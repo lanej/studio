@@ -7,10 +7,12 @@ import {
 import {
   renderStatusCounts,
   renderStatusMark,
+  renderStatusPill,
   selectorText,
   statusPaint,
   type StatusTheme,
 } from "@lanej/pi-components";
+import { ReasoningLevel } from "../config.ts";
 import { planGraph, planGraphColor, renderGraphPrefix } from "../plan-graph.ts";
 import { withTaskAssignment } from "../ui.ts";
 import { implementationColumn, taskMarks } from "./columns.ts";
@@ -22,6 +24,7 @@ import type {
 const fieldMarks = {
   Acceptance: ["◎", "accent"],
   Worker: ["◇", "thinkingHigh"],
+  Reasoning: ["◐", "thinkingHigh"],
   Model: ["◇", "thinkingHigh"],
   Requirements: ["§", "accent"],
   "Depends on": ["↳", "muted"],
@@ -31,6 +34,23 @@ const fieldMarks = {
   Verification: ["▸", "accent"],
   Bead: ["#", "muted"],
 } satisfies Record<ImplementationField["label"], [string, ThemeColor]>;
+
+function renderFieldValue(
+  field: ImplementationField,
+  theme: StatusTheme,
+): string {
+  const { label, value } = field;
+  const text = selectorText(value);
+  if (label === "Worker")
+    return renderStatusPill({ label: text, tone: "accent" }, theme);
+  if (label === "Reasoning")
+    return value === ReasoningLevel.Off
+      ? renderStatusPill({ label: "Off", tone: "muted" }, theme)
+      : `${renderStatusPill({ label: "On", tone: "success" }, theme)} ${text}`;
+  if ((label === "Delivery" && field.pending) || label === "Admission")
+    return renderStatusPill({ label: text, tone: "warning" }, theme);
+  return text;
+}
 
 function graphRows(plan: ImplementationPresentation) {
   return planGraph(plan.rows.map((row) => ({ ...row, key: row.id })));
@@ -84,7 +104,7 @@ export function createPlanInspector(
       let targetLine = 0;
       let footer: string;
       if (detail && task !== undefined) {
-        const status = renderStatusMark(taskMarks[task.state], options.theme);
+        const status = renderStatusPill(taskMarks[task.state], options.theme);
         header = [
           heading,
           ...wrapTextWithAnsi(
@@ -96,10 +116,11 @@ export function createPlanInspector(
         body = [
           ...wrapTextWithAnsi(selectorText(task.description), width),
           "",
-          ...task.fields.flatMap(({ label, value }) => {
+          ...task.fields.flatMap((field) => {
+            const { label } = field;
             const [glyph, tone] = fieldMarks[label];
             return wrapTextWithAnsi(
-              `${theme.fg("muted", label)} · ${selectorText(value)}`,
+              `${theme.fg("muted", label)} · ${renderFieldValue(field, options.theme)}`,
               Math.max(1, width - 2),
             ).map(
               (line, index) =>

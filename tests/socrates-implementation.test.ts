@@ -127,7 +127,7 @@ await test("a frozen specification and proposed breakdown never imply execution"
   assert.match(display.rows[1]?.details ?? "", /Depends on · restore/u);
   assert.match(
     display.rows[0]?.details ?? "",
-    /Worker · advanced · high reasoning/u,
+    /Worker · advanced\nReasoning · high/u,
   );
 });
 

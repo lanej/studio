@@ -26,6 +26,12 @@ proposal = {"summary": "Prepare the requested change", "tasks": [{
     "description": "Make the bounded change after operator approval.",
     "acceptance": "The native acceptance check passes.",
     "assignment": {"capability": "standard", "reasoning": "off"},
+}, {
+    "key": "review", "title": "Review the completed change",
+    "description": "Inspect the result against the agreed requirement.",
+    "acceptance": "Record the observed result.",
+    "assignment": {"capability": "advanced", "reasoning": "high"},
+    "blockedBy": ["change"],
 }]}
 requests = []
 errors = []
@@ -133,15 +139,29 @@ def run(output):
             terminal.capture("conversation-plan-inspect")
             terminal.send("\r")
             terminal.contains("The native acceptance check passes.")
-            terminal.contains("Worker · standard · off reasoning")
+            terminal.contains("Worker · ( standard )")
+            terminal.contains("Reasoning · ( Off )")
             terminal.capture("conversation-plan-task")
             terminal.resize(60, 24)
-            terminal.contains("◇ Worker · standard · off reasoning")
+            terminal.contains("◇ Worker · ( standard )")
+            terminal.contains("◐ Reasoning · ( Off )")
+            terminal.contains("( To be decided )")
+            terminal.contains("( Proposed )")
             terminal.centered_inspector("Prepare the requested change", "Esc back")
             terminal.assert_styled_text("◎", fg="accent", lines=[
                 row for row, line in enumerate(terminal.screen.display) if "◎ Acceptance" in line
             ])
+            terminal.assert_styled_text("To be decided", fg="warning", bg="selectedBg")
             terminal.capture("conversation-plan-task")
+            terminal.send("\x1b")
+            terminal.contains("Enter details")
+            terminal.send("j\r")
+            terminal.contains("Worker · ( advanced )")
+            terminal.contains("Reasoning · ( On ) high")
+            terminal.assert_styled_text("On", fg="success", bg="selectedBg", lines=[
+                row for row, line in enumerate(terminal.screen.display) if "Reasoning · ( On )" in line
+            ])
+            terminal.capture("conversation-plan-reasoning-on")
             terminal.send("\x1b")
             terminal.contains("Enter details")
             terminal.send("\x1b")
