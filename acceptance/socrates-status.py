@@ -120,6 +120,11 @@ def ownership_turn(request, draft):
     return {"role": "assistant", "content": "The ownership decision is recorded."}
 
 
+class SocratesFixtureServer(ThreadingHTTPServer):
+    # The lead reads all twelve linked beads concurrently.
+    request_queue_size = 32
+
+
 class Provider(BaseHTTPRequestHandler):
     def log_message(self, *_args):
         pass
@@ -937,7 +942,7 @@ def run(output, launcher):
     print("Preparing the local Socrates and Beads fixtures", flush=True)
     # A Darwin sockaddr_un path must fit in 104 bytes, including Studio's activation socket suffix.
     temp_parent = "/private/tmp" if sys.platform == "darwin" else None
-    with tempfile.TemporaryDirectory(prefix="st-ui-", dir=temp_parent) as directory, ThreadingHTTPServer(("127.0.0.1", 0), Provider) as provider, ExitStack() as cleanup:
+    with tempfile.TemporaryDirectory(prefix="st-ui-", dir=temp_parent) as directory, SocratesFixtureServer(("127.0.0.1", 0), Provider) as provider, ExitStack() as cleanup:
         home = Path(directory).resolve()
         agent = home / ".pi/agent"
         agent.mkdir(parents=True)

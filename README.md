@@ -172,7 +172,7 @@ When approving a plan from an existing bead, the full-terminal review shows the 
 
 ![Plan approval from an existing bead at 128 columns](docs/assets/plan-review-128.png)
 
-Each new proposed bead has a worker capability and a reasoning level. `standard` uses the profile's worker model. Configure optional `fast` and `advanced` models in the profile's `workerModels` table. Review the capability and reasoning in `/plan` and the resolved model in the approval's Bead details. Ask the lead to revise the proposal to change an assignment. The task inspector displays the approved selection after handoff. Existing tasks without an assignment use the configured worker defaults.
+Each new proposed bead has a worker capability and a reasoning level. `standard` uses the profile's worker model. Configure optional `fast` and `advanced` models in the profile's `workerModels` table. The `/plan` and `/tasks` lists show capability and reasoning alongside the task title where space allows. Open a task to see the full assignment. The resolved model appears in the approval's Bead details and in both inspectors after handoff. Ask the lead to revise the proposal to change an assignment. Existing tasks without an assignment use the configured worker defaults.
 
 Use `/plan-approve interactive` from a live Zellij tab to approve a local-delivery graph with explicit owned paths and a verifier for each task. The confirmation names the target session and tab. From `/tasks`, select a running task and use Right to focus its worker. Type guidance while Pi is working. Native Pi shows queued input and records guidance when the worker takes it. `/plan-approve background` selects background execution.
 

@@ -8,7 +8,8 @@ import {
 } from "@earendil-works/pi-tui";
 import {
   taskTree,
-  taskWorkerLabel,
+  taskWorkerAssignment,
+  taskWorkerDetails,
   type Task,
   type TreeRow,
 } from "../beads.ts";
@@ -22,7 +23,7 @@ import {
 import { selectorText } from "@lanej/pi-components";
 import { pendingDecision, ExecutionPhase } from "../execution/store.ts";
 import { githubLink } from "../github-links.ts";
-import { taskStatusGlyph } from "../ui.ts";
+import { taskStatusGlyph, withTaskAssignment } from "../ui.ts";
 import {
   currentReviewFinding,
   needsAttention,
@@ -265,7 +266,7 @@ export class TaskBrowser {
       lines.push({ text: this.theme.bold(line) });
     text("");
     text(taskNarrative(task, this.snapshot));
-    const worker = taskWorkerLabel(task);
+    const worker = taskWorkerDetails(task);
     if (worker !== undefined) text(worker);
     const decision = decisionDetails(task, this.snapshot);
     if (decision !== undefined) {
@@ -441,7 +442,15 @@ export class TaskBrowser {
           : taskStatusGlyph(row.task.status, this.theme);
         const branch = this.theme.fg("muted", row.branch ?? "");
         const label = `${selected ? "›" : " "} ${branch}${glyph} ${plain(row.task.title)}${row.warning === undefined ? "" : " ⚠"}`;
-        const padded = this.pad(label, treeWidth);
+        const padded = this.pad(
+          withTaskAssignment(
+            label,
+            taskWorkerAssignment(row.task)?.assignment,
+            treeWidth,
+            (text) => this.theme.fg("muted", text),
+          ),
+          treeWidth,
+        );
         return selected
           ? paintPaneLine(this.theme, "selectedBg", padded)
           : padded;

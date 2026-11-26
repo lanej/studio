@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { HandoffPhase } from "../discovery/store.ts";
-import { runtimeProjectSchema, StudioProfile } from "../config.ts";
+import {
+  DefaultProvider,
+  ReasoningLevel,
+  runtimeProjectSchema,
+  StudioProfile,
+} from "../config.ts";
 import { LeadMode, draftSchema, planDigest } from "../lead-plan.ts";
 import { beadSchema, TaskBeads } from "../task-service.ts";
 import { SpecStatus, specRecord } from "../socrates/spec.ts";
@@ -39,6 +44,7 @@ const draft = draftSchema.parse({
       description: "Read the saved archive.",
       acceptance: "Recovered bytes match the original.",
       requirements: ["R1"],
+      assignment: { capability: "advanced", reasoning: "high" },
     },
     {
       key: "verify",
@@ -71,6 +77,13 @@ const approved: ImplementationSource = {
     revision,
     digest,
     phase: HandoffPhase.Complete,
+    workers: {
+      restore: {
+        provider: DefaultProvider.ChatGPTSubscription,
+        model: "fixture-advanced",
+        reasoning: ReasoningLevel.High,
+      },
+    },
     target: {
       ...runtimeProjectSchema.parse({
         root: "/project",
@@ -112,6 +125,10 @@ await test("a frozen specification and proposed breakdown never imply execution"
   );
   assert.match(display.rows[1]?.details ?? "", /Requirements · R1/u);
   assert.match(display.rows[1]?.details ?? "", /Depends on · restore/u);
+  assert.match(
+    display.rows[0]?.details ?? "",
+    /Worker · advanced · high reasoning/u,
+  );
 });
 
 await test("sidebar draws dependency forks and joins, clipping at task boundaries", () => {
@@ -199,6 +216,10 @@ await test("linked native bead states remain independent of approval and depende
   const loading = implementationPresentation(approved);
   assert.equal(loading.phase, ImplementationPhase.Loading);
   assert.equal(loading.counts[ImplementationState.Unknown], 2);
+  assert.match(
+    loading.rows[0]?.details ?? "",
+    /Model · openai-codex\/fixture-advanced/u,
+  );
   const display = implementationPresentation(approved, {
     key: request.key,
     state: "current",

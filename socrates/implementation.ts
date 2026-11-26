@@ -1,10 +1,11 @@
 import { readTaskEvidence } from "../tasks/evidence.ts";
 import { workerAssignments, type WorkerAssignment } from "../tasks/workers.ts";
-import type { StudioConfig } from "../config.ts";
+import type { StudioConfig, TaskAssignment } from "../config.ts";
 import { TaskStatus, knownTaskStatus } from "../beads.ts";
 import { HandoffPhase, type Discovery } from "../discovery/store.ts";
 import {
   LeadMode,
+  describeWorkerAssignment,
   deliveryOutcome,
   orderedTasks,
   planDigest,
@@ -58,6 +59,7 @@ export interface ImplementationRow {
   beadId?: string | undefined;
   requirements: readonly string[];
   blockedBy: readonly string[];
+  assignment?: TaskAssignment | undefined;
   details: string;
 }
 
@@ -438,9 +440,19 @@ export function implementationPresentation(
     const delivery = unassigned
       ? "To be decided"
       : `${deliveryOutcome(task.delivery)}${task.delivery === undefined ? " (default)" : ""}`;
+    const worker =
+      link?.discovery === true
+        ? source.handoff?.workers?.[task.key]
+        : undefined;
     const evidence = [
       task.description,
       `Acceptance · ${task.acceptance}`,
+      ...(task.assignment === undefined
+        ? []
+        : [`Worker · ${describeWorkerAssignment(task.assignment)}`]),
+      ...(worker === undefined
+        ? []
+        : [`Model · ${worker.provider}/${worker.model}`]),
       ...(task.requirements.length === 0
         ? []
         : [`Requirements · ${task.requirements.join(", ")}`]),
@@ -463,6 +475,7 @@ export function implementationPresentation(
       beadId,
       requirements: task.requirements,
       blockedBy: task.blockedBy,
+      assignment: task.assignment,
       details: evidence,
     };
   });

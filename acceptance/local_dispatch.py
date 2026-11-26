@@ -10,7 +10,7 @@ from threading import Event
 from urllib.request import Request, urlopen
 
 from local_fixture import Fixture, Report
-from local_provider import Provider, TextDelta, ToolDelta, tool_delta
+from local_provider import ADMITTED_MODEL, Provider, TextDelta, ToolDelta, tool_delta
 from socrates_fixture import CompletionRequest, message_text
 from zellij_terminal import Terminal
 
@@ -309,6 +309,11 @@ def exercise_interactive_dispatch(fixture: Fixture, terminal: Terminal, lead: in
             assert "Withheld launch acknowledgement" in diagnostics.read_text()
             type_line(lead, "/tasks " + first["bead"]["id"])
             terminal.until("task inspector offers existing pane", lambda: "focus worker pane" in capture().lower())
+            worker_labels = ("Worker · standard · off reasoning",
+                             f"Model · {ADMITTED_MODEL.provider}/{ADMITTED_MODEL.id}")
+            terminal.until("task inspector shows the approved worker", lambda:
+                           all(label in capture() for label in worker_labels))
+            (fixture.artifacts / "interactive-task-assignment.ansi").write_text(terminal.capture_pane(lead, ansi=True))
             terminal.write_to_pane(lead, *b"\x1b[C")  # Right
             terminal.until("task inspector focuses the worker", lambda:
                            any(item["id"] == pane and item["is_focused"] for item in terminal.terminals()))

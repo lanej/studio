@@ -12,6 +12,7 @@ import {
   type StatusTheme,
 } from "@lanej/pi-components";
 import { planGraph, planGraphColor, renderGraphPrefix } from "../plan-graph.ts";
+import { withTaskAssignment } from "../ui.ts";
 import { implementationColumn, taskMarks } from "./columns.ts";
 import type { ImplementationPresentation } from "./implementation.ts";
 
@@ -114,7 +115,15 @@ export function createPlanInspector(
           const label = oneLine(item.label);
           const current = index === selected;
           const pointer = current ? theme.fg("accent", "› ") : "  ";
-          const row = truncateToWidth(`${pointer}${prefix}  ${label}`, width);
+          const row = truncateToWidth(
+            withTaskAssignment(
+              `${pointer}${prefix}  ${label}`,
+              item.assignment,
+              width,
+              (text) => theme.fg("muted", text),
+            ),
+            width,
+          );
           if (current) targetLine = body.length;
           body.push(
             current

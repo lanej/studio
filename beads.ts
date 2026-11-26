@@ -6,6 +6,7 @@ import {
   taskAssignmentSchema,
   type StudioConfig,
 } from "./config.ts";
+import { describeWorkerAssignment } from "./lead-plan.ts";
 import { run } from "./process.ts";
 
 export enum TaskStatus {
@@ -171,16 +172,25 @@ export function taskLabel(row: TreeRow): string {
   );
 }
 
-export function taskWorkerLabel(task: Task): string | undefined {
-  const worker = z
-    .object({
-      "studio.task": z.object({ assignment: taskAssignmentSchema }),
-      "studio.worker": selection,
-    })
-    .safeParse(task["metadata"]).data;
-  if (worker === undefined) return undefined;
-  const { provider, model, reasoning } = worker["studio.worker"];
-  return `Worker · ${worker["studio.task"].assignment.capability} · ${provider}/${model} · ${reasoning} reasoning`;
+const workerMetadata = z.object({
+  "studio.task": z.object({ assignment: taskAssignmentSchema }),
+  "studio.worker": selection,
+});
+
+export function taskWorkerAssignment(task: Task) {
+  const metadata = workerMetadata.safeParse(task["metadata"]).data;
+  if (metadata === undefined) return undefined;
+  const { assignment } = metadata["studio.task"];
+  const worker = metadata["studio.worker"];
+  if (assignment.reasoning !== worker.reasoning) return undefined;
+  return { assignment, worker };
+}
+
+export function taskWorkerDetails(task: Task): string | undefined {
+  const observed = taskWorkerAssignment(task);
+  return observed === undefined
+    ? undefined
+    : `Worker · ${describeWorkerAssignment(observed.assignment)}\nModel · ${observed.worker.provider}/${observed.worker.model}`;
 }
 
 export function taskDetails(
@@ -203,7 +213,7 @@ export function taskDetails(
     review?.finding,
     parent !== undefined ? `Parent: ${parent}` : undefined,
     blockers.length > 0 ? `Blocked by: ${blockers.join(", ")}` : undefined,
-    taskWorkerLabel(task),
+    taskWorkerDetails(task),
     "",
     task.description,
     task.acceptance_criteria !== undefined

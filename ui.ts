@@ -18,6 +18,7 @@ import {
   paneMouse,
 } from "./floating-pane.ts";
 import { knownTaskStatus, TaskStatus } from "./beads.ts";
+import type { TaskAssignment } from "./config.ts";
 import { NavigationKey } from "./runtime.ts";
 import { renderPlanReview, type PlanReview } from "./plan-review.ts";
 
@@ -39,6 +40,19 @@ export function taskStatusGlyph(
       ? { glyph: "?", tone: "muted" as const }
       : statusTones[recognized];
   return theme.fg(tone, glyph);
+}
+
+export function withTaskAssignment(
+  row: string,
+  assignment: TaskAssignment | undefined,
+  width: number,
+  muted: (text: string) => string,
+): string {
+  if (assignment === undefined) return row;
+  const suffix = `  ·  ${assignment.capability} · ${assignment.reasoning}`;
+  return visibleWidth(row) + visibleWidth(suffix) <= width
+    ? row + muted(suffix)
+    : row;
 }
 
 export async function showTask(

@@ -4,6 +4,7 @@ import {
   selection,
   taskAssignmentSchema,
   type ModelSelection,
+  type TaskAssignment,
 } from "./config.ts";
 import { taskWaves } from "./smart-plan-graph.ts";
 import { worktreeRelativePath } from "./worktree-path.ts";
@@ -142,6 +143,15 @@ export function orderedTasks(draft: LeadDraft): LeadDraft["tasks"] {
   );
 }
 
+export function describeWorkerAssignment(
+  assignment: TaskAssignment,
+  worker?: ModelSelection,
+): string {
+  const model =
+    worker === undefined ? "" : ` · ${worker.provider}/${worker.model}`;
+  return `${assignment.capability}${model} · ${assignment.reasoning} reasoning`;
+}
+
 export function taskReviewFields(
   task: LeadDraft["tasks"][number],
   intent: "proposal" | "execution" = "execution",
@@ -177,15 +187,7 @@ export function taskReviewFields(
       : [
           {
             label: "Worker",
-            value: [
-              task.assignment.capability,
-              worker === undefined
-                ? undefined
-                : `${worker.provider}/${worker.model}`,
-              `${task.assignment.reasoning} reasoning`,
-            ]
-              .filter((part) => part !== undefined)
-              .join(" · "),
+            value: describeWorkerAssignment(task.assignment, worker),
           },
         ]),
     { label: "Delivery", value: deliveryLabel ?? delivery },

@@ -114,11 +114,15 @@ discoveries.close();
 
         console.wait(lambda: all(label in roster() for label in ("Needs input", "Implementing", "Reviewing")),
                      "Current workers and reviewer did not appear below the graph")
-        rail_lines = console.rail_text().splitlines()
-        start = next(i for i, line in enumerate(rail_lines) if line.startswith("Beads  "))
-        cells = [rail_lines[start].removeprefix("Beads").strip(), rail_lines[start + 1].strip()]
-        assert [len(row) for row in cells] == [10, 2], cells
-        assert sorted("".join(cells)) == sorted("●" * 3 + "◐" * 3 + "○" * 6), cells
+        def settled_bead_rows():
+            rows = console.rail_text().splitlines()
+            for index, row in enumerate(rows[:-1]):
+                if row.startswith("Beads  "):
+                    cells = [row.removeprefix("Beads").strip(), rows[index + 1].strip()]
+                    return [len(cell) for cell in cells] == [10, 2] and sorted("".join(cells)) == sorted("●" * 3 + "◐" * 3 + "○" * 6)
+            return False
+
+        console.wait(settled_bead_rows, "The progress grid did not settle to three closed, three in progress and six open beads")
         graph = console.rail_text().partition("Implementation")[2].partition("Workers")[0]
         for title in ("Restore the selected graph node", "Keep the graph visible on resize"):
             assert any("◐" in line and line.rstrip().endswith(title) for line in graph.splitlines()), graph
