@@ -70,7 +70,7 @@ await test("planning and task runtime retain authority without importing editor 
       const target = modulePath(filename, specifier);
       assert.ok(
         !target.startsWith("documents/") &&
-          !target.startsWith("@lanej/editor-interop"),
+          !target.startsWith("@lanej/copydesk"),
         `${filename} imports editor implementation ${specifier}`,
       );
       if (
@@ -91,7 +91,7 @@ await test("Studio consumes an immutable independent package revision", () => {
     .object({ dependencies: z.record(z.string(), z.string()) })
     .parse(JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")));
   assert.match(
-    manifest.dependencies["@lanej/editor-interop"] ?? "",
-    /^github:lanej\/editor-interop#[0-9a-f]{40}$/,
+    manifest.dependencies["@lanej/copydesk"] ?? "",
+    /^git\+https:\/\/github\.com:443\/lanej\/copydesk\.git#[0-9a-f]{40}$/,
   );
 });

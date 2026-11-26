@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { z } from "zod";
-import { HOST_CONFORMANCE_CASES } from "@lanej/editor-interop/testing";
+import { HOST_CONFORMANCE_CASES } from "@lanej/copydesk/testing";
 import { Database } from "bun:sqlite";
 import { create, equals, toJsonString } from "@bufbuild/protobuf";
 import {
@@ -15,12 +15,12 @@ import {
   FeedbackState as WireFeedbackState,
   RejectionCode,
   SaveCommandSchema,
-} from "@lanej/editor-interop/protocol";
+} from "@lanej/copydesk/protocol";
 import {
   ProviderError,
   type SnapshotItem,
   type SnapshotReader,
-} from "@lanej/editor-interop";
+} from "@lanej/copydesk";
 import {
   DefaultResourceLoader,
   ExtensionRunner,
