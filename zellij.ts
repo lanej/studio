@@ -331,7 +331,10 @@ export class Zellij {
               ...value,
               coordinates: {
                 pinned: true,
-                x: { coordinateType: { case: "percent", value: 5 } },
+                x: { coordinateType: { case: "percent", value: 25 } },
+                y: { coordinateType: { case: "percent", value: 25 } },
+                width: { coordinateType: { case: "percent", value: 50 } },
+                height: { coordinateType: { case: "percent", value: 50 } },
               },
             },
           }

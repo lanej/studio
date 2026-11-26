@@ -15,11 +15,11 @@ enabled = true
 executable = "nvim"
 ```
 
-The first available draft opens a pinned floating pane without taking keyboard focus or resizing Studio. Studio reuses that pane for subsequent updates. `/documents` opens it explicitly or reopens it after you close it. Your ordinary Neovim initialization and plugins load before Studio attaches its document adapter. Other Studio features remain usable with this integration disabled or unavailable.
+The first available draft opens a centered floating pane without taking keyboard focus or resizing Studio. Studio reuses that pane for subsequent updates. `/documents` opens it explicitly or reopens it after you close it. Your ordinary Neovim initialization and plugins load before Studio attaches its document adapter. Other Studio features remain usable with this integration disabled or unavailable.
 
 The specification and plan are separate Markdown buffers. `:EditorDocuments` selects one. Each belongs to its original document and conversation; selecting another discovery in Studio does not reassign an existing buffer or comment. Incoming documents and updates preserve your current editor window.
 
-![Floating Neovim specification over the Studio lead with the sidebar and input visible](assets/documents-floating.png)
+![Centered floating Neovim specification over the Studio lead and sidebar](assets/documents-floating.png)
 
 ## Edit and save
 
@@ -51,7 +51,7 @@ Quitting Studio leaves the Neovim buffers available. If Studio is the last tiled
 
 ![A narrow companion pane retains local edits and displays conflict status](assets/documents-narrow.png)
 
-These images reconstruct the actual per-pane ANSI output from the isolated native acceptance run. They use Studio's default theme and a minimal Neovim configuration.
+These images reconstruct terminal output from the isolated native acceptance run. They use Studio's default theme and a minimal Neovim configuration.
 
 ## Development acceptance
 

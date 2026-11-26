@@ -296,6 +296,9 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                     lead_after = next(pane for pane in panes if pane["id"] == studio)
                     companion = next(pane for pane in panes if pane["id"] != studio)
                     assert companion["is_floating"], "The document pane is tiled"
+                    for origin, extent in (("pane_x", "pane_columns"), ("pane_y", "pane_rows")):
+                        midpoint_delta = 2 * (companion[origin] - lead_after[origin]) + companion[extent] - lead_after[extent]
+                        assert abs(midpoint_delta) <= 2, f"Document pane is off center on {origin}: {midpoint_delta / 2} cells"
                     assert lead_after["is_focused"], "Opening documents stole Studio focus"
                     assert all(lead_after[key] == lead_before[key] for key in geometry), "Opening documents resized Studio"
                     return companion["id"]
