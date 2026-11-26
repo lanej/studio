@@ -57,7 +57,7 @@
     "lovely-mermaid": "0.3.3",
     "smol-toml": "1.9.1",
     "vscode-languageserver-protocol": "3.18.6",
-    "@lanej/editor-interop": "github:lanej/editor-interop#2c46a502dcf407f974797344922d19bb51058ee9"
+    "@lanej/editor-interop": "github:lanej/editor-interop#50ef6f5af08c85b8909c842533fa47881f0d0483"
   },
   "devDependencies": {
     "@bufbuild/buf": "1.75.0",
