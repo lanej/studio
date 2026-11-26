@@ -435,10 +435,13 @@ export function registerSearchRendering(pi: ExtensionAPI): void {
               return shellOutputPreview(source, theme, heading, {
                 expanded: options.expanded,
                 expandKey() {
-                  expandHintCall ??= context.toolCallId;
-                  return expandHintCall === context.toolCallId
+                  return expandHintCall === undefined ||
+                    expandHintCall === context.toolCallId
                     ? context.keyText("app.tools.expand")
                     : "";
+                },
+                showExpandKey() {
+                  expandHintCall ??= context.toolCallId;
                 },
                 tokens:
                   usage === undefined ? undefined : usage.call + usage.result,

@@ -375,6 +375,59 @@ await test("finished shell results put size, hidden rows and slow duration on th
   assert.doesNotMatch(empty, /\+1 line|last|Truncated|Took/u);
 });
 
+await test("shell metadata always shares a physical row with the command after a resize", async (t) => {
+  const { component } = await conversationFixture(t);
+  const argument = "Q".repeat(44) + "界";
+  const shell = component("shell_command", { command: `ls ${argument}\n` });
+  shell.setArgsComplete();
+  shell.updateResult({
+    content: [{ type: "text", text: "OUT1\nOUT2\nOUT3\nOUT4\nOUT5\nOUT6" }],
+    isError: false,
+    durationMs: 1250,
+  });
+  for (const expanded of [false, true]) {
+    shell.setExpanded(expanded);
+    for (const width of [160, 80, 55, 48, 32, 16, 12, 8, 6, 160]) {
+      const rendered = shell.render(width);
+      assert.ok(rendered.every((row) => visibleWidth(row) <= width));
+      const rows = rendered
+        .map((row) => stripTerminalSequences(row).trim())
+        .filter(Boolean);
+      const output = rows.findIndex((row) => row.startsWith("OUT"));
+      assert.ok(
+        output > 0,
+        `Missing shell command or output at ${String(width)} columns`,
+      );
+      const heading = rows.slice(0, output);
+      for (const row of heading)
+        assert.match(
+          row,
+          /\$|\bls\b|Q|界/u,
+          `Metadata took a row of its own at ${String(width)} columns: ${row}`,
+        );
+      const joined = heading.join("");
+      const commandEnd = joined.lastIndexOf("界") + 1;
+      assert.equal(
+        joined.slice(0, commandEnd).replaceAll(" ", ""),
+        `$ls${argument}`,
+      );
+      const metadata = joined.slice(commandEnd);
+      if (metadata !== "") assert.match(metadata, /^ {2}\S/u);
+      if (width === 6) assert.equal(metadata, "");
+      assert.deepEqual(
+        rows.slice(output),
+        expanded
+          ? ["OUT1", "OUT2", "OUT3", "OUT4", "OUT5", "OUT6"]
+          : ["OUT2", "OUT3", "OUT4", "OUT5", "OUT6"],
+      );
+      if (width === 160) {
+        assert.match(heading.join(""), /≈\d+ tokens/u);
+        assert.match(heading.join(""), /1\.3s/u);
+      }
+    }
+  }
+});
+
 // Compare the colored rows so this also covers syntax/token colors and gutter alignment.
 function codeRows(component: ToolExecutionComponent, width: number) {
   return component
