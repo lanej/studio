@@ -299,17 +299,18 @@ def tool_turn(text: str, history: list[str]) -> ToolCall | None:
 
 
 def specification_tool(request: CompletionRequest) -> ToolCall | None:
-    names = {tool["function"]["name"] for tool in request["tools"]}
-    if DRAFT_TOOL not in names:
-        return None
-    assert "ask_user_question" in names and "draft_implementation_plan" not in names, names
-
     messages = request["messages"]
+    prompt = "\n".join(message_text(message) for message in messages if message["role"] == "system")
+    if "Discovery mode. Wait for operator freeze before drafting tasks." not in prompt:
+        return None
+    names = {tool["function"]["name"] for tool in request["tools"]}
+    assert {DRAFT_TOOL, "ask_user_question"} <= names, names
+    assert names.isdisjoint({"draft_implementation_plan", "task_submit_result"}), names
+    assert all(rule in prompt for rule in ("Harmony", "Parsimony", "Readiness gate")), prompt
+
     reading = document_read_result(messages)
     if reading is not None:
         messages = messages[:-2]
-    prompt = "\n".join(message_text(message) for message in messages if message["role"] == "system")
-    assert all(rule in prompt for rule in ("Harmony", "Parsimony", "Readiness gate")), prompt
     last = messages[-1]
     history = [message_text(message) for message in messages if message["role"] == "user"]
     candidate = (user_turn(message_text(last), prompt, history) if last["role"] == "user"

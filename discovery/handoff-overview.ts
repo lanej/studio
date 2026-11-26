@@ -5,7 +5,7 @@ import {
   conditionMark,
   selectorText,
 } from "@lanej/pi-components";
-import { type LeadDraft, publicationGroups } from "../lead-plan.ts";
+import { type LeadDraft, publicationGroups } from "../planning/plan.ts";
 import { planGraph, planGraphColor, renderGraphPrefix } from "../plan-graph.ts";
 import {
   coverageBasisCurrent,

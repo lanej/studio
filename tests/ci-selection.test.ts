@@ -127,6 +127,10 @@ test("shared runtime inputs and the full CLI integration retain their consumers"
   for (const path of [
     "acceptance/operator-decision.ts",
     "acceptance/operator-decision-ui.py",
+    "lead/extensions/managed.ts",
+    "worker/extensions/assignment-input.ts",
+    "worker/extensions/submission.ts",
+    "tasks/source.ts",
     "model-tools/extension.ts",
     "model-tools/operations.ts",
     "model-tools/dialects/claude.ts",

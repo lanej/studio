@@ -129,7 +129,7 @@ export function registerRuntimeCommands(program: Command): void {
     )
     .action(async () => {
       const { ExecutionStore } = await import("./store.ts");
-      const { alive } = await import("./supervisor.ts");
+      const { processMatchesStart } = await import("../process.ts");
       const { mergePolicy } = await import("./policy.ts");
       const store = new ExecutionStore();
       try {
@@ -149,7 +149,7 @@ export function registerRuntimeCommands(program: Command): void {
               allocationOwner: store.allocationOwner() ?? null,
               live:
                 supervisor !== undefined &&
-                (await alive(supervisor.pid, supervisor.started)),
+                (await processMatchesStart(supervisor.pid, supervisor.started)),
               projects,
               attempts: store.attempts(),
             },

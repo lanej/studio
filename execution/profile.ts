@@ -9,7 +9,7 @@ import {
   type ModelSelection,
   type StudioConfig,
 } from "../config.ts";
-import type { PlanWorkers } from "../lead-plan.ts";
+import type { PlanWorkers } from "../planning/plan.ts";
 
 export function runtimeModelAllowed(
   profile: StudioProfile,

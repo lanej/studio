@@ -5,9 +5,9 @@ import {
   taskAssignmentSchema,
   type ModelSelection,
   type TaskAssignment,
-} from "./config.ts";
-import { taskWaves } from "./smart-plan-graph.ts";
-import { worktreeRelativePath } from "./worktree-path.ts";
+} from "../config.ts";
+import { taskWaves } from "./graph.ts";
+import { worktreeRelativePath } from "../worktree-path.ts";
 
 export enum LeadMode {
   Planning = "planning",

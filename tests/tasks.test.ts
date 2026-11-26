@@ -14,7 +14,7 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { retryAttempt } from "../execution/cli.ts";
 import { processStart } from "../process.ts";
-import { retainedConflicts } from "../execution/supervisor.ts";
+import { retainedConflicts } from "../execution/admission.ts";
 import { Database } from "bun:sqlite";
 import {
   initTheme,
@@ -36,19 +36,24 @@ import {
 } from "@earendil-works/pi-tui";
 import { attemptSchema, Phase } from "../attempts.ts";
 import type { Task } from "../beads.ts";
-import { StudioProfile } from "../config.ts";
+import {
+  exampleConfig,
+  runtimeProjectSchema,
+  StudioProfile,
+} from "../config.ts";
 import {
   ExecutionPhase,
   ExecutionStore,
-  projectSchema,
   VerificationPhase,
   executionSchema,
   type Execution,
 } from "../execution/store.ts";
+import { projectSchema } from "../execution/target.ts";
 import { retryWriterFence } from "../execution/recovery.ts";
 import { paneKeybindingsSchema } from "../pane-keybindings-config.ts";
 import { TaskBrowser } from "../tasks/browser.ts";
 import { TaskPanel } from "../tasks/panel.ts";
+import { createTaskPanelSource } from "../tasks/source.ts";
 import { readTaskEvidence } from "../tasks/evidence.ts";
 import {
   parkedDetails,
@@ -97,6 +102,56 @@ const snapshot: TaskSnapshot = {
   focusable: new Set(),
   limitReached: false,
 };
+
+await test("the task source exposes recovery actions only for the exact enrolled Beads authority", () => {
+  const source = { url: "http://127.0.0.1:8764", projectId: project };
+  const target = runtimeProjectSchema.parse({
+    root: "/fixture/enrolled-project",
+    source,
+    profile: StudioProfile.Personal,
+    base: "main",
+    beadsWorkspace: "/fixture/enrolled-project",
+    beadsDatabase: "fixture",
+  });
+  const config = {
+    ...exampleConfig,
+    beadsService: { ...source, url: "http://127.0.0.1:8765" },
+    runtime: { ...exampleConfig.runtime, enabled: true, projects: [target] },
+  };
+  const scope = {
+    cwd: "/fixture/daily-checkout",
+    editAnswer: () => Promise.resolve(undefined),
+  };
+  const defaultSource = createTaskPanelSource(config, {
+    ...scope,
+    authority: undefined,
+  });
+  assert.ok(defaultSource !== undefined);
+  assert.deepEqual(
+    [
+      defaultSource.label,
+      defaultSource.retry,
+      defaultSource.answer,
+      defaultSource.diff,
+    ],
+    ["Beads", undefined, undefined, undefined],
+  );
+
+  const approvedSource = createTaskPanelSource(config, {
+    ...scope,
+    authority: source,
+  });
+  assert.ok(approvedSource !== undefined);
+  assert.deepEqual(
+    [
+      approvedSource.label,
+      typeof approvedSource.retry,
+      typeof approvedSource.answer,
+      typeof approvedSource.diff,
+    ],
+    ["enrolled-project", "function", "function", "function"],
+  );
+});
 
 await test("retry retains a settled host fence when its process identity is incomplete", async () => {
   assert.equal(
@@ -261,29 +316,45 @@ await test("retained conflicts match admitted queue order, project and ownership
     phase: ExecutionPhase.Queued,
     owns: ["src/core"],
   };
-  const earlier = { ...queued, id: randomUUID(), owns: ["src/core/file.ts"] };
+  const earlier = {
+    ...queued,
+    id: randomUUID(),
+    owns: ["src/core/file.ts", "src/core/util.ts"],
+  };
   const later = { ...earlier, id: randomUUID() };
   const empty = { ...earlier, id: randomUUID(), bead: undefined };
   const foreign = { ...earlier, id: randomUUID(), project: randomUUID() };
   const done = { ...earlier, id: randomUUID(), phase: ExecutionPhase.Complete };
-  assert.deepEqual(
+  const sibling = { ...earlier, id: randomUUID(), owns: ["src/core-old"] };
+  const parked = {
+    ...earlier,
+    id: randomUUID(),
+    phase: ExecutionPhase.Parked,
+    owns: [],
+  };
+  const conflicts = Array.from(
     retainedConflicts(queued, [
       empty,
       foreign,
       done,
+      sibling,
       earlier,
       queued,
       later,
-    ]).map((row) => row.id),
-    [earlier.id],
+      parked,
+    ]),
   );
   assert.deepEqual(
-    retainedConflicts(queued, [
-      queued,
-      { ...later, phase: ExecutionPhase.Parked, owns: [] },
-    ]).map((row) => row.id),
-    [later.id],
+    conflicts.map(({ blocker }) => blocker.id),
+    [earlier.id, parked.id],
   );
+  const [nested, unspecified] = conflicts;
+  assert.equal(nested?.ownership.kind, "paths");
+  assert.deepEqual(Array.from(nested.ownership.paths()), [
+    { retained: "src/core/file.ts", candidate: "src/core" },
+    { retained: "src/core/util.ts", candidate: "src/core" },
+  ]);
+  assert.deepEqual(unspecified?.ownership, { kind: "whole-checkout" });
 });
 
 await test("parked details use the current owner and scheduler path rules", () => {

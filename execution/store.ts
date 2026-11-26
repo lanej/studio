@@ -10,61 +10,32 @@ import {
   type TaskReview,
 } from "../beads.ts";
 import { stateDirectory } from "../attempts.ts";
-import {
-  runtimeProjectSchema,
-  studioProfileSchema,
-  selection,
-} from "../config.ts";
+import { studioProfileSchema, selection } from "../config.ts";
 import { verificationSchema, beadSchema, owner } from "../task-service.ts";
-import { draftSchema, planWorkersSchema } from "../lead-plan.ts";
 import { sha } from "../delivery-record.ts";
 import {
   worktreeReservation,
   worktreeAllocation,
 } from "../vendor/task-runtime/worktree-contracts.ts";
+import { ExecutionPhase } from "./phase.ts";
+import {
+  handoffIntentSchema,
+  type HandoffIntent,
+  type RetainedHandoffIntent,
+} from "./handoff-model.ts";
+import {
+  interactiveTargetSchema,
+  projectSchema,
+  type RuntimeProject,
+} from "./target.ts";
 
-export enum ExecutionPhase {
-  Queued = "queued",
-  Claiming = "claiming",
-  Allocating = "allocating",
-  Launching = "launching",
-  Running = "running",
-  Reviewing = "reviewing",
-  Integrating = "integrating",
-  Delivery = "delivery-pending",
-  Waiting = "correction-pending",
-  AwaitingDecision = "awaiting-decision",
-  Complete = "complete",
-  Parked = "needs-review",
-  Uncertain = "uncertain",
-}
-export const projectSchema = runtimeProjectSchema
-  .extend({ id: z.uuid() })
-  .refine(
-    (project) => project.id === project.source.projectId,
-    "Runtime project identity differs from its Beads source",
-  );
-export type RuntimeProject = z.infer<typeof projectSchema>;
+export { ExecutionPhase } from "./phase.ts";
+
 export enum VerificationPhase {
   Launching = "launching",
   Running = "running",
   Complete = "complete",
 }
-export const interactiveTargetSchema = z.object({
-  session: z.string().min(1),
-  socket: z.string().min(1),
-  tab: z.number().int().nonnegative(),
-});
-export type InteractiveTarget = z.infer<typeof interactiveTargetSchema>;
-export const handoffIntentSchema = z.object({
-  digest: z.string(),
-  ids: z.record(z.string(), z.string()),
-  interactive: interactiveTargetSchema.optional(),
-  project: z.uuid().optional(),
-  target: projectSchema.optional(),
-  draft: draftSchema.optional(),
-  workers: planWorkersSchema.optional(),
-});
 export const operatorDecisionSchema = z.object({
   id: z.uuid(),
   question: z.string().trim().min(1).max(2000),
@@ -443,10 +414,13 @@ export class ExecutionStore {
       else this.save("merge", project, mergeOverrideSchema.parse(override));
     });
   }
-  intent(id: string): unknown {
-    return this.read("handoff", id);
+  intent(id: string): HandoffIntent | undefined {
+    return handoffIntentSchema.optional().parse(this.read("handoff", id));
   }
-  taskHandoffIntent(project: string, bead: string) {
+  taskHandoffIntent(
+    project: string,
+    bead: string,
+  ): RetainedHandoffIntent | undefined {
     const rows = this.db
       .query(
         "SELECT id, record FROM records WHERE kind='handoff' AND (json_extract(record,'$.project') IS NULL OR json_extract(record,'$.project')=?) AND EXISTS (SELECT 1 FROM json_each(record,'$.ids') WHERE key!='root' AND value=?)",
@@ -461,7 +435,7 @@ export class ExecutionStore {
       .parse(row);
     return { id, ...handoffIntentSchema.parse(JSON.parse(record)) };
   }
-  saveIntent(id: string, value: unknown): void {
+  saveIntent(id: string, value: HandoffIntent): void {
     this.save("handoff", id, value);
   }
 }

@@ -69,6 +69,14 @@ await test("manifest-only source exports preserve extension modules and the inst
     for (const resource of [
       "package.json",
       "bun.lock",
+      "docs/architecture.md",
+      "lead/extensions/managed.ts",
+      "lead/extensions/socrates.ts",
+      "planning/plan.ts",
+      "execution/handoff-model.ts",
+      "worker/extensions/assignment-input.ts",
+      "worker/extensions/submission.ts",
+      "tasks/source.ts",
       "documents/editor.ts",
       "documents/provider.ts",
       "documents/workspace.ts",
@@ -78,13 +86,13 @@ await test("manifest-only source exports preserve extension modules and the inst
         await readFile(join(root, resource)),
       );
     }
-    // Resolve the actual exported extension's local import graph without
-    // installing dependencies or executing the extension.
+    // Resolve the daily and managed extension graphs before installing or loading them.
     await execute(
       process.execPath,
       [
         "build",
         join(artifact, "extension.ts"),
+        join(artifact, "worker-extension.ts"),
         "--target=bun",
         "--packages=external",
         "--outdir",

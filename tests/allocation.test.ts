@@ -3,13 +3,18 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { createInterface } from "node:readline";
 import { z } from "zod";
-import { processStart, run, signalProcessGroup } from "../process.ts";
+import {
+  processGroupExists,
+  processMatchesStart,
+  processStart,
+  run,
+  signalProcessGroup,
+} from "../process.ts";
 import { setTimeout as delay } from "node:timers/promises";
 import {
   finishAllocationFixture,
   settleOwnedAllocationGroup,
 } from "./helpers/allocation-cleanup.ts";
-import { groupExists } from "../execution/recovery.ts";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -121,13 +126,20 @@ await test("a dead allocation controller retains its lease while its manager pro
       { pid, started },
       { pid: receipt.child, started: await processStart(receipt.child) },
     );
+    assert.equal(await processMatchesStart(pid, started), true);
+    assert.equal(
+      await processMatchesStart(pid, "Prior controller start time"),
+      false,
+      "A reused PID cannot prove that the prior controller still owns the lease",
+    );
     const owner = { id: randomUUID(), attempt: randomUUID(), pid, started };
     assert.equal(store.reserveAllocation(owner, undefined), true);
     const stopped = once(controller, "close");
     process.kill(pid, "SIGKILL");
     await stopped;
+    assert.equal(await processMatchesStart(pid, started), false);
     assert.equal(
-      groupExists(pid),
+      processGroupExists(pid),
       true,
       "The owned manager child still holds the prior controller group",
     );
@@ -179,12 +191,12 @@ await test("a dead allocation controller retains its lease while its manager pro
         const group = controller.pid;
         if (group === undefined) return;
         await settleOwnedAllocationGroup({
-          probe: () => groupExists(group),
+          probe: () => processGroupExists(group),
           verify: async () => {
             for (const identity of identities) {
               try {
                 if (
-                  (await processStart(identity.pid)) === identity.started &&
+                  (await processMatchesStart(identity.pid, identity.started)) &&
                   (
                     await run("/bin/ps", [
                       "-p",
@@ -206,7 +218,7 @@ await test("a dead allocation controller retains its lease while its manager pro
           },
           wait: async () => {
             const deadline = Date.now() + 2000;
-            while (groupExists(group)) {
+            while (processGroupExists(group)) {
               if (Date.now() >= deadline)
                 throw new Error("Owned allocation group did not settle");
               await delay(10);

@@ -1,218 +1,23 @@
 import { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
-import { isDeepStrictEqual } from "node:util";
 import { mkdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { stateDirectory } from "../attempts.ts";
-import {
-  LeadMode,
-  TaskDelivery,
-  leadPlanSchema,
-  planDigest,
-  planWorkersSchema,
-  type LeadDraft,
-  type PlanWorkers,
-} from "../lead-plan.ts";
-import { runtimeProjectSchema } from "../config.ts";
-import {
-  draftDeliveryPolicy,
-  specRecord,
-  SpecStatus,
-  specificationGaps,
-  type DeliveryPolicy,
-} from "../socrates/spec.ts";
-import {
-  pendingCoverageReview,
-  specificationToken,
-} from "../socrates/assessment.ts";
 import {
   commitOperation,
   initializeOperationWitnesses,
   transaction,
   type OperationWitness,
 } from "../operation-witness.ts";
-
-export enum HandoffPhase {
-  Pending = "pending",
-  Complete = "complete",
-  Uncertain = "uncertain",
-}
-export const discoverySchema = z.object({
-  id: z.uuid(),
-  title: z.string().min(1),
-  project: z.string(),
-  conversation: z.string(),
-  revision: z.string(),
-  specification: specRecord.optional(),
-  history: z.array(specRecord).default([]),
-  leadPlan: leadPlanSchema,
-  planSpecificationRevision: z.string().optional(),
-  handoff: z
-    .object({
-      operation: z.uuid(),
-      digest: z.string(),
-      revision: z.string(),
-      phase: z.enum(HandoffPhase),
-      workers: planWorkersSchema.optional(),
-      owner: z
-        .object({ pid: z.number().int().positive(), started: z.string() })
-        .optional(),
-      target: runtimeProjectSchema
-        .extend({ id: z.uuid() })
-        .refine(
-          (project) => project.id === project.source.projectId,
-          "Handoff project authority differs from its configured source",
-        ),
-    })
-    .optional(),
-  approved: z.string().optional(),
-  graph: z.record(z.string(), z.string()).optional(),
-});
-export type Discovery = z.infer<typeof discoverySchema>;
-
-/** Resolve each proposed bead against the same publication decision shown at freeze. */
-export function applyDeliveryPolicy(
-  draft: LeadDraft,
-  policy: DeliveryPolicy,
-): LeadDraft {
-  const tasks = draft.tasks.map((task) => {
-    const publishes =
-      policy.pullRequests === "per-bead" ||
-      (policy.pullRequests === "selected" && policy.publish.includes(task.key));
-    const delivery = publishes ? TaskDelivery.PullRequest : TaskDelivery.Local;
-    if (task.delivery !== undefined && task.delivery !== delivery)
-      throw new Error(
-        `Delivery for ${task.key} conflicts with decision ${policy.decisionId}. Revise the proposal or revisit the Socrates delivery decision.`,
-      );
-    return { ...task, delivery };
-  });
-  const { pullRequestMerge: previousMerge, ...proposal } = draft;
-  if (
-    previousMerge !== undefined &&
-    (policy.pullRequests === "none" || previousMerge !== policy.merge)
-  )
-    throw new Error(
-      "The proposed merge rule conflicts with the Socrates delivery decision",
-    );
-  return policy.pullRequests === "none"
-    ? { ...proposal, tasks }
-    : { ...proposal, tasks, pullRequestMerge: policy.merge };
-}
-
-/** Persist a proposal against its current specification without certifying the old assessment. */
-export function saveDiscoveryPlan(
-  row: Pick<
-    Discovery,
-    "specification" | "leadPlan" | "planSpecificationRevision"
-  >,
-  proposal: LeadDraft,
-  linkSpecification = true,
-): void {
-  const existing = new Map(
-    row.leadPlan.draft?.tasks.map((task) => [task.key, task]),
-  );
-  const unassigned = proposal.tasks.find((task) => {
-    const previous = existing.get(task.key);
-    return (
-      task.assignment === undefined &&
-      (previous === undefined || previous.assignment !== undefined)
-    );
-  });
-  if (unassigned !== undefined)
-    throw new Error(
-      `Specify worker capability and reasoning for task ${unassigned.key}`,
-    );
-
-  const spec = row.specification;
-  if (spec !== undefined) {
-    const requirements = spec.draft?.requirements.map(({ id }) => id) ?? [];
-    if (
-      proposal.tasks.some((task) =>
-        task.requirements.some((id) => !requirements.includes(id)),
-      )
-    )
-      throw new Error(
-        "Link proposed tasks only to requirements in the current specification",
-      );
-    if (linkSpecification)
-      row.planSpecificationRevision = specificationToken(spec);
-  }
-  const policy = draftDeliveryPolicy(spec?.draft ?? null);
-  const draft =
-    policy === undefined ? proposal : applyDeliveryPolicy(proposal, policy);
-  if (
-    spec?.coverageRevision !== undefined &&
-    !isDeepStrictEqual(draft, row.leadPlan.draft)
-  )
-    spec.pendingReview = pendingCoverageReview(spec, "plan");
-  row.leadPlan = { ...row.leadPlan, mode: LeadMode.Planning, draft };
-}
-
-/** A proposal is editable throughout discovery. Only this reviewed form may reach the runtime. */
-export function handoffDraft(record: Discovery): LeadDraft {
-  const draft = record.leadPlan.draft;
-  if (draft === null || draft.tasks.length === 0)
-    throw new Error("Draft at least one executable task first");
-  const retained = record.handoff;
-  if (retained !== undefined) {
-    if (
-      retained.digest !== planDigest(draft) ||
-      retained.revision !== record.revision
-    )
-      throw new Error(
-        "Reconcile the original handoff with its recorded draft and revision",
-      );
-    return draft;
-  }
-  const spec = record.specification;
-  if (
-    spec?.status !== SpecStatus.Frozen ||
-    spec.approvalAt === undefined ||
-    spec.draft === null
-  )
-    throw new Error(
-      "Start /socrates and freeze the reviewed specification with /spec-freeze before handing work to the runtime",
-    );
-  const gaps = specificationGaps(spec, record.revision);
-  if (gaps.length > 0) throw new Error(gaps.join("\n"));
-  if (record.planSpecificationRevision !== specificationToken(spec))
-    throw new Error(
-      "Update the work breakdown against the current frozen specification before approval",
-    );
-  const policy = draftDeliveryPolicy(spec.draft);
-  if (
-    policy === undefined ||
-    !isDeepStrictEqual(draft, applyDeliveryPolicy(draft, policy))
-  )
-    throw new Error(
-      "Update the proposed beads to match the settled delivery policy",
-    );
-  if (policy.pullRequests === "selected") {
-    const missing = policy.publish.filter(
-      (key) => !draft.tasks.some((task) => task.key === key),
-    );
-    if (missing.length > 0)
-      throw new Error(
-        `The delivery decision names missing publishing beads: ${missing.join(", ")}`,
-      );
-  }
-  const requirements = spec.draft.requirements.map(({ id }) => id);
-  if (
-    draft.tasks.some(
-      (task) =>
-        task.requirements.length === 0 ||
-        task.requirements.some((id) => !requirements.includes(id)),
-    ) ||
-    requirements.some(
-      (id) => !draft.tasks.some((task) => task.requirements.includes(id)),
-    )
-  )
-    throw new Error(
-      "Cover every frozen requirement and link each task to known requirement IDs",
-    );
-  return draft;
-}
+import { LeadMode, type PlanWorkers } from "../planning/plan.ts";
+import {
+  discoverySchema,
+  HandoffPhase,
+  type Discovery,
+  type DiscoveryHandoff,
+} from "./model.ts";
+import { bindHandoffApproval, prepareHandoff } from "./plan.ts";
 
 /** Discovery is private conversational state, not another task backlog. */
 export class Discoveries {
@@ -230,59 +35,24 @@ export class Discoveries {
   }
   beginHandoff(
     expected: Discovery,
-    target: z.infer<typeof runtimeProjectSchema> & { id: string },
-    owner?: { pid: number; started: string },
+    target: DiscoveryHandoff["target"],
+    owner?: DiscoveryHandoff["owner"],
     recoverPending = false,
     workers?: PlanWorkers,
   ): Discovery {
-    if (expected.leadPlan.draft === null)
-      throw new Error("No displayed draft to approve");
-    const digest = planDigest(expected.leadPlan.draft);
+    const approval = bindHandoffApproval(expected);
     return this.change(
-      expected.id,
+      approval.id,
       (row) => {
-        if (
-          row.revision !== expected.revision ||
-          row.project !== expected.project ||
-          !isDeepStrictEqual(row.specification, expected.specification) ||
-          row.leadPlan.draft === null ||
-          planDigest(row.leadPlan.draft) !== digest
-        )
-          throw new Error(
-            "The displayed draft changed before approval; review it again",
-          );
-        handoffDraft(row);
-        const retained = row.handoff;
-        if (
-          retained !== undefined &&
-          (!isDeepStrictEqual(retained.target, target) ||
-            !isDeepStrictEqual(retained.workers, workers) ||
-            retained.digest !== digest ||
-            retained.revision !== row.revision)
-        )
-          throw new Error(
-            "The handoff retains its original project authority and draft, including worker selections; restore the approved configuration to reconcile it",
-          );
-        if (
-          retained?.phase === HandoffPhase.Pending &&
-          (!recoverPending ||
-            owner === undefined ||
-            !isDeepStrictEqual(retained, expected.handoff))
-        )
-          throw new Error(
-            "This exact handoff is already in progress; inspect its outcome before retrying",
-          );
-        row.handoff = {
-          operation:
-            retained !== undefined && retained.phase !== HandoffPhase.Complete
-              ? retained.operation
-              : randomUUID(),
-          digest,
-          revision: row.revision,
+        const handoff = prepareHandoff(row, approval, {
           target,
-          workers,
-          phase: HandoffPhase.Pending,
           owner,
+          recoverPending,
+          workers,
+        });
+        row.handoff = {
+          ...handoff,
+          operation: handoff.operation ?? randomUUID(),
         };
       },
       true,

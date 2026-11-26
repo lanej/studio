@@ -28,12 +28,11 @@ import {
 } from "../config.ts";
 import { ExecutionBeads } from "../execution/beads.ts";
 import { ExecutionStore, ExecutionPhase } from "../execution/store.ts";
-import { draftSchema, planDigest } from "../lead-plan.ts";
-import { run } from "../process.ts";
+import { draftSchema, planDigest } from "../planning/plan.ts";
+import { processMatchesStart, run } from "../process.ts";
 import { parkedDetails, retainedEvidence } from "../tasks/model.ts";
 import { retryWriterFence } from "../execution/recovery.ts";
 import { safeGit } from "../execution/git.ts";
-import { alive } from "../execution/supervisor.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const fastModel = "fast-worker";
@@ -1515,7 +1514,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       if (
         attempt.pid !== undefined &&
         attempt.started !== undefined &&
-        (await alive(attempt.pid, attempt.started))
+        (await processMatchesStart(attempt.pid, attempt.started))
       ) {
         try {
           process.kill(-attempt.pid, "SIGTERM");

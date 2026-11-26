@@ -16,6 +16,7 @@ import { z } from "zod";
 import { ReasoningLevel } from "../config.ts";
 import { packageRoot } from "../package-resources.ts";
 import { processFailure, processStart } from "../process.ts";
+import { assignmentInputExtension } from "../worker/extensions/assignment-input.ts";
 import { currentPaneId, requireInteractivePane } from "./interactive-target.ts";
 import {
   ExecutionPhase,
@@ -111,38 +112,12 @@ const runWorker: InteractiveWorker = async ({
     throw new Error("This attempt already used its native worker");
   await check();
   const sessionManager = SessionManager.create(cwd, directory, { id });
-  let turn = 0;
+  const extension = assignmentInputExtension(check);
   const runtime = await createAgentSessionRuntime(
     async ({ sessionManager: current }) => {
       if (current !== sessionManager)
         throw new Error("The assigned session cannot change");
-      return await session(
-        cwd,
-        selection,
-        profile,
-        current,
-        (pi) => {
-          pi.on("input", async (event, ctx) => {
-            if (event.source === "extension") return;
-            if (event.streamingBehavior !== undefined) {
-              try {
-                await check();
-                return;
-              } catch (error) {
-                ctx.ui.notify(processFailure(error).message, "error");
-              }
-            }
-            return { action: "handled" };
-          });
-          pi.on("turn_start", (_event, ctx) => {
-            if (++turn > 32) ctx.abort();
-          });
-          pi.on("session_before_switch", () => ({ cancel: true }));
-          pi.on("session_before_fork", () => ({ cancel: true }));
-          pi.on("session_before_tree", () => ({ cancel: true }));
-        },
-        tools,
-      );
+      return await session(cwd, selection, profile, current, extension, tools);
     },
     { cwd, agentDir, sessionManager },
   );

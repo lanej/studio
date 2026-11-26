@@ -14,7 +14,7 @@ import {
 } from "@lanej/pi-components";
 import { ReasoningLevel } from "../config.ts";
 import { planGraph, planGraphColor, renderGraphPrefix } from "../plan-graph.ts";
-import { withTaskAssignment } from "../ui.ts";
+import { withTaskAssignment } from "../tasks/presentation.ts";
 import { implementationColumn, taskMarks } from "./columns.ts";
 import type {
   ImplementationField,

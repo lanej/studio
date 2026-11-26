@@ -15,9 +15,9 @@ import {
   ExecutionPhase,
   ExecutionStore,
   executionSchema,
-  projectSchema,
 } from "../execution/store.ts";
-import { TaskDelivery, draftSchema, planDigest } from "../lead-plan.ts";
+import { projectSchema } from "../execution/target.ts";
+import { TaskDelivery, draftSchema, planDigest } from "../planning/plan.ts";
 
 const git = async (cwd: string, ...args: string[]) =>
   (await networkGit(cwd, args)).trim();

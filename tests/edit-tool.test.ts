@@ -17,11 +17,8 @@ import {
   registerReasonedEdit,
 } from "../code-intelligence/edit-tool.ts";
 import { StudioProfile } from "../config.ts";
-import {
-  ExecutionPhase,
-  executionSchema,
-  projectSchema,
-} from "../execution/store.ts";
+import { ExecutionPhase, executionSchema } from "../execution/store.ts";
+import { projectSchema } from "../execution/target.ts";
 import { writableTools } from "../execution/tools.ts";
 
 function services(cwd: string) {

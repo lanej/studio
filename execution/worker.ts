@@ -15,7 +15,7 @@ import { requireIntegration } from "../integrations.ts";
 import { snapshotTools } from "../delegation.ts";
 import { processStart, run } from "../process.ts";
 import { gitState } from "../task-verification.ts";
-import { TaskDelivery } from "../lead-plan.ts";
+import { TaskDelivery } from "../planning/plan.ts";
 import {
   ExecutionStore,
   ExecutionPhase,
@@ -24,8 +24,8 @@ import {
   hasUnappliedAnswer,
   pendingDecision,
   type Execution,
-  type RuntimeProject,
 } from "./store.ts";
+import type { RuntimeProject } from "./target.ts";
 import { reviewRevision } from "./review.ts";
 import { beadSchema } from "../task-service.ts";
 import { requireUnattendedTask, ExecutionBeads, heartbeat } from "./beads.ts";

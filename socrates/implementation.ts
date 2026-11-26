@@ -6,15 +6,15 @@ import type {
   TaskAssignment,
 } from "../config.ts";
 import { TaskStatus, knownTaskStatus } from "../beads.ts";
-import { HandoffPhase, type Discovery } from "../discovery/store.ts";
+import { HandoffPhase, type Discovery } from "../discovery/model.ts";
 import {
   LeadMode,
   deliveryOutcome,
   orderedTasks,
   planDigest,
   type LeadDraft,
-} from "../lead-plan.ts";
-import { taskWaves } from "../smart-plan-graph.ts";
+} from "../planning/plan.ts";
+import { taskWaves } from "../planning/graph.ts";
 import { TaskBeads, sameBrief, type NativeBead } from "../task-service.ts";
 import { propertyGaps, SpecStatus, type LeadSpecification } from "./spec.ts";
 
@@ -31,6 +31,11 @@ export interface ImplementationSource {
   source?: BeadsAuthority | undefined;
   bead?: NativeBead | undefined;
 }
+
+export type SocratesState = Pick<
+  ImplementationSource,
+  "revision" | "approved" | "handoff" | "specification" | "leadPlan"
+>;
 
 export enum ImplementationState {
   Proposed = "proposed",

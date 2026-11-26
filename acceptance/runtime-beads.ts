@@ -17,7 +17,7 @@ import {
 import { reconcileAttempt, retainClaim } from "../execution/recovery.ts";
 import { maintainAttempt } from "../execution/supervisor.ts";
 import { writeFile } from "node:fs/promises";
-import { draftSchema, planDigest } from "../lead-plan.ts";
+import { draftSchema, planDigest } from "../planning/plan.ts";
 import { beadSchema, owner } from "../task-service.ts";
 import { randomUUID } from "node:crypto";
 

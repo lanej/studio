@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
-import { processStart } from "../process.ts";
+import {
+  processGroupExists,
+  processMatchesStart,
+  processStart,
+} from "../process.ts";
 import type { ExecutionStore } from "./store.ts";
-import { alive } from "./supervisor.ts";
-import { groupExists } from "./recovery.ts";
 
 /** Serialize native manager mutations across task hosts while retaining their individual allocation intents. */
 export async function withAllocation<T>(
@@ -23,8 +25,8 @@ export async function withAllocation<T>(
     const previous = store.allocationOwner();
     if (
       (previous === undefined ||
-        (!(await alive(previous.pid, previous.started)) &&
-          !groupExists(previous.pid))) &&
+        (!(await processMatchesStart(previous.pid, previous.started)) &&
+          !processGroupExists(previous.pid))) &&
       store.reserveAllocation(owner, previous?.id)
     )
       break;

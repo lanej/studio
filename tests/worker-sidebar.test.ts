@@ -7,7 +7,7 @@ import {
   implementationPresentation,
   ImplementationState,
 } from "../socrates/implementation.ts";
-import { LeadMode, draftSchema } from "../lead-plan.ts";
+import { LeadMode, draftSchema } from "../planning/plan.ts";
 import {
   renderStatusSidebar,
   renderWorkerCompact,

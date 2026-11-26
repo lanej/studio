@@ -1,7 +1,8 @@
 import { processFailure } from "../process.ts";
 import { networkGit, projectObjectGit, safeGit } from "./git.ts";
 import { publicationPrerequisites } from "./publication-graph.ts";
-import type { Execution, ExecutionStore, RuntimeProject } from "./store.ts";
+import type { Execution, ExecutionStore } from "./store.ts";
+import type { RuntimeProject } from "./target.ts";
 
 type Git = (args: string[]) => Promise<string>;
 type Proof = NonNullable<Execution["publicationBase"]>;

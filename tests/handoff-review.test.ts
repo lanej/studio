@@ -5,7 +5,7 @@ import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import nord from "../resources/theme.json" with { type: "json" };
 import { handoffOverview } from "../discovery/handoff-overview.ts";
 import { createHandoffReview } from "../discovery/handoff-review.ts";
-import { draftSchema } from "../lead-plan.ts";
+import { draftSchema } from "../planning/plan.ts";
 import {
   coveragePropertyCatalog,
   coverageToken,

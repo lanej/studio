@@ -19,6 +19,17 @@ export function processFailure(error: unknown): z.infer<typeof failureSchema> {
     : { message: error instanceof Error ? error.message : String(error) };
 }
 
+/** Propagate probe failures unless the OS reports that the group is absent. */
+export function processGroupExists(group: number): boolean {
+  try {
+    process.kill(-group, 0);
+    return true;
+  } catch (error) {
+    if (processFailure(error).code === "ESRCH") return false;
+    throw error;
+  }
+}
+
 export function processGroupHasLiveMembers(
   group: number,
   snapshot: string,
@@ -93,4 +104,17 @@ export async function processStart(pid: number): Promise<string> {
       env: { ...process.env, LC_ALL: "C", TZ: "UTC" },
     })
   ).trim();
+}
+
+/** Compare the recorded start time because a later process can reuse the PID. */
+export async function processMatchesStart(
+  pid: number,
+  started: string,
+): Promise<boolean> {
+  try {
+    return (await processStart(pid)) === started;
+  } catch (error) {
+    if (processFailure(error).code === 1) return false;
+    throw error;
+  }
 }

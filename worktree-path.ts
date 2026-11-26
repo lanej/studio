@@ -1,5 +1,13 @@
 import { z } from "zod";
 
+export function worktreePathsOverlap(left: string, right: string): boolean {
+  return (
+    left === right ||
+    left.startsWith(`${right}/`) ||
+    right.startsWith(`${left}/`)
+  );
+}
+
 export const worktreeRelativePath = z
   .string()
   .trim()

@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import { z } from "zod";
-import { pullRequestMergeSchema, taskKey } from "../lead-plan.ts";
+import { pullRequestMergeSchema, taskKey } from "../planning/plan.ts";
 import type { LeadSpecification } from "./spec.ts";
 
 export const decisionId = z.string().regex(/^D[1-9]\d*$/u);

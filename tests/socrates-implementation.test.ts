@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
-import { HandoffPhase } from "../discovery/store.ts";
+import { HandoffPhase } from "../discovery/model.ts";
 import {
   DefaultProvider,
   ReasoningLevel,
   runtimeProjectSchema,
   StudioProfile,
 } from "../config.ts";
-import { LeadMode, draftSchema, planDigest } from "../lead-plan.ts";
+import { LeadMode, draftSchema, planDigest } from "../planning/plan.ts";
 import { beadSchema, TaskBeads } from "../task-service.ts";
 import { SpecStatus, specRecord } from "../socrates/spec.ts";
 import { coverageFresh, coverageToken } from "../socrates/assessment.ts";

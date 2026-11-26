@@ -12,9 +12,9 @@ import {
   orderedTasks,
   type LeadDraft,
   type PlanWorkers,
-} from "../lead-plan.ts";
+} from "../planning/plan.ts";
 import { run } from "../process.ts";
-import type { RuntimeProject } from "./store.ts";
+import type { RuntimeProject } from "./target.ts";
 
 /** This marker records an interactive parent's plan, never unattended authority. */
 export function interactiveTask(bead: NativeBead): boolean {

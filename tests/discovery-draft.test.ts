@@ -15,7 +15,9 @@ import {
 import { existsSync } from "node:fs";
 import { registerProjectPolicy } from "../execution/policy.ts";
 import { registerDiscovery } from "../discovery/extension.ts";
-import { Discoveries, handoffDraft, HandoffPhase } from "../discovery/store.ts";
+import { HandoffPhase } from "../discovery/model.ts";
+import { handoffDraft } from "../discovery/plan.ts";
+import { Discoveries } from "../discovery/store.ts";
 import {
   exampleConfig,
   ModelCapability,
@@ -30,7 +32,7 @@ import {
 } from "../planning/documents.ts";
 import { DocumentKind } from "../planning/model.ts";
 import { SpecStatus } from "../socrates/spec.ts";
-import { draftSchema, planDigest } from "../lead-plan.ts";
+import { draftSchema, planDigest } from "../planning/plan.ts";
 import { readySpecification } from "./fixtures/socrates.ts";
 import {
   coverageFresh,
@@ -920,6 +922,15 @@ await test("legacy handoffs keep their receipt when switching conversations and 
   });
   await assert.rejects(save(), /Unknown discovery/u);
   assert.equal(store.list(project).length, 2);
+
+  const retained = store.get(second.id);
+  assert.ok(retained.handoff !== undefined);
+  const resumed = store.beginHandoff(retained, retained.handoff.target);
+  assert.equal(resumed.handoff?.operation, retained.handoff.operation);
+  assert.deepEqual(store.get(second.id).handoff, {
+    ...retained.handoff,
+    phase: HandoffPhase.Pending,
+  });
 });
 
 await test("a fork requires an explicit selection to reuse a parent discovery", async (t) => {

@@ -11,8 +11,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
-import { run, processStart } from "../process.ts";
-import { alive } from "../execution/supervisor.ts";
+import { processMatchesStart, processStart, run } from "../process.ts";
 import {
   assertVerificationIsolation,
   verificationSandbox,
@@ -396,7 +395,7 @@ try {
         "reviewed source",
       );
       const settled = Date.now() + 3000;
-      while (await alive(childPid, childStart)) {
+      while (await processMatchesStart(childPid, childStart)) {
         if (Date.now() >= settled) {
           process.kill(childPid, "SIGKILL");
           throw new Error("Detached fixture did not settle");
@@ -406,7 +405,7 @@ try {
     } finally {
       if (
         detached !== undefined &&
-        (await alive(detached.pid, detached.started))
+        (await processMatchesStart(detached.pid, detached.started))
       )
         process.kill(detached.pid, "SIGKILL");
       await lingering.close();

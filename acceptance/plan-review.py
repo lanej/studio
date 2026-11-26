@@ -46,7 +46,7 @@ def run(output):
         fixture.write_text(f'''
 import {{ writeFileSync }} from 'node:fs';
 import {{ reviewPlan }} from {json.dumps(str(root / 'ui.ts'))};
-import {{ draftSchema }} from {json.dumps(str(root / 'lead-plan.ts'))};
+import {{ draftSchema }} from {json.dumps(str(root / 'planning/plan.ts'))};
 export default function(pi) {{
   pi.registerCommand('review-plan', {{description:'Review isolated acceptance plan', async handler(_,ctx) {{
     const accepted = await reviewPlan(ctx, 'Approve Event export and guide', {{
