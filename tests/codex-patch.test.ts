@@ -22,6 +22,7 @@ import { test, type TestContext } from "node:test";
 import { registerCodeIntelligence } from "../code-intelligence/extension.ts";
 import { registerModelTools } from "../model-tools/extension.ts";
 import { applyPatch, replaceText } from "../model-tools/operations.ts";
+import { registerSearchRendering } from "../search-renderer.ts";
 
 async function patchSession(
   cwd: string,
@@ -145,6 +146,7 @@ async function conversationFixture(t: TestContext) {
     ["read", "edit", "write", "bash"],
     (pi) => {
       registerCodeIntelligence(pi);
+      registerSearchRendering(pi);
       registerModelTools(pi);
     },
   );
@@ -170,6 +172,45 @@ async function conversationFixture(t: TestContext) {
 function plain(component: ToolExecutionComponent, width: number) {
   return stripTerminalSequences(component.render(width).join("\n"));
 }
+
+await test("shell calls preview a GitHub Markdown body and expand to the original source", async (t) => {
+  const { component } = await conversationFixture(t);
+  const command = [
+    "gh issue create --title 'Preserve drafts' --body-file - <<'EOF'",
+    "## Acceptance",
+    "",
+    "- Keep the **saved draft** in `draft.md`.",
+    "EOF",
+  ].join("\n");
+  for (const [name, args] of [
+    ["shell_command", { command, timeout_ms: 20_000, workdir: "checkout" }],
+    ["Bash", { command, timeout: 20_000 }],
+  ] as const) {
+    const call = component(name, args);
+    assert.match(plain(call, 120), /<<'EOF'/u);
+    // Restored conversations go straight from tool arguments to a final result.
+    call.updateResult({
+      content: [{ type: "text", text: "https://example.org/issues/42" }],
+      isError: false,
+      durationMs: 1400,
+    });
+    const preview = plain(call, 120);
+    assert.ok(preview.trimStart().startsWith(name));
+    assert.match(preview, /--body-file - \(timeout 20s\)/u);
+    assert.match(preview, /Acceptance/u);
+    assert.match(preview, /saved draft/u);
+    assert.doesNotMatch(preview, /EOF|## Acceptance|\*\*saved draft\*\*/u);
+    assert.match(preview, /Took 1\.4s/u);
+    assert.match(preview, /https:\/\/example\.org\/issues\/42/u);
+    if (name === "shell_command") assert.match(preview, /cd -- .*checkout/u);
+    assert.ok(call.render(44).every((line) => visibleWidth(line) <= 44));
+    call.setExpanded(true);
+    const source = plain(call, 120);
+    for (const line of command.split("\n")) assert.ok(source.includes(line));
+    call.setExpanded(false);
+    assert.equal(plain(call, 120), preview);
+  }
+});
 
 await test("dialect tools keep their invoked names in conversation headings", async (t) => {
   const { component } = await conversationFixture(t);

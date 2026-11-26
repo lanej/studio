@@ -1,12 +1,21 @@
 import { registerCodingRenderer } from "./model-tools/rendering.ts";
 import {
+  type MarkdownHeredoc,
+  markdownHeredoc,
+  prepareMarkdownHeredoc,
+} from "./markdown-heredoc.ts";
+import {
   type ExtensionAPI,
   type Theme,
   getLanguageFromPath,
+  getMarkdownTheme,
   highlightCode,
 } from "@earendil-works/pi-coding-agent";
 import {
   type Component,
+  Container,
+  Markdown,
+  Spacer,
   Text,
   sliceByColumn,
   visibleWidth,
@@ -321,7 +330,28 @@ const outputDetails = z
   })
   .loose();
 
+class MarkdownShellCall extends Container {
+  constructor(
+    readonly header: Text,
+    readonly command: string,
+    readonly document: MarkdownHeredoc,
+    theme: Theme,
+  ) {
+    super();
+    this.addChild(header);
+    this.addChild(new Spacer(1));
+    this.addChild(new Markdown(document.body, 0, 0, getMarkdownTheme()));
+    if (document.following !== "") {
+      this.addChild(new Spacer(1));
+      this.addChild(
+        new Text(highlightShellCommand(document.following, theme), 0, 0),
+      );
+    }
+  }
+}
+
 export function registerSearchRendering(pi: ExtensionAPI): void {
+  pi.on("session_start", prepareMarkdownHeredoc);
   const painted = new WeakSet<Component>();
   registerCodingRenderer(pi, (name, next) => {
     const base = next();
@@ -335,7 +365,14 @@ export function registerSearchRendering(pi: ExtensionAPI): void {
         ? {
             renderCall(args, theme, context) {
               // Let Pi start its tool timer and reuse its width-aware text component.
-              const component = renderCall(args, theme, context);
+              const previous = context.lastComponent;
+              const component = renderCall(
+                args,
+                theme,
+                previous instanceof MarkdownShellCall
+                  ? { ...context, lastComponent: previous.header }
+                  : context,
+              );
               const parsed = shellCallArgs.safeParse(args);
               if (!parsed.success || !(component instanceof Text))
                 return component;
@@ -350,12 +387,35 @@ export function registerSearchRendering(pi: ExtensionAPI): void {
                 "toolTitle",
                 theme.bold(context.displayToolName ?? "$"),
               );
-              const syntax = highlightShellCommand(command, theme);
+              // Replayed calls receive a final result without an args-complete event.
+              const currentPreview =
+                previous instanceof MarkdownShellCall &&
+                previous.command === command &&
+                previous.header === component
+                  ? previous
+                  : undefined;
+              const heredoc =
+                !context.expanded &&
+                (context.argsComplete ||
+                  context.executionStarted ||
+                  !context.isPartial)
+                  ? (currentPreview?.document ?? markdownHeredoc(command))
+                  : undefined;
+              const syntax = highlightShellCommand(
+                heredoc?.header ?? command,
+                theme,
+              );
               const suffix =
                 timeout !== undefined && timeout !== 0
                   ? theme.fg("muted", ` (timeout ${timeout.toString()}s)`)
                   : "";
               component.setText(`${prompt} ${syntax}${suffix}`);
+              if (heredoc !== undefined) {
+                return (
+                  currentPreview ??
+                  new MarkdownShellCall(component, command, heredoc, theme)
+                );
+              }
               return component;
             },
           }
