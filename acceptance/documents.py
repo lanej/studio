@@ -246,6 +246,15 @@ def run(output: Path | None):
             'default_layout "compact"\n')
         (home / ".config/nvim/init.lua").write_text("""
 vim.g.documents_fixture_init = 'configuration preserved'
+vim.api.nvim_create_autocmd("User", {
+    pattern = "CopydeskAttach",
+    callback = function(event)
+        local copydesk = require("copydesk")
+        local opts = { buffer = event.data.buf }
+        vim.keymap.set("x", ",sc", copydesk.comment_selection, opts)
+        vim.keymap.set("n", ",sd", copydesk.changes, opts)
+    end,
+})
 vim.opt.swapfile = false
 vim.opt.shadafile = 'NONE'
 vim.opt.termguicolors = true
@@ -385,7 +394,7 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                 print("PASS :write edits complete coverage and delivery policy without freeze or plan approval", flush=True)
 
                 objective_line = lines().index("Review the complete proposal in Neovim.") + 1
-                keys(editor, f"{objective_line}GV:CopydeskComment\r")
+                keys(editor, f"{objective_line}GV,sc")
                 terminal.until("selection comment prompt", lambda: "Enter send" in terminal.capture_pane(editor))
                 keys(editor, "Is this something we really want? Clarify the acceptance check.\r")
                 terminal.until("explicit outcome for selection", lambda: len(feedback()) == 1 and feedback()[0]["state"] == "answered")
@@ -396,7 +405,7 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                 terminal.until("direct document update and concise marker", lambda:
                                "explicit Studio review alone" in "\n".join(lines()) and "Answered" in json.dumps(marks()))
                 capture.save("response")
-                ex("CopydeskChanges")
+                keys(editor, ",sd")
                 terminal.until("response selector", lambda: "Copydesk comments" in terminal.capture_pane(editor))
                 keys(editor, "1\r")
                 terminal.until("changed location selector", lambda: "Changed document locations" in terminal.capture_pane(editor))
@@ -409,7 +418,7 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
 
                 ex(r"%s/Review the complete proposal in Neovim\./Local unsaved proposal survives./")
                 dirty_line = lines().index("Local unsaved proposal survives.") + 1
-                keys(editor, f"{dirty_line}GV:CopydeskComment\r")
+                keys(editor, f"{dirty_line}GV,sc")
                 terminal.until("dirty selection comment prompt", lambda: "Enter send" in terminal.capture_pane(editor))
                 keys(editor, "Perform the conflict check and clarify acceptance.\r")
                 terminal.until("second request answered", lambda: len(feedback()) == 2 and feedback()[1]["state"] == "answered")
@@ -423,11 +432,11 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                 capture.save("narrow")
                 print("PASS dirty edits retained; incoming update held; stale save rejected; narrow rendering captured", flush=True)
 
-                ex("CopydeskReload!")
+                ex('lua require("copydesk").reload(true)')
                 terminal.until("explicit reload resolved conflict", lambda: not lua("vim.bo.modified") and "conflict" not in lua("vim.wo.winbar"))
                 before_explanation = saved()
                 objective_line = lines().index("Review the complete proposal in Neovim.") + 1
-                keys(editor, f"{objective_line}GV:CopydeskComment\r")
+                keys(editor, f"{objective_line}GV,sc")
                 terminal.until("explanation-only selection prompt", lambda: "Enter send" in terminal.capture_pane(editor))
                 keys(editor, "Give an explanation only: why keep approval in Studio?\r")
                 terminal.until("explanation-only outcome", lambda: len(feedback()) == 3 and feedback()[2]["state"] == "answered")
@@ -445,7 +454,7 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                 assert after_explanation == before_explanation, "Explanation-only response mutated a document or approval"
                 terminal.until("explicit no-edits response marker", lambda: "no document edits" in json.dumps(marks()))
                 choice = sorted(item["requestId"] for item in feedback()).index(explanation["requestId"]) + 1
-                ex("CopydeskChanges")
+                keys(editor, ",sd")
                 terminal.until("no-edits response selector", lambda: "Copydesk comments" in terminal.capture_pane(editor))
                 keys(editor, f"{choice}\r")
                 terminal.until("no-edits navigation result", lambda:
