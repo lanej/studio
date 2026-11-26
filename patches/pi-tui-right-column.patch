@@ -306,10 +306,19 @@ index e00273ab6b20f916256aea3ddae374a88641e2ed..d6cc2d9687c707a7aa0270733e8b5c97
              if (imageReservedRows > 1) {
                  const imageStartScreenRow = i - viewportTop;
 diff --git a/dist/tui.d.ts b/dist/tui.d.ts
-index 0934f1de5fb83428e404856474f4f7ce02b20ac3..f90319fa8a72c1c2c24e69565e06c107d3438842 100644
+index 0934f1de5fb83428e404856474f4f7ce02b20ac3..377ba5b1efca30f04a770d4aeaef8793a5eafb1e 100644
 --- a/dist/tui.d.ts
 +++ b/dist/tui.d.ts
-@@ -249,6 +249,9 @@ export interface TUI extends Component {
+@@ -86,6 +86,8 @@ export interface Component {
+      * component instead of scrolling the transcript, as they do for a focused overlay. Default is false.
+      */
+     capturesViewportInput?: boolean;
++    /** Show only the focused cursor while this component is accepting input. */
++    hideInactiveCursors?: boolean;
+     /**
+      * Invalidate any cached rendering state.
+      * Called when theme changes or when component needs to re-render from scratch.
+@@ -249,6 +251,9 @@ export interface TUI extends Component {
      clear(): void;
      getShowHardwareCursor(): boolean;
      setShowHardwareCursor(enabled: boolean): void;
@@ -319,7 +328,7 @@ index 0934f1de5fb83428e404856474f4f7ce02b20ac3..f90319fa8a72c1c2c24e69565e06c107
      getClearOnShrink(): boolean;
      setClearOnShrink(enabled: boolean): void;
      setFocus(component: Component | null): void;
-@@ -282,6 +285,7 @@ export interface ViewportTUI extends TUI {
+@@ -282,6 +287,7 @@ export interface ViewportTUI extends TUI {
  export declare function isViewportTUI(tui: TUI): tui is ViewportTUI;
  export declare abstract class TuiBase extends Container implements TUI {
      abstract readonly mode: TuiMode;
@@ -327,7 +336,7 @@ index 0934f1de5fb83428e404856474f4f7ce02b20ac3..f90319fa8a72c1c2c24e69565e06c107
      terminal: Terminal;
      private focusedComponent;
      private inputListeners;
-@@ -338,6 +342,9 @@ export declare abstract class TuiBase extends Container implements TUI {
+@@ -338,6 +344,9 @@ export declare abstract class TuiBase extends Container implements TUI {
      get fullRedraws(): number;
      getShowHardwareCursor(): boolean;
      setShowHardwareCursor(enabled: boolean): void;
@@ -338,7 +347,7 @@ index 0934f1de5fb83428e404856474f4f7ce02b20ac3..f90319fa8a72c1c2c24e69565e06c107
      /**
       * Set whether to trigger full re-render when content shrinks.
 diff --git a/dist/tui.js b/dist/tui.js
-index e36f266558d7310540dd03f67c567ea38cb1d14e..588ec2df66299812030732f70f92d29df805474d 100644
+index e36f266558d7310540dd03f67c567ea38cb1d14e..f24982a78461e1bd678fa9970fbae94b045f7e17 100644
 --- a/dist/tui.js
 +++ b/dist/tui.js
 @@ -180,10 +180,19 @@ export class Container {
@@ -421,3 +430,14 @@ index e36f266558d7310540dd03f67c567ea38cb1d14e..588ec2df66299812030732f70f92d29d
          for (const root of this.getMountedRoots())
              root.invalidate();
          for (const overlay of this.overlayStack)
+@@ -1185,6 +1219,10 @@ export class TuiBase extends Container {
+         return lines.map((line) => {
+             if (!line.includes(FAKE_CURSOR_START))
+                 return line;
++            if (this.focusedComponent?.hideInactiveCursors) {
++                const focused = this.showHardwareCursor ? "$1$2" : "$1\x1b[7m$2\x1b[27m";
++                return line.replace(FOCUSED_FAKE_CURSOR, focused).replaceAll(FAKE_CURSOR_START, "").replaceAll(FAKE_CURSOR_END, "");
++            }
+             const resolved = this.showHardwareCursor ? line.replace(FOCUSED_FAKE_CURSOR, "$1$2") : line;
+             return resolved.replaceAll(FAKE_CURSOR_START, "\x1b[7m").replaceAll(FAKE_CURSOR_END, "\x1b[27m");
+         });

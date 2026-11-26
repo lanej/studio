@@ -6,13 +6,15 @@ import subprocess
 question = "If the selected bead disappears on refresh, should focus move to its parent?"
 draft = "Keep the graph visible while I inspect the worker."
 worker_prompt = "Walk me through the focus change before I answer the worker."
-worker_reply = """The lead keeps the draft and cursor while you inspect an assignment.
+worker_reply = """The lead keeps your draft and cursor while you inspect an assignment. You can return to the same sentence after answering the worker.
 
-If the selected bead still exists after a refresh, the graph keeps that selection. If the bead has disappeared, the worker needs a rule for where focus should land.
+### Graph navigation
 
-The parent is a reasonable choice when it remains in the graph. It preserves the context of the original task. The next visible row is another option when the parent is gone.
+`worker-restore` keeps the selected bead in place when the task list refreshes. The open question is what to select if that bead disappears.
 
-Answering the question resumes the same assignment. The reviewer can then check that the agreed fallback works on the updated graph.
+The parent preserves the workstream. When the parent is gone too, the first remaining bead gives the worker a deterministic fallback.
+
+Answering resumes the same assignment. The reviewer can then check that the agreed fallback works on the updated graph.
 
 The resize and draft-preservation assignments can continue independently while you decide."""
 
@@ -175,6 +177,11 @@ discoveries.close();
             console.contains(draft)
 
         before = passive_roster()
+        console.assert_styled_text("Graph navigation", fg="mdHeading", bold=True)
+        console.assert_styled_text("worker-restore", fg="mdCode")
+        console.assert_styled_text("Needs input", fg="status.warning", bg="surface.raised")
+        console.assert_styled_text("Reviewing", fg="focus", bg="surface.raised")
+        console.assert_styled_text("●", fg="status.success", bg="surface.raised")
         assert "at processTicksAndRejections" not in console.text(), console.text()
         console.capture("worker-sidebar")
 
@@ -269,6 +276,7 @@ discoveries.close();
         console.send("\x1b[C")
         console.send(" Still here.")
         console.contains(draft + " Still here.")
+        console.send("\x1b[D")
 
         open_workers()
         select_first()
@@ -280,6 +288,11 @@ discoveries.close();
             if "› ↗ Answer operator decision" in console.text():
                 break
         console.contains("› ↗ Answer operator decision")
+        console.assert_styled_text("› ↗ Answer operator decision", bg="selection.bg")
+        console.assert_styled_text("Brief & acceptance", bg="surface.raised")
+        console.capture("operator-question")
+        console.resize(128, 34)
+        console.contains("› ↗ Answer operator decision")
         console.capture("operator-question")
         console.resize(60, 32)
         console.contains("› ↗ Answer operator decision")
@@ -287,27 +300,46 @@ discoveries.close();
         console.send("\r")
         console.contains("Esc cancel")
 
-        def answer_lines():
-            top, bottom, left, right = console.framed_pane()
-            return [line[left + 1:right].strip() for line in console.screen.display[top + 1:bottom]]
-
-        assert question in " ".join(answer_lines()), console.text()
-        console.send("Use the parent when it is still visible.")
+        preserved_draft = draft + " Still here."
+        first = "Use the parent when it is still visible."
+        second = "Otherwise select the first remaining bead."
+        console.send(first)
         console.send("\x1b[13;2u")
-        console.send("Otherwise select the first remaining bead.")
-        console.contains("Otherwise select the first remaining bead.")
-        assert "Use the parent when it is still visible." in answer_lines(), console.text()
-        assert "Otherwise select the first remaining bead." in answer_lines(), console.text()
-        console.capture("operator-answer-question")
-        console.resize(100, 32)
-        assert question in " ".join(answer_lines()), console.text()
-        console.capture("operator-answer-question")
+        console.send(second)
+        for width, height in ((60, 32), (100, 32), (128, 34)):
+            if console.screen.columns != width:
+                console.resize(width, height)
+            console.contains(second)
+            top, bottom = console.answer_drawer(question, preserved_draft)
+            console.assert_styled_text("Restore the selected graph node", bg="surface.raised", lines=[top])
+            console.assert_styled_text("›", fg="accent", bg="surface.raised", lines=range(top, bottom))
+            console.assert_styled_text(first, bg="surface.raised", lines=range(top, bottom))
+            console.assert_styled_text(second, bg="surface.raised", lines=range(top, bottom))
+            # Pi draws its active editor cursor as an inverse-video cell.
+            reply_row = next(y for y in range(top, bottom) if second in console.screen.display[y])
+            cursor_col = console.screen.display[reply_row].index(second) + len(second)
+            assert console.screen.buffer[reply_row][cursor_col].reverse, console.text()
+            lead_width = console.rail_start() or console.screen.columns
+            assert not any(console.screen.buffer[y][x].reverse
+                           for y in range(bottom + 1, console.screen.lines - 1) for x in range(lead_width)), console.text()
+            console.capture("worker-answer-drawer")
+        # Clicking the lead and then the reply transfers editing to the selected position.
+        lead_row = next(y for y in range(bottom, console.screen.lines) if draft in console.screen.display[y])
+        def click(x, y):
+            console.send(f"\x1b[<0;{x + 1};{y + 1}M\x1b[<0;{x + 1};{y + 1}m")
+        click(console.screen.display[lead_row].index(preserved_draft) + len(preserved_draft) - 1, lead_row)
+        click(console.screen.display[reply_row].index("select"), reply_row)
+        console.send("X")
+        console.contains(second.replace("select", "Xselect"))
         console.send("\x1b")
         console.contains("Answer cancelled")
         console.contains("Brief & acceptance")
         console.send("\x1b")
         console.wait(lambda: "Brief & acceptance" not in console.text(), "Escape did not return to the lead")
-        console.contains(draft + " Still here.")
+        console.contains(preserved_draft)
+        console.send("!")
+        console.contains(preserved_draft[:-1] + "!.")
+        console.send("\x1b[C")  # Advance past the preserved period before clearing the draft.
         console.contains("1 needs you")
 
         console.resize(128, 34)

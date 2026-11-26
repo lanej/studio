@@ -25,8 +25,11 @@ import { stripVTControlCharacters as stripAnsi } from "node:util";
 import { getThemeByName } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js";
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 import {
+  Container,
   Input,
+  isKeyRelease,
   ProcessTerminal,
+  type Component,
   TuiMainScreen,
   type OverlayHandle,
   visibleWidth,
@@ -867,15 +870,22 @@ await test("live refresh preserves the focused task and Escape closes the floati
   assert.equal(reads, 2, "disposed panels must not read again");
 });
 
-await test("task and answer panes own input immediately and discard stale reads after close", async () => {
+await test("the worker answer drawer owns focus above the lead draft and restores its inspector", async () => {
   class TestTui extends TuiMainScreen {
     override requestRender(): void {}
+    paintedRows() {
+      return this.resolveFakeCursors(this.render(68));
+    }
   }
   const terminal = new ProcessTerminal();
   terminal.hideCursor = () => {};
   const tui = new TestTui(terminal);
   const lead = new Input();
-  lead.setValue("unsent");
+  lead.handleInput("unsent");
+  lead.handleInput("\x1b[D");
+  const aboveEditor = new Container();
+  tui.addChild(aboveEditor);
+  tui.addChild(lead);
   tui.setFocus(lead);
   const messages: string[] = [];
   let earlyInput:
@@ -900,10 +910,26 @@ await test("task and answer panes own input immediately and discard stale reads 
         options?.onHandle?.(handle);
       }, reject);
     });
+  let widget: (Component & { dispose?(): void }) | undefined;
+  const setWidget: ExtensionContext["ui"]["setWidget"] = (
+    _key,
+    content,
+    options,
+  ) => {
+    widget?.dispose?.();
+    aboveEditor.clear();
+    widget = undefined;
+    if (content === undefined) return;
+    assert.equal(options?.placement, "aboveEditor");
+    assert.ok(typeof content === "function");
+    widget = content(tui, theme);
+    aboveEditor.addChild(widget);
+  };
   const ctx = {
     hasUI: true,
     ui: {
       custom,
+      setWidget,
       notify: (message: string) => {
         messages.push(message);
       },
@@ -916,7 +942,7 @@ await test("task and answer panes own input immediately and discard stale reads 
     },
   };
   const send = (key: string) => {
-    if (earlyInput?.(key)?.consume !== true)
+    if (earlyInput?.(key)?.consume !== true && !isKeyRelease(key))
       tui.getFocusedComponent()?.handleInput?.(key);
   };
   const view = () => tui.getFocusedComponent()?.render(68).join("\n") ?? "";
@@ -941,7 +967,23 @@ await test("task and answer panes own input immediately and discard stale reads 
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
   const inspector = tui.getFocusedComponent();
   assert.ok(inspector !== null && inspector !== lead);
-  const reply = panel.editAnswer(ctx, "Which behavior should the worker use?");
+  const reply = panel.editAnswer(
+    ctx,
+    "Which behavior should the worker use?",
+    "Restore graph focus",
+  );
+  assert.equal(tui.getFocusedComponent(), aboveEditor.children[0]);
+  const drawer = view().split("\n").map(stripAnsi).join("\n");
+  assert.match(drawer, /Worker question.*Restore graph focus/u);
+  assert.match(drawer, /Which behavior should the worker use/u);
+  assert.equal(tui.hasOverlay(), false);
+  tui.setShowHardwareCursor(false);
+  const painted = tui.paintedRows();
+  assert.equal(painted.filter((row) => row.includes("\x1b[7m")).length, 1);
+  assert.ok(painted.some((row) => row.includes("unsent")));
+  tui.setShowHardwareCursor(true);
+  assert.ok(tui.paintedRows().every((row) => !row.includes("\x1b[7m")));
+  tui.setShowHardwareCursor(false);
   // The action key and the first word can arrive in a single terminal read.
   send("q");
   send("\x1b[113;1:3u"); // Kitty key release
@@ -953,13 +995,43 @@ await test("task and answer panes own input immediately and discard stale reads 
   assert.equal(await reply, "quit");
   assert.equal(tui.getFocusedComponent(), inspector);
   const quickCancel = panel.editAnswer(ctx, "Still needed?");
+  send("edit me");
+  const replyField = aboveEditor.children[0];
+  assert.ok(replyField !== undefined);
+  tui.setFocus(lead);
+  const y = replyField.render(68).findIndex((row) => row.includes("edit me"));
+  assert.ok(y >= 0);
+  const click = replyField.handleMouse?.({
+    type: "click",
+    button: "left",
+    x: 7,
+    y,
+    screenX: 7,
+    screenY: y,
+    width: 68,
+    height: 12,
+    shift: false,
+    alt: false,
+    ctrl: false,
+  });
+  assert.equal(click?.focus, true);
+  tui.setFocus(replyField);
+  send(",");
+  assert.match(view(), /edit,/u);
   send("\x1b");
   assert.equal(await quickCancel, undefined);
   assert.equal(earlyInput, undefined);
   assert.equal(tui.getFocusedComponent(), inspector);
+  const interrupted = panel.editAnswer(ctx, "Waiting for your reply.");
+  send("unsubmitted");
   panel.close();
+  assert.equal(aboveEditor.children.length, 0);
+  assert.equal(tui.getFocusedComponent(), lead);
+  assert.ok(tui.paintedRows().some((row) => row.includes("\x1b[7mt\x1b[27m")));
+  assert.equal(await interrupted, undefined);
   await parent;
   assert.equal(tui.getFocusedComponent(), lead);
+  assert.equal(aboveEditor.children.length, 0);
   const opened = panel.open(ctx, () => Promise.resolve(source));
   send("j"); // The opening command and another key arrive in one terminal read.
   assert.equal(lead.getValue(), "unsent");
@@ -1005,6 +1077,8 @@ await test("task and answer panes own input immediately and discard stale reads 
     Promise.reject(new Error("Current service unavailable")),
   );
   assert.deepEqual(messages, ["Current service unavailable"]);
+  send("!");
+  assert.equal(lead.getValue(), "unsen!t");
 });
 
 await test("automatic refresh revalidates an explicitly inspected task outside a bounded listing", async () => {

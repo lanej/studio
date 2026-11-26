@@ -40,14 +40,15 @@ try:
     terminal.contains("Operator decision evidence")
     terminal.capture("operator-question")
     terminal.send("\r")
-    terminal.contains("Answer operator decision")
-    terminal.contains(fixture["question"])
+    terminal.contains("Esc cancel")
+    terminal.answer_drawer(fixture["question"])
     terminal.capture("operator-answer-question")
     terminal.resize(100, 36)
-    terminal.contains(fixture["question"])
+    terminal.answer_drawer(fixture["question"])
     terminal.capture("operator-answer-question")
     terminal.send(fixture["answer"] + "\r")
     terminal.contains("Answer recorded")
+    terminal.centered_inspector("Tasks ·")
     terminal.capture("operator-answer-recorded")
 finally:
     pid = terminal.process.pid

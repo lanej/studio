@@ -10,6 +10,7 @@ import {
 } from "../execution/store.ts";
 import { StudioProfile } from "../config.ts";
 import {
+  CURSOR_MARKER,
   ProcessTerminal,
   getKeybindings,
   TuiMainScreen,
@@ -84,6 +85,50 @@ await test("long questions scroll independently of multiline answers, and Escape
   cancelled.handleInput("Unsubmitted answer");
   cancelled.handleInput("\x1b");
   assert.deepEqual(results, [first + "\nSecond line", undefined]);
+});
+
+await test("the reply cursor stays inside the drawer when the terminal shrinks", () => {
+  class ResizableTerminal extends ProcessTerminal {
+    rowCount = 24;
+    override get rows(): number {
+      return this.rowCount;
+    }
+  }
+  class TestTui extends TuiMainScreen {
+    override requestRender(): void {}
+  }
+  const terminal = new ResizableTerminal();
+  const tui = new TestTui(terminal);
+  const editor = new DecisionEditor(
+    tui,
+    theme,
+    "A long question ".repeat(10),
+    () => {},
+  );
+  editor.focused = true;
+  for (let i = 0; i < 10; i++) {
+    editor.handleInput("Wrapped answer ".repeat(3));
+    editor.handleInput("\x1b[13;2u");
+  }
+  editor.handleInput("Last line");
+  for (const height of [1, 6, 9, 12, 24, 60]) {
+    terminal.rowCount = height;
+    for (const width of [1, 2, 3, 4, 16, 80]) {
+      const rows = editor.render(width);
+      assert.ok(
+        rows.length <= Math.max(1, Math.min(12, Math.floor(height / 3))),
+      );
+      assert.ok(
+        rows.every((row) => visibleWidth(row) === width),
+        `Width ${String(width)} at ${String(height)} rows`,
+      );
+      assert.equal(
+        rows.filter((row) => row.includes(CURSOR_MARKER)).length,
+        1,
+        `Cursor at ${String(width)}×${String(height)}`,
+      );
+    }
+  }
 });
 
 await test("the answer editor follows Pi text bindings and keeps pane mnemonics available as prose", () => {
@@ -194,7 +239,12 @@ await test("only explicit owned decisions offer Answer and capture the original 
       }),
       undefined,
     );
-    const calls: { id: string; request: string; question: string }[] = [];
+    const calls: {
+      id: string;
+      request: string;
+      question: string;
+      taskTitle: string;
+    }[] = [];
     let release: (() => void) | undefined;
     const dialog = new Promise<void>((resolve) => {
       release = resolve;
@@ -206,8 +256,8 @@ await test("only explicit owned decisions offer Answer and capture the original 
         identity: project,
         load: () => Promise.resolve(snapshot),
         show: () => Promise.resolve(task),
-        answer: async (id, request, question) => {
-          calls.push({ id, request, question });
+        answer: async (id, request, question, taskTitle) => {
+          calls.push({ id, request, question, taskTitle });
           await dialog;
           throw new Error("This decision request is stale; refresh");
         },
@@ -246,7 +296,12 @@ await test("only explicit owned decisions offer Answer and capture the original 
     browser.handleInput("o");
     await Promise.resolve();
     assert.deepEqual(calls, [
-      { id, request: request.id, question: request.question },
+      {
+        id,
+        request: request.id,
+        question: request.question,
+        taskTitle: task.title,
+      },
     ]);
     snapshot = {
       ...snapshot,

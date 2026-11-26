@@ -430,8 +430,13 @@ export function registerStudio(
         ? {}
         : {
             retry: retryAttempt,
-            answer: async (id: string, request: string, question: string) => {
-              const text = await tasks.editAnswer(ctx, question);
+            answer: async (
+              id: string,
+              request: string,
+              question: string,
+              taskTitle: string,
+            ) => {
+              const text = await tasks.editAnswer(ctx, question, taskTitle);
               if (text === undefined) return false;
               await answerDecision(id, request, text);
               return true;

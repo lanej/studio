@@ -39,7 +39,12 @@ export interface BrowserSource {
   load: () => Promise<TaskSnapshot>;
   show: (id: string) => Promise<Task>;
   retry?: (id: string) => Promise<void>;
-  answer?: (id: string, request: string, question: string) => Promise<boolean>;
+  answer?: (
+    id: string,
+    request: string,
+    question: string,
+    taskTitle: string,
+  ) => Promise<boolean>;
   diff?: (
     attempt: import("../execution/store.ts").Execution,
   ) => Promise<string>;
@@ -48,7 +53,13 @@ type Action =
   | { kind: "link"; id: string }
   | { kind: "disclosure"; section: string }
   | { kind: "retry"; id: string }
-  | { kind: "answer"; id: string; request: string; question: string }
+  | {
+      kind: "answer";
+      id: string;
+      request: string;
+      question: string;
+      taskTitle: string;
+    }
   | { kind: "diff"; id: string }
   | { kind: "pane"; id: string };
 interface DetailLine {
@@ -274,6 +285,7 @@ export class TaskBrowser {
             id: owned.id,
             request: pending.id,
             question: pending.question,
+            taskTitle: task.title,
           },
         });
       } else
@@ -690,6 +702,7 @@ export class TaskBrowser {
             action.id,
             action.request,
             action.question,
+            action.taskTitle,
           );
           if (this.closed) return;
           this.update(await this.source.load());
