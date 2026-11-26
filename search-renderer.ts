@@ -325,11 +325,7 @@ const outputDetails = z
 const originalArgs = z.object({ invocationArgs: z.unknown() });
 
 export function registerSearchRendering(pi: ExtensionAPI): void {
-  let expandHintCall: string | undefined;
-  pi.on("session_start", () => {
-    expandHintCall = undefined;
-    return prepareShellSyntax();
-  });
+  pi.on("session_start", () => prepareShellSyntax());
   const painted = new WeakSet<Component>();
   registerCodingRenderer(pi, (name, next) => {
     const base = next();
@@ -422,15 +418,6 @@ export function registerSearchRendering(pi: ExtensionAPI): void {
                   : styled;
               return shellOutputPreview(source, theme, {
                 expanded: options.expanded,
-                expandKey() {
-                  return expandHintCall === undefined ||
-                    expandHintCall === context.toolCallId
-                    ? context.keyText("app.tools.expand")
-                    : "";
-                },
-                showExpandKey() {
-                  expandHintCall ??= context.toolCallId;
-                },
                 tokens:
                   usage === undefined ? undefined : usage.call + usage.result,
                 elapsed: shellElapsed(timerText, context.durationMs, state),

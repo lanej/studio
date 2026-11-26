@@ -29,14 +29,10 @@ export function shellOutputPreview(
   theme: Theme,
   {
     expanded,
-    expandKey,
-    showExpandKey,
     tokens,
     elapsed,
   }: {
     expanded: boolean;
-    expandKey: () => string;
-    showExpandKey: () => void;
     tokens: number | undefined;
     elapsed: string | undefined;
   },
@@ -45,7 +41,7 @@ export function shellOutputPreview(
   const metadata = (hidden: number, width: number) => {
     const count =
       hidden > 0
-        ? `+${hidden.toString()} ${hidden === 1 ? "line" : "lines"}`
+        ? `${hidden.toString()} more ${hidden === 1 ? "line" : "lines"}`
         : "";
     const size = tokens === undefined ? "" : `≈${tokens.toString()} tokens`;
     const fields: string[] = [];
@@ -58,15 +54,8 @@ export function shellOutputPreview(
         fields.push(field);
     }
     if (fields.length === 0) return "";
-    if (fields[0] === count) {
-      const key = expandKey();
-      const hinted = [`${count} (${key})`, ...fields.slice(1)].join(" · ");
-      if (key !== "" && visibleWidth(hinted) <= width) {
-        showExpandKey();
-        return inlayText(theme, hinted);
-      }
-    }
-    return inlayText(theme, fields.join(" · "));
+    const label = fields.join(" · ");
+    return " ".repeat(width - visibleWidth(label)) + inlayText(theme, label);
   };
 
   return {

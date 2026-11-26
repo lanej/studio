@@ -77,26 +77,38 @@ console.log(session.getSessionFile());
                 heading = f"$ {full_row_command} (timeout 30s)"
                 terminal.contains(heading)
                 terminal.contains("Retained line 7")
-                # Keep physical rows, including blanks, to catch an extra separator or wrapped metadata.
-                lines = [row.strip() for row in terminal.screen.display]
-                headings = [i for i, line in enumerate(lines) if line.endswith("30s)")]
-                assert len(headings) == len(commands), terminal.text()
-                assert lines[headings[-1]] == heading, terminal.text()
-                for index, row in enumerate(headings):
-                    metrics, first_result = lines[row + 1:row + 3]
-                    assert re.search(r"≈\d+ tokens", metrics), lines[row:row + 4]
-                    assert ("1.3s" in metrics) == (index > 0), lines[row:row + 4]
-                    if index == 2:
-                        assert "+2 lines" in metrics and "ctrl+o" in metrics, metrics
-                        assert first_result == "Retained line 3", lines[row:row + 4]
-                    else:
-                        assert first_result == "Retained fixture output; command was not executed.", lines[row:row + 4]
+                def check_metadata(folded):
+                    physical = terminal.screen.display
+                    lines = [line.strip() for line in physical]
+                    headings = [i for i, line in enumerate(lines) if line.endswith("30s)")]
+                    assert len(headings) == len(commands), terminal.text()
+                    assert lines[headings[-1]] == heading, terminal.text()
+                    for index, row in enumerate(headings):
+                        metrics, first_result = lines[row + 1:row + 3]
+                        # Studio's native tool card has one padding cell at either end.
+                        assert len(physical[row + 1].rstrip()) == width - 1, physical[row + 1]
+                        fields = metrics.split(" · ")
+                        tokens = [field for field in fields if re.fullmatch(r"≈\d+ tokens", field)]
+                        assert len(tokens) == 1, metrics
+                        expected = tokens + (["1.3s"] if index > 0 else [])
+                        if index == 2 and folded:
+                            expected.append("2 more lines")
+                        assert sorted(fields) == sorted(expected), metrics
+                        if index == 2:
+                            assert first_result == ("Retained line 3" if folded else "Retained line 1"), lines[row:row + 4]
+                        else:
+                            assert first_result == "Retained fixture output; command was not executed.", lines[row:row + 4]
+
+                check_metadata(folded=True)
                 # Compound command/flag colors must survive both native layouts.
                 for word in ("gh", "tail"):
                     assert_style(terminal, word, "syntaxFunction", bold=True)
                 for word in ("--repo", "--watch", "--fail-fast", "--interval", "--json", "--jq", "--limit", "-15", "--log"):
                     assert_style(terminal, word, "syntaxKeyword")
                 terminal.capture("shell-header")
+                terminal.send("\x0f")
+                terminal.contains("Retained line 1")
+                check_metadata(folded=False)
             finally:
                 terminal.close()
 
@@ -105,4 +117,4 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path)
     run(parser.parse_args().output)
-    print("Native Pi retained Bash headers preserve full-width command wrapping and put results directly after one metadata row at 128 and 60 columns; no rendered commands executed.")
+    print("Native Pi retained Bash headers preserve full-width command wrapping and put results directly after one right-aligned metadata row at 128 and 60 columns; no rendered commands executed.")

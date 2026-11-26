@@ -243,7 +243,7 @@ await test("Codex discovery displays TypeScript tokens in both compact and expan
     const display = stripTerminalSequences(rows.join("\n"));
     assert.doesNotMatch(display, /Took|0\.2s/u);
     assert.match(display, /≈\d+ tokens/u);
-    assert.equal(display.includes("+1 line"), !expanded);
+    assert.equal(display.includes("1 more line"), !expanded);
     const context = rows.find((row) =>
       stripTerminalSequences(row).includes(`17-${source}`),
     );
@@ -325,7 +325,7 @@ await test("finished shells use the result separator for size, hidden rows and s
         "Use the existing separator without adding a second row",
       );
       const label = [
-        ...(expanded ? [] : ["+1 line (ctrl+y)"]),
+        ...(expanded ? [] : ["1 more line"]),
         size,
         ...(durationMs === 1000 ? ["1.0s"] : []),
       ].join(" · ");
@@ -334,12 +334,7 @@ await test("finished shells use the result separator for size, hidden rows and s
         status.includes(inlayText(theme, label)),
         "Shell metadata uses Studio's inlay foreground",
       );
-      assert.equal(
-        rows.filter((row) => stripTerminalSequences(row).includes("ctrl+y"))
-          .length,
-        expanded ? 0 : 1,
-      );
-      assert.doesNotMatch(display, /earlier lines|to expand|Took/u);
+      assert.doesNotMatch(display, /ctrl\+[oy]|earlier lines|to expand|Took/u);
       assert.equal(display.includes("first"), expanded);
       assert.match(display, /last/u);
     }
@@ -351,7 +346,7 @@ await test("finished shells use the result separator for size, hidden rows and s
   second.setArgsComplete();
   second.updateResult({ ...result, durationMs: 300 });
   const secondHeader = stripTerminalSequences(second.render(100).join("\n"));
-  assert.match(secondHeader, /\$ cat output\.txt *\n *\+1 line/u);
+  assert.match(secondHeader, /\$ cat output\.txt *\n *1 more line/u);
   assert.doesNotMatch(secondHeader, /ctrl\+y|Took/u);
   const path = "/tmp/studio-shell-result.txt";
   const truncated = `${text}\n\n[Showing lines 15-20. Full output: ${path}]`;
@@ -383,6 +378,34 @@ await test("finished shells use the result separator for size, hidden rows and s
   assert.equal(empty.length, 2, "An empty result still shows one usage row");
   assert.equal(empty[0], "$ cat output.txt");
   assert.match(empty[1] ?? "", /^≈\d+ tokens$/u);
+});
+
+await test("shell previews report only rows they actually hide", async (t) => {
+  const { component } = await conversationFixture(t);
+  const shell = component("shell_command", { command: "cat report" });
+  shell.setArgsComplete();
+  const lines = Array.from({ length: 9 }, (_, i) => `result ${String(i + 1)}`);
+  for (const length of [4, 9]) {
+    const output = lines.slice(0, length);
+    shell.updateResult({
+      content: [{ type: "text", text: output.join("\n") }],
+      isError: false,
+    });
+    for (const expanded of [false, true]) {
+      shell.setExpanded(expanded);
+      const rows = shell
+        .render(80)
+        .map((row) => stripTerminalSequences(row).trim())
+        .filter(Boolean);
+      const [heading, metadata, ...shown] = rows;
+      assert.equal(heading, "$ cat report");
+      assert.ok(metadata !== undefined);
+      assert.deepEqual(shown, expanded ? output : output.slice(-5));
+      if (!expanded && length === 9)
+        assert.match(metadata, /^4 more lines · ≈\d+ tokens$/u);
+      else assert.match(metadata, /^≈\d+ tokens$/u);
+    }
+  }
 });
 
 await test("resizing shell results keeps the natural command rows and exactly one separator", async (t) => {
@@ -429,11 +452,19 @@ await test("resizing shell results keeps the natural command rows and exactly on
         natural.get(width),
         `Preserve the full command at ${String(width)} columns`,
       );
-      const status = rows[firstOutput - 1]?.trim() ?? "";
+      const statusRow = rows[firstOutput - 1] ?? "";
+      const status = statusRow.trim();
+      if (status !== "")
+        assert.equal(
+          visibleWidth(statusRow),
+          width - 1,
+          "Right-align metadata to the last content cell",
+        );
+      assert.doesNotMatch(status, /ctrl\+|to expand/u);
       if (width >= exactFit - 1) {
         assert.match(status, /≈\d+ tokens/u);
         assert.match(status, /1\.3s/u);
-        assert.equal(status.includes("+1 line"), !expanded);
+        assert.equal(status.includes("1 more line"), !expanded);
       }
       if (width === 6)
         assert.equal(
