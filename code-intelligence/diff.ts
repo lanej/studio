@@ -89,7 +89,7 @@ function readableInk(
   return luminance(background) > 0.179 ? rgbColor(0, 0, 0) : white;
 }
 
-function inlayText(theme: HeadingTheme, text: string) {
+export function inlayText(theme: HeadingTheme, text: string) {
   const gray = theme.appearance === "dark" ? 177 : 85;
   const fg = readableInk(
     theme.colors.toolSuccessBg,
