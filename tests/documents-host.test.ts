@@ -650,11 +650,13 @@ await test(
         afterPlan.leadPlan.draft?.tasks[0]?.delivery,
         TaskDelivery.Local,
       );
-      assert.equal(afterPlan.specification?.coverageRevision, undefined);
-      assert.ok(
-        afterPlan.specification !== undefined &&
-          !coverageFresh(afterPlan.specification, afterPlan.revision),
+      assert.ok(afterPlan.specification !== undefined);
+      assert.equal(
+        afterPlan.specification.coverageRevision,
+        reviewed.coverageRevision,
       );
+      assert.equal(afterPlan.specification.pendingReview?.cause, "plan");
+      assert.ok(!coverageFresh(afterPlan.specification, afterPlan.revision));
       await assert.rejects(
         host.save({
           operationId: randomUUID(),
@@ -705,12 +707,13 @@ await test(
       assert.notEqual(
         staleAssessment.revision,
         currentAssessment.revision,
-        "plan contents fence coverage proposals even while coverageRevision is already unset",
+        "plan contents fence coverage proposals while an earlier review is pending",
       );
       const specificationTool = runner.getToolDefinition(
         "draft_socrates_specification",
       );
       assert.ok(specificationTool !== undefined);
+      await runner.emitContext([]);
       await assert.rejects(
         specificationTool.execute(
           "stale-assessment",

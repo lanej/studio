@@ -20,7 +20,10 @@ import {
   specificationGaps,
   type DeliveryPolicy,
 } from "../socrates/spec.ts";
-import { specificationToken } from "../socrates/assessment.ts";
+import {
+  pendingCoverageReview,
+  specificationToken,
+} from "../socrates/assessment.ts";
 import {
   commitOperation,
   initializeOperationWitnesses,
@@ -120,8 +123,11 @@ export function saveDiscoveryPlan(
   const policy = draftDeliveryPolicy(spec?.draft ?? null);
   const draft =
     policy === undefined ? proposal : applyDeliveryPolicy(proposal, policy);
-  if (spec !== undefined && !isDeepStrictEqual(draft, row.leadPlan.draft))
-    spec.coverageRevision = undefined;
+  if (
+    spec?.coverageRevision !== undefined &&
+    !isDeepStrictEqual(draft, row.leadPlan.draft)
+  )
+    spec.pendingReview = pendingCoverageReview(spec, "plan");
   row.leadPlan = { ...row.leadPlan, mode: LeadMode.Planning, draft };
 }
 

@@ -417,11 +417,14 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                 explanation = feedback()[2]
                 assert explanation["changes"] == [] and explanation["responseId"]
                 after_explanation = saved()
-                assert "coverageRevision" not in after_explanation["specification"], "Operator feedback retained an old property assessment"
-                # A new operator message invalidates the prior assessment even
-                # when its answer leaves the documents and authority unchanged.
+                prior_review = before_explanation["specification"].get("pendingReview")
+                pending_review = after_explanation["specification"].get("pendingReview")
+                assert pending_review and pending_review["cause"] == "input" and pending_review != prior_review
+                assert "why keep approval in Studio?" in content_text(pending_review["inputs"][-1])
+                assert after_explanation["specification"]["coverageRevision"] == before_explanation["specification"]["coverageRevision"]
+                # The input opens property review while preserving the evidence and documents.
                 for snapshot in (before_explanation, after_explanation):
-                    snapshot["specification"].pop("coverageRevision", None)
+                    snapshot["specification"].pop("pendingReview", None)
                 assert after_explanation == before_explanation, "Explanation-only response mutated a document or approval"
                 terminal.until("explicit no-edits response marker", lambda: "no document edits" in json.dumps(marks()))
                 choice = sorted(item["requestId"] for item in feedback()).index(explanation["requestId"]) + 1
@@ -447,14 +450,15 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                 assert plan_draft["summary"] == "Deliver the proposed document editing loop."
                 assert plan_draft["tasks"][0]["delivery"] == "pull-request"
                 assert plan_draft["tasks"][0]["acceptance"] == "The full plan and its manual merge rule survive a save."
-                assert "coverageRevision" not in saved()["specification"], "Plan save retained stale property approval"
+                assert saved()["specification"]["pendingReview"]["cause"] == "input-and-plan"
                 assert saved()["planSpecificationRevision"]
                 assert saved()["specification"]["status"] == "interrogating" and "approved" not in saved()
                 terminal.until("plan policy buffer save acknowledged", lambda: not lua("vim.bo.modified"))
                 select_document("## Objective")
                 terminal.focus_pane(studio)
                 keys(studio, "Reassess the edited document properties against the current specification and plan.\r")
-                terminal.until("native agent reassessed current documents", lambda: bool(saved()["specification"].get("coverageRevision")))
+                terminal.until("native agent reassessed current documents", lambda: bool(saved()["specification"].get("coverageRevision"))
+                               and "pendingReview" not in saved()["specification"])
                 terminal.until("reassessment completed", lambda:
                                "freeze remains an explicit Studio action" in " ".join(terminal.capture_pane(studio).split()))
                 assert saved()["specification"]["status"] == "interrogating" and "approved" not in saved()
@@ -482,7 +486,7 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                                saved()["leadPlan"]["draft"]["summary"] == "Deliver the reviewed document editing loop.")
                 assert saved()["specification"]["status"] == "frozen" and "approved" not in saved()
                 assert saved()["leadPlan"]["draft"]["pullRequestMerge"] == "manual"
-                assert "coverageRevision" not in saved()["specification"], "Frozen plan edit bypassed reassessment"
+                assert saved()["specification"]["pendingReview"]["cause"] == "plan", "Frozen plan edit bypassed reassessment"
                 assert not Provider.errors, Provider.errors
                 print("PASS explicit Studio freeze protects the specification; full plan edits save without approval", flush=True)
 
@@ -545,7 +549,7 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                                 "coverageAssessmentCount": len(saved()["specification"]["draft"]["coverage"]["assessments"]),
                                 "deliveryPolicy": saved()["specification"]["draft"]["deliveryPolicy"],
                                 "pullRequestMerge": saved()["leadPlan"]["draft"]["pullRequestMerge"],
-                                "planEditInvalidatedCoverage": "coverageRevision" not in saved()["specification"],
+                                "planEditRequiresAssessment": "pendingReview" in saved()["specification"],
                                 "planApproved": "approved" in saved(),
                                 "lifecycle": lifecycle,
                                 "images": "RGB reconstructions from the actual terminal ANSI, not desktop screenshots"}

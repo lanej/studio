@@ -4,6 +4,10 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { extname, isAbsolute, join } from "node:path";
 import { z } from "zod";
+import {
+  defaultPaneKeybindings,
+  paneKeybindingsSchema,
+} from "./pane-keybindings-config.ts";
 
 export enum StudioProfile {
   Work = "work",
@@ -92,6 +96,7 @@ export const runtimeProjectSchema = z
 
 export const configSchema = z
   .object({
+    keybindings: paneKeybindingsSchema,
     runtime: z
       .object({
         enabled: z.boolean().default(false),
@@ -136,9 +141,9 @@ export const configSchema = z
       .strict()
       .default({ enabled: true }),
     delegation: z
-      .object({ enabled: z.boolean().default(false) })
+      .object({ enabled: z.boolean().default(true) })
       .strict()
-      .default({ enabled: false }),
+      .prefault({}),
     archives: z
       .object({
         database: z
@@ -246,6 +251,7 @@ const roles = (provider: string, model: string) => ({
 });
 
 export const exampleConfig = {
+  keybindings: defaultPaneKeybindings,
   runtime: { enabled: false, concurrency: 2, pollMs: 5000, projects: [] },
   display: {
     min_split_columns: defaultMinSplitColumns,
@@ -258,7 +264,7 @@ export const exampleConfig = {
     worktrees: { enabled: true, executable: "worktree" },
     octo: { enabled: true, executable: "octo-manager" },
   },
-  delegation: { enabled: false },
+  delegation: { enabled: true },
   idleCompaction: { enabled: true, idleMs: 300_000, minimumContextPercent: 60 },
   beadsService: {
     url: "http://127.0.0.1:8790",

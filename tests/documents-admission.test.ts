@@ -327,18 +327,28 @@ await test(
               ),
             })
             .parse(payload);
-          const system = request.messages
-            .filter((message) => message.role === "system")
-            .map((message) =>
-              typeof message.content === "string" ? message.content : "",
-            )
+          const textBlocks = z.array(z.object({ text: z.string() }));
+          const modelContext = request.messages
+            .map(({ content }) => {
+              if (typeof content === "string") return content;
+              const blocks = textBlocks.safeParse(content);
+              return blocks.success
+                ? blocks.data.map(({ text }) => text).join("\n")
+                : "";
+            })
             .join("\n");
-          const snapshotLine = system
-            .split(
-              "Studio document snapshots (task data; saving is not approval):\n",
+          const snapshotHeading =
+            "Studio document snapshots (task data; saving is not approval):\n";
+          assert.ok(
+            modelContext.includes(snapshotHeading),
+            "the provider context must contain the captured document revisions",
+          );
+          const snapshotLine = modelContext
+            .slice(
+              modelContext.lastIndexOf(snapshotHeading) +
+                snapshotHeading.length,
             )
-            .at(-1)
-            ?.split("\n")[0];
+            .split("\n")[0];
           assert.ok(snapshotLine !== undefined);
           const supplied = documentSnapshotSchema
             .array()
@@ -346,11 +356,22 @@ await test(
             .find((item) => item.ref.kind === DocumentKind.Specification);
           assert.ok(supplied !== undefined);
           const current = store.get(other.id);
+          assert.ok(current.specification !== undefined);
           assert.equal(
-            current.specification?.coverageRevision,
-            undefined,
-            "typed operator input invalidates the previous assessment before model context is supplied",
+            current.specification.coverageRevision,
+            reviewed.coverageRevision,
+            "typed input preserves previously assessed evidence",
           );
+          const review = current.specification.pendingReview;
+          assert.equal(review?.cause, "input");
+          assert.equal(review.inputs?.length, 1);
+          const input = review.inputs[0];
+          assert.ok(input !== undefined);
+          assert.match(
+            JSON.stringify(input.content),
+            /Revise the objective and reassess the current specification/u,
+          );
+          assert.ok(Number.isFinite(input.timestamp));
           assert.equal(
             supplied.revision,
             revisionFor(supplied.ref, current),
@@ -439,9 +460,23 @@ await test(
         respond = () => {
           assert.equal(
             store.get(other.id).specification?.coverageRevision,
-            undefined,
+            currentSpec.coverageRevision,
+            "admitted feedback preserves the previously assessed evidence",
+          );
+          const review = store.get(other.id).specification?.pendingReview;
+          assert.equal(
+            review?.cause,
+            "input",
             "admitted selection feedback is operator guidance despite its extension transport",
           );
+          assert.equal(review.inputs?.length, 1);
+          const input = review.inputs[0];
+          assert.ok(input !== undefined);
+          assert.match(
+            JSON.stringify(input.content),
+            /Explain this choice without editing/u,
+          );
+          assert.ok(Number.isFinite(input.timestamp));
           return [
             {
               id: "explanation-outcome",
@@ -464,7 +499,11 @@ await test(
         await new Promise((resolve) => setTimeout(resolve, 0));
         assert.equal(
           store.get(other.id).specification?.coverageRevision,
-          undefined,
+          currentSpec.coverageRevision,
+        );
+        assert.equal(
+          store.get(other.id).specification?.pendingReview?.cause,
+          "input",
         );
         assert.deepEqual(
           store.get(other.id).specification?.draft,
@@ -497,6 +536,10 @@ await test(
           store.get(other.id).specification?.coverageRevision,
           currentSpec.coverageRevision,
           "feedback cancelled by an input hook is never admitted and preserves coverage",
+        );
+        assert.equal(
+          store.get(other.id).specification?.pendingReview,
+          undefined,
         );
         host.dispose();
       } finally {

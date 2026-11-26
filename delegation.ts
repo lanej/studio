@@ -12,6 +12,7 @@ import { isAbsolute, join } from "node:path";
 import type {
   AgentSession,
   ExtensionAPI,
+  ExtensionContext,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -308,12 +309,38 @@ export function registerDelegation(
   const active = new Map<string, AbortController>();
   let enabled = false;
 
-  pi.on("session_start", async () => {
-    const activeTools = pi
-      .getActiveTools()
-      .filter((name) => name !== delegateTool);
-    pi.setActiveTools(activeTools);
+  const sessionBlocker = (ctx: ExtensionContext): string | undefined => {
+    if (ctx.sessionManager.getSessionFile() === undefined)
+      return "Delegation requires a persistent lead session";
+    if (
+      pi
+        .getAllTools()
+        .some(
+          ({ name }) =>
+            name === "Agent" ||
+            name === "subagent" ||
+            name === "SubagentWorkflow",
+        )
+    )
+      return "Unload the standalone subagent extension before using managed delegation";
+    return undefined;
+  };
+  const syncTool = (ctx: ExtensionContext) => {
+    const tools = pi.getActiveTools();
+    const available =
+      enabled && profile() !== undefined && sessionBlocker(ctx) === undefined;
+    if (tools.includes(delegateTool) !== available)
+      pi.setActiveTools(
+        available
+          ? [...tools, delegateTool]
+          : tools.filter((name) => name !== delegateTool),
+      );
+    return available;
+  };
+
+  pi.on("session_start", async (_event, ctx) => {
     enabled = false;
+    syncTool(ctx);
     try {
       const config = await loadConfig();
       enabled =
@@ -323,6 +350,16 @@ export function registerDelegation(
       // The driver's session initializer reports configuration errors.
     }
   });
+  pi.on("before_agent_start", (event, ctx) => {
+    const available =
+      pi.getActiveTools().includes(delegateTool) && syncTool(ctx);
+    const guidance = available
+      ? `Use ${delegateTool} to delegate repository inspection or review.`
+      : "Managed delegation is unavailable in this session. If asked to delegate, tell the operator.";
+    return {
+      systemPrompt: `${event.systemPrompt}\n\n${guidance} Do not launch Codex or Claude Code from the shell as a substitute for a Studio subagent.`,
+    };
+  });
   pi.on("session_shutdown", () => {
     for (const child of active.values()) child.abort();
   });
@@ -330,6 +367,7 @@ export function registerDelegation(
   pi.registerTool({
     name: delegateTool,
     label: "Delegate repository inspection",
+    defaultActive: false,
     description:
       "Ask an Explorer or Reviewer to inspect the committed repository in a managed worktree.",
     exposure: "model-only",
@@ -368,21 +406,8 @@ export function registerDelegation(
         throw new Error(
           "Select an explicit driver profile with delegation enabled",
         );
-      if (ctx.sessionManager.getSessionFile() === undefined)
-        throw new Error("Delegation requires a persistent lead session");
-      if (
-        pi
-          .getAllTools()
-          .some(
-            (tool) =>
-              tool.name === "Agent" ||
-              tool.name === "subagent" ||
-              tool.name === "SubagentWorkflow",
-          )
-      )
-        throw new Error(
-          "Unload the standalone subagent extension before using managed delegation",
-        );
+      const blocker = sessionBlocker(ctx);
+      if (blocker !== undefined) throw new Error(blocker);
       const model = ctx.modelRegistry.find(settings.provider, settings.model);
       if (
         model?.provider !== settings.provider ||
@@ -532,9 +557,6 @@ export function registerDelegation(
         return true;
       }
     },
-    activate() {
-      if (enabled && !pi.getActiveTools().includes(delegateTool))
-        pi.setActiveTools([...pi.getActiveTools(), delegateTool]);
-    },
+    syncTool,
   };
 }

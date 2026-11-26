@@ -5,6 +5,8 @@ import {
 } from "@earendil-works/pi-tui";
 import {
   renderStatusMark,
+  renderStatusDock,
+  renderStatusCounts,
   selectorText,
   statusPaint,
   type StatusColumn,
@@ -12,11 +14,18 @@ import {
   type StatusTheme,
 } from "@lanej/pi-components";
 import { planGraph, renderGraphPrefix } from "../plan-graph.ts";
+import { renderBeadProgress } from "./bead-progress.ts";
 import { taskMarks } from "./columns.ts";
 import {
-  ImplementationState,
-  type ImplementationPresentation,
-} from "./implementation.ts";
+  renderWorkerCompact,
+  type WorkerSidebarView,
+} from "./worker-section.ts";
+
+export {
+  renderWorkerCompact,
+  type WorkerSidebarView,
+} from "./worker-section.ts";
+import type { ImplementationPresentation } from "./implementation.ts";
 
 type GraphTheme = StatusTheme & {
   lane: (lane: number, text: string) => string;
@@ -42,18 +51,8 @@ export function renderSidebarGraph(
     const prefix = renderGraphPrefix(row.prefix, theme.lane, paint(mark.glyph));
     const title = inline(row.task.label);
     const subject = `${prefix}  ${title}`;
-    const state = paint(mark.label);
-    // In a dense graph keep enough of the title to recognize the task.
-    const titleSpace = width - visibleWidth(prefix) - visibleWidth(state) - 3;
-    const showState =
-      row.task.state !== ImplementationState.Proposed &&
-      titleSpace >= Math.min(8, visibleWidth(title));
     nodeLines.push(lines.length);
-    lines.push(
-      showState
-        ? align(subject, state, width)
-        : truncateToWidth(subject, width, "…"),
-    );
+    lines.push(truncateToWidth(subject, width, "…"));
     for (const connector of row.connectors)
       lines.push(renderGraphPrefix(connector, theme.lane));
   }
@@ -83,7 +82,7 @@ function inline(text: string): string {
   return selectorText(text).replace(/\s+/gu, " ").trim();
 }
 
-/** Keep a lifecycle or row state readable even when the subject is long. */
+/** Place the lifecycle at the right edge of the section heading. */
 function align(left: string, right: string, width: number): string {
   const subject = truncateToWidth(
     left,
@@ -152,22 +151,10 @@ function propertyTitle(
   const mark = statusPaint(theme, item.status.tone);
   const label = inline(item.label);
   const glyph = mark(inline(item.status.glyph));
-  const state = mark(inline(item.status.label));
-  const suffix = item.id === focusId ? `${theme.accent("◆")} ${state}` : state;
-  const title = `${glyph} ${label}`;
-  if (visibleWidth(title) + visibleWidth(suffix) + 1 <= width)
-    return [align(title, suffix, width)];
-  const lines = wrapped(label, width - 2).map(
-    (line, i) => (i === 0 ? `${glyph} ` : "  ") + line,
+  const focus = item.id === focusId ? ` ${theme.accent("◆")}` : "";
+  return wrapTextWithAnsi(label + focus, Math.max(1, width - 2)).map(
+    (line, index) => (index === 0 ? `${glyph} ` : "  ") + line,
   );
-  const last = lines.at(-1);
-  if (
-    last !== undefined &&
-    visibleWidth(last) + visibleWidth(suffix) + 1 <= width
-  )
-    lines[lines.length - 1] = align(last, suffix, width);
-  else lines.push(`  ${suffix}`);
-  return lines;
 }
 
 function specificationRows(
@@ -257,6 +244,7 @@ function specificationRows(
 }
 
 function implementationRows(
+  implementation: ImplementationPresentation,
   column: StatusColumn,
   graph: SidebarGraph,
   theme: StatusTheme,
@@ -267,6 +255,14 @@ function implementationRows(
   if (height <= 0) return [];
   const rows = [sectionHeading(column, theme, width)];
   if (height === 1) return rows;
+  rows.push(
+    ...renderBeadProgress(
+      implementation,
+      theme,
+      width,
+      Math.min(3, height - rows.length),
+    ),
+  );
   if (!preview) {
     const context = wrapped(
       column.summary ??
@@ -290,6 +286,46 @@ export function renderSocratesSections(
   width: number,
   height: number,
   compact = false,
+  workers?: WorkerSidebarView,
+): string[] {
+  const showWorkers =
+    workers !== undefined &&
+    (workers.rows.length > 0 || workers.evidenceError !== undefined);
+  if (!showWorkers)
+    return renderPlanSections(snapshot, theme, width, height, compact);
+  if (width < 3 || height < 1) return [];
+  const gap = !compact && height >= 6 ? 1 : 0;
+  const workerBudget = Math.max(1, Math.floor(height / 2));
+  const roster = renderWorkerCompact(workers, theme, width, workerBudget, true);
+  const plan = renderPlanSections(
+    snapshot,
+    theme,
+    width,
+    height - roster.length - gap,
+    compact,
+  );
+  return [
+    ...plan,
+    ...(plan.length > 0 && gap > 0 ? [theme.muted("─".repeat(width))] : []),
+    ...(roster.length === workerBudget &&
+    plan.length + gap + workerBudget < height
+      ? renderWorkerCompact(
+          workers,
+          theme,
+          width,
+          height - plan.length - gap,
+          true,
+        )
+      : roster),
+  ];
+}
+
+function renderPlanSections(
+  snapshot: SidebarSnapshot,
+  theme: GraphTheme,
+  width: number,
+  height: number,
+  compact: boolean,
 ): string[] {
   const spec = snapshot.dockColumns.find(
     (column) => column.id === "specification",
@@ -304,7 +340,15 @@ export function renderSocratesSections(
       : specificationRows(spec, theme, width, height, true);
   const graph = renderSidebarGraph(snapshot.implementation, theme, width);
   if (spec === undefined)
-    return implementationRows(plan, graph, theme, width, height, false);
+    return implementationRows(
+      snapshot.implementation,
+      plan,
+      graph,
+      theme,
+      width,
+      height,
+      false,
+    );
   const priority = snapshot.prioritizeSpecification;
   const gap = compact || height < 6 ? 0 : 1;
   const available = height - gap;
@@ -319,9 +363,63 @@ export function renderSocratesSections(
   if (planHeight > 0) {
     if (gap > 0) rows.push(theme.muted("─".repeat(width)));
     rows.push(
-      ...implementationRows(plan, graph, theme, width, planHeight, priority),
+      ...implementationRows(
+        snapshot.implementation,
+        plan,
+        graph,
+        theme,
+        width,
+        planHeight,
+        priority,
+      ),
     );
   }
+  return rows;
+}
+
+/** The caller allocates room for worker questions before laying out the compact dock. */
+export function renderSocratesDock(
+  snapshot: SidebarSnapshot,
+  theme: GraphTheme,
+  width: number,
+  height: number,
+  expanded: boolean,
+): string[] {
+  if (expanded && snapshot.prioritizeSpecification)
+    return renderSocratesSections(snapshot, theme, width, height, true);
+  const spec = snapshot.dockColumns.find(
+    (column) => column.id === "specification",
+  );
+  const gridHeight =
+    spec !== undefined && snapshot.prioritizeSpecification
+      ? height - 1
+      : height;
+  const grid = expanded
+    ? []
+    : renderBeadProgress(snapshot.implementation, theme, width, gridHeight);
+  if (grid.length === 0)
+    return renderStatusDock({
+      columns: snapshot.dockColumns,
+      theme,
+      width,
+      expanded,
+      maxRows: height,
+    });
+  if (spec === undefined || grid.length >= height) return grid;
+  const summary = [
+    theme.bold(spec.title),
+    spec.status === undefined ? "" : renderStatusMark(spec.status, theme),
+    renderStatusCounts(spec.counts ?? [], theme),
+  ]
+    .filter(Boolean)
+    .join("  ");
+  const rows = [truncateToWidth(summary, width, "…"), ...grid];
+  if (
+    rows.length < height &&
+    spec.summary !== undefined &&
+    spec.summary.trim().length > 0
+  )
+    rows.push(truncateToWidth(theme.muted(inline(spec.summary)), width, "…"));
   return rows;
 }
 
@@ -331,10 +429,18 @@ export function renderStatusSidebar(
   theme: GraphTheme,
   width: number,
   height: number,
+  workers?: WorkerSidebarView,
 ): string[] {
   if (width < 6 || height < 1 || snapshot.dockColumns.length === 0) return [];
   const inner = width - 3;
-  const rows = renderSocratesSections(snapshot, theme, inner, height);
+  const rows = renderSocratesSections(
+    snapshot,
+    theme,
+    inner,
+    height,
+    false,
+    workers,
+  );
   const divider = theme.muted("│");
   return Array.from(
     { length: height },

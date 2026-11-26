@@ -20,6 +20,7 @@ on:
       - 'model-tools/codex-patch-runner.d.mts'
       - 'model-tools/policy.ts'
       - 'config.ts'
+      - 'pane-keybindings-config.ts'
       - 'acceptance/lsp.ts'
   pull_request:
     paths:
@@ -38,6 +39,7 @@ on:
       - 'model-tools/codex-patch-runner.d.mts'
       - 'model-tools/policy.ts'
       - 'config.ts'
+      - 'pane-keybindings-config.ts'
       - 'acceptance/lsp.ts'
   workflow_dispatch:
 permissions:

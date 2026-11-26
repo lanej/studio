@@ -1,5 +1,7 @@
 import { DocumentKind, DocumentOwnerKind } from "../planning/model.ts";
 import { requirePlanningDocumentHooks } from "../planning/document-hooks.ts";
+import type { PaneKeybindings } from "../pane-keybindings.ts";
+import type { OpenTasks } from "../tasks/panel.ts";
 import { renderPlanCall } from "../plan-renderer.ts";
 import type {
   ExtensionAPI,
@@ -52,6 +54,8 @@ export function registerDiscovery(
   pi: ExtensionAPI,
   profile: () => string | undefined,
   onSelectionChange?: () => void,
+  openTasks?: OpenTasks,
+  keybindings?: PaneKeybindings,
 ) {
   let pending = false;
   let runningDiscoveryCommand = false;
@@ -195,11 +199,7 @@ export function registerDiscovery(
         event.systemPrompt,
         `Selected discovery · ${record.title}`,
         await socratesGuidance(),
-        specText(record.specification),
         "Develop the specification and its proposed beads together. Keep the decomposition current as answers change task scope, dependencies, acceptance, or verification. Use draft_implementation_plan to persist it locally. Actual beads and worker dispatch require the operator's final handoff approval.",
-        ...(record.leadPlan.draft === null
-          ? []
-          : [describePlan(record.leadPlan.draft, "proposal")]),
       ].join("\n\n"),
     };
   });
@@ -242,6 +242,8 @@ export function registerDiscovery(
     },
     {
       discovery: true,
+      openTasks,
+      keybindings,
       subject: "this discovery; Beads is not required",
       documents,
       identity: (record) => record.id,
@@ -439,6 +441,7 @@ export function registerDiscovery(
             throw new Error(
               "This breakdown is already approved; create a new discovery",
             );
+          if (row.specification !== undefined) socrates.checkReview?.(row, ctx);
           documents.assertAgent(DocumentKind.Plan, row, ctx, expectedRevision);
           saveDiscoveryPlan(row, draft);
         }),
@@ -450,8 +453,10 @@ export function registerDiscovery(
           {
             type: "text",
             text:
-              saved !== undefined && saved.coverageRevision === undefined
-                ? "Draft saved. Assess every applicable property against the updated plan with draft_socrates_specification before the next question, freeze, or handoff."
+              saved !== undefined &&
+              (saved.pendingReview !== undefined ||
+                saved.coverageRevision === undefined)
+                ? "Draft saved. Review the updated plan with draft_socrates_specification before the next question, freeze, or handoff. Update the affected properties."
                 : saved?.status === SpecStatus.Frozen
                   ? "Draft saved. /plan to inspect · /plan-approve to review the handoff"
                   : "Draft saved. /plan to inspect the proposed work.",

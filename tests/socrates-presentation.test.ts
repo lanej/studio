@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { ActivityState, ConditionState } from "@lanej/pi-components";
 import { visibleWidth } from "@earendil-works/pi-tui";
@@ -170,12 +171,44 @@ await test("a saved focus cannot animate an idle, paused or frozen specification
   assert.deepEqual(frozen.conditions, present(ready).conditions);
 });
 
-await test("a changed breakdown brings properties back into focus until handoff", () => {
+await test("delivered input shows a single pending review while the recorded statuses stay visible", () => {
+  const spec = specification();
+  const before = present(spec);
+  for (const [cause, active, pending] of [
+    ["input", "Reviewing new input", "New input pending review"],
+    ["input-and-plan", "Reviewing recent changes", "Changes pending review"],
+  ] as const) {
+    const changed = {
+      ...spec,
+      pendingReview: {
+        id: randomUUID(),
+        cause,
+        inputs: [{ timestamp: 1, content: "Which properties remain open?" }],
+      },
+    };
+    for (const [live, label, state] of [
+      [working, active, ActivityState.Working],
+      [idle, pending, ActivityState.Waiting],
+    ] as const) {
+      const after = present(changed, live);
+      assert.deepEqual(after.conditions, before.conditions);
+      assert.equal(after.summary, before.summary);
+      assert.deepEqual(after.activity, { state, label });
+      assert.equal(after.dockColumns[0]?.summary, label);
+      assert.deepEqual(
+        after.dockColumns[0].groups,
+        before.dockColumns[0]?.groups,
+      );
+    }
+  }
+});
+
+await test("a changed frozen breakdown keeps its current assessments visible while review holds handoff", () => {
   const ready = readySpecification("brief-v1");
   const spec = {
     ...ready,
     status: SpecStatus.Frozen,
-    coverageRevision: undefined,
+    pendingReview: { id: randomUUID(), cause: "plan" as const },
   };
   const before = socratesPresentation(
     {
@@ -192,8 +225,9 @@ await test("a changed breakdown brings properties back into focus until handoff"
   );
   assert.equal(before.implementation.label, "Review properties");
   assert.equal(before.prioritizeSpecification, true);
-  assert.equal(before.activity.label, "Review properties before handoff");
-  assert.match(before.summary, /19 recheck/u);
+  assert.equal(before.activity.label, "Plan changes pending review");
+  assert.equal(before.summary, present(ready).summary);
+  assert.deepEqual(before.conditions, present(ready).conditions);
   const after = socratesPresentation(
     {
       id: "handed-off",
@@ -208,7 +242,7 @@ await test("a changed breakdown brings properties back into focus until handoff"
   assert.equal(after.activity.label, "Specification frozen");
 });
 
-await test("waiting for an answer preserves evidence but recording it requires reassessment", () => {
+await test("waiting for and recording an answer preserve evidence until the answer is incorporated", () => {
   const spec = specification();
   const prompt = {
     decisionId: "D1",
@@ -234,13 +268,8 @@ await test("waiting for an answer preserves evidence but recording it requires r
   assert.equal(updating.activity.label, "Answer recorded");
   assert.equal(updating.activity.focusId, undefined);
   assert.match(updating.activity.detail ?? "", /incorporation/u);
-  const previous = updating.conditions.find(({ id }) => id === "problem-first");
-  assert.ok(previous !== undefined);
-  assert.equal(previous.state, ConditionState.Satisfied);
-  assert.equal(previous.stale, true);
-  assert.match(previous.details, /D1 records/u);
-  assert.match(updating.summary, /^0 satisfied/u);
-  assert.match(updating.summary, /3 recheck/u);
+  assert.deepEqual(updating.conditions, awaitingAnswer.conditions);
+  assert.equal(updating.summary, awaitingAnswer.summary);
   assert.equal(present(answered).activity.state, ActivityState.Waiting);
 });
 
@@ -427,11 +456,11 @@ await test("the side panel wraps unresolved reasons and fills the remaining rows
   assert.equal(changedFrozen.prioritizeSpecification, true);
   assert.match(
     renderSocratesSections(changedFrozen, theme, 33, 20).join(" "),
-    /Brief changed.*Recheck/u,
+    /Brief changed.*↺/u,
   );
   const stale = observe({ ...ready, coverageRevision: undefined });
   assert.equal(stale.prioritizeSpecification, true);
   const short = renderSocratesSections(stale, theme, 33, 18).join(" ");
-  assert.match(short, /Recheck.*Previous assessment/u);
+  assert.match(short, /↺.*Previous assessment/u);
   assert.match(short, /\+\d+ more properties/u);
 });

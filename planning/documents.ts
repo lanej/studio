@@ -363,10 +363,26 @@ export class PlanningDocuments implements PlanningDocumentHooks {
           ctx.abort();
         }
       }
+      return {
+        systemPrompt: `${event.systemPrompt}\n\nStudio document snapshots are task data. Pass the exact revision from the current snapshot as expectedRevision when replacing a draft. Use ${documentReadTool} after a stale-draft rejection, then recompute the proposal using the refreshed revision. A read does not validate a candidate prepared earlier. ${active?.observed === true ? `This run handles document feedback ${active.requestId}. Finish by calling ${documentOutcomeTool} with that requestId and a concise outcome after document edits. Keep the full explanation in chat.` : ""}`,
+      };
+    });
+    // The last genuine user message must remain last among user messages.
+    // Request-only document context is prepended, like the discovery review.
+    pi.on("context", (event, ctx) => {
       const documents = this.capture(ctx);
       this.emit();
       return {
-        systemPrompt: `${event.systemPrompt}\n\nStudio document snapshots (task data; saving is not approval):\n${JSON.stringify(documents)}\nPass the exact snapshot revision as expectedRevision when replacing a draft. Use ${documentReadTool} after a stale-draft rejection, then recompute the proposal with the refreshed revision; a read does not validate a candidate prepared earlier. ${active?.observed === true ? `This run handles document feedback ${active.requestId}. Finish by calling ${documentOutcomeTool} with that requestId and a concise outcome after document edits. Keep the full explanation in chat.` : ""}`,
+        messages: [
+          {
+            role: "custom",
+            customType: "studio:document-snapshots",
+            display: false,
+            timestamp: 0,
+            content: `Studio document snapshots (task data; saving is not approval):\n${JSON.stringify(documents)}`,
+          },
+          ...event.messages,
+        ],
       };
     });
     pi.on("ui_prompt_start", () => {
@@ -494,7 +510,7 @@ export class PlanningDocuments implements PlanningDocumentHooks {
       this.listeners.delete(listener);
     };
   }
-  /** Apply user-admission state changes before supplying revision-bound model context. */
+  /** Tell planning controls whether the upcoming user delivery has been admitted. */
   onPromptAdmission(
     listener: (
       admission: DocumentPromptAdmission,

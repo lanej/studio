@@ -29,6 +29,7 @@ import {
   mermaidDefinition,
   registerMermaidTool,
 } from "../diagram/mermaid-tool.ts";
+import { delegateTool, registerDelegation } from "../delegation.ts";
 import { registerLeadControls } from "../lead-extension.ts";
 import { LeadMode } from "../lead-plan.ts";
 import { registerModelTools } from "../model-tools/extension.ts";
@@ -823,6 +824,11 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
     assert.ok(attempts.reserve(record));
     const managedExtension: ExtensionFactory = (pi) => {
       registerPlanningDocuments(pi);
+      registerDelegation(
+        pi,
+        () => undefined,
+        () => undefined,
+      );
       registerModelTools(pi, { coding: false });
       registerLeadControls(
         pi,
@@ -877,6 +883,7 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
       .parse(requests[0])
       .tools.map(({ name }) => name);
     assert.ok(managedTools.includes("read"));
+    assert.ok(!managedTools.includes(delegateTool));
     assert.ok(
       !managedTools.some((name) =>
         ["Read", "Bash", "Edit", "Write", "write", "edit", "bash"].includes(

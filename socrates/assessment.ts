@@ -1,10 +1,11 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import {
   deliveryPolicySchema,
   draftDeliveryPolicy,
 } from "./delivery-policy.ts";
-import type { LeadSpecification } from "./spec.ts";
+import type { LeadSpecification, ReviewInput } from "./spec.ts";
 
 export const coverageDomains = ["engineering", "research", "writing"] as const;
 export const coverageStatuses = [
@@ -176,6 +177,14 @@ export const coveragePropertyIdSchema = z.enum(coveragePropertyIds);
 export const coverageDomainSchema = z.enum(coverageDomains);
 export const coverageStatusSchema = z.enum(coverageStatuses);
 
+function selectedProperties(
+  domains: readonly (typeof coverageDomains)[number][],
+) {
+  return coveragePropertyCatalog.filter(
+    ({ domain }) => domain === "universal" || domains.includes(domain),
+  );
+}
+
 const assessmentSchema = z
   .strictObject({
     propertyId: coveragePropertyIdSchema,
@@ -211,12 +220,7 @@ export const savedCoverageSchema = z
         message: "Assess each property once",
       });
     const selected = new Set(
-      coveragePropertyCatalog
-        .filter(
-          ({ domain }) =>
-            domain === "universal" || coverage.domains.includes(domain),
-        )
-        .map(({ id }) => id),
+      selectedProperties(coverage.domains).map(({ id }) => id),
     );
     if (
       ids.some((id) => !selected.has(id)) ||
@@ -237,12 +241,8 @@ export const coverageSchema = savedCoverageSchema.superRefine(
         .filter(({ status }) => status !== "unknown")
         .map(({ propertyId }) => propertyId),
     );
-    const missing = coveragePropertyCatalog
-      .filter(
-        ({ id, domain }) =>
-          (domain === "universal" || coverage.domains.includes(domain)) &&
-          !assessed.has(id),
-      )
+    const missing = selectedProperties(coverage.domains)
+      .filter(({ id }) => !assessed.has(id))
       .map(({ id }) => id);
     if (missing.length > 0)
       ctx.addIssue({
@@ -271,6 +271,104 @@ export function draftCoverage(
   return draft !== null && "coverage" in draft ? draft.coverage : undefined;
 }
 
+type Draft = NonNullable<LeadSpecification["draft"]>;
+
+function evidenceSources(draft: Draft): Map<string, object> {
+  const sources = new Map<string, object>();
+  for (const requirement of draft.requirements)
+    sources.set(requirement.id, requirement);
+  for (const decision of draft.decisions)
+    if ("id" in decision) sources.set(decision.id, decision);
+  for (const decision of draft.decisions)
+    if ("supersedes" in decision && decision.supersedes !== undefined)
+      sources.delete(decision.supersedes);
+  return sources;
+}
+
+/** Match explicit local IDs and ranges against known sources without expanding arbitrary ranges. */
+function citedSources(
+  reason: string | undefined,
+  ids: readonly string[],
+): string[] {
+  const cited = new Set<string>();
+  for (const [reference, kind, start, end] of (reason ?? "").matchAll(
+    /\b([RD])([1-9]\d*)\b(?:\s*[-–]\s*\1([1-9]\d*)\b)?/gu,
+  )) {
+    if (start === undefined || end === undefined) {
+      if (ids.includes(reference)) cited.add(reference);
+      continue;
+    }
+    const low = BigInt(start);
+    const high = BigInt(end);
+    for (const id of ids) {
+      if (id[0] !== kind) continue;
+      const number = BigInt(id.slice(1));
+      if (low <= number && number <= high) cited.add(id);
+    }
+  }
+  return [...cited];
+}
+
+/** Carry forward evidence only within the selected domains and a known review baseline. */
+export function mergeCoverage(
+  baseline: LeadSpecification["draft"],
+  draft: Draft & { coverage: Coverage },
+): Coverage {
+  const update = draft.coverage;
+  const previous = draftCoverage(baseline);
+  if (baseline === null || previous === undefined)
+    return coverageSchema.parse(update);
+  const selected = new Set(
+    selectedProperties(update.domains).map(({ id }) => id),
+  );
+  const assessments = new Map(
+    previous.assessments
+      .filter(({ propertyId }) => selected.has(propertyId))
+      .map((assessment) => [assessment.propertyId, assessment]),
+  );
+  const current = evidenceSources(draft);
+  const changed = [...evidenceSources(baseline)]
+    .filter(([id, source]) => !isDeepStrictEqual(source, current.get(id)))
+    .map(([id]) => id);
+  if (changed.length > 0) {
+    const updated = new Set(
+      update.assessments.map(({ propertyId }) => propertyId),
+    );
+    const missing = [];
+    for (const { propertyId, reason } of assessments.values()) {
+      if (updated.has(propertyId)) continue;
+      const citations = citedSources(reason, changed);
+      if (citations.length > 0)
+        missing.push(`${propertyId} (${citations.join(", ")})`);
+    }
+    if (missing.length > 0)
+      throw new Error(
+        `Reassess properties whose cited evidence changed: ${missing.join(", ")}`,
+      );
+    const retired = changed.filter((id) => !current.has(id));
+    for (const item of update.assessments) {
+      if (item.status !== "satisfied" && item.status !== "not-applicable")
+        continue;
+      const citations = citedSources(item.reason, retired);
+      if (
+        citations.length > 0 &&
+        (item.reason === assessments.get(item.propertyId)?.reason ||
+          (item.status === "satisfied" &&
+            citedSources(item.reason, [...current.keys()]).length === 0))
+      )
+        throw new Error(
+          `Cite current evidence for ${item.propertyId}. Retired references: ${citations.join(", ")}.`,
+        );
+    }
+  }
+  for (const assessment of update.assessments)
+    assessments.set(assessment.propertyId, assessment);
+  return coverageSchema.parse({
+    ...update,
+    assessments: [...assessments.values()],
+  });
+}
+
 /** Before the first draft and in older records, absent evidence leaves the property open. */
 export function coverageProperties(
   draft: LeadSpecification["draft"],
@@ -283,24 +381,22 @@ export function coverageProperties(
       assessment,
     ]),
   );
-  return coveragePropertyCatalog
-    .filter(({ domain }) => domain === "universal" || domains.includes(domain))
-    .map((property) => {
-      const assessment = assessments.get(property.id);
-      if (assessment === undefined || assessment.status === "unknown")
-        return {
-          ...property,
-          status: "open",
-          reason: property.gap,
-          recorded: false,
-        };
+  return selectedProperties(domains).map((property) => {
+    const assessment = assessments.get(property.id);
+    if (assessment === undefined || assessment.status === "unknown")
       return {
         ...property,
-        status: assessment.status,
-        reason: assessment.reason ?? property.gap,
-        recorded: true,
+        status: "open",
+        reason: property.gap,
+        recorded: false,
       };
-    });
+    return {
+      ...property,
+      status: assessment.status,
+      reason: assessment.reason ?? property.gap,
+      recorded: true,
+    };
+  });
 }
 
 type SpecificationContent = Pick<
@@ -360,14 +456,52 @@ export function coverageToken(spec: SpecificationContent): string {
     .digest("hex");
 }
 
+/** Older pending markers did not save the input that triggered them. */
+export function missingReviewInput(spec: LeadSpecification): boolean {
+  const pending = spec.pendingReview;
+  return (
+    pending !== undefined &&
+    (pending.missingInput === true ||
+      (pending.inputs === undefined && pending.cause !== "plan"))
+  );
+}
+
+export function coverageBasisCurrent(
+  spec: LeadSpecification,
+  currentRevision: string | null,
+): boolean {
+  return (
+    !missingReviewInput(spec) &&
+    draftCoverage(spec.draft) !== undefined &&
+    spec.acceptedRevision === currentRevision &&
+    spec.coverageRevision === coverageToken(spec)
+  );
+}
+
+/** Each delivered change has its own identity so a racing save cannot acknowledge later input. */
+export function pendingCoverageReview(
+  spec: LeadSpecification,
+  change: "plan" | ReviewInput,
+): NonNullable<LeadSpecification["pendingReview"]> {
+  const cause = change === "plan" ? "plan" : "input";
+  const inputs = spec.pendingReview?.inputs ?? [];
+  const previous = spec.pendingReview?.cause;
+  return {
+    id: randomUUID(),
+    ...(missingReviewInput(spec) ? { missingInput: true } : {}),
+    inputs: change === "plan" ? inputs : [...inputs, change],
+    cause:
+      previous === undefined || previous === cause ? cause : "input-and-plan",
+  };
+}
+
 export function coverageFresh(
   spec: LeadSpecification,
   currentRevision: string | null,
 ): boolean {
   return (
-    draftCoverage(spec.draft) !== undefined &&
-    spec.acceptedRevision === currentRevision &&
-    spec.exchange?.answer === undefined &&
-    spec.coverageRevision === coverageToken(spec)
+    coverageBasisCurrent(spec, currentRevision) &&
+    spec.pendingReview === undefined &&
+    spec.exchange?.answer === undefined
   );
 }

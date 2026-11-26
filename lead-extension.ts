@@ -5,6 +5,8 @@ import {
   documentReadTool,
   documentOutcomeTool,
 } from "./planning/document-hooks.ts";
+import type { PaneKeybindings } from "./pane-keybindings.ts";
+import type { OpenTasks } from "./tasks/panel.ts";
 import { admittedDiagramAlias } from "./model-tools/extension.ts";
 import { diagramTool } from "./diagram/extension.ts";
 import { mermaidTool } from "./diagram/mermaid-tool.ts";
@@ -45,7 +47,6 @@ const inspectTools = new Set([
   documentReadTool,
   documentOutcomeTool,
   lspTool,
-  delegateTool,
   planTool,
   diagramTool,
   mermaidTool,
@@ -94,6 +95,8 @@ export function registerLeadControls(
   id: string,
   requireBinding: (ctx: ExtensionContext) => Promise<Attempt>,
   approvalPending: (active: boolean) => void,
+  openTasks?: OpenTasks,
+  keybindings?: PaneKeybindings,
 ) {
   const documents = requirePlanningDocumentHooks(pi);
   documents.bind({
@@ -131,9 +134,13 @@ export function registerLeadControls(
     id,
     requireBinding,
     approvalPending,
+    openTasks,
+    keybindings,
   );
   const permits = (name: string, ctx: ExtensionContext) => {
     const tool = admittedDiagramAlias(pi, name, ctx.model?.id) ?? name;
+    if (tool === delegateTool)
+      return pi.getActiveTools().includes(delegateTool);
     const spec = db.get(id).specification;
     if (tool === specTool || tool === askTool) {
       return (

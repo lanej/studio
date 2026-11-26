@@ -3,6 +3,8 @@ import {
   getPlanningDocumentHooks,
   type PlanningDocumentHooks,
 } from "../planning/document-hooks.ts";
+import type { PaneKeybindings } from "../pane-keybindings.ts";
+import type { OpenTasks } from "../tasks/panel.ts";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -14,15 +16,18 @@ import type { Attempt, Attempts } from "../attempts.ts";
 import { LeadMode } from "../lead-plan.ts";
 import {
   assessedSpecDraft,
+  applyDraftUpdate,
   DecisionDisposition,
   SpecStatus,
   isTrackedDecision,
   preserveDecisions,
   propertyGaps,
+  reviewInput,
   specDraft,
   specQuestion,
   specText,
   specificationGaps,
+  type ReviewInput,
   type SpecQuestion,
 } from "./spec.ts";
 import { deliveryPolicyParameter } from "./delivery-policy.ts";
@@ -37,8 +42,10 @@ import {
   coveragePropertyIds,
   coverageStatuses,
   coverageToken,
+  pendingCoverageReview,
   specificationToken,
 } from "./assessment.ts";
+import { registerDiscoveryReview } from "./review-context.ts";
 import { registerSocratesPresentation } from "./presentation.ts";
 import type { ImplementationSource } from "./implementation.ts";
 import { BeadChanged, TaskBeads } from "../task-service.ts";
@@ -58,9 +65,13 @@ export function registerSocrates(
   id: string,
   requireBinding: (ctx: ExtensionContext) => Promise<Attempt>,
   approvalPending: (active: boolean) => void,
+  openTasks?: OpenTasks,
+  keybindings?: PaneKeybindings,
 ) {
   return registerSocratesControls(pi, db, id, requireBinding, approvalPending, {
     subject: "the accepted Beads task",
+    openTasks,
+    keybindings,
     identity: (record) => record.id,
     label: (record) => record.bead.id,
     snapshot: (ctx) =>
@@ -86,6 +97,8 @@ export function registerSocratesControls<T extends SocratesState>(
   approvalPending: (active: boolean) => void,
   scope: {
     subject: string;
+    openTasks?: OpenTasks | undefined;
+    keybindings?: PaneKeybindings | undefined;
     identity(record: T): string;
     label(record: T): string;
     snapshot?(ctx: ExtensionContext): T | undefined;
@@ -103,11 +116,19 @@ export function registerSocratesControls<T extends SocratesState>(
     }
     approvalPending(true);
     try {
-      await showTask(ctx, specText(record.specification));
+      await showTask(ctx, specText(record.specification), "floating");
     } finally {
       approvalPending(false);
     }
   }
+  const checkReview =
+    scope.discovery === true
+      ? registerDiscoveryReview<T>(
+          pi,
+          (record) => scope.identity(record),
+          (ctx) => scope.snapshot?.(ctx),
+        )
+      : undefined;
   const presentation = registerSocratesPresentation(
     pi,
     (ctx) => {
@@ -123,20 +144,25 @@ export function registerSocratesControls<T extends SocratesState>(
           };
     },
     viewSpecification,
+    scope.openTasks,
+    scope.keybindings,
   );
-  // A new run is admitted before its first message_start. Invalidate then so the
-  // document host supplies the resulting token, while queued guidance waits for delivery.
+  // Admission precedes delivery. Retain only the delivered message, including
+  // Pi's final content and timestamp, so request context can restore it later.
   const documents = scope.documents ?? getPlanningDocumentHooks(pi);
   let commandPrompt: string | undefined;
-  let preparedUserMessage = false;
+  let preparedInput: { owner: string; session: string } | false | undefined;
   pi.on("input", (event) => {
     if (event.streamingBehavior === undefined)
       commandPrompt = event.source === "extension" ? event.text : undefined;
   });
-  const invalidateCoverage = (ctx: ExtensionContext): void => {
-    const record = scope.snapshot?.(ctx);
+  const retainReviewInput = (
+    ctx: ExtensionContext,
+    record: T,
+    input: ReviewInput,
+  ): void => {
     if (
-      record?.specification?.coverageRevision === undefined ||
+      record.specification === undefined ||
       record.leadPlan?.mode !== LeadMode.Planning ||
       (scope.discovery !== true &&
         record.specification.status === SpecStatus.Frozen) ||
@@ -151,36 +177,49 @@ export function registerSocratesControls<T extends SocratesState>(
         row.handoff === undefined &&
         row.leadPlan?.mode === LeadMode.Planning
       )
-        row.specification.coverageRevision = undefined;
+        row.specification.pendingReview = pendingCoverageReview(
+          row.specification,
+          input,
+        );
     });
     presentation.refresh(ctx);
   };
-  const admitPrompt = (
+  const preparePrompt = (
     prompt: string,
     admitted: boolean,
     feedback: boolean,
     ctx: ExtensionContext,
   ): void => {
-    preparedUserMessage = true;
-    const internal = commandPrompt === prompt;
+    const record =
+      admitted && (feedback || commandPrompt !== prompt)
+        ? scope.snapshot?.(ctx)
+        : undefined;
+    preparedInput =
+      record === undefined
+        ? false
+        : {
+            owner: scope.identity(record),
+            session: ctx.sessionManager.getSessionId(),
+          };
     commandPrompt = undefined;
-    if (admitted && (feedback || !internal)) invalidateCoverage(ctx);
   };
   if (documents !== undefined)
     documents.onPromptAdmission((event, ctx) => {
-      admitPrompt(event.prompt, event.admitted, event.feedback, ctx);
+      preparePrompt(event.prompt, event.admitted, event.feedback, ctx);
     });
   else
     pi.on("before_agent_start", (event, ctx) => {
       if (event.messageType === "user")
-        admitPrompt(event.prompt, true, false, ctx);
+        preparePrompt(event.prompt, true, false, ctx);
     });
+  pi.on("agent_settled", () => {
+    preparedInput = undefined;
+  });
   pi.on("message_start", (event, ctx) => {
     if (event.message.role !== "user") return;
-    if (preparedUserMessage) {
-      preparedUserMessage = false;
-      return;
-    }
+    const binding = preparedInput;
+    preparedInput = undefined;
+    if (binding === false) return;
     const internal = commandPrompt;
     commandPrompt = undefined;
     const content = event.message.content;
@@ -188,8 +227,25 @@ export function registerSocratesControls<T extends SocratesState>(
       typeof content === "string"
         ? content
         : content.find((part) => part.type === "text")?.text;
-    if (internal !== undefined && internal === text) return;
-    invalidateCoverage(ctx);
+    if (binding === undefined && internal !== undefined && internal === text)
+      return;
+    try {
+      const record = scope.snapshot?.(ctx);
+      if (
+        binding !== undefined &&
+        (record === undefined ||
+          binding.owner !== scope.identity(record) ||
+          binding.session !== ctx.sessionManager.getSessionId())
+      )
+        throw new Error(
+          "The planning owner changed before operator input was delivered",
+        );
+      if (record !== undefined)
+        retainReviewInput(ctx, record, reviewInput.parse(event.message));
+    } catch (error) {
+      ctx.abort();
+      throw error;
+    }
   });
   const checkCurrent = async (
     record: T,
@@ -310,7 +366,7 @@ export function registerSocratesControls<T extends SocratesState>(
         !assessedSpecDraft.safeParse(spec.draft).success
       )
         throw new Error(
-          "Save current assessments for every applicable property before asking a new question",
+          "Save current assessments before asking a new question. Review recent changes and update the affected properties.",
         );
       if (
         spec.draft?.blockingQuestions.includes(prompt.question) !== true ||
@@ -334,6 +390,7 @@ export function registerSocratesControls<T extends SocratesState>(
           !isDeepStrictEqual(row.specification, spec)
         )
           throw new Error("The Socrates draft changed before asking");
+        checkReview?.(row, ctx);
         row.specification = pending;
       });
       presentation.refresh(ctx);
@@ -398,7 +455,7 @@ export function registerSocratesControls<T extends SocratesState>(
           propertyGaps(spec, record.revision).length > 0
         ) {
           pi.sendUserMessage(
-            "Reassess all properties of the frozen specification against the current work breakdown. Preserve the frozen specification and save only updated coverage. Revise the plan to resolve remaining gaps, or offer /spec-reopen if the specification itself must change.",
+            "Review changes since the last assessment and update the affected properties of the frozen specification. Revise the plan to resolve remaining gaps, or offer /spec-reopen if the specification itself must change.",
           );
           return;
         }
@@ -439,48 +496,54 @@ export function registerSocratesControls<T extends SocratesState>(
     name: specTool,
     label: "Draft Socrates specification",
     description:
-      "Save the current Socrates specification, outstanding questions, and evidence-backed property assessments. Assess every universal and selected-domain property against this draft and the current work breakdown. For missing evidence, use open and name the gap. After freeze a daily-driver discovery accepts coverage-only updates against a revised plan. The operator freezes it in /spec-freeze.",
+      "Save the specification and property evidence. Supply the complete specification fields when drafting or incorporating an answer. For a coverage-only review, supply just coverage. Start with all applicable assessments, then send only those affected by changes to the brief, decisions, evidence, or plan. The operator freezes the specification in /spec-freeze.",
     executionMode: "sequential",
     parameters: Type.Object({
       expectedRevision: Type.Optional(
         Type.String({
           description:
-            "Required when replacing an existing specification. Use the exact revision from the document snapshot used to prepare this candidate.",
+            "Required when updating an existing specification, including a coverage-only review. Use the exact revision from the document snapshot used to prepare this candidate.",
         }),
       ),
-      objective: Type.String(),
-      scope: Type.Array(Type.String()),
-      requirements: Type.Array(
-        Type.Object({
-          id: Type.String(),
-          outcome: Type.String(),
-          acceptance: Type.String(),
-        }),
-      ),
-      decisions: Type.Array(
-        Type.Object({
-          id: Type.String(),
-          decision: Type.String(),
-          disposition: Type.Enum(DecisionDisposition),
-          uncertainty: Type.String({
-            description:
-              "Remaining uncertainty, consequence, and check, or None",
+      objective: Type.Optional(Type.String()),
+      scope: Type.Optional(Type.Array(Type.String())),
+      requirements: Type.Optional(
+        Type.Array(
+          Type.Object({
+            id: Type.String(),
+            outcome: Type.String(),
+            acceptance: Type.String(),
           }),
-          supersedes: Type.Optional(Type.String()),
-          basis: Type.Union([
-            Type.Literal("observed"),
-            Type.Literal("decided"),
-            Type.Literal("assumed"),
-          ]),
-          evidence: Type.String(),
-        }),
+        ),
       ),
-      blockingQuestions: Type.Array(Type.String()),
+      decisions: Type.Optional(
+        Type.Array(
+          Type.Object({
+            id: Type.String(),
+            decision: Type.String(),
+            disposition: Type.Enum(DecisionDisposition),
+            uncertainty: Type.String({
+              description:
+                "Remaining uncertainty, consequence, and check, or None",
+            }),
+            supersedes: Type.Optional(Type.String()),
+            basis: Type.Union([
+              Type.Literal("observed"),
+              Type.Literal("decided"),
+              Type.Literal("assumed"),
+            ]),
+            evidence: Type.String(),
+          }),
+        ),
+      ),
+      blockingQuestions: Type.Optional(Type.Array(Type.String())),
       deliveryPolicy: deliveryPolicyParameter,
       coverage: Type.Object(
         {
-          domains: Type.Array(
-            Type.Union(coverageDomains.map((domain) => Type.Literal(domain))),
+          domains: Type.Optional(
+            Type.Array(
+              Type.Union(coverageDomains.map((domain) => Type.Literal(domain))),
+            ),
           ),
           assessments: Type.Array(
             Type.Object({
@@ -505,24 +568,17 @@ export function registerSocratesControls<T extends SocratesState>(
         },
         {
           description:
-            "Replace all assessments on every draft. Include each universal property and each property in the selected domains exactly once, with a reason. Focus identifies the next property to address.",
+            "List the applicable domains when supplying specification fields. Coverage-only updates inherit the saved domains. Assess all applicable properties on the first draft or a new baseline, and all new properties when adding a domain. Otherwise send only changed assessments. An empty assessments array records a review with no property changes. Focus identifies the next property to address.",
         },
       ),
     }),
     async execute(_call, params, _signal, _update, ctx) {
       const record = await requireBinding(ctx);
       const { expectedRevision, ...candidate } = params;
-      const draft = assessedSpecDraft.parse(candidate);
       if (record.revision === null)
         throw new Error("The accepted revision is missing");
       await checkCurrent(record, record.revision, ctx);
       db.change(scope.identity(record), (row) => {
-        documents?.assertAgent(
-          DocumentKind.Specification,
-          { ...row, id: scope.identity(row) },
-          ctx,
-          expectedRevision,
-        );
         const specification = row.specification;
         if (
           specification === undefined ||
@@ -549,8 +605,25 @@ export function registerSocratesControls<T extends SocratesState>(
           throw new Error(
             "The specification or work breakdown changed. Reassess the current draft before saving.",
           );
+        checkReview?.(row, ctx);
+        documents?.assertAgent(
+          DocumentKind.Specification,
+          { ...row, id: scope.identity(row) },
+          ctx,
+          expectedRevision,
+        );
+        const draft = applyDraftUpdate(
+          specification,
+          specification.acceptedRevision,
+          candidate,
+        );
         preserveDecisions(specification.draft, draft);
-        const next = { ...specification, draft, exchange: undefined };
+        const next = {
+          ...specification,
+          draft,
+          exchange: undefined,
+          pendingReview: undefined,
+        };
         if (specification.status === SpecStatus.Frozen) {
           // The freeze protects the brief, requirements, decisions, delivery policy and applicable domains.
           const previousDomains =
@@ -583,7 +656,10 @@ export function registerSocratesControls<T extends SocratesState>(
             : propertyGaps(spec, saved.revision);
       const [firstGap] = gaps;
       let message: string;
-      if (scope.discovery !== true && draft.blockingQuestions.length > 0)
+      if (
+        scope.discovery !== true &&
+        (spec?.draft?.blockingQuestions.length ?? 0) > 0
+      )
         message =
           "Draft saved. Resolve the blocking questions with the operator.";
       else if (firstGap !== undefined)
@@ -670,7 +746,7 @@ export function registerSocratesControls<T extends SocratesState>(
       );
     },
   });
-  return presentation;
+  return { ...presentation, checkReview };
 }
 
 async function ask(
