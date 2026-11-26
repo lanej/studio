@@ -311,6 +311,23 @@ class Terminal:
         left = (self.screen.columns - width) // 2
         return [line[left:left + width] for line in self.screen.display]
 
+    def select_inspector_action(self, label):
+        """Wait for each Tab to render before advancing the selected inspector action."""
+        def selected():
+            for line in self.centered_lines():
+                _, divider, detail = line.partition("│")
+                if divider and detail.strip().startswith("› "):
+                    return detail.strip().removeprefix("› ")
+            return None
+
+        for _ in range(32):
+            previous = selected()
+            if previous is not None and previous.startswith(label):
+                return
+            self.send("\t")
+            self.wait(lambda: selected() not in (previous, None), "Tab did not advance the inspector action")
+        raise AssertionError(f"Missing inspector action {label!r}\n{self.text()}")
+
     def framed_pane(self, title=None):
         """Find the actual frame and check its insets against the live terminal."""
         lines = self.screen.display

@@ -283,11 +283,7 @@ discoveries.close();
         console.send("\r")
         console.contains("Brief & acceptance")
         console.resize(100, 32)
-        for _ in range(16):
-            console.send("\t")
-            if "› ↗ Answer operator decision" in console.text():
-                break
-        console.contains("› ↗ Answer operator decision")
+        console.select_inspector_action("↗ Answer operator decision")
         console.assert_styled_text("› ↗ Answer operator decision", bg="selection.bg")
         console.assert_styled_text("Brief & acceptance", bg="surface.raised")
         console.capture("operator-question")
