@@ -664,16 +664,36 @@ await test("compact task browser keeps titles, hides identity, follows dependenc
     bold: (value) => value,
     getBgAnsi: () => "",
   };
+  const assigned = {
+    ...rejected,
+    metadata: {
+      "studio.task": { assignment: { capability: "fast", reasoning: "low" } },
+      "studio.worker": {
+        provider: "openai-codex",
+        model: "fixture-fast",
+        reasoning: "low",
+      },
+    },
+  };
+  const assignedSnapshot = {
+    ...snapshot,
+    tasks: snapshot.tasks.map((task) =>
+      task.id === assigned.id ? assigned : task,
+    ),
+  };
   const browser = new TaskBrowser(
-    snapshot,
+    assignedSnapshot,
     {
       label: "Canary",
       identity: project,
       load: () =>
-        Promise.resolve({ ...snapshot, tasks: [...snapshot.tasks].reverse() }),
+        Promise.resolve({
+          ...assignedSnapshot,
+          tasks: [...assignedSnapshot.tasks].reverse(),
+        }),
       show: (id) =>
         Promise.resolve(
-          snapshot.tasks.find((task) => task.id === id) ?? rejected,
+          assignedSnapshot.tasks.find((task) => task.id === id) ?? assigned,
         ),
     },
     theme,
@@ -682,7 +702,15 @@ await test("compact task browser keeps titles, hides identity, follows dependenc
     () => {},
   );
   const render = () => browser.render(60).map(stripAnsi).join("\n");
-  assert.match(render(), /! Reject the unsafe result/u);
+  assert.match(render(), /! Reject the unsafe result +· +fast · low/u);
+  assert.match(
+    browser.render(34).map(stripAnsi).join("\n"),
+    /! Reject the unsafe result/u,
+  );
+  assert.doesNotMatch(
+    browser.render(34).map(stripAnsi).join("\n"),
+    /fast · low/u,
+  );
   assert.doesNotMatch(render(), /canonical-long|in_progress|Status:/u);
   browser.handleInput("j");
   render();
@@ -1069,7 +1097,10 @@ await test("the worker answer drawer owns focus above the lead draft and restore
     bindings,
   );
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
-  assert.match(view(), /Loading… +x close/u);
+  const loading = view().split("\n").map(stripAnsi);
+  assert.match(loading[0] ?? "", /^╭─ Tasks · Loading….*╮$/u);
+  assert.match(loading[1] ?? "", /^│ x close.*│$/u);
+  assert.match(loading.at(-1) ?? "", /^╰─+╯$/u);
   for (const key of ["q", "\x1b", "\x03"]) send(key);
   assert.match(view(), /Loading/u);
   send("x");

@@ -10,7 +10,9 @@ import {
   TaskDelivery,
   leadPlanSchema,
   planDigest,
+  planWorkersSchema,
   type LeadDraft,
+  type PlanWorkers,
 } from "../lead-plan.ts";
 import { runtimeProjectSchema } from "../config.ts";
 import {
@@ -52,6 +54,7 @@ export const discoverySchema = z.object({
       digest: z.string(),
       revision: z.string(),
       phase: z.enum(HandoffPhase),
+      workers: planWorkersSchema.optional(),
       owner: z
         .object({ pid: z.number().int().positive(), started: z.string() })
         .optional(),
@@ -106,6 +109,21 @@ export function saveDiscoveryPlan(
   proposal: LeadDraft,
   linkSpecification = true,
 ): void {
+  const existing = new Map(
+    row.leadPlan.draft?.tasks.map((task) => [task.key, task]),
+  );
+  const unassigned = proposal.tasks.find((task) => {
+    const previous = existing.get(task.key);
+    return (
+      task.assignment === undefined &&
+      (previous === undefined || previous.assignment !== undefined)
+    );
+  });
+  if (unassigned !== undefined)
+    throw new Error(
+      `Specify worker capability and reasoning for task ${unassigned.key}`,
+    );
+
   const spec = row.specification;
   if (spec !== undefined) {
     const requirements = spec.draft?.requirements.map(({ id }) => id) ?? [];
@@ -215,6 +233,7 @@ export class Discoveries {
     target: z.infer<typeof runtimeProjectSchema> & { id: string },
     owner?: { pid: number; started: string },
     recoverPending = false,
+    workers?: PlanWorkers,
   ): Discovery {
     if (expected.leadPlan.draft === null)
       throw new Error("No displayed draft to approve");
@@ -237,11 +256,12 @@ export class Discoveries {
         if (
           retained !== undefined &&
           (!isDeepStrictEqual(retained.target, target) ||
+            !isDeepStrictEqual(retained.workers, workers) ||
             retained.digest !== digest ||
             retained.revision !== row.revision)
         )
           throw new Error(
-            "The handoff retains its original project authority and draft; reconcile that target first",
+            "The handoff retains its original project authority and draft, including worker selections; restore the approved configuration to reconcile it",
           );
         if (
           retained?.phase === HandoffPhase.Pending &&
@@ -260,6 +280,7 @@ export class Discoveries {
           digest,
           revision: row.revision,
           target,
+          workers,
           phase: HandoffPhase.Pending,
           owner,
         };

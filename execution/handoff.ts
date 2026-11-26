@@ -6,9 +6,15 @@ import { InteractiveMode } from "@earendil-works/pi-coding-agent";
 import {
   loadConfig,
   studioProfileSchema,
+  workerForTask,
   type StudioConfig,
 } from "../config.ts";
-import { planDigest, TaskDelivery } from "../lead-plan.ts";
+import {
+  planDigest,
+  TaskDelivery,
+  type LeadDraft,
+  type PlanWorkers,
+} from "../lead-plan.ts";
 import { requireIntegration } from "../integrations.ts";
 import { octo } from "../delivery.ts";
 import type { Discovery } from "../discovery/store.ts";
@@ -30,6 +36,22 @@ import {
   verifyInteractiveTarget,
 } from "./interactive-target.ts";
 import { setTimeout as delay } from "node:timers/promises";
+
+export function handoffWorkers(
+  config: StudioConfig,
+  draft: LeadDraft | null,
+  profile: RuntimeProject["profile"],
+): PlanWorkers | undefined {
+  const assigned =
+    draft?.tasks.filter((task) => task.assignment !== undefined) ?? [];
+  if (assigned.length === 0) return undefined;
+  const roles = config.profiles[profile];
+  if (roles === undefined)
+    throw new Error(`Configure the ${profile} profile first`);
+  return Object.fromEntries(
+    assigned.map((task) => [task.key, workerForTask(roles, task.assignment)]),
+  );
+}
 
 export async function prepareInteractiveHandoff(
   record: Discovery,
@@ -87,6 +109,7 @@ async function verifyHandoff(
   record: Discovery,
   config: StudioConfig,
   enrolled: RuntimeProject,
+  workers?: PlanWorkers,
 ): Promise<void> {
   await requireIntegration(config, "worktrees");
   if (
@@ -103,7 +126,7 @@ async function verifyHandoff(
   } finally {
     enrollment.close();
   }
-  await assertRuntimeProfile(config, enrolled.profile);
+  await assertRuntimeProfile(config, enrolled.profile, workers);
   await verifyHeartbeatAuthority(enrolled);
   await assertVerificationIsolation(
     enrolled.root,
@@ -116,6 +139,7 @@ export async function approveHandoff(
   profile: string,
   target: RuntimeProject,
   interactive?: InteractiveTarget,
+  workers?: PlanWorkers,
 ): Promise<void> {
   const discoveries = new Discoveries();
   let locked: Discovery;
@@ -137,6 +161,7 @@ export async function approveHandoff(
       target,
       { pid: process.pid, started: await processStart(process.pid) },
       recover,
+      workers,
     );
   } catch (error) {
     discoveries.close();
@@ -148,11 +173,17 @@ export async function approveHandoff(
   try {
     const config = await loadConfig();
     project = handoffTarget(config, locked, profile);
-    if (!isDeepStrictEqual(project, target))
+    if (
+      !isDeepStrictEqual(project, target) ||
+      !isDeepStrictEqual(
+        handoffWorkers(config, locked.leadPlan.draft, project.profile),
+        workers,
+      )
+    )
       throw new Error(
-        "Runtime project authority changed after the displayed approval",
+        "Runtime project authority or worker selections changed after the displayed approval",
       );
-    await verifyHandoff(locked, config, project);
+    await verifyHandoff(locked, config, project, workers);
     if (interactive !== undefined) {
       if (
         !isDeepStrictEqual(await prepareInteractiveHandoff(record), interactive)
@@ -186,7 +217,8 @@ export async function approveHandoff(
     if (
       intent !== undefined &&
       (intent.digest !== digest ||
-        !isDeepStrictEqual(intent.interactive, interactive))
+        !isDeepStrictEqual(intent.interactive, interactive) ||
+        !isDeepStrictEqual(intent.workers, workers))
     )
       throw new Error(
         "A different graph creation attempt is already retained; reconcile it before changing the proposal",
@@ -203,6 +235,7 @@ export async function approveHandoff(
         target: project,
         draft,
         ids: Object.fromEntries(entries),
+        workers,
         ...(interactive === undefined ? {} : { interactive }),
       };
       store.saveIntent(record.revision, intent);
@@ -216,6 +249,7 @@ export async function approveHandoff(
       intent.ids,
       project.profile,
       interactive !== undefined,
+      intent.workers,
     );
     discoveries.change(
       record.id,

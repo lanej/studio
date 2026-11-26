@@ -16,7 +16,13 @@ import { existsSync } from "node:fs";
 import { registerProjectPolicy } from "../execution/policy.ts";
 import { registerDiscovery } from "../discovery/extension.ts";
 import { Discoveries, handoffDraft, HandoffPhase } from "../discovery/store.ts";
-import { runtimeProjectSchema, StudioProfile } from "../config.ts";
+import {
+  exampleConfig,
+  ModelCapability,
+  ReasoningLevel,
+  runtimeProjectSchema,
+  StudioProfile,
+} from "../config.ts";
 import { randomUUID } from "node:crypto";
 import {
   registerPlanningDocuments,
@@ -70,6 +76,7 @@ async function discoveryFixture(t: TestContext) {
     config,
     JSON.stringify({
       runtime: { enabled: true, projects: [target] },
+      profiles: exampleConfig.profiles,
       integrations: {
         worktrees: {
           enabled: true,
@@ -175,6 +182,10 @@ async function discoveryLead(
         title: "Implement the change",
         description: "A bounded change",
         acceptance: "Native acceptance passes",
+        assignment: {
+          capability: ModelCapability.Standard,
+          reasoning: ReasoningLevel.Off,
+        },
       },
     ],
   });
@@ -264,6 +275,10 @@ await test("a daily lead codes directly and can save and revise a private plan w
   assert.equal(discovery.runtimeHandoff(ctx), undefined);
   const leaf = session.getLeafId();
   await assert.rejects(save({ ...draft, summary: " " }));
+  await assert.rejects(
+    save({ ...draft, tasks: [{ ...firstTask, assignment: undefined }] }),
+    /Specify worker capability and reasoning/u,
+  );
   await assert.rejects(
     save({
       ...draft,

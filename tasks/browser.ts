@@ -6,8 +6,14 @@ import {
   truncateToWidth,
   visibleWidth,
 } from "@earendil-works/pi-tui";
-import { taskTree, type Task, type TreeRow } from "../beads.ts";
-import { paintPaneLine, paneMouse } from "../floating-pane.ts";
+import {
+  taskTree,
+  taskWorkerAssignment,
+  taskWorkerDetails,
+  type Task,
+  type TreeRow,
+} from "../beads.ts";
+import { framePaneRows, paintPaneLine, paneMouse } from "../floating-pane.ts";
 import {
   defaultPaneKeybindings,
   matchesPaneKey,
@@ -17,7 +23,7 @@ import {
 import { selectorText } from "@lanej/pi-components";
 import { pendingDecision, ExecutionPhase } from "../execution/store.ts";
 import { githubLink } from "../github-links.ts";
-import { taskStatusGlyph } from "../ui.ts";
+import { taskStatusGlyph, withTaskAssignment } from "../ui.ts";
 import {
   currentReviewFinding,
   needsAttention,
@@ -260,6 +266,8 @@ export class TaskBrowser {
       lines.push({ text: this.theme.bold(line) });
     text("");
     text(taskNarrative(task, this.snapshot));
+    const worker = taskWorkerDetails(task);
+    if (worker !== undefined) text(worker);
     const decision = decisionDetails(task, this.snapshot);
     if (decision !== undefined) {
       text("");
@@ -400,18 +408,22 @@ export class TaskBrowser {
 
   render(width: number): string[] {
     const height = Math.max(1, this.height());
-    if (width < 1) return [];
-    if (width < 3 || height < 6)
-      return this.wrapped(this.row?.task.title ?? "No tasks yet", width)
+    const frame = (body: string[], title?: string) =>
+      framePaneRows({
+        title,
+        body,
+        width,
+        border: (line) => this.theme.fg("border", line),
+      })
         .slice(0, height)
-        .map((line) =>
-          paintPaneLine(this.theme, "userMessageBg", this.pad(line, width)),
-        );
-    const inner = Math.max(1, width - 2);
+        .map((line) => paintPaneLine(this.theme, "userMessageBg", line));
+    const inner = Math.max(1, width - 4);
+    if (width < 7 || height < 5)
+      return frame([], plain(this.row?.task.title ?? "No tasks yet"));
     const split = width >= 76 && this.rows.length > 0;
     const treeWidth = split ? Math.min(31, Math.floor(inner * 0.41)) : inner;
     const detailWidth = split ? Math.max(1, inner - treeWidth - 3) : inner;
-    this.bodyHeight = height - 5;
+    this.bodyHeight = height - 4;
     const rowIndex = this.rows.findIndex(
       (row) => row.task.id === this.selected,
     );
@@ -434,7 +446,15 @@ export class TaskBrowser {
           : taskStatusGlyph(row.task.status, this.theme);
         const branch = this.theme.fg("muted", row.branch ?? "");
         const label = `${selected ? "›" : " "} ${branch}${glyph} ${plain(row.task.title)}${row.warning === undefined ? "" : " ⚠"}`;
-        const padded = this.pad(label, treeWidth);
+        const padded = this.pad(
+          withTaskAssignment(
+            label,
+            taskWorkerAssignment(row.task)?.assignment,
+            treeWidth,
+            (text) => this.theme.fg("muted", text),
+          ),
+          treeWidth,
+        );
         return selected
           ? paintPaneLine(this.theme, "selectedBg", padded)
           : padded;
@@ -513,19 +533,13 @@ export class TaskBrowser {
     const header =
       this.pad(
         this.theme.fg("accent", this.theme.bold(heading)),
-        Math.max(1, inner - visibleWidth(clock) - 2),
+        Math.max(1, inner - visibleWidth(clock) - 4),
       ) +
       "  " +
       this.theme.fg("muted", clock);
-    return [
+    return frame(
+      [...body, this.theme.fg("muted", context), this.theme.fg("muted", hint)],
       header,
-      this.theme.fg("borderMuted", "─".repeat(inner)),
-      ...body,
-      this.theme.fg("borderMuted", "─".repeat(inner)),
-      this.theme.fg("muted", context),
-      this.theme.fg("muted", hint),
-    ].map((line) =>
-      paintPaneLine(this.theme, "userMessageBg", ` ${this.pad(line, inner)} `),
     );
   }
 

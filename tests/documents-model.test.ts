@@ -99,6 +99,7 @@ const plan = draftSchema.parse({
       check: ["bun", "test", "tests/documents-model.test.ts"],
       hold: false,
       delivery: TaskDelivery.PullRequest,
+      assignment: { capability: "advanced", reasoning: "high" },
     },
     {
       key: "feedback",

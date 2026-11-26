@@ -3,6 +3,9 @@ import {
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { createSelector } from "@lanej/pi-components";
+import { matchesKey } from "@earendil-works/pi-tui";
+import { framePaneRows, paintPaneLine } from "../floating-pane.ts";
+import { NavigationKey } from "../runtime.ts";
 import type { QuestionEvidence } from "./evidence.ts";
 import { renderQuestionEvidence } from "./links.ts";
 import type { SpecQuestion } from "./spec.ts";
@@ -50,7 +53,7 @@ export async function chooseQuestion(
           selected: (text) => theme.style(text, { bg: "selectedBg" }),
           markdown: getMarkdownTheme(),
         },
-        height: () => tui.terminal.rows - 2,
+        height: () => tui.terminal.rows - 4,
         requestRender: () => {
           tui.requestRender();
         },
@@ -66,8 +69,33 @@ export async function chooseQuestion(
       });
       signal?.addEventListener("abort", cancel, { once: true });
       if (signal?.aborted === true) queueMicrotask(cancel);
+      let choicesVisible = false;
       return {
         ...selector,
+        render(width) {
+          const height = Math.max(0, tui.terminal.rows - 2);
+          choicesVisible = height >= 5 && width >= 12;
+          const body = choicesVisible
+            ? selector.render(width - 4)
+            : ["Resize · Esc cancel"];
+          return framePaneRows({
+            body: body.slice(0, Math.max(0, height - 2)),
+            width,
+            border: (line) => theme.fg("border", line),
+          })
+            .slice(0, height)
+            .map((line) => paintPaneLine(theme, "userMessageBg", line));
+        },
+        handleInput(input) {
+          if (choicesVisible && tui.terminal.rows >= 7) {
+            selector.handleInput(input);
+          } else if (
+            matchesKey(input, NavigationKey.Escape) ||
+            matchesKey(input, NavigationKey.Cancel)
+          ) {
+            cancel();
+          }
+        },
         dispose() {
           signal?.removeEventListener("abort", cancel);
         },

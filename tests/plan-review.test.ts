@@ -152,7 +152,7 @@ test("review requires a rendered final viewport and Escape cancels at any positi
   approving.component.handleInput?.(enter);
   expect(approving.result.decision).toBeUndefined();
   expect(
-    approving.component.render(80).map(stripTerminalSequences).at(-1),
+    approving.component.render(80).map(stripTerminalSequences).at(-2),
   ).toContain("Enter next page");
   approving.component.handleInput?.(enter);
   expect(approving.result.decision).toBeUndefined();
@@ -164,21 +164,22 @@ test("review requires a rendered final viewport and Escape cancels at any positi
   for (let i = 0; i < 100; i++) approving.component.handleInput?.(enter);
   expect(approving.result.decision).toBeUndefined();
   expect(
-    approving.component.render(42).map(stripTerminalSequences).at(-1),
-  ).toContain("Enter next page");
+    approving.component.render(42).map(stripTerminalSequences).at(-2),
+  ).toContain("↓ More");
   for (let i = 0; i < 100; i++) {
     approving.component.handleInput?.(enter);
     const footer = approving.component
       .render(42)
       .map(stripTerminalSequences)
-      .at(-1);
-    if (footer?.includes("Enter start implementation") === true) break;
+      .at(-2);
+    if (footer?.includes("Enter confirm") === true) break;
   }
   const final = approving.component
     .render(42)
-    .map((line) => stripTerminalSequences(line).trim());
+    .slice(1, -1)
+    .map((line) => stripTerminalSequences(line).slice(1, -1).trim());
   expect(final).toContain("Decision · Merge manually.");
-  expect(final.at(-1)).toBe("Enter start implementation · Esc cancel");
+  expect(final.at(-1)).toBe("Enter confirm · Esc cancel");
   approving.component.handleInput?.(enter);
   expect(approving.result.decision).toBe(true);
 
@@ -200,7 +201,9 @@ test("wide review uses the whole terminal and keeps the overview visible while d
   expect(
     plain.some((line) => line.includes("Local integration is verified.")),
   ).toBe(true);
-  expect(plain.at(-1)).toContain("Enter next page");
+  expect(plain[0]).toMatch(/^╭─ Approve the change .*╮$/u);
+  expect(plain.at(-2)).toContain("Enter next page");
+  expect(plain.at(-1)).toMatch(/^╰─+╯$/u);
 
   component.handleInput?.("\r");
   const end = component.render(128).map(stripTerminalSequences).join("\n");
@@ -214,7 +217,7 @@ test("wide review uses the whole terminal and keeps the overview visible while d
   expect(narrow).toHaveLength(20);
   expect(narrow.some((line) => line.includes("Execution"))).toBe(true);
   expect(narrow.some((line) => line.includes("Task details"))).toBe(false);
-  expect(narrow.at(-1)).toContain("Enter next page");
+  expect(narrow.at(-2)).toContain("Enter next page");
   component.handleInput?.("\x1b");
   expect(result.decision).toBe(false);
 });

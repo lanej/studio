@@ -14,6 +14,7 @@ import {
   type StatusTheme,
 } from "@lanej/pi-components";
 import { planGraph, renderGraphPrefix } from "../plan-graph.ts";
+import { withTaskAssignment } from "../ui.ts";
 import { renderBeadProgress } from "./bead-progress.ts";
 import { taskMarks } from "./columns.ts";
 import {
@@ -52,7 +53,13 @@ export function renderSidebarGraph(
     const title = inline(row.task.label);
     const subject = `${prefix}  ${title}`;
     nodeLines.push(lines.length);
-    lines.push(truncateToWidth(subject, width, "…"));
+    lines.push(
+      truncateToWidth(
+        withTaskAssignment(subject, row.task.assignment, width, theme.muted),
+        width,
+        "…",
+      ),
+    );
     for (const connector of row.connectors)
       lines.push(renderGraphPrefix(connector, theme.lane));
   }

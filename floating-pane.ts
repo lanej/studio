@@ -30,7 +30,7 @@ export function floatingPaneHeight(terminalRows: number): number {
   );
 }
 
-/** Frame an inline pane. A title and optional key hints share the horizontal borders. */
+/** Frame a pane. A title and optional key hints share the horizontal borders. */
 export function framePaneRows({
   title,
   body,
@@ -38,14 +38,15 @@ export function framePaneRows({
   width,
   border,
 }: {
-  title: string;
+  title?: string | undefined;
   body: readonly string[];
   footer?: string | undefined;
   width: number;
   border: (text: string) => string;
 }): string[] {
+  if (width < 2) return [];
   const edge = (left: string, right: string, label: string | undefined) => {
-    if (label === undefined || label.length === 0)
+    if (label === undefined || label.length === 0 || width < 7)
       return border(left + "─".repeat(width - 2) + right);
     const text = truncateToWidth(label, width - 6, "…");
     return (
@@ -56,11 +57,12 @@ export function framePaneRows({
   };
   return [
     edge("╭", "╮", title),
-    ...body.map(
-      (line) =>
-        border("│ ") +
-        truncateToWidth(line, width - 4, "…", true) +
-        border(" │"),
+    ...body.map((line) =>
+      width < 5
+        ? edge("│", "│", undefined)
+        : border("│ ") +
+          truncateToWidth(line, width - 4, "…", true) +
+          border(" │"),
     ),
     edge("╰", "╯", footer),
   ];

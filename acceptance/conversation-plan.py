@@ -25,6 +25,13 @@ proposal = {"summary": "Prepare the requested change", "tasks": [{
     "key": "change", "title": "Implement the requested change",
     "description": "Make the bounded change after operator approval.",
     "acceptance": "The native acceptance check passes.",
+    "assignment": {"capability": "standard", "reasoning": "off"},
+}, {
+    "key": "review", "title": "Review the completed change",
+    "description": "Inspect the result against the agreed requirement.",
+    "acceptance": "Record the observed result.",
+    "assignment": {"capability": "advanced", "reasoning": "high"},
+    "blockedBy": ["change"],
 }]}
 requests = []
 errors = []
@@ -110,6 +117,7 @@ def run(output):
                     assert db.execute("SELECT count(*) FROM discoveries").fetchone()[0] == 0
             terminal.send(request_text + "\r")
             terminal.contains("The work plan is saved for your review")
+            terminal.contains("Implement the requested change · standard · off")
             assert not errors, errors
             with sqlite3.connect(database) as db:
                 records = [json.loads(row[0]) for row in db.execute("SELECT record FROM discoveries")]
@@ -122,17 +130,47 @@ def run(output):
             marker = [entry for entry in entries if entry.get("customType") == "studio:discovery"]
             assert len(marker) == 1 and marker[0]["data"]["id"] == record["id"], marker
             assert record["conversation"] == entries[0]["id"], record
+            terminal.send("/plan\r")
+            terminal.contains("Enter details")
+            terminal.wait(lambda: any("› " in line and "Implement the requested change  ·  standard · off" in line
+                                      for line in terminal.centered_lines()),
+                          "The selected plan row did not show its worker assignment")
+            terminal.centered_inspector("Prepare the requested change", "Enter details")
+            terminal.capture("conversation-plan-inspect")
+            terminal.send("\r")
+            terminal.contains("The native acceptance check passes.")
+            terminal.contains("Worker · ( standard )")
+            terminal.contains("Reasoning · ( Off )")
+            terminal.capture("conversation-plan-task")
+            terminal.resize(60, 24)
+            terminal.contains("◇ Worker · ( standard )")
+            terminal.contains("◐ Reasoning · ( Off )")
+            terminal.contains("( To be decided )")
+            terminal.contains("( Proposed )")
+            terminal.centered_inspector("Prepare the requested change", "Esc back")
+            terminal.assert_styled_text("◎", fg="accent", lines=[
+                row for row, line in enumerate(terminal.screen.display) if "◎ Acceptance" in line
+            ])
+            terminal.assert_styled_text("To be decided", fg="warning", bg="selectedBg")
+            terminal.capture("conversation-plan-task")
+            terminal.send("\x1b")
+            terminal.contains("Enter details")
+            terminal.send("j\r")
+            terminal.contains("Worker · ( advanced )")
+            terminal.contains("Reasoning · ( On ) high")
+            terminal.assert_styled_text("On", fg="success", bg="selectedBg", lines=[
+                row for row, line in enumerate(terminal.screen.display) if "Reasoning · ( On )" in line
+            ])
+            terminal.capture("conversation-plan-reasoning-on")
+            terminal.send("\x1b")
+            terminal.contains("Enter details")
+            terminal.send("\x1b")
+            terminal.wait(lambda: "Enter details" not in terminal.text(), "Escape did not close the plan inspector")
+            terminal.resize(ui.wide_columns, ui.wide_rows)
             terminal.send("/plan-approve\r")
             terminal.contains("Start /socrates and freeze")
             terminal.send("/tasks\r")
             terminal.contains("Approve a Socrates plan")
-            terminal.send("/plan\r")
-            terminal.contains("Enter details")
-            terminal.contains("Implement the requested change")
-            terminal.capture("conversation-plan-inspect")
-            terminal.send("\r")
-            terminal.contains("The native acceptance check passes.")
-            terminal.capture("conversation-plan-task")
             runtime = home / "state/runtime.sqlite"
             if runtime.exists():
                 with sqlite3.connect(runtime) as db:

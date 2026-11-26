@@ -14,6 +14,7 @@ import {
   type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import { registerDiscovery } from "../discovery/extension.ts";
+import { ModelCapability, ReasoningLevel } from "../config.ts";
 import { Discoveries } from "../discovery/store.ts";
 import {
   registerPlanningDocuments,
@@ -186,6 +187,10 @@ await test(
                 title: "Change",
                 description: "Small change",
                 acceptance: "Observe",
+                assignment: {
+                  capability: ModelCapability.Standard,
+                  reasoning: ReasoningLevel.Low,
+                },
               },
             ],
           },
@@ -257,6 +262,10 @@ await test(
               title: "Change",
               description: "Small change",
               acceptance: "Observe",
+              assignment: {
+                capability: ModelCapability.Standard,
+                reasoning: ReasoningLevel.Low,
+              },
             },
           ],
         });

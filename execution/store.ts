@@ -16,7 +16,7 @@ import {
   selection,
 } from "../config.ts";
 import { verificationSchema, beadSchema, owner } from "../task-service.ts";
-import { draftSchema } from "../lead-plan.ts";
+import { draftSchema, planWorkersSchema } from "../lead-plan.ts";
 import { sha } from "../delivery-record.ts";
 import {
   worktreeReservation,
@@ -63,6 +63,7 @@ export const handoffIntentSchema = z.object({
   project: z.uuid().optional(),
   target: projectSchema.optional(),
   draft: draftSchema.optional(),
+  workers: planWorkersSchema.optional(),
 });
 export const operatorDecisionSchema = z.object({
   id: z.uuid(),

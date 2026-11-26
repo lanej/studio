@@ -15,7 +15,13 @@ import {
 import { publicationPrerequisites as completedPrerequisites } from "../execution/publication-graph.ts";
 import { TaskBeads, beadSchema } from "../task-service.ts";
 import { startTask } from "../task-run.ts";
-import { configSchema, exampleConfig, StudioProfile } from "../config.ts";
+import {
+  configSchema,
+  exampleConfig,
+  ModelCapability,
+  ReasoningLevel,
+  StudioProfile,
+} from "../config.ts";
 import { ExecutionBeads } from "../execution/beads.ts";
 import { retainClaim } from "../execution/recovery.ts";
 import { expect, test } from "bun:test";
@@ -193,6 +199,96 @@ test("an older background handoff resolves the approved graph and rejects change
     );
   } finally {
     discoveries.close();
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("publication checks the worker model against the retained handoff intent", () => {
+  const directory = mkdtempSync(join(tmpdir(), "studio-handoff-worker-"));
+  const store = new ExecutionStore(directory);
+  try {
+    const id = randomUUID();
+    const graph = randomUUID();
+    const project = projectSchema.parse({
+      id,
+      root: directory,
+      source: { url: "http://127.0.0.1:9", projectId: id },
+      profile: StudioProfile.Personal,
+      base: "main",
+      beadsWorkspace: directory,
+      beadsDatabase: "test",
+    });
+    const worker = {
+      ...exampleConfig.profiles.personal.worker,
+      reasoning: ReasoningLevel.High,
+    };
+    const draft = draftSchema.parse({
+      summary: "Publish one",
+      tasks: [
+        {
+          key: "publish",
+          title: "Release",
+          description: "Ship it",
+          acceptance: "Done",
+          delivery: "pull-request",
+          assignment: {
+            capability: ModelCapability.Standard,
+            reasoning: ReasoningLevel.High,
+          },
+        },
+      ],
+    });
+    const digest = planDigest(draft);
+    const ids = { root: "parent", publish: "publisher" };
+    store.saveIntent(graph, {
+      project: id,
+      target: project,
+      digest,
+      ids,
+      draft,
+      workers: { publish: worker },
+    });
+    const bead = beadSchema.parse({
+      id: ids.publish,
+      title: "Release",
+      description: "Ship it",
+      acceptance_criteria: "Done",
+      status: "in_progress",
+      revision: "1",
+      metadata: {
+        "studio.graph": graph,
+        "studio.approval": digest,
+        "studio.root": ids.root,
+        "studio.task": draft.tasks[0],
+        "studio.worker": worker,
+      },
+    });
+    const attempt = executionSchema.parse({
+      id: randomUUID(),
+      project: id,
+      phase: ExecutionPhase.Allocating,
+      profile: project.profile,
+      message: "Starting",
+      bead,
+      worker,
+    });
+    assert.deepEqual(completedPrerequisites(store, project, attempt), []);
+    assert.throws(
+      () =>
+        completedPrerequisites(store, project, {
+          ...attempt,
+          bead: {
+            ...bead,
+            metadata: {
+              ...bead.metadata,
+              "studio.worker": { ...worker, model: "substituted" },
+            },
+          },
+        }),
+      /approved task graph/u,
+    );
+  } finally {
     store.close();
     rmSync(directory, { recursive: true, force: true });
   }

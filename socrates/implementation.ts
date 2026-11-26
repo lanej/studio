@@ -1,6 +1,10 @@
 import { readTaskEvidence } from "../tasks/evidence.ts";
 import { workerAssignments, type WorkerAssignment } from "../tasks/workers.ts";
-import type { StudioConfig } from "../config.ts";
+import type {
+  ReasoningLevel,
+  StudioConfig,
+  TaskAssignment,
+} from "../config.ts";
 import { TaskStatus, knownTaskStatus } from "../beads.ts";
 import { HandoffPhase, type Discovery } from "../discovery/store.ts";
 import {
@@ -49,6 +53,25 @@ export enum ImplementationPhase {
   Tracking = "tracking",
 }
 
+type TextField = {
+  label:
+    | "Acceptance"
+    | "Worker"
+    | "Model"
+    | "Requirements"
+    | "Depends on"
+    | "Owns"
+    | "Admission"
+    | "Verification"
+    | "Bead";
+  value: string;
+};
+
+export type ImplementationField =
+  | TextField
+  | { label: "Reasoning"; value: ReasoningLevel }
+  | { label: "Delivery"; value: string; pending: boolean };
+
 export interface ImplementationRow {
   id: string;
   label: string;
@@ -58,6 +81,10 @@ export interface ImplementationRow {
   beadId?: string | undefined;
   requirements: readonly string[];
   blockedBy: readonly string[];
+  assignment?: TaskAssignment | undefined;
+  description: string;
+  fields: readonly ImplementationField[];
+  issue?: string | undefined;
   details: string;
 }
 
@@ -438,22 +465,40 @@ export function implementationPresentation(
     const delivery = unassigned
       ? "To be decided"
       : `${deliveryOutcome(task.delivery)}${task.delivery === undefined ? " (default)" : ""}`;
-    const evidence = [
-      task.description,
-      `Acceptance · ${task.acceptance}`,
-      ...(task.requirements.length === 0
+    const worker =
+      link?.discovery === true
+        ? source.handoff?.workers?.[task.key]
+        : undefined;
+    const field = (label: TextField["label"], value?: string) =>
+      value === undefined || value === "" ? [] : [{ label, value }];
+    const fields: ImplementationField[] = [
+      ...field("Acceptance", task.acceptance),
+      ...field("Worker", task.assignment?.capability),
+      ...(task.assignment === undefined
         ? []
-        : [`Requirements · ${task.requirements.join(", ")}`]),
-      ...(task.blockedBy.length === 0
-        ? []
-        : [`Depends on · ${task.blockedBy.join(", ")}`]),
-      `Owns · ${task.owns.length === 0 ? "Entire isolated checkout" : task.owns.join(", ")}`,
-      ...(task.hold === true ? ["Admission · On hold"] : []),
-      `Delivery · ${delivery}`,
-      `Verification · ${task.check === undefined || task.check.length === 0 ? "Independent criterion review; no executable agreed" : JSON.stringify(task.check)}`,
-      ...(beadId === undefined ? [] : [`Bead · ${beadId}`]),
-      ...(issue === undefined ? [] : [issue]),
-    ].join("\n\n");
+        : [{ label: "Reasoning", value: task.assignment.reasoning } as const]),
+      ...field(
+        "Model",
+        worker === undefined ? undefined : `${worker.provider}/${worker.model}`,
+      ),
+      ...field("Requirements", task.requirements.join(", ")),
+      ...field("Depends on", task.blockedBy.join(", ")),
+      ...field(
+        "Owns",
+        task.owns.length === 0
+          ? "Entire isolated checkout"
+          : task.owns.join(", "),
+      ),
+      ...field("Admission", task.hold === true ? "On hold" : undefined),
+      { label: "Delivery", value: delivery, pending: unassigned },
+      ...field(
+        "Verification",
+        task.check === undefined || task.check.length === 0
+          ? "Independent criterion review; no executable agreed"
+          : JSON.stringify(task.check),
+      ),
+      ...field("Bead", beadId),
+    ];
     return {
       id: task.key,
       label: task.title,
@@ -463,7 +508,17 @@ export function implementationPresentation(
       beadId,
       requirements: task.requirements,
       blockedBy: task.blockedBy,
-      details: evidence,
+      assignment: task.assignment,
+      description: task.description,
+      fields,
+      issue,
+      details: [
+        task.description,
+        fields.map(({ label, value }) => `${label} · ${value}`).join("\n"),
+        issue,
+      ]
+        .filter((part) => part !== undefined)
+        .join("\n\n"),
     };
   });
   const counts = {

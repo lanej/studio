@@ -1,7 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import type { StudioConfig } from "./config.ts";
+import {
+  selection,
+  taskAssignmentSchema,
+  type StudioConfig,
+} from "./config.ts";
+import { describeWorkerAssignment } from "./lead-plan.ts";
 import { run } from "./process.ts";
 
 export enum TaskStatus {
@@ -167,6 +172,27 @@ export function taskLabel(row: TreeRow): string {
   );
 }
 
+const workerMetadata = z.object({
+  "studio.task": z.object({ assignment: taskAssignmentSchema }),
+  "studio.worker": selection,
+});
+
+export function taskWorkerAssignment(task: Task) {
+  const metadata = workerMetadata.safeParse(task["metadata"]).data;
+  if (metadata === undefined) return undefined;
+  const { assignment } = metadata["studio.task"];
+  const worker = metadata["studio.worker"];
+  if (assignment.reasoning !== worker.reasoning) return undefined;
+  return { assignment, worker };
+}
+
+export function taskWorkerDetails(task: Task): string | undefined {
+  const observed = taskWorkerAssignment(task);
+  return observed === undefined
+    ? undefined
+    : `Worker · ${describeWorkerAssignment(observed.assignment)}\nModel · ${observed.worker.provider}/${observed.worker.model}`;
+}
+
 export function taskDetails(
   task: Task,
   workspace: string,
@@ -187,6 +213,7 @@ export function taskDetails(
     review?.finding,
     parent !== undefined ? `Parent: ${parent}` : undefined,
     blockers.length > 0 ? `Blocked by: ${blockers.join(", ")}` : undefined,
+    taskWorkerDetails(task),
     "",
     task.description,
     task.acceptance_criteria !== undefined
