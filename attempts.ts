@@ -12,6 +12,12 @@ import { deliverySchema } from "./delivery-record.ts";
 import { specRecord } from "./socrates/spec.ts";
 import { leadPlanSchema } from "./lead-plan.ts";
 import { beadSchema, verificationSchema } from "./task-service.ts";
+import {
+  commitOperation,
+  initializeOperationWitnesses,
+  transaction,
+  type OperationWitness,
+} from "./operation-witness.ts";
 
 export enum Phase {
   Admitting = "admitting",
@@ -86,10 +92,12 @@ export class Attempts {
       readOnly ? { readonly: true } : { readwrite: true, create: true },
     );
     this.db.run("PRAGMA busy_timeout=5000");
-    if (!readOnly)
+    if (!readOnly) {
       this.db
         .run(`CREATE TABLE IF NOT EXISTS attempts (id TEXT PRIMARY KEY, project TEXT NOT NULL, bead TEXT NOT NULL, active INTEGER NOT NULL, record TEXT NOT NULL);
       CREATE UNIQUE INDEX IF NOT EXISTS active_attempt ON attempts(project,bead) WHERE active=1;`);
+      initializeOperationWitnesses(this.db);
+    }
   }
   close(): void {
     this.db.close();
@@ -146,22 +154,29 @@ export class Attempts {
     return result.changes === 1;
   }
   change(id: string, update: (record: Attempt) => void): Attempt {
-    this.db.run("BEGIN IMMEDIATE");
-    try {
-      const current = this.get(id);
-      update(current);
-      const active =
-        current.phase !== Phase.Closed &&
-        current.phase !== Phase.Archived &&
-        current.phase !== Phase.Rejected;
-      this.db
-        .prepare("UPDATE attempts SET record=?,active=? WHERE id=?")
-        .run(JSON.stringify(current), Number(active), id);
-      this.db.run("COMMIT");
-      return current;
-    } catch (cause) {
-      this.db.run("ROLLBACK");
-      throw cause;
-    }
+    return transaction(this.db, () => this.update(id, update));
+  }
+  changeWithWitness(
+    id: string,
+    operationId: string,
+    command: string,
+    update: (record: Attempt) => void,
+    result: (record: Attempt) => string,
+  ): OperationWitness {
+    return commitOperation(this.db, id, operationId, command, () =>
+      result(this.update(id, update)),
+    );
+  }
+  private update(id: string, update: (record: Attempt) => void): Attempt {
+    const current = this.get(id);
+    update(current);
+    const active =
+      current.phase !== Phase.Closed &&
+      current.phase !== Phase.Archived &&
+      current.phase !== Phase.Rejected;
+    this.db
+      .prepare("UPDATE attempts SET record=?,active=? WHERE id=?")
+      .run(JSON.stringify(current), Number(active), id);
+    return current;
   }
 }

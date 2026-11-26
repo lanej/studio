@@ -8,7 +8,10 @@ from dataclasses import asdict, dataclass
 from http.server import BaseHTTPRequestHandler
 from typing import Literal, TypedDict
 
-from socrates_fixture import CompletionRequest, message_text, specification_tool
+from socrates_fixture import (
+    CompletionRequest, READ_TOOL, document_read_result, document_revision,
+    message_text, specification_tool,
+)
 
 
 class FunctionCall(TypedDict):
@@ -126,9 +129,21 @@ def complete(request: CompletionRequest) -> ToolDelta | TextDelta:
             name: value for name, value in fields if value is not None
         })
         return tool_delta(f"fixture-spec-{calls}", spec.name, arguments)
-    if last["role"] == "user":
-        tool = user_tool(request, text)
+    reading = document_read_result(messages)
+    source = messages[-3] if reading is not None else last
+    if source["role"] == "user":
+        tool = user_tool(request, message_text(source))
         if tool is not None:
+            function = tool["tool_calls"][0]["function"]
+            if function["name"] == "draft_implementation_plan":
+                assert READ_TOOL in {item["function"]["name"] for item in request["tools"]}
+                if reading is None:
+                    return tool_delta("fixture-read-plan", READ_TOOL, {})
+                arguments = json.loads(function["arguments"])
+                revision = document_revision(reading, "plan")
+                if revision is not None:
+                    arguments["expectedRevision"] = revision
+                function["arguments"] = json.dumps(arguments)
             return tool
     if last["role"] == "tool":
         return {"role": "assistant", "content": "ACK_TOOL_SUBMITTED"}

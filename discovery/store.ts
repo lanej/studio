@@ -20,7 +20,16 @@ import {
   specificationGaps,
   type DeliveryPolicy,
 } from "../socrates/spec.ts";
-import { specificationToken } from "../socrates/assessment.ts";
+import {
+  pendingCoverageReview,
+  specificationToken,
+} from "../socrates/assessment.ts";
+import {
+  commitOperation,
+  initializeOperationWitnesses,
+  transaction,
+  type OperationWitness,
+} from "../operation-witness.ts";
 
 export enum HandoffPhase {
   Pending = "pending",
@@ -86,6 +95,40 @@ export function applyDeliveryPolicy(
   return policy.pullRequests === "none"
     ? { ...proposal, tasks }
     : { ...proposal, tasks, pullRequestMerge: policy.merge };
+}
+
+/** Persist a proposal against its current specification without certifying the old assessment. */
+export function saveDiscoveryPlan(
+  row: Pick<
+    Discovery,
+    "specification" | "leadPlan" | "planSpecificationRevision"
+  >,
+  proposal: LeadDraft,
+  linkSpecification = true,
+): void {
+  const spec = row.specification;
+  if (spec !== undefined) {
+    const requirements = spec.draft?.requirements.map(({ id }) => id) ?? [];
+    if (
+      proposal.tasks.some((task) =>
+        task.requirements.some((id) => !requirements.includes(id)),
+      )
+    )
+      throw new Error(
+        "Link proposed tasks only to requirements in the current specification",
+      );
+    if (linkSpecification)
+      row.planSpecificationRevision = specificationToken(spec);
+  }
+  const policy = draftDeliveryPolicy(spec?.draft ?? null);
+  const draft =
+    policy === undefined ? proposal : applyDeliveryPolicy(proposal, policy);
+  if (
+    spec?.coverageRevision !== undefined &&
+    !isDeepStrictEqual(draft, row.leadPlan.draft)
+  )
+    spec.pendingReview = pendingCoverageReview(spec, "plan");
+  row.leadPlan = { ...row.leadPlan, mode: LeadMode.Planning, draft };
 }
 
 /** A proposal is editable throughout discovery. Only this reviewed form may reach the runtime. */
@@ -165,6 +208,7 @@ export class Discoveries {
     this.db.run(
       "CREATE TABLE IF NOT EXISTS discoveries (id TEXT PRIMARY KEY, project TEXT NOT NULL, record TEXT NOT NULL)",
     );
+    initializeOperationWitnesses(this.db);
   }
   beginHandoff(
     expected: Discovery,
@@ -265,28 +309,39 @@ export class Discoveries {
     update: (record: Discovery) => void,
     handoff = false,
   ): Discovery {
-    this.db.run("BEGIN IMMEDIATE");
-    try {
-      const record = this.get(id);
-      if (
-        !handoff &&
-        record.handoff !== undefined &&
-        record.handoff.phase !== HandoffPhase.Complete
-      )
-        throw new Error(
-          "The approved handoff is pending or uncertain; reconcile it before editing this discovery",
-        );
-      update(record);
-      const checked = discoverySchema.parse(record);
-      this.db
-        .query("UPDATE discoveries SET record=? WHERE id=?")
-        .run(JSON.stringify(checked), id);
-      this.db.run("COMMIT");
-      return checked;
-    } catch (error) {
-      this.db.run("ROLLBACK");
-      throw error;
-    }
+    return transaction(this.db, () => this.update(id, update, handoff));
+  }
+  changeWithWitness(
+    id: string,
+    operationId: string,
+    command: string,
+    update: (record: Discovery) => void,
+    result: (record: Discovery) => string,
+  ): OperationWitness {
+    return commitOperation(this.db, id, operationId, command, () =>
+      result(this.update(id, update)),
+    );
+  }
+  private update(
+    id: string,
+    update: (record: Discovery) => void,
+    handoff = false,
+  ): Discovery {
+    const record = this.get(id);
+    if (
+      !handoff &&
+      record.handoff !== undefined &&
+      record.handoff.phase !== HandoffPhase.Complete
+    )
+      throw new Error(
+        "The approved handoff is pending or uncertain; reconcile it before editing this discovery",
+      );
+    update(record);
+    const checked = discoverySchema.parse(record);
+    this.db
+      .query("UPDATE discoveries SET record=? WHERE id=?")
+      .run(JSON.stringify(checked), id);
+    return checked;
   }
 }
 function decode(value: unknown): Discovery {

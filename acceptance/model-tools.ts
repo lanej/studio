@@ -33,6 +33,7 @@ import { delegateTool, registerDelegation } from "../delegation.ts";
 import { registerLeadControls } from "../lead-extension.ts";
 import { LeadMode } from "../lead-plan.ts";
 import { registerModelTools } from "../model-tools/extension.ts";
+import { registerPlanningDocuments } from "../planning/documents.ts";
 
 function event(type: string, data: object): string {
   return `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`;
@@ -822,6 +823,7 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
     });
     assert.ok(attempts.reserve(record));
     const managedExtension: ExtensionFactory = (pi) => {
+      registerPlanningDocuments(pi);
       registerDelegation(
         pi,
         () => undefined,

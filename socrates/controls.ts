@@ -1,3 +1,8 @@
+import { DocumentKind } from "../planning/model.ts";
+import {
+  getPlanningDocumentHooks,
+  type PlanningDocumentHooks,
+} from "../planning/document-hooks.ts";
 import type { PaneKeybindings } from "../pane-keybindings.ts";
 import type { OpenTasks } from "../tasks/panel.ts";
 import type {
@@ -22,6 +27,7 @@ import {
   specQuestion,
   specText,
   specificationGaps,
+  type ReviewInput,
   type SpecQuestion,
 } from "./spec.ts";
 import { deliveryPolicyParameter } from "./delivery-policy.ts";
@@ -99,6 +105,7 @@ export function registerSocratesControls<T extends SocratesState>(
     check(record: T, revision: string): Promise<void>;
     discovery?: boolean;
     select?(argument: string, ctx: ExtensionContext): Promise<void>;
+    documents?: PlanningDocumentHooks;
   },
 ) {
   async function viewSpecification(ctx: ExtensionContext) {
@@ -140,26 +147,22 @@ export function registerSocratesControls<T extends SocratesState>(
     scope.openTasks,
     scope.keybindings,
   );
-  // Pi emits user messages only when delivered, including queued guidance. Its own
-  // command prompts also use the user role, but do not change the operator's brief.
+  // Admission precedes delivery. Retain only the delivered message, including
+  // Pi's final content and timestamp, so request context can restore it later.
+  const documents = scope.documents ?? getPlanningDocumentHooks(pi);
   let commandPrompt: string | undefined;
+  let preparedInput: { owner: string; session: string } | false | undefined;
   pi.on("input", (event) => {
     if (event.streamingBehavior === undefined)
       commandPrompt = event.source === "extension" ? event.text : undefined;
   });
-  pi.on("message_start", (event, ctx) => {
-    if (event.message.role !== "user") return;
-    const internal = commandPrompt;
-    commandPrompt = undefined;
-    const content = event.message.content;
-    const text =
-      typeof content === "string"
-        ? content
-        : content.find((part) => part.type === "text")?.text;
-    if (internal !== undefined && internal === text) return;
-    const record = scope.snapshot?.(ctx);
+  const retainReviewInput = (
+    ctx: ExtensionContext,
+    record: T,
+    input: ReviewInput,
+  ): void => {
     if (
-      record?.specification === undefined ||
+      record.specification === undefined ||
       record.leadPlan?.mode !== LeadMode.Planning ||
       (scope.discovery !== true &&
         record.specification.status === SpecStatus.Frozen) ||
@@ -176,10 +179,73 @@ export function registerSocratesControls<T extends SocratesState>(
       )
         row.specification.pendingReview = pendingCoverageReview(
           row.specification,
-          reviewInput.parse(event.message),
+          input,
         );
     });
     presentation.refresh(ctx);
+  };
+  const preparePrompt = (
+    prompt: string,
+    admitted: boolean,
+    feedback: boolean,
+    ctx: ExtensionContext,
+  ): void => {
+    const record =
+      admitted && (feedback || commandPrompt !== prompt)
+        ? scope.snapshot?.(ctx)
+        : undefined;
+    preparedInput =
+      record === undefined
+        ? false
+        : {
+            owner: scope.identity(record),
+            session: ctx.sessionManager.getSessionId(),
+          };
+    commandPrompt = undefined;
+  };
+  if (documents !== undefined)
+    documents.onPromptAdmission((event, ctx) => {
+      preparePrompt(event.prompt, event.admitted, event.feedback, ctx);
+    });
+  else
+    pi.on("before_agent_start", (event, ctx) => {
+      if (event.messageType === "user")
+        preparePrompt(event.prompt, true, false, ctx);
+    });
+  pi.on("agent_settled", () => {
+    preparedInput = undefined;
+  });
+  pi.on("message_start", (event, ctx) => {
+    if (event.message.role !== "user") return;
+    const binding = preparedInput;
+    preparedInput = undefined;
+    if (binding === false) return;
+    const internal = commandPrompt;
+    commandPrompt = undefined;
+    const content = event.message.content;
+    const text =
+      typeof content === "string"
+        ? content
+        : content.find((part) => part.type === "text")?.text;
+    if (binding === undefined && internal !== undefined && internal === text)
+      return;
+    try {
+      const record = scope.snapshot?.(ctx);
+      if (
+        binding !== undefined &&
+        (record === undefined ||
+          binding.owner !== scope.identity(record) ||
+          binding.session !== ctx.sessionManager.getSessionId())
+      )
+        throw new Error(
+          "The planning owner changed before operator input was delivered",
+        );
+      if (record !== undefined)
+        retainReviewInput(ctx, record, reviewInput.parse(event.message));
+    } catch (error) {
+      ctx.abort();
+      throw error;
+    }
   });
   const checkCurrent = async (
     record: T,
@@ -190,7 +256,7 @@ export function registerSocratesControls<T extends SocratesState>(
       await scope.check(record, revision);
     } catch (error) {
       if (error instanceof BeadChanged) {
-        db.change(id, (row) => {
+        db.change(scope.identity(record), (row) => {
           if (
             row.revision === revision &&
             row.specification?.acceptedRevision === revision
@@ -222,7 +288,7 @@ export function registerSocratesControls<T extends SocratesState>(
       if (answer === undefined) return undefined;
       await requireBinding(ctx);
       await checkCurrent(record, spec.acceptedRevision, ctx);
-      db.change(id, (row) => {
+      db.change(scope.identity(record), (row) => {
         if (
           row.leadPlan?.mode !== LeadMode.Planning ||
           row.revision !== spec.acceptedRevision ||
@@ -316,7 +382,7 @@ export function registerSocratesControls<T extends SocratesState>(
         );
       await checkCurrent(record, spec.acceptedRevision, ctx);
       const pending = { ...spec, exchange: { prompt } };
-      db.change(id, (row) => {
+      db.change(scope.identity(record), (row) => {
         if (
           row.leadPlan?.mode !== LeadMode.Planning ||
           row.revision !== spec.acceptedRevision ||
@@ -404,7 +470,7 @@ export function registerSocratesControls<T extends SocratesState>(
       await socratesGuidance();
       const acceptedRevision = record.revision;
       await checkCurrent(record, acceptedRevision, ctx);
-      db.change(id, (row) => {
+      db.change(scope.identity(record), (row) => {
         if (
           row.specification !== undefined ||
           row.leadPlan?.mode !== LeadMode.Planning ||
@@ -433,6 +499,12 @@ export function registerSocratesControls<T extends SocratesState>(
       "Save the specification and property evidence. Supply the complete specification fields when drafting or incorporating an answer. For a coverage-only review, supply just coverage. Start with all applicable assessments, then send only those affected by changes to the brief, decisions, evidence, or plan. The operator freezes the specification in /spec-freeze.",
     executionMode: "sequential",
     parameters: Type.Object({
+      expectedRevision: Type.Optional(
+        Type.String({
+          description:
+            "Required when updating an existing specification, including a coverage-only review. Use the exact revision from the document snapshot used to prepare this candidate.",
+        }),
+      ),
       objective: Type.Optional(Type.String()),
       scope: Type.Optional(Type.Array(Type.String())),
       requirements: Type.Optional(
@@ -502,10 +574,11 @@ export function registerSocratesControls<T extends SocratesState>(
     }),
     async execute(_call, params, _signal, _update, ctx) {
       const record = await requireBinding(ctx);
+      const { expectedRevision, ...candidate } = params;
       if (record.revision === null)
         throw new Error("The accepted revision is missing");
       await checkCurrent(record, record.revision, ctx);
-      db.change(id, (row) => {
+      db.change(scope.identity(record), (row) => {
         const specification = row.specification;
         if (
           specification === undefined ||
@@ -533,10 +606,16 @@ export function registerSocratesControls<T extends SocratesState>(
             "The specification or work breakdown changed. Reassess the current draft before saving.",
           );
         checkReview?.(row, ctx);
+        documents?.assertAgent(
+          DocumentKind.Specification,
+          { ...row, id: scope.identity(row) },
+          ctx,
+          expectedRevision,
+        );
         const draft = applyDraftUpdate(
           specification,
           specification.acceptedRevision,
-          params,
+          candidate,
         );
         preserveDecisions(specification.draft, draft);
         const next = {
@@ -565,6 +644,7 @@ export function registerSocratesControls<T extends SocratesState>(
           coverageRevision: coverageToken(next),
         };
       });
+      documents?.committed(DocumentKind.Specification, ctx);
       presentation.refresh(ctx);
       const saved = db.get(id);
       const spec = saved.specification;
@@ -641,7 +721,7 @@ export function registerSocratesControls<T extends SocratesState>(
         )
           return;
         await checkCurrent(record, spec.acceptedRevision, ctx);
-        db.change(id, (row) => {
+        db.change(scope.identity(record), (row) => {
           if (
             !isDeepStrictEqual(row.specification, spec) ||
             !isDeepStrictEqual(row.leadPlan?.draft, record.leadPlan?.draft) ||

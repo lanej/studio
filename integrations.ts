@@ -42,12 +42,13 @@ export async function integrationStatus(
 }
 
 export async function inspectIntegrations(config: StudioConfig) {
-  const [zellij, worktrees, octo] = await Promise.all([
+  const [zellij, neovim, worktrees, octo] = await Promise.all([
     integrationStatus(config, "zellij"),
+    integrationStatus(config, "neovim"),
     integrationStatus(config, "worktrees"),
     integrationStatus(config, "octo"),
   ]);
-  return { zellij, worktrees, octo };
+  return { zellij, neovim, worktrees, octo };
 }
 
 export async function requireIntegration(

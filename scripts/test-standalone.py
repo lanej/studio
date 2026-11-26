@@ -32,7 +32,7 @@ with tempfile.TemporaryDirectory(prefix="studio-standalone-") as temporary:
     guard = work / "guard"
     guard.mkdir()
     calls = work / "unexpected-node"
-    optional_tools = ("zellij", "worktree", "octo-manager", "bd")
+    optional_tools = ("zellij", "nvim", "worktree", "octo-manager", "bd")
     def deny(name):
         script = guard / name
         script.write_text(f'#!/bin/sh\nprintf "%s\\n" "$0" >> "{calls}"\nexit 97\n')
@@ -49,11 +49,16 @@ with tempfile.TemporaryDirectory(prefix="studio-standalone-") as temporary:
         try:
             result = subprocess.run(args, cwd=cwd or source, env=env, text=True, capture_output=True, timeout=timeout)
         except subprocess.TimeoutExpired as error:
-            def tail(output):
+            def tail(output, limit):
                 if isinstance(output, bytes):
                     output = output.decode("utf-8", errors="replace")
-                return (output or "")[-8000:]
-            raise AssertionError((args, f"Timed out after {timeout} seconds", tail(error.stdout), tail(error.stderr))) from error
+                return (output or "")[-limit:]
+            raise AssertionError(
+                f"Standalone command exceeded {timeout}s: {shlex.join(args)}\n"
+                f"Working directory: {cwd or source}\n"
+                f"stdout (tail):\n{tail(error.stdout, 4000)}\n"
+                f"stderr (tail):\n{tail(error.stderr, 8000)}"
+            ) from error
         assert result.returncode == expected, (args, result.stdout[-4000:], result.stderr[-8000:])
         if stderr_contains is not None:
             assert stderr_contains in result.stderr, (args, result.stderr)

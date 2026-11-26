@@ -1,3 +1,4 @@
+import { registerPlanningDocuments } from "../planning/documents.ts";
 import {
   DefaultResourceLoader,
   ExtensionRunner,
@@ -87,6 +88,7 @@ await test("daily-driver Socrates starts by title and resumes the picker selecti
       noContextFiles: true,
       extensionFactories: [
         (pi) => {
+          registerPlanningDocuments(pi);
           registerDiscovery(pi, () => undefined);
         },
       ],

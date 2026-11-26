@@ -268,6 +268,7 @@ export function reviewHandoff(
       ),
     {
       overlay: true,
+      blocked: { kind: "permission", message: `Approve ${input.title}` },
       overlayOptions: {
         anchor: "center",
         width: 116,

@@ -114,9 +114,17 @@ discoveries.close();
 
         console.wait(lambda: all(label in roster() for label in ("Needs input", "Implementing", "Reviewing")),
                      "Current workers and reviewer did not appear below the graph")
-        rail_lines = console.rail_text().splitlines()
-        start = next(i for i, line in enumerate(rail_lines) if line.startswith("Beads  "))
-        cells = [rail_lines[start].removeprefix("Beads").strip(), rail_lines[start + 1].strip()]
+        def bead_cells():
+            lines = console.rail_text().splitlines()
+            for line, continuation in zip(lines, lines[1:]):
+                if line.startswith("Beads  "):
+                    return [line.removeprefix("Beads").strip(), continuation.strip()]
+            return []
+
+        # The local roster can render before all linked Beads statuses arrive.
+        console.wait(lambda: (cells := bead_cells()) and "?" not in "".join(cells),
+                     "The linked Beads status cells did not finish loading")
+        cells = bead_cells()
         assert [len(row) for row in cells] == [10, 2], cells
         assert sorted("".join(cells)) == sorted("●" * 3 + "◐" * 3 + "○" * 6), cells
         graph = console.rail_text().partition("Implementation")[2].partition("Workers")[0]

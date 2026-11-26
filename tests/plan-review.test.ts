@@ -160,9 +160,20 @@ test("review requires a rendered final viewport and Escape cancels at any positi
     approving.component.render(42).every((line) => visibleWidth(line) <= 42),
   ).toBe(true);
 
-  // Repeated input may reach the end before the terminal has drawn it.
+  // Buffered input can advance once, then waits for the next page to render.
   for (let i = 0; i < 100; i++) approving.component.handleInput?.(enter);
   expect(approving.result.decision).toBeUndefined();
+  expect(
+    approving.component.render(42).map(stripTerminalSequences).at(-1),
+  ).toContain("Enter next page");
+  for (let i = 0; i < 100; i++) {
+    approving.component.handleInput?.(enter);
+    const footer = approving.component
+      .render(42)
+      .map(stripTerminalSequences)
+      .at(-1);
+    if (footer?.includes("Enter start implementation") === true) break;
+  }
   const final = approving.component
     .render(42)
     .map((line) => stripTerminalSequences(line).trim());
@@ -228,7 +239,12 @@ test("wide review waits for the longer overview when all details already fit", (
   expect(middle).toContain("Enter next page");
   expect(result.decision).toBeUndefined();
 
-  for (let i = 0; i < 20; i++) component.handleInput?.("\r");
+  for (
+    let i = 0;
+    i < 20 && !plain().includes("Enter start implementation");
+    i++
+  )
+    component.handleInput?.("\r");
   const end = plain();
   expect(end).toContain("Summary line 40");
   expect(end).toContain("Decision · Merge manually.");

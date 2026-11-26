@@ -4,6 +4,8 @@ Start Studio in any checkout and ask it to read code, make a change, run command
 
 Studio also provides the dotfiles theme, task browser and idle compaction. The [runtime guide](RUNTIME.md) covers independent discovery, approved background work, Pi-owned Octo delivery, and recovery.
 
+The optional [Neovim document workspace](docs/neovim-documents.md) opens full specifications and plans in a companion Zellij pane. Save edits back to Studio or send selected text with a short comment; responses stay in Studio chat with compact outcomes and change navigation in Neovim.
+
 ## Package layout
 
 `cli.ts`, `extension.ts`, `lead-extension.ts`, and `worker-extension.ts` are stable entry points. Internal code is grouped by capability when its owner and callers are clear:
