@@ -38,7 +38,6 @@ const inspectTools = new Set([
   "find",
   "grep",
   lspTool,
-  delegateTool,
   planTool,
   diagramTool,
   mermaidTool,
@@ -102,6 +101,8 @@ export function registerLeadControls(
   );
   const permits = (name: string, ctx: ExtensionContext) => {
     const tool = admittedDiagramAlias(pi, name, ctx.model?.id) ?? name;
+    if (tool === delegateTool)
+      return pi.getActiveTools().includes(delegateTool);
     const spec = db.get(id).specification;
     if (tool === specTool || tool === askTool) {
       return (

@@ -204,7 +204,7 @@ Set `integrations.zellij.enabled`, `integrations.worktrees.enabled`, or `integra
 | --- | --- |
 | Task inspection | Configured Beads source |
 | Managed launch, focus, resume | Beads service, Zellij, worktree manager; launch/focus also need a live Zellij session |
-| Explorer/Reviewer delegation | Explicit delegation/profile configuration and worktree manager |
+| Explorer/Reviewer delegation | Selected role profile and enabled, installed worktree manager |
 | Unattended workers | Enabled runtime, enrolled project, matching Beads HTTP/native CLI, worktree manager, role models, verification isolation |
 | Publish, PR feedback, merge | Bound task/Beads workflow and enabled Octo; runtime PR tasks use an independent controller |
 | Finalize managed checkout | Bound task/Beads workflow, Octo, worktree manager |
@@ -339,7 +339,7 @@ Run `uv run --script acceptance/terminal.py` to exercise discovery, task navigat
 
 ## Delegation and archives
 
-Set `"delegation": { "enabled": true }` in Studio configuration, then start a managed lead with its selected profile. In a standalone persistent session, use `/studio-profile work` or `/studio-profile personal` to select a lead. Pi offers `studio_delegate` for Explorer and Reviewer assignments. Each assignment inspects the current committed revision in a native manager-owned checkout. For a Reviewer, give the capability, intended base, and available verification evidence. Let the Reviewer trace a representative case and locate a plausible rule change before sharing the author's explanation. The child receives a fresh context with only snapshot inspection tools, and its result returns to the lead. Configure the provider and model catalog through Pi. Unload standalone subagent packages for managed sessions.
+Managed delegation is enabled by default. Start a managed lead with its selected role profile and an enabled, installed worktree manager. Set `delegation.enabled = false` to opt out. In a standalone persistent session, use `/studio-profile work` or `/studio-profile personal` to select a lead. Pi offers `studio_delegate` for Explorer and Reviewer assignments. Each assignment inspects the current committed revision in a native manager-owned checkout. For a Reviewer, give the capability, intended base, and available verification evidence. Let the Reviewer trace a representative case and locate a plausible rule change before sharing the author's explanation. The child receives a fresh context with only snapshot inspection tools, and its result returns to the lead. Configure the provider and model catalog through Pi. Unload standalone subagent packages for managed sessions.
 
 Studio loads the pinned tintinweb runner through a small adapter. The configuration command prepares that runner after the package install. Attempts, checkout receipts and child sessions are retained privately under `${XDG_STATE_HOME:-~/.local/state}/studio`. An uncertain attempt blocks further delegation and idle compaction for its lead session. Inspect its recorded manager owner and native session before recovery. Use the native manager to finish and prune eligible read-only checkouts after reviewing their retained state.
 

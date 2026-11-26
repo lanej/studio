@@ -43,6 +43,11 @@ quit = "q"
 pageUp = "pageUp"
 pageDown = "pageDown"
 
+# Managed explorers and reviewers are enabled for an eligible lead.
+# To opt out, uncomment both lines.
+# [delegation]
+# enabled = false
+
 # Unattended execution is disabled until explicitly configured and enrolled.
 [runtime]
 enabled = false
