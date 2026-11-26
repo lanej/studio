@@ -524,7 +524,7 @@ await test("optional integrations stay inactive until enabled and fail before ef
       .parse(JSON.parse((await invoke("doctor")).stdout));
     assert.ok(
       report.resources.paths.includes(
-        fileURLToPath(import.meta.resolve("@lanej/editor-interop/neovim")),
+        fileURLToPath(import.meta.resolve("@lanej/copydesk/neovim")),
       ),
     );
     assert.ok(

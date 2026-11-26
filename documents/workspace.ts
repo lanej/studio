@@ -7,7 +7,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import type { EditorWorkspace } from "@lanej/editor-interop";
+import type { EditorWorkspace } from "@lanej/copydesk";
 import { loadConfig } from "../config.ts";
 import { PiMode, piModeSchema } from "../runtime.ts";
 import {
@@ -98,7 +98,7 @@ export function registerDocumentWorkspace(pi: ExtensionAPI): void {
         { StudioDocumentProvider },
         { StudioEditorLauncher },
       ] = await Promise.all([
-        import("@lanej/editor-interop"),
+        import("@lanej/copydesk"),
         import("./provider.ts"),
         import("./editor.ts"),
       ]);
@@ -111,7 +111,7 @@ export function registerDocumentWorkspace(pi: ExtensionAPI): void {
         launcher: new StudioEditorLauncher(config, session),
         directory: await mkdtemp(join(tmpdir(), "studio-editor-")),
         runtimePath: dirname(
-          fileURLToPath(import.meta.resolve("@lanej/editor-interop/neovim")),
+          fileURLToPath(import.meta.resolve("@lanej/copydesk/neovim")),
         ),
         workingDirectory: binding.project,
         title: "Studio documents",

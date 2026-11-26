@@ -6,7 +6,7 @@
       "name": "@lanej/studio",
       "dependencies": {
         "@bufbuild/protobuf": "2.17.0",
-        "@lanej/editor-interop": "github:lanej/editor-interop#d8922a359b3b16adb8228b966fb03246c68cb236",
+        "@lanej/copydesk": "git+https://github.com:443/lanej/editor-interop.git#73ca0b769e0542201316b5ccc8877537846d0306",
         "@lanej/pi-components": "file:./vendor/pi-components",
         "@lanej/task-runtime": "file:./vendor/task-runtime",
         "@lumis-sh/wasm-json": "0.26.7",
@@ -160,7 +160,7 @@
 
     "@isaacs/nonrecursive-glob-match": ["@isaacs/nonrecursive-glob-match@1.1.0", "", {}, "sha512-GPm/Dbvk5RLmhRnxXIa7nTpK0xtl4E0wj0MslsuNiJ1FIROU+2+9lgUC/dgF7Ey4QCWhfEsgxilMRMCdHPfDfw=="],
 
-    "@lanej/editor-interop": ["@lanej/editor-interop@github:lanej/editor-interop#d8922a3", { "dependencies": { "@bufbuild/protobuf": "2.17.0", "@bufbuild/protovalidate": "1.3.0", "@connectrpc/connect": "2.3.0", "@connectrpc/connect-node": "2.3.0", "@connectrpc/validate": "0.2.0" } }, "lanej-editor-interop-d8922a3", "sha512-joOUr+ns3q5LQIAbo/SNcPKOamVOoJUpeAyL3aFFkaAuh83tTcB0Sed65OfSZ3PkHw68LAiSyiGi7W9btfWjnA=="],
+    "@lanej/copydesk": ["@lanej/copydesk@git+https://github.com:443/lanej/editor-interop.git#73ca0b769e0542201316b5ccc8877537846d0306", { "dependencies": { "@bufbuild/protobuf": "2.17.0", "@bufbuild/protovalidate": "1.3.0", "@connectrpc/connect": "2.3.0", "@connectrpc/connect-node": "2.3.0", "@connectrpc/validate": "0.2.0" } }, "73ca0b769e0542201316b5ccc8877537846d0306"],
 
     "@lanej/pi-components": ["@lanej/pi-components@file:vendor/pi-components", { "peerDependencies": { "@earendil-works/pi-tui": "^1.4.0" } }],
 
