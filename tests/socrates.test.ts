@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { draftSchema, LeadMode } from "../lead-plan.ts";
+import {
+  freezeReviewedSpecification,
+  prepareSpecificationFreeze,
+} from "../socrates/freeze.ts";
 import {
   applyDraftUpdate,
   assessedSpecDraft,
@@ -581,6 +586,40 @@ await test("a pending question or open decision blocks an otherwise assessed spe
       ).length > 0,
     );
   }
+});
+
+await test("freeze accepts the reviewed specification, proposed plan and brief revision", () => {
+  const specification = readySpecification("brief-v1");
+  const draft = draftSchema.parse({
+    summary: "Recover the transcript",
+    tasks: [],
+  });
+  const leadPlan = { mode: LeadMode.Planning, draft };
+  const state = { revision: "brief-v1", specification, leadPlan };
+  const review = prepareSpecificationFreeze(state, "discovery");
+  assert.equal(review.kind, "ready");
+
+  const approvalAt = "2026-11-25T19:30:00.000Z";
+  const revisedPlan = {
+    ...leadPlan,
+    draft: { ...draft, summary: "Make a copy first" },
+  };
+  for (const current of [
+    { ...state, leadPlan: revisedPlan },
+    { ...state, revision: "brief-v2" },
+    { ...state, specification: { ...specification, version: 2 } },
+  ]) {
+    assert.throws(
+      () => freezeReviewedSpecification(review, current, approvalAt),
+      /The displayed specification changed/u,
+    );
+  }
+  assert.deepEqual(freezeReviewedSpecification(review, state, approvalAt), {
+    ...specification,
+    status: SpecStatus.Frozen,
+    approvalAt,
+  });
+  assert.equal(state.specification.status, SpecStatus.Interrogating);
 });
 
 await test("a daily-driver freeze requires explicit evidenced PR and merge boundaries", () => {

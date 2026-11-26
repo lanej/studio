@@ -24,7 +24,8 @@ import {
 } from "../execution/decisions.ts";
 import { retryAttempt } from "../execution/cli.ts";
 import { reconcileAttempt } from "../execution/recovery.ts";
-import { maintainAttempt, retainedConflicts } from "../execution/supervisor.ts";
+import { retainedConflicts } from "../execution/admission.ts";
+import { maintainAttempt } from "../execution/supervisor.ts";
 import {
   parseBackgroundResult,
   resumeReviewedAssignment,
@@ -292,8 +293,9 @@ await test("answering revalidates exact request, writer, admission, authority an
       bead: { ...initial.bead, id: "blocked" },
     });
     assert.deepEqual(
-      retainedConflicts(overlap, [store.attempt(id), overlap]).map(
-        (row) => row.id,
+      Array.from(
+        retainedConflicts(overlap, [store.attempt(id), overlap]),
+        ({ blocker }) => blocker.id,
       ),
       [id],
     );

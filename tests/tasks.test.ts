@@ -14,7 +14,7 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { retryAttempt } from "../execution/cli.ts";
 import { processStart } from "../process.ts";
-import { retainedConflicts } from "../execution/supervisor.ts";
+import { retainedConflicts } from "../execution/admission.ts";
 import { Database } from "bun:sqlite";
 import {
   initTheme,
@@ -261,29 +261,45 @@ await test("retained conflicts match admitted queue order, project and ownership
     phase: ExecutionPhase.Queued,
     owns: ["src/core"],
   };
-  const earlier = { ...queued, id: randomUUID(), owns: ["src/core/file.ts"] };
+  const earlier = {
+    ...queued,
+    id: randomUUID(),
+    owns: ["src/core/file.ts", "src/core/util.ts"],
+  };
   const later = { ...earlier, id: randomUUID() };
   const empty = { ...earlier, id: randomUUID(), bead: undefined };
   const foreign = { ...earlier, id: randomUUID(), project: randomUUID() };
   const done = { ...earlier, id: randomUUID(), phase: ExecutionPhase.Complete };
-  assert.deepEqual(
+  const sibling = { ...earlier, id: randomUUID(), owns: ["src/core-old"] };
+  const parked = {
+    ...earlier,
+    id: randomUUID(),
+    phase: ExecutionPhase.Parked,
+    owns: [],
+  };
+  const conflicts = Array.from(
     retainedConflicts(queued, [
       empty,
       foreign,
       done,
+      sibling,
       earlier,
       queued,
       later,
-    ]).map((row) => row.id),
-    [earlier.id],
+      parked,
+    ]),
   );
   assert.deepEqual(
-    retainedConflicts(queued, [
-      queued,
-      { ...later, phase: ExecutionPhase.Parked, owns: [] },
-    ]).map((row) => row.id),
-    [later.id],
+    conflicts.map(({ blocker }) => blocker.id),
+    [earlier.id, parked.id],
   );
+  const [nested, unspecified] = conflicts;
+  assert.equal(nested?.ownership.kind, "paths");
+  assert.deepEqual(Array.from(nested.ownership.paths()), [
+    { retained: "src/core/file.ts", candidate: "src/core" },
+    { retained: "src/core/util.ts", candidate: "src/core" },
+  ]);
+  assert.deepEqual(unspecified?.ownership, { kind: "whole-checkout" });
 });
 
 await test("parked details use the current owner and scheduler path rules", () => {

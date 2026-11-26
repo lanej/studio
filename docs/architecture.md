@@ -6,7 +6,7 @@ Studio organizes source by capability. Pi and CLI entrypoints compose the capabi
 
 | Change | Location and contract |
 | --- | --- |
-| A workflow rule or state transition | Put it in the owning capability. Supply the facts the rule needs. For example, assess a specification from its draft, evidence and accepted revision in [`socrates/assessment.ts`](../socrates/assessment.ts) and [`socrates/spec.ts`](../socrates/spec.ts). |
+| A workflow rule or state transition | Put it in the owning capability. Supply the facts the rule needs, including timestamps for transitions that record them. [Specification assessment](../socrates/assessment.ts), [specification freeze](../socrates/freeze.ts), [execution admission](../execution/admission.ts) |
 | A Pi command, tool or hook specific to a role | Put it in the receiving role's `extensions/` directory and register it explicitly from the host. Use a file for one adapter and a subdirectory when several files have distinct responsibilities within that adapter. [`lead/extensions/socrates.ts`](../lead/extensions/socrates.ts) |
 | A host or provider operation | Keep the operation and its translation at the effect boundary. Use an interface when callers need substitution or isolation. Keep transaction-sensitive guards alongside the authoritative state. [Document hooks](../planning/document-hooks.ts), [inference reservation](../execution/store.ts) |
 | A task-specific view or action | Keep display projection with the capability, and route actions through its guarded operations. Task inspection reads Beads and Studio receipts as separate sources and keeps unavailable evidence visible. [Task panel](../tasks/panel.ts), [task evidence](../tasks/evidence.ts), [task model](../tasks/model.ts) |
@@ -36,14 +36,20 @@ flowchart LR
     Managed["Task-bound lead"] --> Attempt["Verified attempt and Beads revision"]
     Discovery --> Adapter["Socrates Pi registration"]
     Attempt --> Adapter
-    Adapter --> Rules["Specification and readiness"]
+    Adapter --> Rules["Specification and freeze decision"]
     Adapter --> View["Question view"]
     View --> Selector["Shared Pi selector and theme"]
 ```
 
-The registration resolves the bound record, checks the accepted revision and saves the pending question. [`socrates/selector.ts`](../socrates/selector.ts) turns its choices and evidence into component inputs and maps Pi theme roles to the selector. The library renders the choices and handles focus and explicit selection. Studio interprets the result. Escape leaves the saved question available to resume. A submitted answer passes through binding and revision checks again before the optimistic state update records it. A subsequent operator freeze accepts the specification. A separate plan approval creates the work graph. [Question and freeze handlers](../lead/extensions/socrates.ts), [runtime guide](../RUNTIME.md#discovery-and-approval)
+The registration resolves the bound record, checks the accepted revision and saves the pending question. [`socrates/selector.ts`](../socrates/selector.ts) turns its choices and evidence into component inputs and maps Pi theme roles to the selector. The library renders the choices and handles focus and explicit selection. Studio interprets the result. Escape leaves the saved question available to resume. A submitted answer passes through binding and revision checks again before the optimistic state update records it. [Question handler](../lead/extensions/socrates.ts)
 
 The Dotfiles design system authors shared semantic roles and native mappings. Studio bundles its Nord-derived [palette](../resources/colors.json) and [Pi theme](../resources/theme.json) with contrast adjustments for terminal text. Dotfiles authors `tools/pi-components` and Studio consumes a pinned snapshot under [`vendor/pi-components`](../vendor/pi-components/). Follow [extraction provenance](../EXTRACTION.md) to update the snapshot and keep native focus, cancellation, wrapping and resize checks in scope.
+
+## Core workflow contracts
+
+`LeadSpecification` records the decisions, evidence and accepted revision. `LeadDraft` describes proposed tasks, dependencies, owned paths, verification, delivery and worker assignments. Socrates prepares a freeze review from the current specification and plan. Pi displays the specification, obtains confirmation, and rechecks the binding and revision. Inside the discovery or attempt store's transaction, Socrates compares the current record with the specification and plan from when the review opened before applying the supplied approval time. A separate approval binds the plan to the frozen specification and target project before creating the Beads graph. [Specification](../socrates/spec.ts), [plan](../lead-plan.ts), [freeze decision](../socrates/freeze.ts), [approval](../RUNTIME.md#discovery-and-approval)
+
+Execution yields retained blockers from the ordered attempts. Each blocker can supply its matching paths or whole-checkout scope. The supervisor stops at the first blocker, while the task inspector reads the matching paths for the attempt it displays. The supervisor also observes live writers and uses the store's atomic inference reservation. Runtime treats unspecified ownership as the whole checkout in the same project. The draft graph uses the same path comparison on the explicitly listed paths of tasks in the same wave. [Admission](../execution/admission.ts), [inference reservation](../execution/store.ts), [task projection](../tasks/model.ts), [draft graph](../smart-plan-graph.ts)
 
 ## Capability map
 
@@ -58,4 +64,4 @@ The Dotfiles design system authors shared semantic roles and native mappings. St
 | [`code-intelligence/`](../code-intelligence/), [`model-tools/`](../model-tools/) and [`diagram/`](../diagram/) | Language and source observations, model-specific tool dialects, and diagram projection and rendering. Share an operation when several consumers need the same observation. |
 | [`scripts/`](../scripts/), [`resources/`](../resources/), [`vendor/`](../vendor/) and [`generated/`](../generated/) | Packaging and launchers, bundled resources, pinned source dependencies and generated protocol bindings. Source and manifest-only exports both include the package entrypoint graph. [Source manifest](../source-files.json) |
 
-When moving a module, update the manifest and any affected path-based workflow selection. Trace both the importers and the explicit loaders. For a Socrates adapter change, run `bun run check`, exercise the daily lead with `uv run --script acceptance/terminal.py --discovery-only`, and exercise the managed lead with `STUDIO_ACCEPTANCE_CASE=socrates bun run test:local`. The native fixtures use isolated state and a controlled provider. [Acceptance setup](../acceptance/local-run.md)
+When moving a module, update the manifest and any affected path-based workflow selection. Trace both the importers and the explicit loaders. Run `bun run check` and the affected native fixture. For Socrates, exercise the daily lead with `uv run --script acceptance/terminal.py --discovery-only` and the managed lead with `STUDIO_ACCEPTANCE_CASE=socrates bun run test:local`. For runtime admission, run `bun run test:runtime-worker-native` with the fixture's Beads and Dolt paths. The native fixtures use isolated state and a controlled provider. [Acceptance setup](../acceptance/local-run.md), [runtime worker fixture](../acceptance/runtime-worker.ts)

@@ -22,22 +22,10 @@ import {
   worktreeReservation,
   worktreeAllocation,
 } from "../vendor/task-runtime/worktree-contracts.ts";
+import { ExecutionPhase } from "./phase.ts";
 
-export enum ExecutionPhase {
-  Queued = "queued",
-  Claiming = "claiming",
-  Allocating = "allocating",
-  Launching = "launching",
-  Running = "running",
-  Reviewing = "reviewing",
-  Integrating = "integrating",
-  Delivery = "delivery-pending",
-  Waiting = "correction-pending",
-  AwaitingDecision = "awaiting-decision",
-  Complete = "complete",
-  Parked = "needs-review",
-  Uncertain = "uncertain",
-}
+export { ExecutionPhase } from "./phase.ts";
+
 export const projectSchema = runtimeProjectSchema
   .extend({ id: z.uuid() })
   .refine(

@@ -11,6 +11,7 @@ import { requireIntegration } from "../integrations.ts";
 import { packageRoot } from "../package-resources.ts";
 import { processFailure, processStart } from "../process.ts";
 import { owner } from "../task-service.ts";
+import { ownershipConflict, retainedConflicts } from "./admission.ts";
 import {
   ExecutionBeads,
   interactiveTask,
@@ -73,33 +74,6 @@ export async function ensureRuntime(): Promise<void> {
   } finally {
     store.close();
   }
-}
-export function overlaps(left: Execution, right: Execution): boolean {
-  return (
-    left.project === right.project &&
-    (left.owns.length === 0 ||
-      right.owns.length === 0 ||
-      left.owns.some((a) =>
-        right.owns.some(
-          (b) => a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`),
-        ),
-      ))
-  );
-}
-/** Retained admission and queue order fence writers in the same project. */
-export function retainedConflicts(
-  attempt: Execution,
-  attempts: Execution[],
-): Execution[] {
-  const position = attempts.findIndex((row) => row.id === attempt.id);
-  return attempts.filter(
-    (other, index) =>
-      other.id !== attempt.id &&
-      other.bead !== undefined &&
-      other.phase !== ExecutionPhase.Complete &&
-      (other.phase !== ExecutionPhase.Queued || index < position) &&
-      overlaps(attempt, other),
-  );
 }
 export async function maintainAttempt(
   store: ExecutionStore,
@@ -217,7 +191,7 @@ export async function serveRuntime(
               record.phase === ExecutionPhase.Queued,
           )) {
             const retainedConflict =
-              retainedConflicts(attempt, attempts).length > 0;
+              retainedConflicts(attempt, attempts).next().done !== true;
             if (
               live.filter(
                 (record) =>
@@ -226,7 +200,9 @@ export async function serveRuntime(
                   ),
               ).length >= config.runtime.concurrency ||
               retainedConflict ||
-              live.some((other) => overlaps(attempt, other))
+              live.some(
+                (other) => ownershipConflict(other, attempt) !== undefined,
+              )
             )
               continue;
             if (attempt.interactive === undefined)

@@ -1,0 +1,15 @@
+export enum ExecutionPhase {
+  Queued = "queued",
+  Claiming = "claiming",
+  Allocating = "allocating",
+  Launching = "launching",
+  Running = "running",
+  Reviewing = "reviewing",
+  Integrating = "integrating",
+  Delivery = "delivery-pending",
+  Waiting = "correction-pending",
+  AwaitingDecision = "awaiting-decision",
+  Complete = "complete",
+  Parked = "needs-review",
+  Uncertain = "uncertain",
+}

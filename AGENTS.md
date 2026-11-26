@@ -12,4 +12,4 @@ The pre-extraction application has no database contents to migrate. Persist new 
 
 ## Architecture
 
-Read the [Studio architecture guide](docs/architecture.md) before adding or moving source. Put Pi command, tool and event wiring in the receiving role's `extensions/` directory and compose it explicitly for that host. Keep decisions and state with their owning capability, and atomic guards with the authoritative state. Use shared Pi components and semantic theme roles for reusable terminal presentation. When a boundary changes, update the guide and exercise its normal entrypoint.
+Read the [Studio architecture guide](docs/architecture.md) before adding or moving source. Put Pi command, tool and event wiring in the receiving role's `extensions/` directory and compose it explicitly for that host. Supply observed facts to decision functions in the owning capability and reuse their results for enforcement and operator explanations. Evaluate atomic guards at the authoritative state boundary. Use shared Pi components and semantic theme roles for reusable terminal presentation. When a boundary changes, update the guide and exercise its normal entrypoint.

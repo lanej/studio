@@ -32,6 +32,10 @@ import {
 } from "../../socrates/spec.ts";
 import { deliveryPolicyParameter } from "../../socrates/delivery-policy.ts";
 import { questionEvidenceParameter } from "../../socrates/evidence.ts";
+import {
+  freezeReviewedSpecification,
+  prepareSpecificationFreeze,
+} from "../../socrates/freeze.ts";
 import { questionLinks, renderQuestionEvidence } from "../../socrates/links.ts";
 import {
   chooseQuestion,
@@ -685,25 +689,15 @@ export function registerSocratesControls<T extends SocratesState>(
     async handler(_argument, ctx) {
       if (!ctx.isIdle()) throw new Error("Wait for the lead turn to settle");
       const record = await requireBinding(ctx);
-      const spec = record.specification;
-      if (spec?.status === SpecStatus.Interrogating) {
-        const gaps =
-          scope.discovery === true
-            ? specificationGaps(spec, record.revision)
-            : propertyGaps(spec, record.revision);
-        if (gaps.length > 0)
-          throw new Error(
-            `Continue /socrates before freezing: ${gaps.join(", ")}`,
-          );
-      }
-      if (
-        spec?.status !== SpecStatus.Interrogating ||
-        spec.draft === null ||
-        spec.draft.blockingQuestions.length > 0 ||
-        spec.exchange !== undefined ||
-        !specDraft.safeParse(spec.draft).success ||
-        record.revision !== spec.acceptedRevision
-      )
+      const review = prepareSpecificationFreeze(
+        record,
+        scope.discovery === true ? "discovery" : "managed",
+      );
+      if (review.kind === "gaps")
+        throw new Error(
+          `Continue /socrates before freezing: ${review.gaps.join(", ")}`,
+        );
+      if (review.kind === "blocked")
         throw new Error(
           `Resolve the blocking questions and draft against ${scope.subject}`,
         );
@@ -713,25 +707,18 @@ export function registerSocratesControls<T extends SocratesState>(
           !(await reviewPlan(
             ctx,
             `Freeze specification for ${scope.label(record)}`,
-            specText(spec),
+            specText(review.specification),
             "freeze spec",
           ))
         )
           return;
-        await checkCurrent(record, spec.acceptedRevision, ctx);
+        await checkCurrent(record, review.specification.acceptedRevision, ctx);
         db.change(scope.identity(record), (row) => {
-          if (
-            !isDeepStrictEqual(row.specification, spec) ||
-            !isDeepStrictEqual(row.leadPlan?.draft, record.leadPlan?.draft) ||
-            row.leadPlan?.mode !== LeadMode.Planning ||
-            row.revision !== spec.acceptedRevision
-          )
-            throw new Error("The displayed specification changed");
-          row.specification = {
-            ...spec,
-            status: SpecStatus.Frozen,
-            approvalAt: new Date().toISOString(),
-          };
+          row.specification = freezeReviewedSpecification(
+            review,
+            row,
+            new Date().toISOString(),
+          );
         });
         presentation.refresh(ctx);
       } finally {
