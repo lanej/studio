@@ -55,7 +55,7 @@ These images reconstruct terminal output from the isolated native acceptance run
 
 ## Upgrade from Editor Interop
 
-Studio still uses `integrations.neovim` and `integrations.zellij` to configure Copydesk. Copydesk provides buffer-local defaults in both the bundled runtime and the standalone Neovim plugin. Install the plugin through Lazy to override individual mappings with `opts.keymaps`. [Plugin configuration and Lua actions](https://github.com/lanej/copydesk#configure-neovim)
+Studio still uses `integrations.neovim` and `integrations.zellij` to configure Copydesk. Copydesk provides buffer-local defaults in both the bundled runtime and the standalone Neovim plugin. Install the plugin through Lazy to override individual mappings with `opts.keymaps`. [Plugin configuration and Lua actions](https://github.com/lanej/copydesk#install-and-configure-the-neovim-plugin)
 
 The migration uses an exact Git commit rather than a GitHub archive checksum so the repository rename can follow the Studio upgrade.
 
