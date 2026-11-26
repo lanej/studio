@@ -536,29 +536,35 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                 ex(r"%s/Deliver the reviewed document editing loop\./Local plan survives Studio disconnect./")
                 assert lua("vim.bo.modified")
                 terminal.focus_pane(studio)
+                config_file = home / "config.json"
+                studio_config = json.loads(config_file.read_text())
+                studio_config["integrations"]["neovim"]["enabled"] = False
+                config_file.write_text(json.dumps(studio_config))
+                keys(studio, "/reload\r")
+                # A poll racing workspace disposal can receive EOF. Dismiss the
+                # hit-enter prompt before querying the modified editor buffer.
+                def disconnected_dirty_plan():
+                    screen = terminal.capture_pane(editor)
+                    if "Press ENTER" in screen:
+                        keys(editor, "\r")
+                        return False
+                    if "disconnected" not in screen:
+                        return False
+                    return lua('vim.bo.modified and vim.tbl_contains(vim.api.nvim_buf_get_lines(0, 0, -1, false), "Local plan survives Studio disconnect.")')
+
+                terminal.until("disconnected Neovim retains the unsaved plan after reload", disconnected_dirty_plan)
+                assert assert_companion(lead) == editor, "Reload replaced or resized the disconnected editor"
                 keys(studio, "/quit\r")
-                terminal.until("Studio closed without closing Neovim", lambda:
+                terminal.until("Studio closed without closing disconnected Neovim", lambda:
                                len(terminal.terminals()) == 1 and terminal.terminals()[0]["id"] == editor)
                 assert not terminal.terminals()[0]["is_floating"], "Neovim did not take over the closing Studio pane"
-                # A poll racing shutdown can receive EOF instead of a connect error.
-                # Dismiss Neovim's hit-enter prompt before the RPC status assertion.
-                def disconnect_screen():
-                    screen = terminal.capture_pane(editor)
-                    if "Press ENTER" in screen or "disconnected" in screen:
-                        return screen
-                    return None
-
-                screen = terminal.until("disconnect status or hit-enter prompt", disconnect_screen)
-                if "Press ENTER" in screen:
-                    keys(editor, "\r")
-                terminal.until("visible disconnected editor status", lambda: "disconnected" in lua("vim.wo.winbar"))
-                assert "Local plan survives Studio disconnect." in lines() and lua("vim.bo.modified")
+                terminal.until("the dirty plan survives Studio quit", disconnected_dirty_plan)
                 assert saved()["leadPlan"]["draft"]["summary"] == "Deliver the reviewed document editing loop."
                 lifecycle = {"closedPane": closed_editor, "reopenedPane": editor,
                              "routineRefreshKeptClosed": True, "explicitReopenCount": 1,
                              "studioClosedEditorSurvived": True, "disconnectPreservedDirtyText": True,
                              "finalEditorStatus": lua("vim.wo.winbar")}
-                print("PASS Studio disconnect leaves Neovim available and preserves dirty text", flush=True)
+                print("PASS the disconnected floating editor and dirty text survive Studio reload and quit", flush=True)
                 if output:
                     evidence = {"provider": "deterministic local OpenAI-compatible SSE fixture; no live model",
                                 "initMarker": lua("vim.g.documents_fixture_init"), "panes": terminal.terminals(),

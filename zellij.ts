@@ -346,13 +346,20 @@ export class Zellij {
     return tabId(terminal);
   }
 
-  async keepFloatingPaneOnExit(pane: number): Promise<void> {
+  async keepFloatingPaneOnExit(
+    pane: number,
+    manifestPath: string,
+  ): Promise<void> {
     if (this.terminal === undefined) return;
     const visible = (await this.panes()).filter(
       (entry) => !entry.exited && !entry.is_suppressed && entry.is_selectable,
     );
     const companion = visible.find(
-      (entry) => !entry.is_plugin && entry.id === pane && entry.is_floating,
+      (entry) =>
+        !entry.is_plugin &&
+        entry.id === pane &&
+        entry.is_floating &&
+        entry.terminal_command?.includes(manifestPath) === true,
     );
     if (companion === undefined) return;
     const tiled = visible.filter(
