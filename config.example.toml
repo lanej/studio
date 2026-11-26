@@ -67,3 +67,12 @@ pollMs = 5000
 # url = "http://127.0.0.1:8080"
 # projectId = "00000000-0000-4000-8000-000000000001"
 # tokenFile = "/absolute/path/to/token"
+
+# Optional worker capabilities for a configured profile. Standard uses that
+# profile's worker model. Each task sets its own reasoning level.
+# [profiles.personal.workerModels.fast]
+# provider = "openai-codex"
+# model = "your-fast-model"
+# [profiles.personal.workerModels.advanced]
+# provider = "openai-codex"
+# model = "your-advanced-model"

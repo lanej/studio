@@ -6,7 +6,12 @@ import {
   truncateToWidth,
   visibleWidth,
 } from "@earendil-works/pi-tui";
-import { taskTree, type Task, type TreeRow } from "../beads.ts";
+import {
+  taskTree,
+  taskWorkerLabel,
+  type Task,
+  type TreeRow,
+} from "../beads.ts";
 import { paintPaneLine, paneMouse } from "../floating-pane.ts";
 import {
   defaultPaneKeybindings,
@@ -260,6 +265,8 @@ export class TaskBrowser {
       lines.push({ text: this.theme.bold(line) });
     text("");
     text(taskNarrative(task, this.snapshot));
+    const worker = taskWorkerLabel(task);
+    if (worker !== undefined) text(worker);
     const decision = decisionDetails(task, this.snapshot);
     if (decision !== undefined) {
       text("");

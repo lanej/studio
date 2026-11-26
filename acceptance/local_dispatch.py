@@ -100,7 +100,9 @@ def dispatch_spec(resolved: bool, *, ordered: bool = False) -> dict:
 
 
 def dispatch_plan(ordered: bool) -> dict:
-    tasks = [dict(task, requirements=["R1"]) for task in TASKS]
+    tasks = [dict(task, requirements=["R1"], assignment={
+        "capability": "standard", "reasoning": "off",
+    }) for task in TASKS]
     if not ordered:
         tasks[1].pop("blockedBy")
         tasks[1]["description"] = "The marker source is pending decision D1."

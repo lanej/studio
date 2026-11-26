@@ -215,7 +215,12 @@ Should the native test change R1 and check both views?""")
             elif last.get("tool_call_id") == "close-properties":
                 if "Properties satisfied" not in str(last["content"]):
                     provider_errors.append(str(last["content"]))
-                delta = tool_delta("confirm-graph", "draft_implementation_plan", self.server.graph_draft)
+                draft = self.server.graph_draft
+                delta = tool_delta("confirm-graph", "draft_implementation_plan", {
+                    **draft,
+                    "tasks": [{**task, "assignment": {"capability": "standard", "reasoning": "off"}}
+                              for task in draft["tasks"]],
+                })
             elif last.get("tool_call_id") == "confirm-graph":
                 if "draft_socrates_specification" not in message_text(last):
                     provider_errors.append(str(last["content"]))
@@ -818,7 +823,7 @@ const tasks = [
   ['json-export','Implement the JSON exporter','Write the CLI exporter.','A sample export validates against the schema.','src/export.ts',['event-schema']],
   ['guide-example','Prepare a guide example','Create a sample event.','The sample validates against the shared schema.','examples/event.json',['event-schema']],
   ['export-guide','Document the export','Document how to export and validate events.','The guide reproduces the example output.','docs/export.md',['guide-example']],
-].map(([key,title,description,acceptance,path,blockedBy])=>({key,title,description,acceptance,owns:[path],blockedBy,requirements:['R1']}));
+].map(([key,title,description,acceptance,path,blockedBy])=>({key,title,description,acceptance,owns:[path],blockedBy,requirements:['R1'],assignment:{capability:'standard',reasoning:'off'}}));
 const record = store.change(discovery.id,row=>{
   const spec = {status:SpecStatus.Frozen,version:1,acceptedRevision:row.revision,approvalAt:'2026-11-24T00:00:00Z',draft};
   row.specification = {...spec,coverageRevision:coverageToken(spec)};
@@ -901,6 +906,8 @@ console.log(JSON.stringify({id:record.id,session:session.getSessionFile()}));sto
         for _ in range(60):
             current = frame()
             pages.append(" ".join(" ".join(current).split()))
+            if "Worker  standard · openai-codex/local-review" in " ".join(current):
+                terminal.capture("socrates-worker-assignment")
             if "Enter create tasks and implement" in pages[-1]:
                 break  # Leave the final authorization to an operator.
             terminal.send("\r")
@@ -910,7 +917,8 @@ console.log(JSON.stringify({id:record.id,session:session.getSessionFile()}));sto
         evidence = " ".join(pages)
         for item in ("Delivery 2 PRs", "Also includes event-schema, guide-example", "Merge · Manual approval",
                      "▸ Specification", "R1", "▸ Bead details", "schema/events.json", "notes/export.md", "src/export.ts",
-                     "examples/event.json", "docs/export.md", "The guide reproduces the example output."):
+                     "examples/event.json", "docs/export.md", "The guide reproduces the example output.",
+                     "Worker standard · openai-codex/local-review · off reasoning"):
             assert item in evidence, (item, pages)
         assert "▸ Bead details" in pages[-1], pages[-1]
         cancel()

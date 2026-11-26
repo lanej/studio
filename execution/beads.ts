@@ -8,7 +8,11 @@ import {
   type NativeBead,
 } from "../task-service.ts";
 import type { StudioProfile } from "../config.ts";
-import { orderedTasks, type LeadDraft } from "../lead-plan.ts";
+import {
+  orderedTasks,
+  type LeadDraft,
+  type PlanWorkers,
+} from "../lead-plan.ts";
 import { run } from "../process.ts";
 import type { RuntimeProject } from "./store.ts";
 
@@ -208,6 +212,7 @@ export class ExecutionBeads extends TaskBeads {
     ids: Record<string, string>,
     profile?: StudioProfile,
     interactive = false,
+    workers?: PlanWorkers,
   ): Promise<Record<string, string>> {
     this.requireWritable();
     const root = z.string().parse(ids["root"]);
@@ -239,6 +244,14 @@ export class ExecutionBeads extends TaskBeads {
     ];
     for (const task of orderedTasks(draft)) {
       const issue = z.string().parse(ids[task.key]);
+      const worker = workers?.[task.key];
+      if (
+        (task.assignment === undefined) !== (worker === undefined) ||
+        (task.assignment !== undefined &&
+          (profile === undefined ||
+            worker?.reasoning !== task.assignment.reasoning))
+      )
+        throw new Error(`Task ${task.key} needs its approved worker selection`);
       items.push(
         {
           kind: "create",
@@ -256,6 +269,7 @@ export class ExecutionBeads extends TaskBeads {
               "studio.graph": id,
               "studio.approval": digest,
               "studio.task": task,
+              ...(worker === undefined ? {} : { "studio.worker": worker }),
               ...mergePolicy,
               ...(profile === undefined ? {} : { "studio.profile": profile }),
               ...(interactive

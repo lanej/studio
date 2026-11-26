@@ -20,6 +20,10 @@ import { SpecStatus } from "../socrates/spec.ts";
 import { draftSchema } from "../lead-plan.ts";
 import {
   configSchema,
+  DefaultProvider,
+  exampleConfig,
+  ModelCapability,
+  ReasoningLevel,
   runtimeProjectSchema,
   StudioProfile,
 } from "../config.ts";
@@ -29,10 +33,78 @@ import {
   executionSchema,
   ExecutionPhase,
 } from "../execution/store.ts";
-import { writerFence } from "../execution/recovery.ts";
+import { retainClaim, writerFence } from "../execution/recovery.ts";
 import { ExecutionBeads } from "../execution/beads.ts";
 import { beadSchema, owner } from "../task-service.ts";
 import { taskDetails } from "../beads.ts";
+
+await test("a changed worker mapping blocks admission while retaining the task's owned paths", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "studio-assignment-"));
+  const store = new ExecutionStore(directory);
+  const project = randomUUID();
+  const id = randomUUID();
+  const provider = DefaultProvider.ChatGPTSubscription;
+  const configuration = configSchema.parse({
+    profiles: {
+      personal: {
+        ...exampleConfig.profiles.personal,
+        workerModels: { fast: { provider, model: "different-fast" } },
+      },
+    },
+  });
+  const bead = beadSchema.parse({
+    id: "assigned",
+    title: "First",
+    status: "in_progress",
+    revision: "accepted",
+    metadata: {
+      "pi.attempt": id,
+      "studio.profile": StudioProfile.Personal,
+      "studio.task": {
+        key: "first",
+        title: "First",
+        description: "Bounded task",
+        acceptance: "Verified result",
+        owns: ["src/first.ts"],
+        assignment: {
+          capability: ModelCapability.Fast,
+          reasoning: ReasoningLevel.Low,
+        },
+      },
+      "studio.worker": {
+        provider,
+        model: "approved-fast",
+        reasoning: ReasoningLevel.Low,
+      },
+    },
+  });
+  try {
+    store.saveAttempt(
+      executionSchema.parse({
+        id,
+        project,
+        profile: StudioProfile.Personal,
+        phase: ExecutionPhase.Claiming,
+        message: "Claimed",
+      }),
+    );
+    const service = new ExecutionBeads({
+      projectId: project,
+      url: "http://127.0.0.1:9",
+    });
+    await assert.rejects(
+      retainClaim(store, service, id, bead, configuration),
+      /approved worker differs from the enrolled profile/u,
+    );
+    const retained = store.attempt(id);
+    assert.deepEqual(retained.owns, ["src/first.ts"]);
+    assert.equal(retained.worker, undefined);
+    assert.equal(retained.phase, ExecutionPhase.Claiming);
+  } finally {
+    store.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 await test("discovery listing is scoped to the canonical project and retains duplicate titles", async () => {
   const directory = await mkdtemp(join(tmpdir(), "studio-discovery-"));
@@ -280,6 +352,10 @@ await test("discovery approval freezes the displayed version before effects and 
           delivery: "local",
           acceptance: "Verified result",
           requirements: ["R1"],
+          assignment: {
+            capability: ModelCapability.Fast,
+            reasoning: ReasoningLevel.Low,
+          },
         },
       ],
     });
@@ -316,7 +392,13 @@ await test("discovery approval freezes the displayed version before effects and 
     peer.change(discovery.id, (record) => {
       record.leadPlan.draft = {
         ...draft,
-        summary: "Revised scope for approval",
+        tasks: draft.tasks.map((task) => ({
+          ...task,
+          assignment: {
+            capability: ModelCapability.Fast,
+            reasoning: ReasoningLevel.Medium,
+          },
+        })),
       };
     });
     assert.throws(
@@ -324,10 +406,20 @@ await test("discovery approval freezes the displayed version before effects and 
       /changed before approval/u,
     );
     const current = peer.get(discovery.id);
-    const frozen = store.beginHandoff(current, authority, {
-      pid: process.pid,
-      started: "fixture-start",
-    });
+    const workers = {
+      first: {
+        provider: DefaultProvider.ChatGPTSubscription,
+        model: "fixture-fast",
+        reasoning: ReasoningLevel.Medium,
+      },
+    };
+    const frozen = store.beginHandoff(
+      current,
+      authority,
+      { pid: process.pid, started: "fixture-start" },
+      false,
+      workers,
+    );
     assert.equal(frozen.handoff?.phase, HandoffPhase.Pending);
     assert.throws(
       () =>
@@ -337,7 +429,7 @@ await test("discovery approval freezes the displayed version before effects and 
       /handoff is pending/u,
     );
     assert.throws(
-      () => peer.beginHandoff(current, authority),
+      () => peer.beginHandoff(current, authority, undefined, false, workers),
       /already in progress/u,
     );
     assert.equal(peer.get(other.id).title, "Separate discovery");
@@ -346,6 +438,7 @@ await test("discovery approval freezes the displayed version before effects and 
       authority,
       { pid: process.pid, started: "recovered-owner" },
       true,
+      workers,
     );
     assert.equal(
       retry.handoff?.operation,
@@ -362,8 +455,20 @@ await test("discovery approval freezes the displayed version before effects and 
           },
           { pid: process.pid, started: "recovered-owner" },
           true,
+          workers,
         ),
       /original project authority/u,
+    );
+    assert.throws(
+      () =>
+        store.beginHandoff(
+          store.get(discovery.id),
+          authority,
+          { pid: process.pid, started: "recovered-owner" },
+          true,
+          { first: { ...workers.first, model: "different-fast" } },
+        ),
+      /original project authority and draft, including worker selections/u,
     );
 
     peer.change(

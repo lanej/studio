@@ -25,6 +25,7 @@ proposal = {"summary": "Prepare the requested change", "tasks": [{
     "key": "change", "title": "Implement the requested change",
     "description": "Make the bounded change after operator approval.",
     "acceptance": "The native acceptance check passes.",
+    "assignment": {"capability": "standard", "reasoning": "off"},
 }]}
 requests = []
 errors = []

@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import {
+  selection,
+  taskAssignmentSchema,
+  type ModelSelection,
+} from "./config.ts";
 import { taskWaves } from "./smart-plan-graph.ts";
 import { worktreeRelativePath } from "./worktree-path.ts";
 
@@ -58,6 +63,7 @@ export const draftSchema = z
           hold: z.boolean().optional(),
           check: z.array(z.string().min(1)).max(64).optional(),
           delivery: z.enum(TaskDelivery).optional(),
+          assignment: taskAssignmentSchema.optional(),
           title: z.string().trim().min(1).max(200),
           description: z.string().trim().min(1).max(2000),
           acceptance: z.string().trim().min(1).max(2000),
@@ -95,6 +101,8 @@ export const draftSchema = z
   });
 
 export type LeadDraft = z.infer<typeof draftSchema>;
+export const planWorkersSchema = z.record(taskKey, selection);
+export type PlanWorkers = z.infer<typeof planWorkersSchema>;
 const childBeads = z.record(taskKey, z.string().min(1));
 export const leadPlanSchema = z.discriminatedUnion("mode", [
   z.strictObject({
@@ -138,6 +146,7 @@ export function taskReviewFields(
   task: LeadDraft["tasks"][number],
   intent: "proposal" | "execution" = "execution",
   deliveryLabel?: string,
+  worker?: ModelSelection,
 ): { label: string; value: string }[] {
   const delivery =
     task.delivery === undefined && intent === "proposal"
@@ -163,6 +172,22 @@ export function taskReviewFields(
       label: "Admission",
       value: task.hold === true ? "on hold" : "when ready",
     },
+    ...(task.assignment === undefined
+      ? []
+      : [
+          {
+            label: "Worker",
+            value: [
+              task.assignment.capability,
+              worker === undefined
+                ? undefined
+                : `${worker.provider}/${worker.model}`,
+              `${task.assignment.reasoning} reasoning`,
+            ]
+              .filter((part) => part !== undefined)
+              .join(" · "),
+          },
+        ]),
     { label: "Delivery", value: deliveryLabel ?? delivery },
     { label: "Verification", value: verification },
     ...(task.blockedBy.length > 0

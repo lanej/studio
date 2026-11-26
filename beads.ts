@@ -1,7 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import type { StudioConfig } from "./config.ts";
+import {
+  selection,
+  taskAssignmentSchema,
+  type StudioConfig,
+} from "./config.ts";
 import { run } from "./process.ts";
 
 export enum TaskStatus {
@@ -167,6 +171,18 @@ export function taskLabel(row: TreeRow): string {
   );
 }
 
+export function taskWorkerLabel(task: Task): string | undefined {
+  const worker = z
+    .object({
+      "studio.task": z.object({ assignment: taskAssignmentSchema }),
+      "studio.worker": selection,
+    })
+    .safeParse(task["metadata"]).data;
+  if (worker === undefined) return undefined;
+  const { provider, model, reasoning } = worker["studio.worker"];
+  return `Worker · ${worker["studio.task"].assignment.capability} · ${provider}/${model} · ${reasoning} reasoning`;
+}
+
 export function taskDetails(
   task: Task,
   workspace: string,
@@ -187,6 +203,7 @@ export function taskDetails(
     review?.finding,
     parent !== undefined ? `Parent: ${parent}` : undefined,
     blockers.length > 0 ? `Blocked by: ${blockers.join(", ")}` : undefined,
+    taskWorkerLabel(task),
     "",
     task.description,
     task.acceptance_criteria !== undefined
