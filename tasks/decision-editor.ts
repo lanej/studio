@@ -19,19 +19,17 @@ import {
   paneKeyPair,
 } from "../pane-keybindings.ts";
 import { selectorText } from "@lanej/pi-components";
-import {
-  floatingPaneHeight,
-  paintPaneLine,
-  paneMouse,
-} from "../floating-pane.ts";
+import { framePaneRows, paintPaneLine, paneMouse } from "../floating-pane.ts";
 
 export class DecisionEditor {
   readonly capturesViewportInput = true;
+  readonly hideInactiveCursors = true;
   private readonly editor: Editor;
   private readonly question: Text;
   private offset = 0;
   private questionHeight = 1;
   private maxOffset = 0;
+  private replyArea = { top: 0, start: 0, rows: 0, left: 0, width: 0 };
 
   constructor(
     private readonly tui: TUI,
@@ -39,6 +37,7 @@ export class DecisionEditor {
     question: string,
     private readonly done: (answer: string | undefined) => void,
     private readonly bindings = defaultPaneKeybindings,
+    private readonly taskTitle?: string,
   ) {
     this.question = new Text(
       selectorText(question).replace(/\p{Cc}/gu, " "),
@@ -70,13 +69,41 @@ export class DecisionEditor {
 
   render(width: number): string[] {
     if (width < 1) return [];
-    const height = floatingPaneHeight(this.tui.terminal.rows);
-    const inner = Math.max(1, width - 2);
-    const editing = this.editor.render(inner);
-    const prompt = this.question.render(inner);
-    this.questionHeight = Math.max(1, height - editing.length - 5);
+    const height = Math.max(
+      1,
+      Math.min(12, Math.floor(this.tui.terminal.rows / 3)),
+    );
+    const showHeading = height >= 3;
+    const showHints = height >= 4;
+    const contentHeight = height - Number(showHeading) - Number(showHints);
+    const framed = showHints && width >= 7;
+    const bodyWidth = framed ? width - 4 : width;
+    const prefix = bodyWidth >= 4 ? " ›" : "";
+    const inner = bodyWidth - prefix.length;
+    // Use the editor's wrapped, cursor-aware rows inside the drawer's own surface.
+    const editing = this.editor.render(inner).slice(1, -1);
+    const prompt = this.question.render(bodyWidth);
+    this.questionHeight = Math.min(
+      contentHeight - 1,
+      Math.max(1, contentHeight - editing.length),
+    );
     this.maxOffset = Math.max(0, prompt.length - this.questionHeight);
     this.offset = Math.min(this.offset, this.maxOffset);
+    const visibleQuestion = prompt.slice(
+      this.offset,
+      this.offset + this.questionHeight,
+    );
+    const answerHeight = contentHeight - visibleQuestion.length;
+    const cursor = editing.findIndex((line) => line.includes(CURSOR_MARKER));
+    const start = Math.max(0, cursor - answerHeight + 1);
+    const reply = editing.slice(start, start + answerHeight);
+    this.replyArea = {
+      top: Number(showHeading) + visibleQuestion.length,
+      start,
+      rows: reply.length,
+      left: (framed ? 2 : 0) + prefix.length,
+      width: inner,
+    };
     const keys = getKeybindings();
     const submit = keys.getKeys("tui.input.submit");
     const newline = keys.getKeys("tui.input.newLine");
@@ -93,43 +120,72 @@ export class DecisionEditor {
     ]
       .filter(Boolean)
       .join("  ");
-    const rows = [
-      this.theme.fg("accent", this.theme.bold(" Answer operator decision")),
-      ...prompt.slice(this.offset, this.offset + this.questionHeight),
-      ...(this.maxOffset > 0 && scroll.length > 0
-        ? [this.theme.fg("muted", ` ${scroll} scroll question`)]
-        : []),
-      ...editing,
-      this.theme.fg("muted", ` ${instructions}`),
+    const title =
+      this.taskTitle === undefined
+        ? ""
+        : selectorText(this.taskTitle).replace(/\s+/gu, " ").trim();
+    const questionScroll =
+      this.maxOffset > 0 && scroll.length > 0
+        ? this.theme.fg("muted", `  ${scroll} scroll question`)
+        : "";
+    const header =
+      this.theme.fg("warning", this.theme.bold("Worker question")) +
+      questionScroll +
+      (title.length === 0 ? "" : this.theme.fg("muted", `  ·  ${title}`));
+    const body = [
+      ...visibleQuestion.map((line) => this.theme.fg("text", line)),
+      ...reply.map((line, index) => {
+        // At one column Pi can render the end-of-line cursor just past the text.
+        if (
+          bodyWidth === 1 &&
+          line.includes(CURSOR_MARKER) &&
+          visibleWidth(line) > 1
+        )
+          return line.slice(line.indexOf(CURSOR_MARKER));
+        return (
+          (index === 0
+            ? this.theme.fg("accent", prefix)
+            : " ".repeat(prefix.length)) + line
+        );
+      }),
     ];
-    // On very short terminals, keep the insertion point on screen as the answer wraps.
-    const cursor = rows.findIndex((line) => line.includes(CURSOR_MARKER));
-    const bodyHeight = Math.max(1, height - 2);
-    const start = Math.max(0, cursor - bodyHeight + 1);
-    const border = (line: string) => this.theme.fg("border", line);
-    const body = rows.slice(start, start + bodyHeight).map((line) => {
-      const bounded =
-        visibleWidth(line) > inner ? truncateToWidth(line, inner) : line;
-      return paintPaneLine(
-        this.theme,
-        "userMessageBg",
-        width < 3
-          ? bounded
-          : border("│") +
-              bounded +
-              " ".repeat(Math.max(0, inner - visibleWidth(bounded))) +
-              border("│"),
-      );
-    });
-    if (height < 3 || width < 3) return body;
-    return [
-      border("╭" + "─".repeat(inner) + "╮"),
-      ...body,
-      border("╰" + "─".repeat(inner) + "╯"),
-    ];
+    const footer = this.theme.fg("muted", instructions);
+    const rows = framed
+      ? framePaneRows({
+          title: header,
+          body,
+          footer,
+          width,
+          border: (text) => this.theme.fg("border", text),
+        })
+      : [
+          ...(showHeading ? [header] : []),
+          ...body,
+          ...(showHints ? [footer] : []),
+        ].map((line) => truncateToWidth(line, width, "…", true));
+    return rows.map((line) => paintPaneLine(this.theme, "userMessageBg", line));
   }
 
   handleMouse(event: TuiMouseEvent) {
+    if (event.type === "click" && event.button === "left") {
+      const row = event.y - this.replyArea.top;
+      const x = event.x - this.replyArea.left;
+      if (
+        row >= 0 &&
+        row < this.replyArea.rows &&
+        x >= 0 &&
+        x < this.replyArea.width
+      ) {
+        // Pi's editor includes its top border and may have more visible rows than the drawer.
+        this.editor.handleMouse({
+          ...event,
+          x,
+          y: row + this.replyArea.start + 1,
+          width: this.replyArea.width,
+        });
+      }
+      return { handled: true, focus: true };
+    }
     return paneMouse(event, (delta) => {
       this.offset = Math.max(0, Math.min(this.maxOffset, this.offset + delta));
     });

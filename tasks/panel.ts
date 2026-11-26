@@ -6,7 +6,12 @@ import {
   paneMouse,
   paintPaneLine,
 } from "../floating-pane.ts";
-import { isKeyRelease, Text, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import {
+  isKeyRelease,
+  Text,
+  type OverlayHandle,
+  type TuiMouseEvent,
+} from "@earendil-works/pi-tui";
 import { defaultPaneKeybindings } from "../pane-keybindings.ts";
 import { DecisionEditor } from "./decision-editor.ts";
 import {
@@ -31,14 +36,20 @@ export interface PanelSource extends BrowserSource {
   ) => Promise<void>;
 }
 type PanelContext = Pick<ExtensionContext, "hasUI"> & {
-  ui: Pick<ExtensionContext["ui"], "custom" | "notify" | "onTerminalInput">;
+  ui: Pick<
+    ExtensionContext["ui"],
+    "custom" | "notify" | "onTerminalInput" | "setWidget"
+  >;
 };
+
+const answerWidget = "studio:worker-answer";
 
 export class TaskPanel {
   private bindings = defaultPaneKeybindings;
   private generation = 0;
   private paneFocus: AbortController | undefined;
   private removeInputGuard: (() => void) | undefined;
+  private browserOverlay: OverlayHandle | undefined;
   private closeAnswer: (() => void) | undefined;
   private closeView: (() => void) | undefined;
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -55,56 +66,65 @@ export class TaskPanel {
     this.timer = undefined;
     const close = this.closeView;
     this.closeView = undefined;
+    // Restore the inspector before closing it so Pi returns focus to the lead editor.
     this.closeAnswer?.();
-    this.closeAnswer = undefined;
+    this.browserOverlay = undefined;
     close?.();
   }
 
   async editAnswer(
     ctx: PanelContext,
     question: string,
+    taskTitle?: string,
   ): Promise<string | undefined> {
+    const overlay = this.browserOverlay;
+    if (overlay === undefined || this.closeAnswer !== undefined)
+      return undefined;
     const generation = this.generation;
-    let releaseInput: (() => void) | undefined;
-    const release = () => {
-      releaseInput?.();
-      releaseInput = undefined;
-    };
-    try {
-      const answer = await ctx.ui.custom<string | undefined>(
-        (tui, theme, _keys, done) => {
-          const editor = new DecisionEditor(
-            tui,
-            theme,
-            question,
-            done,
-            this.bindings,
-          );
-          if (generation !== this.generation) {
-            done(undefined);
-            return editor;
-          }
-          this.closeAnswer = () => {
-            done(undefined);
-          };
-          // Until Pi mounts the editor, the task browser still interprets q as quit.
-          releaseInput = ctx.ui.onTerminalInput((input) => {
-            if (!isKeyRelease(input)) editor.handleInput(input);
-            return { consume: true };
-          });
-          return editor;
-        },
-        {
-          overlay: true,
-          overlayOptions: floatingPaneOptions,
-          onHandle: release,
-        },
-      );
-      return generation === this.generation ? answer : undefined;
-    } finally {
-      release();
-      if (generation === this.generation) this.closeAnswer = undefined;
-    }
+
+    // Keep the inspector mounted so its selection and scroll position survive the reply.
+    const answer = await new Promise<string | undefined>((resolve, reject) => {
+      const finish = (value: string | undefined, removeWidget = true) => {
+        if (this.closeAnswer !== cancel) return;
+        this.closeAnswer = undefined;
+        if (removeWidget) ctx.ui.setWidget(answerWidget, undefined);
+        if (this.browserOverlay === overlay) overlay.setHidden(false);
+        resolve(value);
+      };
+      const cancel = () => {
+        finish(undefined);
+      };
+      this.closeAnswer = cancel;
+      try {
+        overlay.setHidden(true);
+        ctx.ui.setWidget(
+          answerWidget,
+          (tui, theme) => {
+            const editor = new DecisionEditor(
+              tui,
+              theme,
+              question,
+              finish,
+              this.bindings,
+              taskTitle,
+            );
+            // Pi mounts widgets synchronously. The next key in this read already belongs to the reply.
+            tui.setFocus(editor);
+            return Object.assign(editor, {
+              dispose() {
+                // The host may remove widgets during a reload or session switch.
+                finish(undefined, false);
+              },
+            });
+          },
+          { placement: "aboveEditor" },
+        );
+      } catch (error) {
+        reject(error instanceof Error ? error : new Error(String(error)));
+        cancel();
+      }
+    });
+    return generation === this.generation ? answer : undefined;
   }
 
   async open(
@@ -232,8 +252,9 @@ export class TaskPanel {
         {
           overlay: true,
           overlayOptions: floatingPaneOptions,
-          onHandle: () => {
+          onHandle: (handle) => {
             if (!current()) return;
+            this.browserOverlay = handle;
             this.removeInputGuard?.();
             this.removeInputGuard = undefined;
             start?.().catch(fail);

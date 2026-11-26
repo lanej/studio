@@ -8,6 +8,7 @@ import {
   statusPaint,
   type StatusTheme,
 } from "@lanej/pi-components";
+import { framePaneRows } from "../floating-pane.ts";
 import type { WorkerAssignment } from "../tasks/workers.ts";
 
 export interface WorkerSidebarView {
@@ -23,7 +24,17 @@ function workerHeading(
   view: WorkerSidebarView,
   theme: StatusTheme,
   width: number,
+  border?: (text: string) => string,
 ): string {
+  if (view.rows.length === 0) {
+    return view.evidenceError === undefined
+      ? ""
+      : truncateToWidth(
+          theme.warning("! Worker status unavailable"),
+          width,
+          "…",
+        );
+  }
   const counts = { active: 0, waiting: 0, attention: 0, unknown: 0 };
   for (const row of view.rows) counts[row.activity]++;
   const parts = [];
@@ -39,11 +50,11 @@ function workerHeading(
   const gap = width - visibleWidth(title) - visibleWidth(tally);
   if (gap < 1 && counts.attention > 0)
     return truncateToWidth(`${title} ${theme.warning(attention)}`, width, "…");
-  return truncateToWidth(
-    title + " ".repeat(Math.max(1, gap)) + tally,
-    width,
-    "…",
-  );
+  const separator =
+    border !== undefined && gap >= 3
+      ? ` ${border("─".repeat(gap - 2))} `
+      : " ".repeat(Math.max(1, gap));
+  return truncateToWidth(title + separator + tally, width, "…");
 }
 
 function assignmentLines(
@@ -82,39 +93,34 @@ function assignmentLines(
     const question = inline(row.question);
     if (question.length > 0) {
       const wrapped = wrapTextWithAnsi(question, Math.max(1, width - 2));
-      lines.push(...wrapped.map((line) => `  ${line}`));
+      lines.push(
+        ...wrapped.map((line) => truncateToWidth(`  ${line}`, width, "…")),
+      );
     }
   }
   return lines;
 }
 
-/** Passive preview of the attention-first roster, bounded by the space the plan leaves. */
-export function renderWorkerCompact(
+function workerDetails(
   view: WorkerSidebarView,
   theme: StatusTheme,
   width: number,
-  height: number,
-  expanded = false,
+  room: number,
+  expanded: boolean,
 ): string[] {
-  if (width <= 0 || height <= 0) return [];
-  const unavailable = view.evidenceError !== undefined;
-  const warning = theme.warning("! Worker status unavailable");
-  if (view.rows.length === 0)
-    return unavailable ? [truncateToWidth(warning, width, "…")] : [];
-  const lines = [workerHeading(view, theme, width)];
-  if (lines.length >= height) return lines;
+  if (room <= 0 || view.rows.length === 0) return [];
   if (!expanded) {
     const question = view.rows.find(
       (row) => row.question !== undefined,
     )?.question;
-    if (question !== undefined)
-      lines.push(truncateToWidth(inline(question), width, "…"));
-    return lines;
+    return question === undefined
+      ? []
+      : [truncateToWidth(inline(question), width, "…")];
   }
   const cards = view.rows.map((row) => assignmentLines(row, theme, width));
   // A question gets its first line before a long question gets its second.
   const minimum = cards.map((card) => Math.min(card.length, 3));
-  const room = height - lines.length;
+  const lines: string[] = [];
   const clipped = minimum.reduce((sum, size) => sum + size, 0) > room;
   const overflowLine = clipped && room >= 4 ? 1 : 0;
   let end = 1;
@@ -138,7 +144,7 @@ export function renderWorkerCompact(
         "…",
       );
   }
-  if (lines.length < height && end < cards.length)
+  if (lines.length < room && end < cards.length)
     lines.push(
       truncateToWidth(
         theme.muted(`+${String(cards.length - end)} more`),
@@ -147,4 +153,43 @@ export function renderWorkerCompact(
       ),
     );
   return lines;
+}
+
+/** Passive preview of the attention-first roster, bounded by the space the plan leaves. */
+export function renderWorkerCompact(
+  view: WorkerSidebarView,
+  theme: StatusTheme,
+  width: number,
+  height: number,
+  expanded = false,
+): string[] {
+  if (width <= 0 || height <= 0) return [];
+  const heading = workerHeading(view, theme, width);
+  if (heading.length === 0) return [];
+  return [heading, ...workerDetails(view, theme, width, height - 1, expanded)];
+}
+
+/** The dock shares its title row with the top border to make room for a pending question. */
+export function renderWorkerDock(
+  view: WorkerSidebarView,
+  theme: StatusTheme,
+  width: number,
+  height: number,
+  expanded: boolean,
+  border: (text: string) => string,
+): string[] {
+  if (width < 7 || height < 2)
+    return renderWorkerCompact(view, theme, width, height, expanded);
+  const title = workerHeading(view, theme, width - 6, border);
+  if (title.length === 0) return [];
+  return framePaneRows({
+    title,
+    body: workerDetails(view, theme, width - 4, height - 2, expanded),
+    footer:
+      height === 2
+        ? workerDetails(view, theme, width - 6, 1, false)[0]
+        : undefined,
+    width,
+    border,
+  });
 }

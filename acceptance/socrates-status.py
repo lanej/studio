@@ -8,6 +8,7 @@ import codecs
 from contextlib import ExitStack
 import faulthandler
 import fcntl
+from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -33,6 +34,7 @@ from socrates_fixture import message_text
 
 root = Path(__file__).resolve().parents[1]
 palette = json.loads((root / "resources/colors.json").read_text())
+theme_colors = json.loads((root / "resources/theme.json").read_text())["colors"]
 data_change_planning = (root / "resources/socrates/references/data-change-planning.md").read_text()
 request_started = Event()
 release_response = Event()
@@ -240,13 +242,13 @@ Should the native test change R1 and check both views?""")
 
 
 class Terminal:
-    def __init__(self, project, env, output, session, mode="fullscreen", columns=wide_columns, rows=wide_rows, model="fixture/tiny"):
+    def __init__(self, project, env, output, session, mode="fullscreen", columns=wide_columns, rows=wide_rows, model="fixture/tiny", *, launcher=None):
         print(f"Starting the {mode} lead in a {columns}×{rows} terminal", flush=True)
         self.output = output
         self.master, slave = os.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0))
         self.process = subprocess.Popen(
-            [str(root / "scripts/studio"), "lead", "--", "--offline", "--no-mcp", "--model", model, "--tui-mode", mode, "--session", session],
+            [str(launcher or root / "scripts/studio"), "lead", "--", "--offline", "--no-mcp", "--model", model, "--tui-mode", mode, "--session", session],
             env=env, cwd=project, stdin=slave, stdout=slave, stderr=slave, start_new_session=True,
         )
         os.close(slave)
@@ -310,6 +312,23 @@ class Terminal:
         left = (self.screen.columns - width) // 2
         return [line[left:left + width] for line in self.screen.display]
 
+    def select_inspector_action(self, label):
+        """Wait for each Tab to render before advancing the selected inspector action."""
+        def selected():
+            for line in self.centered_lines():
+                _, divider, detail = line.partition("│")
+                if divider and detail.strip().startswith("› "):
+                    return detail.strip().removeprefix("› ")
+            return None
+
+        for _ in range(32):
+            previous = selected()
+            if previous is not None and previous.startswith(label):
+                return
+            self.send("\t")
+            self.wait(lambda: selected() not in (previous, None), "Tab did not advance the inspector action")
+        raise AssertionError(f"Missing inspector action {label!r}\n{self.text()}")
+
     def framed_pane(self, title=None):
         """Find the actual frame and check its insets against the live terminal."""
         lines = self.screen.display
@@ -322,6 +341,57 @@ class Terminal:
         assert abs(left - (self.screen.columns - right - 1)) <= 1, self.text()
         assert abs(top - (self.screen.lines - bottom - 1)) <= 1, self.text()
         return top, bottom, left, right
+
+    def assert_styled_text(self, text, *, fg=None, bg=None, bold=None, lines=None):
+        """Check real SGR colors on text before the PNG renderer supplies terminal defaults."""
+        colors = {**palette["roles"], **theme_colors}
+        expected_fg = None if fg is None else colors[fg].lstrip("#").lower()
+        expected_bg = None if bg is None else colors[bg].lstrip("#").lower()
+        for y in range(self.screen.lines) if lines is None else lines:
+            line = self.screen.display[y]
+            x = line.find(text)
+            while x >= 0:
+                cells = [self.screen.buffer[y][col] for col in range(x, x + len(text))]
+                if all((expected_fg is None or c.fg.lower() == expected_fg)
+                       and (expected_bg is None or c.bg.lower() == expected_bg)
+                       and (bold is None or c.bold == bold) for c in cells):
+                    return
+                x = line.find(text, x + 1)
+        raise AssertionError(f"Missing {text!r} with fg={fg} bg={bg} bold={bold}\n{self.text()}")
+
+    def worker_frame(self, title):
+        """Find the full-width, attached frame in the chat column and check its live border cells."""
+        rail = self.rail_start()
+        width = self.screen.columns
+        if rail is not None:
+            title_row = next(line for line in self.screen.display if line[rail:].startswith("Specification"))
+            width = title_row.rindex("│", 0, rail)
+        rows = [line[:width] for line in self.screen.display]
+        header = next(i for i, row in enumerate(rows)
+                      if title in row and row.startswith("╭") and row.endswith("╮"))
+        footer = next(i for i in range(header + 1, len(rows)) if rows[i].startswith("╰"))
+        assert rows[footer].endswith("╯"), self.text()
+        assert all(row.startswith("│") and row.endswith("│") for row in rows[header + 1:footer]), self.text()
+        for y in (header, footer):
+            for corner in (rows[y][0], rows[y][-1]):
+                self.assert_styled_text(corner, fg="border", lines=[y])
+        return rows, header, footer
+
+    def answer_drawer(self, question, draft=None):
+        """The response owns its own framed rows in the chat column, above the lead editor."""
+        rows, header, footer = self.worker_frame("Worker question")
+        assert header > 0 and any(line.strip() for line in rows[:header]), self.text()
+        assert all("Brief & acceptance" not in row and "↗ Answer operator decision" not in row
+                   for row in rows), self.text()
+        body = " ".join(row[1:-1] for row in rows[header + 1:footer])
+        assert question in " ".join(body.split()), self.text()
+        if draft is not None:
+            assert rows[footer + 1].startswith("─"), self.text()
+            assert " ".join(" ".join(rows[footer + 2:]).split()).startswith(draft), self.text()
+        self.assert_styled_text("Worker question", fg="status.warning", bg="surface.raised", bold=True, lines=[header])
+        for hint in ("Enter submit", "Shift+Enter newline", "Esc cancel"):
+            self.assert_styled_text(hint, fg="muted", bg="surface.raised", lines=[footer])
+        return header, footer
 
     def inspector_contains(self, text):
         self.wait(lambda: text in " ".join(" ".join(self.centered_lines()).split()), f"Missing {text!r} in the inspector")
@@ -698,7 +768,7 @@ console.log(JSON.stringify({{covered,question,legacy,approved,beads,inProgress,r
     return json.loads(result.stdout)
 
 
-def check_publication_review(project, env, output, source_url):
+def check_publication_review(terminal_type, project, env, output, source_url):
     # Reuse the registered fixture model under the provider required by Studio's personal profile.
     agent = Path(env["PI_CODING_AGENT_DIR"])
     env = {**env, "STUDIO_CONFIG": str(Path(env["HOME"]) / "handoff-config.json")}
@@ -777,7 +847,7 @@ console.log(JSON.stringify({id:record.id,session:session.getSessionFile()}));sto
     seeded = subprocess.run(["bun", "--no-env-file", "-e", source, str(project)], env=env, cwd=root,
                             text=True, capture_output=True, check=True, timeout=30)
     record = json.loads(seeded.stdout)
-    terminal = Terminal(project, env, output, record["session"], columns=132, rows=36, model="openai-codex/local-review")
+    terminal = terminal_type(project, env, output, record["session"], columns=132, rows=36, model="openai-codex/local-review")
     before = list(bead_reads)
     try:
         def frame():
@@ -853,7 +923,9 @@ console.log(JSON.stringify({id:record.id,session:session.getSessionFile()}));sto
         terminal.close()
 
 
-def run(output):
+def run(output, launcher):
+    terminal_type = partial(Terminal, launcher=launcher)
+    package = launcher.resolve().parents[1]
     print("Preparing the local Socrates and Beads fixtures", flush=True)
     # A Darwin sockaddr_un path must fit in 104 bytes, including Studio's activation socket suffix.
     temp_parent = "/private/tmp" if sys.platform == "darwin" else None
@@ -868,7 +940,7 @@ def run(output):
         toggle_status = "\x1b[46;5u"
         (agent / "models.json").write_text(json.dumps({"providers":{"fixture":{"baseUrl":f"http://127.0.0.1:{provider.server_port}/v1","api":"openai-completions","apiKey":"fixture","models":[{"id":"tiny"}]}}}))
         env = {**os.environ, "HOME":str(home), "PI_CODING_AGENT_DIR":str(agent), "STUDIO_CONFIG":str(home / "config.toml"), "STUDIO_STATE_DIR":str(home / "state"), "TERM":"xterm-256color", "COLORTERM":"truecolor", "PI_TELEMETRY":"0", "PI_SKIP_VERSION_CHECK":"1"}
-        subprocess.run([sys.executable, str(root / "scripts/configure.py"), str(root), str(agent)], env=env, check=True, stdout=subprocess.DEVNULL, timeout=30)
+        subprocess.run([sys.executable, str(package / "scripts/configure.py"), str(package), str(agent)], env=env, check=True, stdout=subprocess.DEVNULL, timeout=30)
         settings_path = agent / "settings.json"
         settings = json.loads(settings_path.read_text())
         settings["retry"] = {"enabled": False, "maxRetries": 0}
@@ -880,7 +952,7 @@ def run(output):
         linked_beads.update(records['beads'])
         Thread(target=provider.serve_forever, daemon=True).start()
         cleanup.callback(provider.shutdown)
-        terminal = Terminal(project, env, output, records['session'])
+        terminal = terminal_type(project, env, output, records['session'])
 
         def resume_discovery(title, offset):
             terminal.send("/discoveries\r")
@@ -1138,10 +1210,10 @@ def run(output):
         finally:
             release_response.set()
             terminal.close()
-        check_worker_sidebar(Terminal, project, env, output,
+        check_worker_sidebar(terminal_type, project, env, output,
                              {'url': f'http://127.0.0.1:{provider.server_port}', 'projectId': beads_project, 'reviewOnly': True},
                              linked_beads, records['readyDraft'])
-        terminal = Terminal(project, env, output, records['planOnlySession'], mode='regular')
+        terminal = terminal_type(project, env, output, records['planOnlySession'], mode='regular')
         try:
             terminal.wait_for_rail()
             terminal.contains("Local plan")
@@ -1216,16 +1288,19 @@ def run(output):
             assert revised["verification"]["status"] == "partial" and "R1" in revised["verification"]["reason"], revised
         finally:
             terminal.close()
-        check_publication_review(project, env, output, f"http://127.0.0.1:{provider.server_port}")
+        check_publication_review(terminal_type, project, env, output, f"http://127.0.0.1:{provider.server_port}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, help="Keep dark terminal screenshots and matching text")
+    parser.add_argument("--studio", type=Path, default=root / "scripts/studio",
+                        help="Run the source launcher or an installed Studio executable with its packaged configuration")
     # A stuck native call cannot reach wait()'s assertion. Give CI its Python stacks.
     faulthandler.dump_traceback_later(120, exit=bool(os.environ.get("CI")))
     try:
-        run(parser.parse_args().output)
+        options = parser.parse_args()
+        run(options.output, options.studio.absolute())
     finally:
         faulthandler.cancel_dump_traceback_later()
     print("Native property-first planning, design diagrams and decisions, reviewed graph expansion, palette surfaces, and fullscreen, regular and narrow terminal interactions passed.")

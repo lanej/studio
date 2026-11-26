@@ -20,18 +20,14 @@ spec.loader.exec_module(module)
 fixture = json.loads(args.input.read_text())
 project = Path(fixture["project"])
 session = task_panel_session(project, fixture["env"], fixture["source"], fixture["task"], "operator-decision-fixture-ready")
-terminal = module.Terminal(project, fixture["env"], args.output, session, columns=100, rows=36)
+# The captured PTY supports 24-bit color independently of the CI runner's terminal.
+terminal_env = {**fixture["env"], "TERM": "xterm-256color", "COLORTERM": "truecolor"}
+terminal = module.Terminal(project, terminal_env, args.output, session, columns=100, rows=36)
 try:
     terminal.contains("operator-decision-fixture-ready")
     terminal.send(f"/tasks {fixture['task']}\r")
     terminal.contains("Operator decision evidence")
-    def select_answer():
-        for _ in range(32):
-            terminal.send("\t")
-            if any("› ↗ Answer operator decision" in row for row in terminal.screen.display):
-                return
-        raise AssertionError("Answer action not available\n" + terminal.text())
-    select_answer()
+    terminal.select_inspector_action("↗ Answer operator decision")
     # The inspector shares rows with the tree; assert its wrapped fragments.
     terminal.contains("Which")
     terminal.contains("accepted marker should decision.txt contain?")
@@ -40,14 +36,15 @@ try:
     terminal.contains("Operator decision evidence")
     terminal.capture("operator-question")
     terminal.send("\r")
-    terminal.contains("Answer operator decision")
-    terminal.contains(fixture["question"])
+    terminal.contains("Esc cancel")
+    terminal.answer_drawer(fixture["question"])
     terminal.capture("operator-answer-question")
     terminal.resize(100, 36)
-    terminal.contains(fixture["question"])
+    terminal.answer_drawer(fixture["question"])
     terminal.capture("operator-answer-question")
     terminal.send(fixture["answer"] + "\r")
     terminal.contains("Answer recorded")
+    terminal.centered_inspector("Tasks ·")
     terminal.capture("operator-answer-recorded")
 finally:
     pid = terminal.process.pid

@@ -10,7 +10,7 @@
     "text.strong": "#ECEFF4",
     "text.muted": "#D8DEE9",
     "text.inverse": "#2E3440",
-    "accent": "#ECEFF4",
+    "accent": "#F0C6A8",
     "accent.secondary": "#E5E9F0",
     "focus": "#EDC2E5",
     "status.success": "#A9C492",
@@ -22,7 +22,7 @@
     "status.off": "#D8DEE9",
     "syntax.comment": "#D8DEE9",
     "syntax.keyword": "#F5A991",
-    "syntax.function": "#ECEFF4",
+    "syntax.function": "#F0C6A8",
     "syntax.string": "#A9C492",
     "syntax.type": "#EBCB8B",
     "syntax.number": "#EDC2E5",
@@ -48,8 +48,8 @@
     "tab.inactive.fg": "#D8DEE9",
     "frame.inactive.fg": "#979DA9",
     "keyhint": "#ECEFF4",
-    "heading": "#ECEFF4",
-    "link": "#ECEFF4",
+    "heading": "#F0C6A8",
+    "link": "#EDC2E5",
     "prompt": "#ECEFF4",
     "diff.add.emph.bg": "#515D57",
     "diff.delete.emph.bg": "#5A424D",
@@ -89,7 +89,7 @@
       "fg": "#D8DEE9"
     },
     "heading": {
-      "fg": "#ECEFF4",
+      "fg": "#F0C6A8",
       "bold": true
     },
     "keyhint": {
@@ -133,7 +133,7 @@
       "fg": "#ECEFF4"
     },
     "code": {
-      "fg": "#ECEFF4"
+      "fg": "#EBCB8B"
     },
     "diff": {
       "fg": "#ECEFF4"

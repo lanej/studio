@@ -124,11 +124,36 @@ await test("native terminal captures use the installed Studio palette", () => {
     "status.warning": theme.colors.warning,
     "status.error": theme.colors.error,
     focus: theme.colors.thinkingHigh,
+    heading: theme.colors.mdHeading,
     link: theme.colors.mdLink,
+    "syntax.function": theme.colors.syntaxFunction,
   };
   const captureColors = new Map(Object.entries(roles));
   for (const [role, hex] of Object.entries(pairs))
     assert.equal(captureColors.get(role), hex, role);
+  assert.equal(palette.components.heading.fg, theme.colors.mdHeading);
+  assert.equal(palette.components.code.fg, theme.colors.mdCode);
+});
+
+await test("Markdown and code retain their color hierarchy at both terminal depths", () => {
+  const {
+    text,
+    accent,
+    mdHeading,
+    mdLink,
+    mdCode,
+    syntaxFunction,
+    syntaxKeyword,
+    syntaxVariable,
+  } = theme.colors;
+  for (const mode of ["truecolor", "256color"] as const) {
+    const fg = (hex: string) => foregroundAnsi(parseColor(hex), mode);
+    const markdown = [text, mdHeading, mdLink, mdCode].map(fg);
+    const code = [syntaxVariable, syntaxFunction, syntaxKeyword].map(fg);
+    assert.equal(new Set(markdown).size, markdown.length, mode);
+    assert.equal(new Set(code).size, code.length, mode);
+    assert.notEqual(fg(accent), fg(text), mode);
+  }
 });
 
 await test("the five Socrates state colors remain distinct in truecolor and 256-color terminals", () => {
