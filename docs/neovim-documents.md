@@ -55,7 +55,7 @@ These images reconstruct terminal output from the isolated native acceptance run
 
 ## Upgrade from Editor Interop
 
-Studio still uses `integrations.neovim` and `integrations.zellij` to configure Copydesk. Existing Neovim mappings using the `:Editor…` aliases continue to work. Use the `:Copydesk…` names for new mappings.
+Studio still uses `integrations.neovim` and `integrations.zellij` to configure Copydesk. Replace any custom mappings that use `:Editor…` with the corresponding `:Copydesk…` command.
 
 The migration uses an exact Git commit rather than a GitHub archive checksum so the repository rename can follow the Studio upgrade.
 

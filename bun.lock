@@ -6,7 +6,7 @@
       "name": "@lanej/studio",
       "dependencies": {
         "@bufbuild/protobuf": "2.17.0",
-        "@lanej/copydesk": "git+https://github.com:443/lanej/copydesk.git#fa121cecefe658cc8972ed14899a1f4a6b4fd23f",
+        "@lanej/copydesk": "git+https://github.com:443/lanej/copydesk.git#d4f8a8154570fe47dc50475772cc8cf00e453f02",
         "@lanej/pi-components": "file:./vendor/pi-components",
         "@lanej/task-runtime": "file:./vendor/task-runtime",
         "@lumis-sh/wasm-json": "0.26.7",
@@ -160,7 +160,7 @@
 
     "@isaacs/nonrecursive-glob-match": ["@isaacs/nonrecursive-glob-match@1.1.0", "", {}, "sha512-GPm/Dbvk5RLmhRnxXIa7nTpK0xtl4E0wj0MslsuNiJ1FIROU+2+9lgUC/dgF7Ey4QCWhfEsgxilMRMCdHPfDfw=="],
 
-    "@lanej/copydesk": ["@lanej/copydesk@git+https://github.com:443/lanej/copydesk.git#fa121cecefe658cc8972ed14899a1f4a6b4fd23f", { "dependencies": { "@bufbuild/protobuf": "2.17.0", "@bufbuild/protovalidate": "1.3.0", "@connectrpc/connect": "2.3.0", "@connectrpc/connect-node": "2.3.0", "@connectrpc/validate": "0.2.0" } }, "fa121cecefe658cc8972ed14899a1f4a6b4fd23f"],
+    "@lanej/copydesk": ["@lanej/copydesk@git+https://github.com:443/lanej/copydesk.git#d4f8a8154570fe47dc50475772cc8cf00e453f02", { "dependencies": { "@bufbuild/protobuf": "2.17.0", "@bufbuild/protovalidate": "1.3.0", "@connectrpc/connect": "2.3.0", "@connectrpc/connect-node": "2.3.0", "@connectrpc/validate": "0.2.0" } }, "d4f8a8154570fe47dc50475772cc8cf00e453f02"],
 
     "@lanej/pi-components": ["@lanej/pi-components@file:vendor/pi-components", { "peerDependencies": { "@earendil-works/pi-tui": "^1.4.0" } }],
 
