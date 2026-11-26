@@ -15,9 +15,11 @@ enabled = true
 executable = "nvim"
 ```
 
-The first available draft opens a tiled pane without taking keyboard focus. Studio reuses that pane for subsequent updates. `/documents` opens it explicitly or reopens it after you close it. Your ordinary Neovim initialization and plugins load before Studio attaches its document adapter. Other Studio features remain usable with this integration disabled or unavailable.
+The first available draft opens a pinned floating pane without taking keyboard focus or resizing Studio. Studio reuses that pane for subsequent updates. `/documents` opens it explicitly or reopens it after you close it. Your ordinary Neovim initialization and plugins load before Studio attaches its document adapter. Other Studio features remain usable with this integration disabled or unavailable.
 
 The specification and plan are separate Markdown buffers. `:EditorDocuments` selects one. Each belongs to its original document and conversation; selecting another discovery in Studio does not reassign an existing buffer or comment. Incoming documents and updates preserve your current editor window.
+
+![Floating Neovim specification over the Studio lead with the sidebar and input visible](assets/documents-floating.png)
 
 ## Edit and save
 
@@ -43,7 +45,7 @@ Studio processes comments when its conversation is available. If you switch to a
 
 Use `:EditorResponses` or `<localleader>sr` to inspect outcomes and `:EditorChanges` or `<localleader>sd` to navigate their effects. Request receipt, an actual response, and application of a document update are separate states. A conflicting incoming change remains visibly unapplied even after Studio has answered the comment.
 
-Closing Studio leaves the Neovim buffers available. A disconnected editor cannot silently bind to a new Studio process or another conversation. Preserve any local edits while reconnecting or reopening the companion through Studio. The integration retains feedback receipts and confirmed outcomes in Studio's private state for subsequent inspection.
+Quitting Studio leaves the Neovim buffers available. If Studio is the last tiled pane in its Zellij tab, Neovim moves into the tiled layout on quit to keep the tab open. A disconnected editor cannot silently bind to a new Studio process or another conversation. Preserve any local edits while reconnecting or reopening the companion through Studio. The integration retains feedback receipts and confirmed outcomes in Studio's private state for subsequent inspection.
 
 ![Studio responds in chat while Neovim shows the updated specification and a compact answered marker](assets/documents-response.png)
 

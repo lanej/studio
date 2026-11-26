@@ -187,7 +187,7 @@ class Capture:
         # Pane dumps avoid unsupported terminal-negotiation DCS sequences in
         # pyte. Place actual pane cells at the geometry reported by Zellij.
         self.screen = pyte.Screen(self.screen.columns, 32)
-        panes = self.terminal.terminals()
+        panes = sorted(self.terminal.terminals(), key=lambda pane: pane["is_floating"])
         for index, pane in enumerate(panes):
             raw = self.terminal.capture_pane(pane["id"], ansi=True)
             (self.output / f"documents-{name}-pane-{index}.ansi").write_text(raw)
@@ -287,15 +287,29 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                 if b"Welcome to Zellij" in pty.output:
                     # Dismiss this private HOME's desktop installation offer.
                     pty.send(b"\x03")
-                studio = terminal.terminals()[0]["id"]
+                lead = terminal.terminals()[0]
+                studio = lead["id"]
+                geometry = ("pane_content_x", "pane_content_y", "pane_content_columns", "pane_content_rows")
+
+                def assert_companion(lead_before):
+                    panes = terminal.terminals()
+                    lead_after = next(pane for pane in panes if pane["id"] == studio)
+                    companion = next(pane for pane in panes if pane["id"] != studio)
+                    assert companion["is_floating"], "The document pane is tiled"
+                    assert lead_after["is_focused"], "Opening documents stole Studio focus"
+                    assert all(lead_after[key] == lead_before[key] for key in geometry), "Opening documents resized Studio"
+                    return companion["id"]
+
                 command = shlex.join([str(ROOT / "scripts/studio"), "lead", "--", "--offline", "--no-mcp",
                                       "--model", "fixture/tiny", "--tui-mode", "fullscreen", "--session", record["session"]])
+                launch_output_start = len(pty.output)
                 terminal.send_to_pane(studio, "cd " + shlex.quote(str(home / "project")) + " && exec " + command)
                 terminal.write_to_pane(studio, 13)
                 terminal.until("automatically opened Neovim", lambda: (home / "nvim.json").exists())
                 terminal.until("exactly two terminal panes", lambda: len(terminal.terminals()) == 2)
-                editor = next(pane["id"] for pane in terminal.terminals() if pane["id"] != studio)
-                assert next(pane for pane in terminal.terminals() if pane["id"] == studio)["is_focused"], "Auto-open stole Studio focus"
+                editor = assert_companion(lead)
+                terminal.until("visible floating document pane without focusing it",
+                               lambda: b"Studio documents " in pty.output[launch_output_start:])
 
                 def nvim_expr(expression):
                     pty.drain()
@@ -342,7 +356,7 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                 terminal.until("rendered Studio draft summary", lambda: "Specification" in terminal.capture_pane(studio))
                 terminal.until("rendered full specification", lambda: "Objective" in terminal.capture_pane(editor))
                 capture.save("normal")
-                print("PASS automatic pane, Studio focus, complete documents, configured Neovim init", flush=True)
+                print("PASS visible automatic floating pane, unchanged Studio geometry and focus, complete documents, configured Neovim init", flush=True)
 
                 terminal.focus_pane(editor)
                 ex(r"%s/Inspect the complete proposal in Neovim\./Review the complete proposal in Neovim./")
@@ -503,9 +517,10 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                 for _ in range(5):
                     pty.drain(0.15)
                     assert len(terminal.terminals()) == 1, "Routine refresh reopened a deliberately closed editor"
+                lead = terminal.terminals()[0]
                 keys(studio, "/documents\r")
                 terminal.until("explicit document reopen", lambda: len(terminal.terminals()) == 2)
-                editor = next(pane["id"] for pane in terminal.terminals() if pane["id"] != studio)
+                editor = assert_companion(lead)
                 terminal.until("reopened Neovim registration", lambda: lua("vim.fn.getpid()") != previous_editor_pid)
                 terminal.until("current documents in reopened editor", lambda: "## Objective" in lines() or "## Summary" in lines())
                 assert lua("vim.g.documents_fixture_init") == "configuration preserved"
@@ -521,6 +536,7 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                 keys(studio, "/quit\r")
                 terminal.until("Studio closed without closing Neovim", lambda:
                                len(terminal.terminals()) == 1 and terminal.terminals()[0]["id"] == editor)
+                assert not terminal.terminals()[0]["is_floating"], "Neovim did not take over the closing Studio pane"
                 # A poll racing shutdown can receive EOF instead of a connect error.
                 # Dismiss Neovim's hit-enter prompt before the RPC status assertion.
                 def disconnect_screen():

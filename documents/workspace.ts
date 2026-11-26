@@ -9,6 +9,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { EditorWorkspace } from "@lanej/editor-interop";
 import { loadConfig } from "../config.ts";
+import type { StudioEditorLauncher } from "./editor.ts";
 import { PiMode, piModeSchema } from "../runtime.ts";
 import {
   getPlanningDocuments,
@@ -19,6 +20,7 @@ import {
 export function registerDocumentWorkspace(pi: ExtensionAPI): void {
   let context: ExtensionContext | undefined;
   let workspace: EditorWorkspace | undefined;
+  let launcher: StudioEditorLauncher | undefined;
   let bound: PlanningBinding | undefined;
   let releaseHost: (() => void) | undefined;
   let observedHost: ReturnType<typeof getPlanningDocuments>;
@@ -34,14 +36,17 @@ export function registerDocumentWorkspace(pi: ExtensionAPI): void {
       context?.ui.notify(`Studio documents: ${message}`, "warning");
     lastError = message;
   };
-  const close = async () => {
+  const close = async (quitting = false) => {
     epoch++;
     releaseHost?.();
     releaseHost = undefined;
     observedHost = undefined;
     bound = undefined;
     const previous = workspace;
+    const previousLauncher = launcher;
     workspace = undefined;
+    launcher = undefined;
+    if (quitting) await previousLauncher?.preserveOnQuit().catch(report);
     await previous?.dispose();
   };
   const refreshNow = async (open: boolean) => {
@@ -75,6 +80,7 @@ export function registerDocumentWorkspace(pi: ExtensionAPI): void {
     if (workspace !== undefined && !isDeepStrictEqual(bound, binding)) {
       const previous = workspace;
       workspace = undefined;
+      launcher = undefined;
       bound = undefined;
       await previous.dispose();
       if (activation !== epoch) return;
@@ -97,10 +103,11 @@ export function registerDocumentWorkspace(pi: ExtensionAPI): void {
       if (activation !== epoch) return;
       authority.assertBinding(binding);
       const provider = new StudioDocumentProvider(authority, binding);
+      const candidateLauncher = new StudioEditorLauncher(config, session);
       const candidate = await createWorkspace({
         context: provider.context,
         provider,
-        launcher: new StudioEditorLauncher(config, session),
+        launcher: candidateLauncher,
         directory: await mkdtemp(join(tmpdir(), "studio-editor-")),
         runtimePath: dirname(
           fileURLToPath(import.meta.resolve("@lanej/editor-interop/neovim")),
@@ -116,6 +123,7 @@ export function registerDocumentWorkspace(pi: ExtensionAPI): void {
         return;
       }
       workspace = candidate;
+      launcher = candidateLauncher;
       bound = binding;
     } else await workspace.refresh();
     if (open) {
@@ -156,9 +164,12 @@ export function registerDocumentWorkspace(pi: ExtensionAPI): void {
     lastError = undefined;
     await refresh().catch(report);
   });
-  pi.on("session_shutdown", async () => {
-    context = undefined;
-    await close();
+  pi.on("session_shutdown", async (event) => {
+    try {
+      await close(event.reason === "quit");
+    } finally {
+      context = undefined;
+    }
   });
   pi.on("tool_execution_end", async (_event, ctx) => {
     context = ctx;

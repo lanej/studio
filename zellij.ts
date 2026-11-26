@@ -23,6 +23,9 @@ const panes = z.array(
     id: uint32,
     tab_id: uint32,
     is_plugin: z.boolean(),
+    is_floating: z.boolean(),
+    is_selectable: z.boolean(),
+    is_suppressed: z.boolean(),
     exited: z.boolean(),
     terminal_command: z.string().nullish(),
     pane_cwd: z.string().nullish(),
@@ -312,20 +315,71 @@ export class Zellij {
     name: string,
     cwd: string,
     args: string[],
+    placement: "tiled" | "pinned-floating" = "tiled",
   ): Promise<number> {
-    const reply = await this.request({
-      case: "newTiledPane",
-      value: {
-        tabId: tab,
-        paneName: name,
-        noFocus: true,
-        command: { command: "/usr/bin/env", args, cwd },
-      },
-    });
+    const value = {
+      tabId: tab,
+      paneName: name,
+      noFocus: true,
+      command: { command: "/usr/bin/env", args, cwd },
+    };
+    const reply = await this.request(
+      placement === "pinned-floating"
+        ? {
+            case: "newFloatingPane",
+            value: {
+              ...value,
+              coordinates: {
+                pinned: true,
+                x: { coordinateType: { case: "percent", value: 5 } },
+              },
+            },
+          }
+        : { case: "newTiledPane", value },
+    );
     const terminal = /^terminal_(\d+)$/u.exec(reply.trim())?.[1];
     if (terminal === undefined)
       throw new Error("Zellij did not confirm a terminal pane identity");
     return tabId(terminal);
+  }
+
+  async keepFloatingPaneOnExit(pane: number): Promise<void> {
+    if (this.terminal === undefined) return;
+    const visible = (await this.panes()).filter(
+      (entry) => !entry.exited && !entry.is_suppressed && entry.is_selectable,
+    );
+    const companion = visible.find(
+      (entry) => !entry.is_plugin && entry.id === pane && entry.is_floating,
+    );
+    if (companion === undefined) return;
+    const tiled = visible.filter(
+      (entry) => entry.tab_id === companion.tab_id && !entry.is_floating,
+    );
+    // Zellij closes the tab when its last selectable tiled pane exits.
+    const [lead] = tiled;
+    if (
+      tiled.length !== 1 ||
+      lead === undefined ||
+      lead.is_plugin ||
+      lead.id !== this.terminal
+    )
+      return;
+
+    await this.request(
+      {
+        case: "togglePaneEmbedOrFloatingByPaneId",
+        value: { paneId: terminalPane(pane) },
+      },
+      false,
+    );
+    const retained = (await this.panes()).some(
+      (entry) =>
+        !entry.is_plugin &&
+        entry.id === pane &&
+        !entry.exited &&
+        !entry.is_floating,
+    );
+    if (!retained) throw new Error("Zellij did not retain the document editor");
   }
 
   async focus(pane: number): Promise<void> {

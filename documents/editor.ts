@@ -145,6 +145,7 @@ export class StudioEditorLauncher implements EditorLauncher {
           "-c",
           "lua dofile(vim.env.EDITOR_INTEROP_RUNTIME .. '/bootstrap.lua')",
         ],
+        "pinned-floating",
       );
     } catch (cause) {
       const recovered = await this.observe();
@@ -223,6 +224,12 @@ export class StudioEditorLauncher implements EditorLauncher {
       processIdentity: JSON.stringify(this.registered),
     };
   }
+  async preserveOnQuit(): Promise<void> {
+    if (this.disposed || (await this.observe()).state !== "open") return;
+    if (this.pane !== undefined)
+      await this.zellij?.keepFloatingPaneOnExit(this.pane);
+  }
+
   dispose(): Promise<void> {
     this.disposed = true;
     return Promise.resolve();

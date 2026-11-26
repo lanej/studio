@@ -24,6 +24,11 @@ class Pane(TypedDict):
     id: int
     tab_id: int
     is_focused: bool
+    is_floating: bool
+    pane_content_x: int
+    pane_content_y: int
+    pane_content_columns: int
+    pane_content_rows: int
     is_plugin: bool
     is_suppressed: bool
     exited: bool
