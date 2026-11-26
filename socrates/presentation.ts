@@ -12,7 +12,6 @@ import type {
 import { truncateToWidth, type TUI } from "@earendil-works/pi-tui";
 import {
   ActivityState,
-  ConditionState,
   conditionCounts,
   createStatusBoard,
   type StatusColumn,
@@ -23,7 +22,6 @@ import {
   coverageBasisCurrent,
   coverageProperties,
   draftCoverage,
-  type CoverageStatus,
 } from "./assessment.ts";
 import {
   hasSettledDeliveryPolicy,
@@ -32,6 +30,7 @@ import {
 } from "./spec.ts";
 import {
   type AssessedCondition,
+  conditionStates,
   implementationColumn,
   specificationColumn,
 } from "./columns.ts";
@@ -82,13 +81,6 @@ export interface SocratesPresentation {
   dockColumns: StatusColumn[];
   prioritizeSpecification: boolean;
 }
-
-const conditionStates = {
-  satisfied: ConditionState.Satisfied,
-  partial: ConditionState.Partial,
-  open: ConditionState.Open,
-  "not-applicable": ConditionState.NotApplicable,
-} satisfies Record<CoverageStatus, ConditionState>;
 
 /** Project saved assessments and observed activity without deciding readiness. */
 export function socratesPresentation(

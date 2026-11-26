@@ -104,9 +104,17 @@ export function modelToolRenderers(
                     ],
                   }
                 : outcome;
+            const invocationArgs: unknown = ctx.args;
             return result(displayResult, options, theme, {
               ...ctx,
-              args: mapped,
+              // The shell header shows Pi's translated command. Its usage
+              // estimate needs the arguments the model actually sent.
+              args:
+                operation === "shell" &&
+                mapped !== null &&
+                typeof mapped === "object"
+                  ? { ...mapped, invocationArgs }
+                  : mapped,
               displayToolName: tool.name,
             });
           },

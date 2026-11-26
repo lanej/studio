@@ -1,3 +1,7 @@
+import { shellElapsed, shellOutputPreview } from "./shell-preview.ts";
+import { parseArgs } from "node:util";
+import { estimateShellUsage } from "./shell-usage.ts";
+import { analyzeShell, prepareShellSyntax } from "./shell-syntax.ts";
 import { registerCodingRenderer } from "./model-tools/rendering.ts";
 import {
   type ExtensionAPI,
@@ -9,6 +13,7 @@ import {
   type Component,
   Text,
   sliceByColumn,
+  truncateToWidth,
   visibleWidth,
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
@@ -16,172 +21,12 @@ import { z } from "zod";
 
 const MAX_HIGHLIGHT_BYTES = 50_000;
 const commandArgs = z.object({ command: z.string() });
+const searchArgs = commandArgs.extend({ sourceCommand: z.string().optional() });
 const shellCallArgs = commandArgs.extend({ timeout: z.number().optional() });
-
-type ShellWord = { raw: string; start: number };
-
-function simpleCommand(input: string): ShellWord[] {
-  const command = input.trim();
-  const leading = input.length - input.trimStart().length;
-  const words: ShellWord[] = [];
-  let end = 0;
-  for (const token of command.matchAll(
-    /'[^'\r\n]*'|"[^"\r\n]*"|[^\s'"|&;<>`$\\()]+/gu,
-  )) {
-    const gap = command.slice(end, token.index);
-    if (words.length > 0 && !/^[ \t]+$/u.test(gap)) return [];
-    if (words.length === 0 && token.index !== 0) return [];
-    const raw = token[0];
-    words.push({ raw, start: leading + token.index });
-    end = token.index + raw.length;
-  }
-  return end === command.length ? words : [];
-}
-
-type ShellStyle = ShellWord & { role: "syntaxFunction" | "syntaxKeyword" };
-
-// Header decoration does not establish the identity of the command producing output.
-// Keep the stricter simpleCommand parser for that separate decision.
-function shellHeaderStyles(command: string): ShellStyle[] | undefined {
-  const styles: ShellStyle[] = [];
-  let position = 0;
-  const reserved = new Set([
-    "if",
-    "then",
-    "else",
-    "elif",
-    "fi",
-    "for",
-    "while",
-    "until",
-    "do",
-    "done",
-    "case",
-    "esac",
-    "in",
-    "function",
-    "select",
-    "time",
-    "coproc",
-    "!",
-    "{",
-    "}",
-    "[[",
-    "]]",
-  ]);
-  function substitution(depth: number): boolean {
-    if (command.startsWith("$((", position) || depth >= 32) return false;
-    position += 2;
-    return sequence(depth + 1);
-  }
-  function quote(delimiter: string, depth: number): boolean {
-    position++;
-    while (position < command.length) {
-      if (command[position] === delimiter) {
-        position++;
-        return true;
-      }
-      if (delimiter === '"' && command.startsWith("$(", position)) {
-        if (!substitution(depth)) return false;
-      } else if (delimiter === '"' && command[position] === "\\") {
-        position += 2;
-      } else {
-        if (delimiter === '"' && command[position] === "`") return false;
-        position++;
-      }
-    }
-    return false;
-  }
-  function sequence(depth: number): boolean {
-    let executable = true;
-    let flags = true;
-    let redirect = false;
-    while (position < command.length) {
-      const rest = command.slice(position);
-      if (rest.startsWith(")")) {
-        if (depth === 0 || redirect) return false;
-        position++;
-        return true;
-      }
-      const whitespace = /^[ \t\r]+/u.exec(rest)?.[0];
-      if (whitespace !== undefined) {
-        position += whitespace.length;
-        continue;
-      }
-      if (rest.startsWith("#")) {
-        const newline = command.indexOf("\n", position);
-        position = newline < 0 ? command.length : newline;
-        continue;
-      }
-      const redirection = /^(?:\d+)?(?:&>>?|<>|>&|<&|>\||>>?|<)/u.exec(
-        rest,
-      )?.[0];
-      if (redirection !== undefined) {
-        // Heredoc bodies and process substitutions need a full shell grammar.
-        if (
-          /^(?:\d+)?<</u.test(rest) ||
-          rest.startsWith("<(") ||
-          rest.startsWith(">(")
-        )
-          return false;
-        if (redirect) return false;
-        position += redirection.length;
-        redirect = true;
-        continue;
-      }
-      const separator = /^(?:&&|\|\||\|&|[;|&\n])/u.exec(rest)?.[0];
-      if (separator !== undefined) {
-        if (redirect) return false;
-        position += separator.length;
-        executable = true;
-        flags = true;
-        continue;
-      }
-      const start = position;
-      while (
-        position < command.length &&
-        !/[\s;&|<>()]/u.test(command[position] ?? "")
-      ) {
-        const character = command[position];
-        if (character === "'" || character === '"') {
-          if (!quote(character, depth)) return false;
-        } else if (command.startsWith("$(", position)) {
-          if (!substitution(depth)) return false;
-        } else if (character === "\\") {
-          position += 2;
-        } else {
-          if (character === "`" || command.startsWith("${", position))
-            return false;
-          position++;
-        }
-      }
-      if (position === start || position > command.length) return false;
-      const raw = command.slice(start, position);
-      if (redirect) {
-        redirect = false;
-        continue;
-      }
-      if (executable) {
-        if (/^[A-Za-z_]\w*=/u.test(raw)) continue;
-        if (reserved.has(raw)) return false;
-        executable = false;
-        if (/^[\w./-]+$/u.test(raw))
-          styles.push({ raw, start, role: "syntaxFunction" });
-      } else if (flags) {
-        if (raw === "--") flags = false;
-        const flag = /^--?(?:[A-Za-z][\w-]*|\d+)(?==|$)/u.exec(raw)?.[0];
-        if (flag !== undefined)
-          styles.push({ raw: flag, start, role: "syntaxKeyword" });
-      }
-    }
-    return depth === 0 && !redirect;
-  }
-  return sequence(0) ? styles.sort((a, b) => a.start - b.start) : undefined;
-}
 
 function highlightShellCommand(command: string, theme: Theme): string {
   const highlighted = highlightCode(command, "bash");
-  const styles = shellHeaderStyles(command);
+  const styles = analyzeShell(command)?.styles;
   if (styles === undefined || styles.length > 256)
     return highlighted.join("\n");
   let offset = 0;
@@ -223,6 +68,219 @@ function highlightShellCommand(command: string, theme: Theme): string {
 
 type Highlighter = (text: string, language: string) => string[];
 
+// Shell syntax establishes which commands can contribute output. Each tool's
+// arguments establish whether its rows contain source and where the language is recorded.
+interface SearchFile {
+  path: string;
+  language: string | undefined;
+  numbered: boolean;
+  context: boolean;
+}
+
+type SearchFormat =
+  | { kind: "excerpt" | "numbered" | "unnumbered"; language: string }
+  | { kind: "filename"; language?: undefined; files?: SearchFile[] };
+
+// These rg switches select source lines without rewriting them. parseArgs
+// handles option values, short bundles like -nA8, long options, and --.
+const rgOptions = {
+  "line-number": { type: "boolean", short: "n" },
+  "with-filename": { type: "boolean", short: "H" },
+  "after-context": { type: "string", short: "A" },
+  "before-context": { type: "string", short: "B" },
+  context: { type: "string", short: "C" },
+  "max-count": { type: "string", short: "m" },
+  regexp: { type: "string", short: "e" },
+  glob: { type: "string", short: "g" },
+  iglob: { type: "string" },
+  type: { type: "string", short: "t" },
+  "type-not": { type: "string", short: "T" },
+  "fixed-strings": { type: "boolean", short: "F" },
+  "ignore-case": { type: "boolean", short: "i" },
+  "smart-case": { type: "boolean", short: "S" },
+  "case-sensitive": { type: "boolean", short: "s" },
+  "word-regexp": { type: "boolean", short: "w" },
+  "line-regexp": { type: "boolean", short: "x" },
+  "no-heading": { type: "boolean" },
+  "no-ignore": { type: "boolean" },
+  "no-ignore-vcs": { type: "boolean" },
+  unrestricted: { type: "boolean", short: "u" },
+  follow: { type: "boolean", short: "L" },
+  color: { type: "string" },
+  hidden: { type: "boolean" },
+} as const;
+
+function ripgrepFormat(args: string[]): SearchFormat | undefined {
+  try {
+    const { values, positionals } = parseArgs({
+      args,
+      options: rgOptions,
+      allowPositionals: true,
+      strict: true,
+    });
+    const files =
+      values.regexp === undefined ? positionals.slice(1) : positionals;
+    const path = files[0];
+    const language =
+      files.length === 1 && path !== undefined
+        ? getLanguageFromPath(path)
+        : undefined;
+    const numbered = values["line-number"] === true;
+    if (values["with-filename"] === true || files.length > 1) {
+      const context = [
+        values["before-context"],
+        values["after-context"],
+        values.context,
+      ].some((value) => Number(value) > 0);
+      return {
+        kind: "filename",
+        files: files.map((path) => ({
+          path,
+          language: getLanguageFromPath(path),
+          numbered,
+          context,
+        })),
+      };
+    }
+    if (language === undefined) return { kind: "filename" };
+    return {
+      kind: numbered ? "numbered" : "unnumbered",
+      language,
+    };
+  } catch {
+    // Unknown options can change the record format, e.g. --json or --replace.
+    return undefined;
+  }
+}
+
+function searchFormat(words: string[]): SearchFormat | undefined {
+  const [command, option, script, file] = words;
+  if (command === "rg") return ripgrepFormat(words.slice(1));
+  if (
+    command === "sed" &&
+    option === "-n" &&
+    words.length === 4 &&
+    script !== undefined &&
+    /^\d+(?:,(?:\d+|\$))?p$/u.test(script) &&
+    file !== undefined
+  ) {
+    const language = getLanguageFromPath(file);
+    if (language !== undefined) return { kind: "excerpt", language };
+  }
+  return undefined;
+}
+
+function shellSearchFormat(
+  args: unknown,
+  output: string,
+): SearchFormat | undefined {
+  const parsed = searchArgs.safeParse(args);
+  if (!parsed.success) return undefined;
+  const commands = analyzeShell(
+    parsed.data.sourceCommand ?? parsed.data.command,
+  )?.commands;
+  if (commands === undefined) return undefined;
+  const formats = commands
+    .filter(([command]) => command !== "cd")
+    .map(searchFormat);
+  if (formats.length !== commands.length && /^\//mu.test(output)) {
+    // A CDPATH lookup may have printed this absolute path. Bare excerpts
+    // cannot distinguish it from source; a numbered search can, unless the
+    // path itself looks like a filename-prefixed search record.
+    if (
+      formats.some((format) => format?.kind !== "numbered") ||
+      /^\/[^\n]*?([:-])\d+\1/mu.test(output)
+    )
+      return undefined;
+  }
+  const first = formats[0];
+  if (first === undefined || formats.length === 1) return first;
+  if (formats.every((format) => format?.kind === "filename"))
+    return {
+      kind: "filename",
+      files: formats.flatMap((format) => format.files ?? []),
+    };
+  // The shell returns one stream without command boundaries. Bare rows need
+  // a common interpretation across every possible producer, including || arms.
+  if (
+    formats.every(
+      (format) =>
+        format?.kind === first.kind && format.language === first.language,
+    )
+  )
+    return first;
+  return formats.every(
+    (format) => format?.kind === "numbered" || format?.kind === "filename",
+  )
+    ? { kind: "filename" }
+    : undefined;
+}
+
+function highlightExplicitFile(
+  line: string,
+  files: SearchFile[],
+  highlight: Highlighter,
+): string | undefined {
+  let start: number | undefined;
+  let language: string | undefined;
+  for (const file of files) {
+    if (!line.startsWith(file.path)) continue;
+    const separator = line[file.path.length];
+    if (separator !== ":" && !(separator === "-" && file.context)) continue;
+    let offset = file.path.length + 1;
+    if (file.numbered) {
+      const gutter = /^(\d+)([:-])/u.exec(line.slice(offset));
+      if (gutter?.[2] !== separator) continue;
+      offset += gutter[0].length;
+    }
+    // Hyphenated filenames may themselves start with another filename and a
+    // context separator. A row has no escaping to resolve that ambiguity.
+    if (start !== undefined && (start !== offset || language !== file.language))
+      return line;
+    start = offset;
+    language = file.language;
+  }
+  if (start === undefined) return undefined;
+  return language === undefined
+    ? line
+    : line.slice(0, start) + highlight(line.slice(start), language).join("\n");
+}
+
+function highlightSearchRow(
+  line: string,
+  format: SearchFormat,
+  highlight: Highlighter,
+): string {
+  if (
+    line === "" ||
+    line === "--" ||
+    line.startsWith("rg:") ||
+    line.startsWith("binary file matches")
+  )
+    return line;
+  if (format.kind === "unnumbered")
+    return highlight(line, format.language).join("\n");
+  if (format.kind === "filename" && format.files !== undefined) {
+    const named = highlightExplicitFile(line, format.files, highlight);
+    if (named !== undefined) return named;
+  }
+  const numbered = /^(\d+[:-])(.*)$/u.exec(line);
+  if (numbered !== null) {
+    const code = numbered[2] ?? "";
+    return format.language === undefined
+      ? line
+      : (numbered[1] ?? "") + highlight(code, format.language).join("\n");
+  }
+  const match = /^(.+?)([:-])(\d+)\2(.*)$/u.exec(line);
+  const language =
+    match?.[1] === undefined ? undefined : getLanguageFromPath(match[1]);
+  const code = match?.[4];
+  return language === undefined || code === undefined
+    ? line
+    : line.slice(0, line.length - code.length) +
+        highlight(code, language).join("\n");
+}
+
 export function highlightSearchOutput(
   tool: string,
   args: unknown,
@@ -234,82 +292,25 @@ export function highlightSearchOutput(
     output.includes("\x1b")
   )
     return output;
-  const parsed = commandArgs.safeParse(args);
-  const words =
-    tool === "bash" && parsed.success
-      ? simpleCommand(parsed.data.command).map(({ raw }) =>
-          raw.startsWith("'") || raw.startsWith('"') ? raw.slice(1, -1) : raw,
-        )
-      : [];
-  const [command, option, script, file] = words;
-
-  // The native shell renderer owns the truncation footer and exit-status text.
+  const format: SearchFormat | undefined =
+    tool === "grep"
+      ? { kind: "filename" }
+      : tool === "bash"
+        ? shellSearchFormat(args, output)
+        : undefined;
+  if (format === undefined) return output;
   const footer =
     /\n\n\[(?:Showing[^\n]*Full output:|Command exited with code)[\s\S]*$/u.exec(
       output,
     );
   const text = footer === null ? output : output.slice(0, footer.index);
-
-  if (
-    command === "sed" &&
-    option === "-n" &&
-    words.length === 4 &&
-    script !== undefined &&
-    /^\d+(?:,(?:\d+|\$))?p$/u.test(script) &&
-    file !== undefined
-  ) {
-    const language = getLanguageFromPath(file);
-    if (language !== undefined)
-      return highlight(text, language).join("\n") + (footer?.[0] ?? "");
-  }
-
-  if (tool !== "grep" && command !== "rg") return output;
-  if (
-    command === "rg" &&
-    words.some((arg) =>
-      /^--(?:json|count(?:-matches)?|files(?:-with(?:out)?-matches)?|replace)(?:=|$)/u.test(
-        arg,
-      ),
-    )
-  )
-    return output;
-  const last = words.at(-1);
-  const singleFile =
-    command === "rg" &&
-    ((words.length === 3 && option?.startsWith("-") === false) ||
-      (words.length === 4 &&
-        (option === "-n" || option === "--line-number"))) &&
-    last !== undefined &&
-    !/^[~-]|[*?]/u.test(last)
-      ? getLanguageFromPath(last)
-      : undefined;
-  return (
-    text
-      .split("\n")
-      .map((line) => {
-        const match = /^(.+?)([:-])(\d+)\2(.*)$/u.exec(line);
-        const filePath = match?.[1];
-        const code = match?.[4];
-        const language =
-          filePath === undefined ? undefined : getLanguageFromPath(filePath);
-        if (language !== undefined && code !== undefined) {
-          const prefix = line.slice(0, line.length - code.length);
-          return prefix + highlight(code, language).join("\n");
-        }
-        if (singleFile !== undefined) {
-          const numbered = /^(\d+[:-])(.*)$/u.exec(line);
-          const source = numbered?.[2];
-          if (source !== undefined)
-            return (
-              (numbered?.[1] ?? "") + highlight(source, singleFile).join("\n")
-            );
-          if (words.length === 3 && line !== "" && !line.startsWith("rg:"))
-            return highlight(line, singleFile).join("\n");
-        }
-        return line;
-      })
-      .join("\n") + (footer?.[0] ?? "")
-  );
+  const styled =
+    format.kind === "excerpt"
+      ? highlight(text, format.language)
+      : text
+          .split("\n")
+          .map((line) => highlightSearchRow(line, format, highlight));
+  return styled.join("\n") + (footer?.[0] ?? "");
 }
 
 const outputDetails = z
@@ -321,7 +322,10 @@ const outputDetails = z
   })
   .loose();
 
+const originalArgs = z.object({ invocationArgs: z.unknown() });
+
 export function registerSearchRendering(pi: ExtensionAPI): void {
+  pi.on("session_start", () => prepareShellSyntax());
   const painted = new WeakSet<Component>();
   registerCodingRenderer(pi, (name, next) => {
     const base = next();
@@ -334,8 +338,15 @@ export function registerSearchRendering(pi: ExtensionAPI): void {
       ...(name === "bash" && renderCall !== undefined
         ? {
             renderCall(args, theme, context) {
-              // Let Pi start its tool timer and reuse its width-aware text component.
-              const component = renderCall(args, theme, context);
+              // Pi starts the timer here and supplies its fallback for partial arguments.
+              const component = renderCall(args, theme, {
+                ...context,
+                displayToolName: "$",
+                lastComponent:
+                  context.lastComponent instanceof Text
+                    ? context.lastComponent
+                    : undefined,
+              });
               const parsed = shellCallArgs.safeParse(args);
               if (!parsed.success || !(component instanceof Text))
                 return component;
@@ -346,21 +357,74 @@ export function registerSearchRendering(pi: ExtensionAPI): void {
                 Buffer.byteLength(command) > MAX_HIGHLIGHT_BYTES
               )
                 return component;
-              const prompt = theme.fg(
-                "toolTitle",
-                theme.bold(context.displayToolName ?? "$"),
-              );
-              const syntax = highlightShellCommand(command, theme);
               const suffix =
                 timeout !== undefined && timeout !== 0
                   ? theme.fg("muted", ` (timeout ${timeout.toString()}s)`)
                   : "";
-              component.setText(`${prompt} ${syntax}${suffix}`);
+              component.setText(
+                theme.fg("toolTitle", theme.bold("$")) +
+                  " " +
+                  highlightShellCommand(command, theme) +
+                  suffix,
+              );
               return component;
             },
           }
         : {}),
       renderResult(result, options, theme, context) {
+        const details = outputDetails.safeParse(result.details);
+        const block = result.content[0];
+        const eligible =
+          !options.isPartial &&
+          !context.isError &&
+          result.isError !== true &&
+          result.content.length === 1 &&
+          block?.type === "text" &&
+          !block.text.includes("\x1b") &&
+          !(
+            details.success &&
+            (details.data.truncation?.truncated === true ||
+              details.data.fullOutputPath !== undefined ||
+              details.data.matchLimitReached !== undefined ||
+              details.data.linesTruncated === true)
+          );
+        const args: unknown = context.args;
+        if (name === "bash") {
+          const state: unknown = context.state;
+          const invocation = originalArgs.safeParse(args);
+          const usage = options.isPartial
+            ? undefined
+            : estimateShellUsage(
+                context.displayToolName ?? name,
+                invocation.success
+                  ? (invocation.data.invocationArgs ?? args)
+                  : args,
+                result,
+              );
+          return render(result, options, theme, {
+            ...context,
+            renderShellOutput(output, timerText) {
+              const styled = eligible
+                ? highlightSearchOutput(name, args, output)
+                : output;
+              const source =
+                styled === output
+                  ? output
+                      .split("\n")
+                      .map((line) =>
+                        line === "" ? "" : theme.fg("toolOutput", line),
+                      )
+                      .join("\n")
+                  : styled;
+              return shellOutputPreview(source, theme, {
+                expanded: options.expanded,
+                tokens:
+                  usage === undefined ? undefined : usage.call + usage.result,
+                elapsed: shellElapsed(timerText, context.durationMs, state),
+              });
+            },
+          });
+        }
         const fallback = () =>
           render(
             result,
@@ -371,27 +435,9 @@ export function registerSearchRendering(pi: ExtensionAPI): void {
               ? { ...context, lastComponent: undefined }
               : context,
           );
-        const block = result.content[0];
-        if (
-          options.isPartial ||
-          result.isError === true ||
-          result.content.length !== 1 ||
-          block?.type !== "text"
-        )
-          return fallback();
-        const details = outputDetails.safeParse(result.details);
-        if (
-          details.success &&
-          (details.data.truncation?.truncated === true ||
-            details.data.fullOutputPath !== undefined ||
-            details.data.matchLimitReached !== undefined ||
-            details.data.linesTruncated === true)
-        )
-          return fallback();
-        const args: unknown = context.args;
+        if (!eligible) return fallback();
         const highlighted = highlightSearchOutput(name, args, block.text);
         if (highlighted === block.text) return fallback();
-
         const component: Component = {
           invalidate() {},
           render(width) {
@@ -399,13 +445,16 @@ export function registerSearchRendering(pi: ExtensionAPI): void {
               highlighted.trimEnd(),
               Math.max(1, width),
             );
-            const limit = name === "bash" ? 5 : 15;
-            if (options.expanded || rows.length <= limit) return ["", ...rows];
-            const hidden = rows.length - limit;
-            const hint = theme.fg("muted", `… ${hidden.toString()} more lines`);
-            return name === "bash"
-              ? ["", hint, ...rows.slice(-limit)]
-              : ["", ...rows.slice(0, limit), hint];
+            if (options.expanded || rows.length <= 15) return ["", ...rows];
+            const hint = truncateToWidth(
+              theme.fg(
+                "muted",
+                `... (${(rows.length - 15).toString()} more lines,`,
+              ) +
+                ` ${context.keyHint("app.tools.expand", "to expand")}${theme.fg("muted", ")")}`,
+              width,
+            );
+            return ["", ...rows.slice(0, 15), hint];
           },
         };
         painted.add(component);
