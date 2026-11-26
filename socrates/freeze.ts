@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
-import { LeadMode, type LeadDraft } from "../lead-plan.ts";
+import { LeadMode, type LeadDraft } from "../planning/plan.ts";
 import {
   propertyGaps,
   SpecStatus,

@@ -10,7 +10,7 @@ def task_panel_session(project, env, source, task, message="Inspect approved wor
 import { SessionManager } from '@earendil-works/pi-coding-agent';
 import { Discoveries } from './discovery/store.ts';
 import { runtimeProjectSchema } from './config.ts';
-import { draftSchema, planDigest } from './lead-plan.ts';
+import { draftSchema, planDigest } from './planning/plan.ts';
 const [project, sourceJson, task, message] = process.argv.slice(1);
 const source = JSON.parse(sourceJson);
 const session = SessionManager.create(project);

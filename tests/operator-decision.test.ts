@@ -13,10 +13,10 @@ import {
   ExecutionPhase,
   VerificationPhase,
   executionSchema,
-  projectSchema,
   pendingDecision,
   latestDecision,
 } from "../execution/store.ts";
+import { projectSchema } from "../execution/target.ts";
 import {
   recordDecision,
   answerDecision,
@@ -30,7 +30,7 @@ import {
   parseBackgroundResult,
   resumeReviewedAssignment,
 } from "../execution/worker.ts";
-import { TaskDelivery } from "../lead-plan.ts";
+import { TaskDelivery } from "../planning/plan.ts";
 
 await test("background question results are disjoint and new answers cannot reuse old approval", async () => {
   assert.deepEqual(

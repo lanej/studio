@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { TaskDelivery } from "../lead-plan.ts";
+import { TaskDelivery } from "../planning/plan.ts";
 import { parseWorkerResult } from "../execution/worker.ts";
 
 await test("local results consume only summary while retaining the original response", () => {

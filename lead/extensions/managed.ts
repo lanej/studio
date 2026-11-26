@@ -1,19 +1,19 @@
 import { realpathSync } from "node:fs";
-import { DocumentKind, DocumentOwnerKind } from "./planning/model.ts";
+import { DocumentKind, DocumentOwnerKind } from "../../planning/model.ts";
 import {
   requirePlanningDocumentHooks,
   documentReadTool,
   documentOutcomeTool,
-} from "./planning/document-hooks.ts";
-import type { PaneKeybindings } from "./pane-keybindings.ts";
-import type { OpenTasks } from "./tasks/panel.ts";
-import { admittedDiagramAlias } from "./model-tools/extension.ts";
-import { diagramTool } from "./diagram/extension.ts";
-import { mermaidTool } from "./diagram/mermaid-tool.ts";
-import { renderPlanCall } from "./plan-renderer.ts";
-import { lspTool, renameTool } from "./code-intelligence/extension.ts";
-import { githubLink, renderReferences } from "./github-links.ts";
-import { FooterStatus } from "./runtime.ts";
+} from "../../planning/document-hooks.ts";
+import type { PaneKeybindings } from "../../pane-keybindings.ts";
+import type { OpenTasks } from "../../tasks/panel.ts";
+import { admittedDiagramAlias } from "../../model-tools/extension.ts";
+import { diagramTool } from "../../diagram/extension.ts";
+import { mermaidTool } from "../../diagram/mermaid-tool.ts";
+import { renderPlanCall } from "../../plan-renderer.ts";
+import { lspTool, renameTool } from "../../code-intelligence/extension.ts";
+import { githubLink, renderReferences } from "../../github-links.ts";
+import { FooterStatus } from "../../runtime.ts";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -22,25 +22,21 @@ import { lstat, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { Type } from "typebox";
 import { z } from "zod";
-import { type Attempts, type Attempt, Phase } from "./attempts.ts";
-import { readDeliveryInbox } from "./delivery.ts";
-import { appendOctoEvents } from "./transcript-events.ts";
-import { delegateTool } from "./delegation.ts";
+import { type Attempts, type Attempt, Phase } from "../../attempts.ts";
+import { readDeliveryInbox } from "../../delivery.ts";
+import { appendOctoEvents } from "../../transcript-events.ts";
+import { delegateTool } from "../../delegation.ts";
 import {
   draftSchema,
   LeadMode,
   planDigest,
   reviseDelivery,
   TaskDelivery,
-} from "./lead-plan.ts";
-import { SpecStatus } from "./socrates/spec.ts";
-import {
-  askTool,
-  registerSocrates,
-  specTool,
-} from "./lead/extensions/socrates.ts";
-import { reviewPlan, showTask } from "./ui.ts";
-import { BeadChanged, owner, TaskBeads } from "./task-service.ts";
+} from "../../planning/plan.ts";
+import { SpecStatus } from "../../socrates/spec.ts";
+import { askTool, registerSocrates, specTool } from "./socrates.ts";
+import { reviewPlan, showTask } from "../../ui.ts";
+import { BeadChanged, owner, TaskBeads } from "../../task-service.ts";
 
 const planTool = "draft_implementation_plan";
 const inspectTools = new Set([

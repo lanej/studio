@@ -10,14 +10,14 @@ import { z } from "zod";
 import { Type } from "typebox";
 import { stateDirectory } from "../attempts.ts";
 import { readOperationWitness } from "../operation-witness.ts";
-import { LeadMode, draftSchema } from "../lead-plan.ts";
+import { LeadMode, draftSchema } from "./plan.ts";
 import {
   SpecStatus,
   preserveDecisions,
   specDraft,
   assessedSpecDraft,
 } from "../socrates/spec.ts";
-import { saveDiscoveryPlan } from "../discovery/store.ts";
+import { saveDiscoveryPlan } from "../discovery/plan.ts";
 import {
   DocumentKind,
   DocumentOwnerKind,

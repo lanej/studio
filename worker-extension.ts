@@ -9,14 +9,13 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { realpath } from "node:fs/promises";
-import { Type } from "typebox";
 import { z } from "zod";
 import { Attempts, Phase, stateDirectory, type Attempt } from "./attempts.ts";
 import { loadLeadKeybindings, registerStudio } from "./extension.ts";
-import { registerLeadControls } from "./lead-extension.ts";
+import { registerLeadControls } from "./lead/extensions/managed.ts";
 import { socratesGuidance } from "./socrates/guidance.ts";
 import { SpecStatus, specText } from "./socrates/spec.ts";
-import { LeadMode } from "./lead-plan.ts";
+import { LeadMode } from "./planning/plan.ts";
 import { StudioProfile } from "./config.ts";
 import { processStart } from "./process.ts";
 import { TaskBeads } from "./task-service.ts";
@@ -26,6 +25,7 @@ import {
   registerTranscriptEvents,
   VerificationOutcome,
 } from "./transcript-events.ts";
+import { registerTaskSubmission } from "./worker/extensions/submission.ts";
 
 async function matchWorker(
   ctx: ExtensionContext,
@@ -338,30 +338,14 @@ export default async function managedWorker(pi: ExtensionAPI): Promise<void> {
       submissions.delete(result);
     }
   };
-  pi.registerCommand("task-submit", {
-    description: "Verify a result against this bead's accepted criteria",
-    handler: async (summary, ctx) => {
-      const closed = db.get(id).phase === Phase.Closed;
-      const result = await submit(summary, ctx);
-      if (closed) ctx.ui.notify(result, "info");
+  registerTaskSubmission(
+    pi,
+    () => {
+      const { bead, phase } = db.get(id);
+      return { beadId: bead.id, closed: phase === Phase.Closed };
     },
-  });
-  pi.registerTool({
-    name: "task_submit_result",
-    label: "Submit task result",
-    description:
-      "Run the operator's agreed check and submit evidence for the accepted bead.",
-    parameters: Type.Object({
-      summary: Type.String({ minLength: 1, maxLength: 4000 }),
-    }),
-    execute: async (_call, params, signal, _onUpdate, ctx) => {
-      const text = await submit(params.summary, ctx, signal);
-      return {
-        content: [{ type: "text", text }],
-        details: { bead: db.get(id).bead.id },
-      };
-    },
-  });
+    submit,
+  );
   pi.on("session_shutdown", async (event) => {
     lifetime.abort(
       new Error("The worker session ended before verification finished"),

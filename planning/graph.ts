@@ -1,6 +1,6 @@
 // Adapted from Smart Plan src/plan-validate.ts at 3e51e33acd63a7743391e21598042438746aafa0.
 // Copyright (c) 2026 Jacopo Nardiello. See LICENSE.smart-plan.
-import { worktreePathsOverlap } from "./worktree-path.ts";
+import { worktreePathsOverlap } from "../worktree-path.ts";
 
 interface GraphTask {
   key: string;

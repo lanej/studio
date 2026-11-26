@@ -6,9 +6,9 @@ import {
 } from "@earendil-works/pi-tui";
 import { selectorText } from "@lanej/pi-components";
 import { z } from "zod";
-import { draftSchema, taskReviewLines } from "./lead-plan.ts";
+import { draftSchema, taskReviewLines } from "./planning/plan.ts";
 import { planGraph, planGraphColor, renderGraphPrefix } from "./plan-graph.ts";
-import { withTaskAssignment } from "./ui.ts";
+import { withTaskAssignment } from "./tasks/presentation.ts";
 
 const previewTaskLimit = 6;
 const previewLineLimit = 10;

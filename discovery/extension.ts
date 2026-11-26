@@ -31,15 +31,12 @@ import {
   draftSchema,
   planDigest,
   reviseDelivery,
-} from "../lead-plan.ts";
+} from "../planning/plan.ts";
 import { isEntry, PiEntryType } from "../runtime.ts";
 import { reviewHandoff } from "./handoff-review.ts";
-import {
-  saveDiscoveryPlan,
-  Discoveries,
-  handoffDraft,
-  type Discovery,
-} from "./store.ts";
+import { saveDiscoveryPlan, handoffDraft } from "./plan.ts";
+import { Discoveries } from "./store.ts";
+import type { Discovery } from "./model.ts";
 
 const selectionType = "studio:discovery";
 const markerSchema = z.object({

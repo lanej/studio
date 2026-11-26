@@ -18,8 +18,8 @@ import {
   ExecutionPhase,
   VerificationPhase,
   executionSchema,
-  projectSchema,
 } from "../execution/store.ts";
+import { projectSchema } from "../execution/target.ts";
 import { StudioProfile } from "../config.ts";
 
 const firstHead = "1".repeat(40);

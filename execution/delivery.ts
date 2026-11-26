@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { z } from "zod";
 import { octo } from "../delivery.ts";
-import { draftSchema } from "../lead-plan.ts";
+import { draftSchema } from "../planning/plan.ts";
 import { safeGit, networkGit } from "./git.ts";
 import {
   assertPublicationHead,
@@ -19,8 +19,8 @@ import {
   type ExecutionStore,
   ExecutionPhase,
   type Execution,
-  type RuntimeProject,
 } from "./store.ts";
+import type { RuntimeProject } from "./target.ts";
 
 const publication = z.looseObject({
   id: z.string(),

@@ -5,7 +5,11 @@ import {
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import { selectorText } from "@lanej/pi-components";
-import { taskReviewFields, TaskDelivery, type LeadDraft } from "./lead-plan.ts";
+import {
+  taskReviewFields,
+  TaskDelivery,
+  type LeadDraft,
+} from "./planning/plan.ts";
 import { planGraph, planGraphColor, renderGraphPrefix } from "./plan-graph.ts";
 
 interface ReviewField {

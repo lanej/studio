@@ -8,7 +8,7 @@ The optional [Neovim document workspace](docs/neovim-documents.md) opens full sp
 
 ## Package layout
 
-`cli.ts` is the CLI entrypoint. Pi loads `extension.ts` for the daily lead and `worker-extension.ts` for a task-bound session. The managed lead composes its controls through `lead-extension.ts`.
+`cli.ts` is the CLI entrypoint. Pi loads `extension.ts` for the daily lead and `worker-extension.ts` for a task-bound session. The task-bound host composes managed lead controls from `lead/extensions/managed.ts` and worker submission from `worker/extensions/submission.ts` according to the session's role.
 
 The shared Socrates registration lives in [`lead/extensions/socrates.ts`](lead/extensions/socrates.ts). The floating task browser is composed in [`tasks/panel.ts`](tasks/panel.ts). For capability ownership, role extensions and the design system, see the [Studio architecture guide](docs/architecture.md).
 

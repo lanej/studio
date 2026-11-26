@@ -212,7 +212,7 @@ elif 'show' in sys.argv: print(json.dumps([next(task for task in tasks if task['
 import {{ Discoveries }} from {json.dumps(str(root / 'discovery/store.ts'))};
 import {{ coveragePropertyCatalog, coverageToken }} from {json.dumps(str(root / "socrates/assessment.ts"))};
 import {{ SpecStatus }} from {json.dumps(str(root / 'socrates/spec.ts'))};
-import {{ draftSchema }} from {json.dumps(str(root / 'lead-plan.ts'))};
+import {{ draftSchema }} from {json.dumps(str(root / 'planning/plan.ts'))};
 const store=new Discoveries();
 const record=store.create({json.dumps(str(project))}, 'terminal-fixture', 'Explore independently');
 store.create({json.dumps(str(workspace))}, 'terminal-fixture', 'Foreign discovery');

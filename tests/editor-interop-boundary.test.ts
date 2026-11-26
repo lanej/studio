@@ -61,10 +61,14 @@ function modulePath(filename: string, specifier: string): string {
 }
 
 await test("planning and task runtime retain authority without importing editor adapters", () => {
+  const leadAdapters = [
+    "lead/extensions/managed.ts",
+    "lead/extensions/socrates.ts",
+  ];
   for (const filename of [
     ...sources("planning"),
     ...sources("vendor/task-runtime"),
-    "lead/extensions/socrates.ts",
+    ...leadAdapters,
   ]) {
     for (const specifier of moduleReferences(filename)) {
       const target = modulePath(filename, specifier);
@@ -74,7 +78,7 @@ await test("planning and task runtime retain authority without importing editor 
         `${filename} imports editor implementation ${specifier}`,
       );
       if (
-        filename === "lead/extensions/socrates.ts" ||
+        leadAdapters.includes(filename) ||
         filename === "planning/document-hooks.ts"
       ) {
         assert.ok(

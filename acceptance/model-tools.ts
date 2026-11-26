@@ -30,8 +30,8 @@ import {
   registerMermaidTool,
 } from "../diagram/mermaid-tool.ts";
 import { delegateTool, registerDelegation } from "../delegation.ts";
-import { registerLeadControls } from "../lead-extension.ts";
-import { LeadMode } from "../lead-plan.ts";
+import { registerLeadControls } from "../lead/extensions/managed.ts";
+import { LeadMode } from "../planning/plan.ts";
 import { registerModelTools } from "../model-tools/extension.ts";
 import { registerPlanningDocuments } from "../planning/documents.ts";
 

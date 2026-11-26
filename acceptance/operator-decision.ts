@@ -24,10 +24,9 @@ import {
   ExecutionPhase,
   pendingDecision,
 } from "../execution/store.ts";
-import { alive } from "../execution/supervisor.ts";
 import { retryWriterFence } from "../execution/recovery.ts";
-import { draftSchema, planDigest } from "../lead-plan.ts";
-import { run } from "../process.ts";
+import { draftSchema, planDigest } from "../planning/plan.ts";
+import { processMatchesStart, run } from "../process.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const options = new Command()
@@ -688,7 +687,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       if (
         record.pid !== undefined &&
         record.started !== undefined &&
-        (await alive(record.pid, record.started))
+        (await processMatchesStart(record.pid, record.started))
       ) {
         try {
           process.kill(-record.pid, "SIGTERM");
@@ -698,10 +697,10 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
         const deadline = Date.now() + 5000;
         while (
           Date.now() < deadline &&
-          (await alive(record.pid, record.started))
+          (await processMatchesStart(record.pid, record.started))
         )
           await delay(20);
-        const exited = !(await alive(record.pid, record.started));
+        const exited = !(await processMatchesStart(record.pid, record.started));
         if (!exited) process.kill(-record.pid, "SIGKILL");
         hosts.push({
           attempt: record.id,

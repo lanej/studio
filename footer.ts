@@ -13,7 +13,7 @@ import { z } from "zod";
 import { ReasoningLevel } from "./config.ts";
 import { type FooterGit, watchFooterGit } from "./footer-git.ts";
 import { githubLink } from "./github-links.ts";
-import { LeadMode } from "./lead-plan.ts";
+import { LeadMode } from "./planning/plan.ts";
 import { run } from "./process.ts";
 import {
   FooterStatus,

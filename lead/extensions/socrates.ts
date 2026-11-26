@@ -13,7 +13,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { isDeepStrictEqual } from "node:util";
 import { Type } from "typebox";
 import type { Attempt, Attempts } from "../../attempts.ts";
-import { LeadMode } from "../../lead-plan.ts";
+import { LeadMode } from "../../planning/plan.ts";
 import {
   assessedSpecDraft,
   applyDraftUpdate,

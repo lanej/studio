@@ -12,7 +12,7 @@ import {
   draftSchema,
   TaskDelivery,
   type LeadDraft,
-} from "./lead-plan.ts";
+} from "./planning/plan.ts";
 
 export const beadSchema = z.looseObject({
   id: z.string().min(1),

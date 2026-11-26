@@ -9,7 +9,11 @@ import { configPath, loadConfig } from "../config.ts";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { requireIntegration } from "../integrations.ts";
 import { packageRoot } from "../package-resources.ts";
-import { processFailure, processStart } from "../process.ts";
+import {
+  processFailure,
+  processMatchesStart,
+  processStart,
+} from "../process.ts";
 import { owner } from "../task-service.ts";
 import { ownershipConflict, retainedConflicts } from "./admission.ts";
 import {
@@ -24,8 +28,8 @@ import {
   executionSchema,
   unsettled,
   type Execution,
-  type RuntimeProject,
 } from "./store.ts";
+import type { RuntimeProject } from "./target.ts";
 import { assertRuntimeProfile } from "./profile.ts";
 import { verifyInteractiveTarget } from "./interactive-target.ts";
 import type { Zellij } from "../zellij.ts";
@@ -35,21 +39,16 @@ export type LaunchWorkerPane = (
   ...args: Parameters<Zellij["launch"]>
 ) => Promise<number>;
 
-export async function alive(pid: number, started: string): Promise<boolean> {
-  try {
-    return (await processStart(pid)) === started;
-  } catch (error) {
-    if (processFailure(error).code === 1) return false;
-    throw error;
-  }
-}
 export async function ensureRuntime(): Promise<void> {
   const config = await loadConfig();
   if (!config.runtime.enabled) throw new Error("Studio runtime is disabled");
   const store = new ExecutionStore();
   try {
     const current = store.supervisor();
-    if (current !== undefined && (await alive(current.pid, current.started))) {
+    if (
+      current !== undefined &&
+      (await processMatchesStart(current.pid, current.started))
+    ) {
       if (current.stop)
         throw new Error(
           "Runtime is stopping; inspect status before restarting",
@@ -129,7 +128,10 @@ export async function serveRuntime(
   const id = randomUUID();
   const started = await processStart(process.pid);
   const previous = store.supervisor();
-  if (previous !== undefined && (await alive(previous.pid, previous.started))) {
+  if (
+    previous !== undefined &&
+    (await processMatchesStart(previous.pid, previous.started))
+  ) {
     store.close();
     throw new Error("A live Studio runtime already owns scheduling");
   }

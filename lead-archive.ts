@@ -15,7 +15,7 @@ import { loadConfig } from "./config.ts";
 import { sha } from "./delivery-record.ts";
 import { octo } from "./delivery.ts";
 import { settledDelegates } from "./delegation.ts";
-import { LeadMode } from "./lead-plan.ts";
+import { LeadMode } from "./planning/plan.ts";
 import { processFailure, run } from "./process.ts";
 import { processIsGone } from "./task-run.ts";
 import { TaskBeads } from "./task-service.ts";

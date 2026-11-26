@@ -4,7 +4,7 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { isDeepStrictEqual } from "node:util";
-import { describePlan } from "../lead-plan.ts";
+import { describePlan } from "../planning/plan.ts";
 import type { SocratesState } from "./implementation.ts";
 import { missingReviewInput } from "./assessment.ts";
 import { reviewInput, specText } from "./spec.ts";

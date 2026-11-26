@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Attempts, Phase } from "./attempts.ts";
-import { LeadMode } from "./lead-plan.ts";
+import { LeadMode } from "./planning/plan.ts";
 import { run, signalProcessGroup } from "./process.ts";
 import { BeadChanged, TaskBeads, type Verification } from "./task-service.ts";
 

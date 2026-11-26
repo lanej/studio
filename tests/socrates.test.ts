@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { draftSchema, LeadMode } from "../lead-plan.ts";
+import { draftSchema, LeadMode } from "../planning/plan.ts";
 import {
   freezeReviewedSpecification,
   prepareSpecificationFreeze,

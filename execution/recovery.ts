@@ -1,4 +1,4 @@
-import { processFailure, run } from "../process.ts";
+import { processGroupExists, processMatchesStart, run } from "../process.ts";
 import { isDeepStrictEqual } from "node:util";
 import { approvedHandoffTask } from "./publication-graph.ts";
 import { sameBrief } from "../task-service.ts";
@@ -10,7 +10,7 @@ import {
   workerForTask,
   type StudioConfig,
 } from "../config.ts";
-import { draftSchema } from "../lead-plan.ts";
+import { draftSchema } from "../planning/plan.ts";
 import { ExecutionBeads, interactiveTask } from "./beads.ts";
 import { assertRuntimeProfile } from "./profile.ts";
 import {
@@ -19,24 +19,17 @@ import {
   VerificationPhase,
   pendingDecision,
   type Execution,
-  type RuntimeProject,
 } from "./store.ts";
-import { alive } from "./supervisor.ts";
+import type { RuntimeProject } from "./target.ts";
 
-export function groupExists(pid: number): boolean {
-  try {
-    process.kill(-pid, 0);
-    return true;
-  } catch (error) {
-    if (processFailure(error).code === "ESRCH") return false;
-    throw error;
-  }
-}
 /** A missing receipt is uncertainty, never evidence that a writer is gone. */
 export async function writerFence(record: Execution): Promise<boolean> {
   if (record.launchSettled || record.launchToken === undefined) return false;
   if (record.pid === undefined || record.started === undefined) return true;
-  if ((await alive(record.pid, record.started)) || groupExists(record.pid))
+  if (
+    (await processMatchesStart(record.pid, record.started)) ||
+    processGroupExists(record.pid)
+  )
     return true;
   const verifier = record.verifier;
   if (verifier !== undefined && verifier.phase !== VerificationPhase.Complete) {
@@ -48,10 +41,10 @@ export async function writerFence(record: Execution): Promise<boolean> {
     )
       return true;
     if (
-      (await alive(verifier.pid, verifier.started)) ||
-      groupExists(verifier.pid) ||
-      (await alive(verifier.childPid, verifier.childStarted)) ||
-      groupExists(verifier.childPid)
+      (await processMatchesStart(verifier.pid, verifier.started)) ||
+      processGroupExists(verifier.pid) ||
+      (await processMatchesStart(verifier.childPid, verifier.childStarted)) ||
+      processGroupExists(verifier.childPid)
     )
       return true;
   }
@@ -68,7 +61,10 @@ export async function retryWriterFence(record: Execution): Promise<boolean> {
     return true;
   if (record.pid === undefined) return record.started !== undefined;
   if (record.started === undefined) return true;
-  return (await alive(record.pid, record.started)) || groupExists(record.pid);
+  return (
+    (await processMatchesStart(record.pid, record.started)) ||
+    processGroupExists(record.pid)
+  );
 }
 export async function retainClaim(
   store: ExecutionStore,
@@ -176,7 +172,7 @@ export async function reconcileAttempt(
     if (
       record.pid !== undefined &&
       record.started !== undefined &&
-      (await alive(record.pid, record.started))
+      (await processMatchesStart(record.pid, record.started))
     )
       return;
     if (await writerFence(record)) {
@@ -256,7 +252,7 @@ export async function reconcileAttempt(
   if (
     record.pid !== undefined &&
     record.started !== undefined &&
-    (await alive(record.pid, record.started))
+    (await processMatchesStart(record.pid, record.started))
   )
     return;
   if (await writerFence(record)) {

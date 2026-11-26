@@ -3,7 +3,7 @@ import { Phase, type Attempt } from "../attempts.ts";
 import { selectorText } from "@lanej/pi-components";
 import { z } from "zod";
 import { isDeepStrictEqual } from "node:util";
-import { draftSchema, TaskDelivery } from "../lead-plan.ts";
+import { draftSchema, TaskDelivery } from "../planning/plan.ts";
 import {
   knownRelationship,
   knownTaskStatus,

@@ -14,11 +14,12 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { randomUUID } from "node:crypto";
 import { registerDiscovery } from "../discovery/extension.ts";
-import { Discoveries, HandoffPhase } from "../discovery/store.ts";
+import { Discoveries } from "../discovery/store.ts";
+import { HandoffPhase } from "../discovery/model.ts";
 import { readySpecification } from "./fixtures/socrates.ts";
 import { specificationToken } from "../socrates/assessment.ts";
 import { SpecStatus } from "../socrates/spec.ts";
-import { draftSchema } from "../lead-plan.ts";
+import { draftSchema } from "../planning/plan.ts";
 import {
   configSchema,
   DefaultProvider,

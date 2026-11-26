@@ -6,7 +6,8 @@ import { realpathSync } from "node:fs";
 import { Type } from "typebox";
 import { z } from "zod";
 import { loadConfig } from "../config.ts";
-import { ExecutionStore, type RuntimeProject } from "./store.ts";
+import { ExecutionStore } from "./store.ts";
+import type { RuntimeProject } from "./target.ts";
 
 export async function mergePolicy(project: string) {
   const config = await loadConfig();

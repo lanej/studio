@@ -36,19 +36,24 @@ import {
 } from "@earendil-works/pi-tui";
 import { attemptSchema, Phase } from "../attempts.ts";
 import type { Task } from "../beads.ts";
-import { StudioProfile } from "../config.ts";
+import {
+  exampleConfig,
+  runtimeProjectSchema,
+  StudioProfile,
+} from "../config.ts";
 import {
   ExecutionPhase,
   ExecutionStore,
-  projectSchema,
   VerificationPhase,
   executionSchema,
   type Execution,
 } from "../execution/store.ts";
+import { projectSchema } from "../execution/target.ts";
 import { retryWriterFence } from "../execution/recovery.ts";
 import { paneKeybindingsSchema } from "../pane-keybindings-config.ts";
 import { TaskBrowser } from "../tasks/browser.ts";
 import { TaskPanel } from "../tasks/panel.ts";
+import { createTaskPanelSource } from "../tasks/source.ts";
 import { readTaskEvidence } from "../tasks/evidence.ts";
 import {
   parkedDetails,
@@ -97,6 +102,56 @@ const snapshot: TaskSnapshot = {
   focusable: new Set(),
   limitReached: false,
 };
+
+await test("the task source exposes recovery actions only for the exact enrolled Beads authority", () => {
+  const source = { url: "http://127.0.0.1:8764", projectId: project };
+  const target = runtimeProjectSchema.parse({
+    root: "/fixture/enrolled-project",
+    source,
+    profile: StudioProfile.Personal,
+    base: "main",
+    beadsWorkspace: "/fixture/enrolled-project",
+    beadsDatabase: "fixture",
+  });
+  const config = {
+    ...exampleConfig,
+    beadsService: { ...source, url: "http://127.0.0.1:8765" },
+    runtime: { ...exampleConfig.runtime, enabled: true, projects: [target] },
+  };
+  const scope = {
+    cwd: "/fixture/daily-checkout",
+    editAnswer: () => Promise.resolve(undefined),
+  };
+  const defaultSource = createTaskPanelSource(config, {
+    ...scope,
+    authority: undefined,
+  });
+  assert.ok(defaultSource !== undefined);
+  assert.deepEqual(
+    [
+      defaultSource.label,
+      defaultSource.retry,
+      defaultSource.answer,
+      defaultSource.diff,
+    ],
+    ["Beads", undefined, undefined, undefined],
+  );
+
+  const approvedSource = createTaskPanelSource(config, {
+    ...scope,
+    authority: source,
+  });
+  assert.ok(approvedSource !== undefined);
+  assert.deepEqual(
+    [
+      approvedSource.label,
+      typeof approvedSource.retry,
+      typeof approvedSource.answer,
+      typeof approvedSource.diff,
+    ],
+    ["enrolled-project", "function", "function", "function"],
+  );
+});
 
 await test("retry retains a settled host fence when its process identity is incomplete", async () => {
   assert.equal(

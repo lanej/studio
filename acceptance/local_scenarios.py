@@ -353,7 +353,7 @@ def approve_lead_plan(case: Case) -> ApprovedPlan:
     # A second reader revises the same disposable draft while the native confirmation is open.
     execute(["bun", "--no-env-file", "-e", (
         f"import {{Attempts,stateDirectory}} from {json.dumps(str(case.harness.options.root / 'attempts.ts'))};"
-        f"import {{reviseDelivery}} from {json.dumps(str(case.harness.options.root / 'lead-plan.ts'))};"
+        f"import {{reviseDelivery}} from {json.dumps(str(case.harness.options.root / 'planning/plan.ts'))};"
         f"const db=new Attempts(stateDirectory());db.change({json.dumps(attempt_id)},row=>{{"
         "row.leadPlan.draft=reviseDelivery(row.leadPlan.draft,'inspect local');});db.close();"
     )])
@@ -633,7 +633,9 @@ def check_worker_reuse(case: Case, report: Report) -> None:
         (artifacts / f"{name.lower()}-highlighted.ansi").write_text(highlighted)
 
     terminal.send_to_pane(launcher_pane, "/tasks\r")
-    terminal.until("task overlay shows pane focus action", lambda: "Focus pane" in pane_text(launcher_pane))
+    terminal.until("task tree selects the accepted worker", lambda:
+                   any("›" in line and "Native Pi accepted" in line
+                       for line in pane_text(launcher_pane).splitlines()))
     terminal.write_to_pane(launcher_pane, 27, 91, 67)
     terminal.until("task tree focuses the managed worker", lambda:
                    any(p["id"] == pane and p["is_focused"] for p in terminal.terminals()))
@@ -763,7 +765,7 @@ def discovery_delivery_review(case: Case) -> None:
     config["integrations"]["octo"]["executable"] = str(octo)
     config_file.write_text(json.dumps(config))
     store_import = json.dumps(str(harness.options.root / "discovery/store.ts"))
-    plan_import = json.dumps(str(harness.options.root / "lead-plan.ts"))
+    plan_import = json.dumps(str(harness.options.root / "planning/plan.ts"))
     seeded = harness.execute(["bun", "--no-env-file", "-e", (
         f"import {{Discoveries}} from {store_import};import {{draftSchema}} from {plan_import};"
         f"const db=new Discoveries();const record=db.create({json.dumps(str(harness.options.repository))},'native-delivery','Native delivery approval');"

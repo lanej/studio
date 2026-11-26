@@ -1,3 +1,4 @@
+import { projectSchema } from "../execution/target.ts";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { once } from "node:events";
@@ -5,12 +6,12 @@ import { mkdtempSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { Discoveries, HandoffPhase } from "../discovery/store.ts";
+import { HandoffPhase } from "../discovery/model.ts";
+import { Discoveries } from "../discovery/store.ts";
 import {
   executionSchema,
   ExecutionPhase,
   ExecutionStore,
-  projectSchema,
 } from "../execution/store.ts";
 import { publicationPrerequisites as completedPrerequisites } from "../execution/publication-graph.ts";
 import { TaskBeads, beadSchema } from "../task-service.ts";
@@ -32,7 +33,7 @@ import {
   planDigest,
   publicationPrerequisites,
   reviseDelivery,
-} from "../lead-plan.ts";
+} from "../planning/plan.ts";
 
 test("publication uses each local predecessor once and respects already published dependencies", () => {
   const tasks = [
@@ -96,6 +97,7 @@ test("an older background handoff resolves the approved graph and rejects change
     const digest = planDigest(draft);
     const ids = { root: "parent", publish: "publisher" };
     store.saveIntent(discovery.revision, { digest, ids });
+    assert.deepEqual(store.intent(discovery.revision), { digest, ids });
     discoveries.change(
       discovery.id,
       (row) => {

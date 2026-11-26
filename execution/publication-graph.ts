@@ -1,21 +1,19 @@
 import { isDeepStrictEqual } from "node:util";
 import { sha } from "../delivery-record.ts";
-import { Discoveries, HandoffPhase } from "../discovery/store.ts";
+import { HandoffPhase } from "../discovery/model.ts";
+import { Discoveries } from "../discovery/store.ts";
 import {
   publicationPrerequisites as prerequisiteTasks,
   planDigest,
   TaskDelivery,
   type LeadDraft,
-} from "../lead-plan.ts";
+} from "../planning/plan.ts";
 import type { NativeBead } from "../task-service.ts";
-import {
-  ExecutionPhase,
-  type Execution,
-  type ExecutionStore,
-  type RuntimeProject,
-} from "./store.ts";
+import type { RetainedHandoffIntent } from "./handoff-model.ts";
+import { ExecutionPhase } from "./phase.ts";
+import type { Execution, ExecutionStore } from "./store.ts";
+import type { RuntimeProject } from "./target.ts";
 
-type Intent = NonNullable<ReturnType<ExecutionStore["taskHandoffIntent"]>>;
 type PlanTask = LeadDraft["tasks"][number];
 
 function requirePublicationTarget(
@@ -36,7 +34,7 @@ function requirePublicationTarget(
 function approvedDraft(
   store: ExecutionStore,
   project: RuntimeProject,
-  intent: Intent,
+  intent: RetainedHandoffIntent,
 ): LeadDraft {
   if (intent.draft !== undefined && intent.project === project.id) {
     if (intent.target !== undefined) {
@@ -83,7 +81,7 @@ function requireApprovedBead(
   bead: NativeBead,
   task: PlanTask,
   draft: LeadDraft,
-  intent: Intent,
+  intent: RetainedHandoffIntent,
 ): void {
   if (
     bead.id !== intent.ids[task.key] ||
@@ -107,7 +105,7 @@ export function approvedHandoffTask(
   store: ExecutionStore,
   project: RuntimeProject,
   bead: NativeBead,
-  intent: Intent,
+  intent: RetainedHandoffIntent,
 ): { draft: LeadDraft; task: PlanTask } {
   const draft = approvedDraft(store, project, intent);
   const task = draft.tasks.find((entry) => intent.ids[entry.key] === bead.id);

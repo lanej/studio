@@ -2,9 +2,12 @@ import { safeGit } from "./git.ts";
 import { verificationSandbox } from "./sandbox.ts";
 import { z } from "zod";
 import { gitState, runCheck } from "../task-verification.ts";
-import { processStart, processFailure } from "../process.ts";
+import {
+  processFailure,
+  processMatchesStart,
+  processStart,
+} from "../process.ts";
 import { ExecutionStore, VerificationPhase } from "./store.ts";
-import { alive } from "./supervisor.ts";
 import { ExecutionBeads } from "./beads.ts";
 
 /** A verifier keeps its timeout and parent-liveness guard even if its control host dies. */
@@ -54,7 +57,7 @@ export async function runVerification(
       };
     });
     const fence = async (): Promise<void> => {
-      if (!(await alive(parentPid, parentStart)))
+      if (!(await processMatchesStart(parentPid, parentStart)))
         throw new Error("The admitted control host exited during verification");
       const current = store.attempt(id);
       if (

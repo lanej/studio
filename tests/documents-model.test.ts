@@ -20,7 +20,7 @@ import {
   TaskDelivery,
   draftSchema,
   pullRequestMergeSchema,
-} from "../lead-plan.ts";
+} from "../planning/plan.ts";
 import {
   coverageDomains,
   coveragePropertyCatalog,

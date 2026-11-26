@@ -14,22 +14,21 @@ import {
   TaskDelivery,
   type LeadDraft,
   type PlanWorkers,
-} from "../lead-plan.ts";
+} from "../planning/plan.ts";
 import { requireIntegration } from "../integrations.ts";
 import { octo } from "../delivery.ts";
-import type { Discovery } from "../discovery/store.ts";
-import { Discoveries, HandoffPhase } from "../discovery/store.ts";
+import { HandoffPhase, type Discovery } from "../discovery/model.ts";
+import { Discoveries } from "../discovery/store.ts";
+import { ExecutionStore } from "./store.ts";
 import {
-  ExecutionStore,
-  handoffIntentSchema,
   projectSchema,
   type InteractiveTarget,
   type RuntimeProject,
-} from "./store.ts";
+} from "./target.ts";
+import { checkHandoffRetry, handoffTaskIds } from "./handoff-model.ts";
 import { ExecutionBeads, verifyHeartbeatAuthority } from "./beads.ts";
 import { ensureRuntime } from "./supervisor.ts";
-import { alive } from "./supervisor.ts";
-import { processStart } from "../process.ts";
+import { processMatchesStart, processStart } from "../process.ts";
 import { assertRuntimeProfile } from "./profile.ts";
 import {
   currentInteractiveTarget,
@@ -149,7 +148,7 @@ export async function approveHandoff(
     if (prior?.phase === HandoffPhase.Pending) {
       if (
         prior.owner === undefined ||
-        (await alive(prior.owner.pid, prior.owner.started))
+        (await processMatchesStart(prior.owner.pid, prior.owner.started))
       )
         throw new Error(
           "The handoff owner is live or lacks a settled identity; retain the pending effect before retrying",
@@ -211,35 +210,20 @@ export async function approveHandoff(
   const store = new ExecutionStore();
   try {
     const service = new ExecutionBeads(project.source);
-    let intent = handoffIntentSchema
-      .optional()
-      .parse(store.intent(record.revision));
-    if (
-      intent !== undefined &&
-      (intent.digest !== digest ||
-        !isDeepStrictEqual(intent.interactive, interactive) ||
-        !isDeepStrictEqual(intent.workers, workers))
-    )
-      throw new Error(
-        "A different graph creation attempt is already retained; reconcile it before changing the proposal",
-      );
+    let intent = store.intent(record.revision);
     if (intent === undefined) {
       const prefix = await service.prefix();
-      const root = `${prefix}-${record.revision.replaceAll("-", "")}`;
-      const entries: [string, string][] = [["root", root]];
-      for (const task of draft.tasks)
-        entries.push([task.key, `${root}.${task.key}`]);
       intent = {
         digest,
         project: project.id,
         target: project,
         draft,
-        ids: Object.fromEntries(entries),
+        ids: handoffTaskIds(prefix, record.revision, draft),
         workers,
         ...(interactive === undefined ? {} : { interactive }),
       };
       store.saveIntent(record.revision, intent);
-    }
+    } else checkHandoffRetry(intent, { digest, interactive, workers });
     submitted = true;
     const ids = await service.createGraph(
       record.revision,
@@ -297,7 +281,7 @@ async function ensureInteractiveSupervisor(): Promise<void> {
       const supervisor = store.supervisor();
       if (
         supervisor !== undefined &&
-        (await alive(supervisor.pid, supervisor.started))
+        (await processMatchesStart(supervisor.pid, supervisor.started))
       ) {
         if (supervisor.interactiveDispatch !== true || supervisor.stop)
           throw new Error(
