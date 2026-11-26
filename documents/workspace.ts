@@ -34,7 +34,7 @@ export function registerDocumentWorkspace(pi: ExtensionAPI): void {
       context?.ui.notify(`Studio documents: ${message}`, "warning");
     lastError = message;
   };
-  const close = async () => {
+  const close = async (quitting = false) => {
     epoch++;
     releaseHost?.();
     releaseHost = undefined;
@@ -42,6 +42,14 @@ export function registerDocumentWorkspace(pi: ExtensionAPI): void {
     bound = undefined;
     const previous = workspace;
     workspace = undefined;
+    if (
+      quitting &&
+      context !== undefined &&
+      piModeSchema.parse(context.mode) === PiMode.Tui
+    ) {
+      const { preserveDocumentPanesOnQuit } = await import("./editor.ts");
+      await preserveDocumentPanesOnQuit().catch(report);
+    }
     await previous?.dispose();
   };
   const refreshNow = async (open: boolean) => {
@@ -156,9 +164,12 @@ export function registerDocumentWorkspace(pi: ExtensionAPI): void {
     lastError = undefined;
     await refresh().catch(report);
   });
-  pi.on("session_shutdown", async () => {
-    context = undefined;
-    await close();
+  pi.on("session_shutdown", async (event) => {
+    try {
+      await close(event.reason === "quit");
+    } finally {
+      context = undefined;
+    }
   });
   pi.on("tool_execution_end", async (_event, ctx) => {
     context = ctx;
