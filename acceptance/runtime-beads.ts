@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { z } from "zod";
 import { withBeadsHttp } from "./beads-http-fixture.ts";
 import { ExecutionBeads, heartbeat, verifyHeartbeatAuthority } from "../execution/beads.ts";
-import { StudioProfile, exampleConfig } from "../config.ts";
+import { StudioProfile, configSchema, exampleConfig } from "../config.ts";
+import { profileDigest } from "../execution/profile.ts";
 import { ExecutionStore, executionSchema, ExecutionPhase } from "../execution/store.ts";
 import { reconcileAttempt, retainClaim } from "../execution/recovery.ts";
 import { maintainAttempt } from "../execution/supervisor.ts";
@@ -131,7 +132,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     id: source.projectId,
     root: fixture.workspace,
     source,
-    profile: StudioProfile.Personal,
+    profileDigest: profileDigest(configSchema.parse(exampleConfig)),
     base: "main",
     merge: false,
     verificationReadPaths: [],
@@ -166,7 +167,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       executionSchema.parse({
         id: firstAttempt,
         project: project.id,
-        profile: project.profile,
+        profileDigest: project.profileDigest,
         phase: ExecutionPhase.Uncertain,
         bead: bound,
         message: "Lost claim receipt; ownership lookup found the bead",
