@@ -141,6 +141,7 @@ const supervisorSchema = z.object({
   started: z.string(),
   stop: z.boolean().default(false),
   interactiveDispatch: z.literal(true).optional(),
+  workerSession: z.string().min(1).optional(),
 });
 export type Supervisor = z.infer<typeof supervisorSchema>;
 const allocationOwnerSchema = z.object({

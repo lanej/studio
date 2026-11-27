@@ -4,7 +4,6 @@ import json
 import shlex
 import sqlite3
 import subprocess
-import time
 from pathlib import Path
 from threading import Event
 from urllib.request import Request, urlopen
@@ -214,7 +213,7 @@ class DispatchProvider(Provider):
         return {"role": "assistant", "content": '{"summary":"Wrote the accepted marker at first.txt:1"}'}
 
 
-def exercise_interactive_dispatch(fixture: Fixture, terminal: Terminal, lead: int, tab: int, report: Report) -> None:
+def exercise_interactive_dispatch(fixture: Fixture, terminal: Terminal, lead: int, _tab: int, report: Report) -> None:
     source = fixture.options.beads
 
     def get(path: str) -> dict:
@@ -241,18 +240,12 @@ def exercise_interactive_dispatch(fixture: Fixture, terminal: Terminal, lead: in
     def state() -> dict:
         return json.loads(fixture.execute([fixture.driver, "runtime", "status", "--json"]).stdout)
 
-    def attempt(key: str) -> dict:
-        return next((item for item in state()["attempts"] if item.get("bead", {}).get("id", "").endswith("." + key)), {})
-
     def type_line(pane: int, text: str) -> None:
         terminal.send_to_pane(pane, text)
         terminal.write_to_pane(pane, 13)
 
     def capture(pane: int = lead) -> str:
         return terminal.capture_pane(pane, full=True)
-
-    def no_pane(pane: int) -> bool:
-        return all(item["id"] != pane or item["exited"] for item in terminal.terminals())
 
     def confirm_review(action: str) -> None:
         for _ in range(20):
@@ -301,115 +294,17 @@ def exercise_interactive_dispatch(fixture: Fixture, terminal: Terminal, lead: in
             terminal.until("frozen plan settled", lambda: "The frozen plan is ready for approval." in capture())
             assert discovery()["specification"]["status"] == "frozen"
             type_line(lead, "/plan-approve interactive")
-            terminal.until("review displays verified target", lambda:
-                           f"interactive in Zellij {fixture.name}, tab {tab}" in " ".join(capture().split()))
+            terminal.until("retired mode is rejected", lambda: "Use /plan-approve without a" in capture())
+            assert get("issues")["items"] == []
+            type_line(lead, "/plan-approve")
+            terminal.until("review displays detached worker session placement", lambda:
+                           "Studio-owned Zellij worker session" in " ".join(capture().split()))
             (fixture.artifacts / "interactive-approval.ansi").write_text(terminal.capture_pane(lead, ansi=True))
             assert get("issues")["items"] == []
-            confirm_review("create tasks and implement")
-            terminal.until("first native worker after lost acknowledgement", DispatchProvider.first.is_set)
-            first = attempt("first")
-            pane = first["pane"]
-            assert first["phase"] == "running" and first["workerSessionFile"]
-            assert not attempt("second"), state()
-            assert any(item["id"] == lead and item["is_focused"] for item in terminal.terminals())
-            assert {item["id"] for item in terminal.terminals()} == {lead, pane}
-            assert "Withheld launch acknowledgement" in diagnostics.read_text()
-            type_line(lead, "/tasks " + first["bead"]["id"])
-            terminal.until("task inspector offers existing pane", lambda: "focus worker pane" in capture().lower())
-            worker_labels = ("Worker · standard · off reasoning",
-                             f"Model · {ADMITTED_MODEL.provider}/{ADMITTED_MODEL.id}")
-            terminal.until("task inspector shows the approved worker", lambda:
-                           all(label in capture() for label in worker_labels))
-            view = capture()
-            assert any("╭" in line and "Tasks ·" in line and "╮" in line for line in view.splitlines()), view
-            assert any("╰" in line and "╯" in line for line in view.splitlines()), view
-            (fixture.artifacts / "interactive-task-assignment.ansi").write_text(terminal.capture_pane(lead, ansi=True))
-            terminal.write_to_pane(lead, *b"\x1b[C")  # Right
-            terminal.until("task inspector focuses the worker", lambda:
-                           any(item["id"] == pane and item["is_focused"] for item in terminal.terminals()))
-            type_line(pane, GUIDANCE)
-            terminal.until("guidance queued", lambda: "Steering:" in capture(pane))
-            (fixture.artifacts / "interactive-worker.ansi").write_text(terminal.capture_pane(pane, ansi=True))
-            DispatchProvider.release_first.set()
-            terminal.until("independent review started", DispatchProvider.reviewer.is_set)
-            assert attempt("first")["verification"]["exitCode"] == 0
-            assert not attempt("second")
-            type_line(pane, "Guidance after the worker settled")
-            DispatchProvider.release_reviewer.set()
-            terminal.until("dependent worker starts after integration", DispatchProvider.second.is_set)
-            first = attempt("first")
-            second = attempt("second")
-            assert first["phase"] == "complete" and first["review"] and first["integrationReview"], first
-            assert get("issues/" + first["bead"]["id"])["status"] == "closed"
-            checkout = Path(first["checkout"]["path"])
-            assert (checkout / "first.txt").read_text() == "accepted marker\n"
-            assert not (checkout / "outside.txt").exists()
-            assert not (fixture.options.repository / "first.txt").exists()
-            transcript = Path(first["workerSessionFile"]).read_text()
-            assert transcript.count(GUIDANCE) == 1 and "Guidance after the worker settled" not in transcript
-            assert no_pane(pane)
-            (fixture.artifacts / "interactive-transcript.jsonl").write_text(transcript)
-            # A completed pane cannot receive another turn or steer its independent reader.
-            stale = "Stale guidance for the completed worker"
-            try:
-                terminal.send_to_pane(pane, stale)
-            except subprocess.CalledProcessError as error:
-                assert "pane" in error.stderr.lower(), error.stderr
-            assert stale not in capture(lead)
-            assert Path(first["workerSessionFile"]).read_text() == transcript
-            reviewer_requests = [request for request in DispatchProvider.requests
-                                 if any(tool["function"]["name"] == "review_context"
-                                        for tool in request["tools"])]
-            assert reviewer_requests
-            assert all("Guidance after the worker settled" not in json.dumps(request)
-                       and stale not in json.dumps(request) for request in reviewer_requests)
-
-            def refused_replacement(key: str, retained: dict) -> dict:
-                panes_before = {item["id"] for item in terminal.terminals()}
-                result = fixture.execute(
-                    [fixture.driver, "runtime", "retry", retained["id"]], check=False,
-                )
-                assert {item["id"] for item in terminal.terminals()} == panes_before
-                assert result.returncode != 0, result
-                assert "Interactive attempts retain their original pane binding" in result.stderr, result.stderr
-                current = attempt(key)
-                for field in ("id", "phase", "pane", "launchToken", "checkout", "workerSessionFile"):
-                    assert current.get(field) == retained.get(field), (field, current, retained)
-                matches = [item for item in state()["attempts"]
-                           if item.get("bead", {}).get("id") == retained["bead"]["id"]]
-                assert len(matches) == 1, matches
-                return {"attempt": retained["id"], "phase": retained["phase"],
-                        "exitCode": result.returncode, "reason": result.stderr.strip(),
-                        "sameBinding": True, "attemptCount": len(matches)}
-
-            completed_retry = refused_replacement("first", first)
-            second_pane = second["pane"]
-            fixture.execute([fixture.binary, "--session", fixture.name, "action", "close-pane",
-                             "--pane-id", f"terminal_{second_pane}"])
-            terminal.until("exited worker parked", lambda: attempt("second").get("phase") == "needs-review")
-            parked = attempt("second")
-            assert parked["id"] == second["id"] and parked["launchToken"] == second["launchToken"]
-            assert parked["checkout"] == second["checkout"] and no_pane(second_pane)
-            assert get("issues/" + second["bead"]["id"])["status"] == "in_progress"
-            parked_retry = refused_replacement("second", parked)
-            # Retain the verified result on the fixture's main ref before the manager prunes.
-            fixture.execute(["git", "merge", "--ff-only", first["integration"]])
-            held_id = first["bead"]["id"].rsplit(".", 1)[0] + ".held"
-            assert get("issues/" + held_id)["status"] == "deferred"
-            fixture.execute([fixture.binary, "kill-session", fixture.name])
-            fixture.execute([fixture.options.bd, "--sandbox", "update", held_id, "--status", "open"])
-            terminal.until("released task parks when the Zellij target is gone",
-                           lambda: attempt("held").get("phase") == "needs-review")
-            unavailable = attempt("held")
-            assert "Approved Zellij target unavailable" in unavailable["message"], unavailable
-            assert unavailable.get("launchToken") is None and unavailable.get("checkout") is None
-            assert diagnostics.read_text().count("Withheld launch acknowledgement") == 2
-            report["interactive_dispatch"] = {
-                "first": first, "parked": parked, "unavailable": unavailable, "lostAcknowledgements": 2,
-                "replacementRejections": [completed_retry, parked_retry],
-                "sameTaskSuccessor": "unavailable: supported retry preserves the original interactive binding",
-                "completedPaneInputIsolated": True, "reviewerNotSteered": True,
-            }
+            terminal.write_to_pane(lead, 27)
+            terminal.until("review cancelled", lambda: "Enter create tasks and implement" not in terminal.capture_pane(lead))
+            assert get("issues")["items"] == []
+            report["interactive_dispatch"] = {"retiredModeRejected": True, "cancelledReviewCreatedNoTasks": True}
         except Exception:
             try:
                 for item in terminal.terminals():

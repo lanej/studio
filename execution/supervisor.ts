@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { closeSync, mkdirSync, openSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { configPath, loadConfig } from "../config.ts";
+import { configPath, loadConfig, type StudioConfig } from "../config.ts";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { requireIntegration } from "../integrations.ts";
 import { packageRoot } from "../package-resources.ts";
@@ -18,6 +18,7 @@ import type { RuntimeProject } from "./target.ts";
 import { assertRuntimeProfile, profileDigest } from "./profile.ts";
 import { verifyInteractiveTarget } from "./interactive-target.ts";
 import type { Zellij } from "../zellij.ts";
+import { workerTerminal } from "./worker-terminal.ts";
 
 export type LaunchWorkerPane = (zellij: Zellij, ...args: Parameters<Zellij["launch"]>) => Promise<number>;
 
@@ -101,6 +102,17 @@ export async function maintainAttempt(
 export async function serveRuntime(signal?: AbortSignal, launchWorkerPane?: LaunchWorkerPane): Promise<void> {
   const store = new ExecutionStore();
   const id = randomUUID();
+  const terminalName = `studio-runtime-${id}`;
+  const connectTerminal = workerTerminal(terminalName);
+  const terminal: typeof connectTerminal = async (executable, cwd) => {
+    const target = await connectTerminal(executable, cwd);
+    store.transaction(() => {
+      const owner = store.supervisor();
+      if (owner?.id !== id || owner.stop) throw new Error("Runtime ownership changed before terminal dispatch");
+      if (owner.workerSession !== terminalName) store.setSupervisor({ ...owner, workerSession: terminalName });
+    });
+    return target;
+  };
   const started = await processStart(process.pid);
   const previous = store.supervisor();
   if (previous && (await processMatchesStart(previous.pid, previous.started))) {
@@ -168,7 +180,7 @@ export async function serveRuntime(signal?: AbortSignal, launchWorkerPane?: Laun
               live.some((other) => ownershipConflict(other, attempt) !== undefined)
             )
               continue;
-            if (!attempt.interactive) await launchHost(store, attempt, project);
+            if (!attempt.interactive) await launchHost(store, attempt, project, config, terminalName, terminal);
             else await launchInteractive(store, attempt, project, config.runtime.concurrency, launchWorkerPane);
             live.push(store.attempt(attempt.id));
           }
@@ -300,7 +312,14 @@ async function launchInteractive(
   }
 }
 
-async function launchHost(store: ExecutionStore, attempt: Execution, project: RuntimeProject): Promise<void> {
+async function launchHost(
+  store: ExecutionStore,
+  attempt: Execution,
+  project: RuntimeProject,
+  config: StudioConfig,
+  terminalName: string,
+  terminal: ReturnType<typeof workerTerminal>,
+): Promise<void> {
   if (attempt.bead && interactiveTask(attempt.bead)) {
     await retainClaim(store, new ExecutionBeads(project.source), attempt.id, attempt.bead);
     return;
@@ -309,9 +328,21 @@ async function launchHost(store: ExecutionStore, attempt: Execution, project: Ru
   if (!selection) throw new Error("Runtime lead/control model is not configured");
   const directory = join(store.directory, "runtime-sessions", attempt.id);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
+  let target: Awaited<ReturnType<typeof terminal>> | undefined;
+  if (config.integrations.zellij.enabled) {
+    try {
+      target = await terminal(await requireIntegration(config, "zellij"), project.root);
+    } catch (error) {
+      store.change(attempt.id, (row) => {
+        if (row.phase === ExecutionPhase.Queued && row.launchToken === undefined)
+          row.message = `Studio worker session ${terminalName} unavailable; work remains queued: ${processFailure(error).message}`;
+      });
+      return;
+    }
+  }
   const token = randomUUID();
   const launch = { spawned: false };
-  const capacity = (await loadConfig()).runtime.concurrency;
+  const capacity = config.runtime.concurrency;
   if (
     !store.reserveInference(attempt.id, capacity, (row) => {
       row.launchToken = token;
@@ -319,42 +350,65 @@ async function launchHost(store: ExecutionStore, attempt: Execution, project: Ru
       row.pid = undefined;
       row.started = undefined;
       row.phase = ExecutionPhase.Launching;
-      row.message = "Native control-host launch intent persisted";
+      row.message = target
+        ? `Control-host launch reserved in Zellij ${terminalName}; attach with zellij attach ${terminalName}`
+        : "Native control-host launch intent persisted";
     })
   )
     return;
-  const log = openSync(join(directory, "host.log"), "a", 0o600);
+  const executable = join(packageRoot, "scripts/pi");
+  const args = [
+    "--mode",
+    "rpc",
+    "--offline",
+    "--no-mcp",
+    "--no-extensions",
+    "--extension",
+    join(packageRoot, "execution/host-extension.ts"),
+    "--session-dir",
+    directory,
+    ...(attempt.controllerSession === undefined ? [] : ["--session-id", attempt.controllerSession]),
+    "--model",
+    `${selection.provider}/${selection.model}`,
+    "--thinking",
+    selection.reasoning,
+  ];
+  const binding = {
+    STUDIO_STATE_DIR: store.directory,
+    STUDIO_CONFIG: resolve(configPath()),
+    PI_CODING_AGENT_DIR: resolve(getAgentDir()),
+    STUDIO_RUN_ID: attempt.id,
+    STUDIO_LAUNCH_TOKEN: token,
+  };
+  const log = target ? undefined : openSync(join(directory, "host.log"), "a", 0o600);
   try {
-    const child = spawn(
-      join(packageRoot, "scripts/pi"),
-      [
-        "--mode",
-        "rpc",
-        "--offline",
-        "--no-mcp",
-        "--no-extensions",
-        "--extension",
-        join(packageRoot, "execution/host-extension.ts"),
-        "--session-dir",
-        directory,
-        ...(attempt.controllerSession === undefined ? [] : ["--session-id", attempt.controllerSession]),
-        "--model",
-        `${selection.provider}/${selection.model}`,
-        "--thinking",
-        selection.reasoning,
-      ],
-      {
-        cwd: project.root,
-        env: {
-          ...process.env,
-          STUDIO_RUN_ID: attempt.id,
-          STUDIO_LAUNCH_TOKEN: token,
-          STUDIO_ATTEMPT: undefined,
-        },
-        stdio: ["ignore", log, log],
-        detached: true,
+    if (target) {
+      // The pane's process registers the same launch token and PID itself. An uncertain
+      // acknowledgement must retain the writer fence, just as an uncertain spawn does.
+      launch.spawned = true;
+      await target.zellij.launch(target.tab, attempt.bead?.title ?? attempt.id, project.root, [
+        "-u",
+        "STUDIO_ATTEMPT",
+        ...Object.entries(binding).map(([key, value]) => `${key}=${value}`),
+        "/bin/sh",
+        "-c",
+        'exec "$@" </dev/null',
+        "studio-control-host",
+        executable,
+        ...args,
+      ]);
+      return;
+    }
+    const child = spawn(executable, args, {
+      cwd: project.root,
+      env: {
+        ...process.env,
+        ...binding,
+        STUDIO_ATTEMPT: undefined,
       },
-    );
+      stdio: ["ignore", log ?? "ignore", log ?? "ignore"],
+      detached: true,
+    });
     await new Promise<void>((resolve, reject) => {
       child.once("spawn", resolve);
       child.once("error", reject);
@@ -377,6 +431,6 @@ async function launchHost(store: ExecutionStore, attempt: Execution, project: Ru
       row.message = processFailure(error).message;
     });
   } finally {
-    closeSync(log);
+    if (log !== undefined) closeSync(log);
   }
 }
