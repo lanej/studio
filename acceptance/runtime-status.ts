@@ -149,9 +149,9 @@ export async function checkRuntimeStatus(fixture: NativeBeads, source: BeadsHttp
   };
   try {
     await see("Completed");
-    await capture("runtime-dashboard");
     send("\r");
-    await see(title);
+    await see(id);
+    await capture("runtime-dashboard");
     send("j\r");
     await see("Status matrix");
     await see(`${id} · ${title}`);
