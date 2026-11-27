@@ -121,7 +121,8 @@ export function installFooter(
         const level = z.enum(ReasoningLevel).safeParse(reasoning());
         const effort = ctx.model?.reasoning === true && level.success ? reasoningGlyph[level.data] : undefined;
         const inner = width - 2;
-        const marker = git.linked === true ? "▣" : "▸";
+        const isSage = theme.name === sage.name;
+        const marker = git.linked === true ? "▣" : isSage ? "❯" : "▸";
         const pathWidth = visibleWidth(`${marker} ${directory}`);
         const minimumPath = Math.min(pathWidth, inner - 1, Math.max(8, Math.floor(inner / 4)));
         const modelBudget = Math.max(0, inner - minimumPath - 1);
@@ -176,13 +177,20 @@ export function installFooter(
               : truncateToWidth(`${marker} ${directory}`, pathRoom);
         const leftLine = [theme.fg("text", pathLabel), left].filter((part) => part !== "").join(separator);
         const gap = " ".repeat(Math.max(0, inner - visibleWidth(leftLine + right)));
-        if (theme.name !== sage.name) return [theme.bg("userMessageBg", ` ${leftLine}${gap}${right} `)];
+        if (!isSage) return [theme.bg("userMessageBg", ` ${leftLine}${gap}${right} `)];
         if (visibleWidth(right) === 0) {
           return [theme.style(` ${leftLine}${gap} `, { bg: sageFooter.background })];
         }
         const identity = theme.style(` ${leftLine}${gap.slice(1)}`, { bg: sageFooter.background });
-        const modelStatus = theme.style(`${gap.slice(0, 1)}${right} `, { bg: sageFooter.modelBackground });
-        return [identity + modelStatus];
+        const transition =
+          gap === ""
+            ? ""
+            : theme.style("\uE0B2", {
+                fg: sageFooter.modelBackground,
+                bg: sageFooter.background,
+              });
+        const modelStatus = theme.style(`${right} `, { bg: sageFooter.modelBackground });
+        return [identity + transition + modelStatus];
       },
     };
   });
