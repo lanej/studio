@@ -7,10 +7,12 @@ import {
   foregroundAnsi,
   indexedColor,
   parseColor,
+  visibleWidth,
   type TerminalColorMode,
 } from "@earendil-works/pi-tui";
 import palette from "../resources/colors.json" with { type: "json" };
 import sage from "../resources/sage-midnight.json" with { type: "json" };
+import sageSymbols from "../resources/sage-statusline.json" with { type: "json" };
 import theme from "../resources/theme.json" with { type: "json" };
 import { planGraphColor } from "../plan-graph.ts";
 
@@ -152,4 +154,17 @@ await test("Sage footer and model status stay distinct and readable in both term
       }
     }
   }
+});
+
+await test("Studio status line symbols occupy one terminal cell", () => {
+  for (const [name, glyph] of Object.entries(sageSymbols)) assert.equal(visibleWidth(glyph), 1, name);
+  const marks = [
+    sageSymbols.branch,
+    sageSymbols.changedFiles,
+    sageSymbols.addedLines,
+    sageSymbols.removedLines,
+    sageSymbols.untrackedFiles,
+    sageSymbols.pullRequest,
+  ];
+  assert.equal(new Set(marks).size, marks.length);
 });

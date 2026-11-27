@@ -1,6 +1,6 @@
 import { hyperlink } from "@earendil-works/pi-tui";
 
-export function githubLink(destination: string, compact = false): string | undefined {
+export function githubLink(destination: string, compact = false, pullRequestGlyph = ""): string | undefined {
   if (/[\p{Cc}\s\\]/u.test(destination)) return undefined;
   const url = URL.parse(destination);
   if (url === null || url.origin !== "https://github.com" || url.username !== "" || url.password !== "")
@@ -10,7 +10,7 @@ export function githubLink(destination: string, compact = false): string | undef
     return undefined;
   const name = `${owner}/${repo}`;
   if ((route === "pull" || route === "issues") && subject !== undefined && /^[1-9]\d*$/u.test(subject))
-    return hyperlink(`${route === "pull" ? "" : "!"} ${compact ? "" : name}#${subject}`, url.href);
+    return hyperlink(`${route === "pull" ? pullRequestGlyph : "!"} ${compact ? "" : name}#${subject}`, url.href);
   if (route === "commit" && subject !== undefined && /^[a-f0-9]{7,64}$/u.test(subject))
     return hyperlink(`● ${name}@${subject.slice(0, 12)}`, url.href);
   if (route === "blob" && subject !== undefined && path.length > 0) {
