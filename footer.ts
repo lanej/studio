@@ -9,6 +9,7 @@ import { githubLink } from "./github-links.ts";
 import { LeadMode } from "./planning/plan.ts";
 import { run } from "./process.ts";
 import sage from "./resources/sage-midnight.json" with { type: "json" };
+import sageSymbols from "./resources/sage-statusline.json" with { type: "json" };
 import { FooterStatus, isEntry, isMessageRole, PiEntryType, PiMessageRole } from "./runtime.ts";
 
 const clean = (value: string) => value.replace(/\p{Cc}/gu, " ").trim();
@@ -18,13 +19,29 @@ const sageFooter = {
   directoryBackground: parseColor(sage.vars.footerDirectoryBg),
   modelBackground: parseColor(sage.vars.footerModelBg),
 };
+const defaultSymbols: typeof sageSymbols = {
+  directory: "▸",
+  linkedWorktree: "▣",
+  branch: "↱",
+  changedFiles: "Δ",
+  addedLines: "+",
+  removedLines: "−",
+  untrackedFiles: "?",
+  pullRequest: "",
+  contextUsage: "◔",
+  directoryDivider: "\uE0B0",
+  modelDivider: "\uE0B2",
+  planning: "◇",
+  applying: "◐",
+  implementing: "◆",
+};
 const primaryStatus = new Set<string>([FooterStatus.Bead, FooterStatus.Plan]);
 
 const modeGlyph = {
-  [LeadMode.Planning]: ["◇", "warning"],
-  [LeadMode.Applying]: ["◐", "warning"],
-  [LeadMode.Implementing]: ["◆", "accent"],
-} satisfies Record<LeadMode, [string, ThemeColor]>;
+  [LeadMode.Planning]: ["planning", "warning"],
+  [LeadMode.Applying]: ["applying", "warning"],
+  [LeadMode.Implementing]: ["implementing", "accent"],
+} satisfies Record<LeadMode, [keyof typeof sageSymbols, ThemeColor]>;
 
 const reasoningGlyph = {
   [ReasoningLevel.Off]: ["", "dim"],
@@ -123,7 +140,8 @@ export function installFooter(
         const effort = ctx.model?.reasoning === true && level.success ? reasoningGlyph[level.data] : undefined;
         const inner = width - 2;
         const isSage = theme.name === sage.name;
-        const marker = git.linked === true ? "▣" : isSage ? "❯" : "▸";
+        const symbols = isSage ? sageSymbols : defaultSymbols;
+        const marker = git.linked === true ? symbols.linkedWorktree : symbols.directory;
         const pathWidth = visibleWidth(`${marker} ${directory}`);
         const minimumPath = Math.min(pathWidth, inner - 1, Math.max(8, Math.floor(inner / 4)));
         const modelBudget = Math.max(0, inner - minimumPath - 1);
@@ -136,19 +154,25 @@ export function installFooter(
           return value;
         };
 
-        const context = fit(usage > 0 ? theme.fg("muted", `◔${Math.round(usage).toString()}%`) : "");
+        const context = fit(
+          usage > 0 ? theme.fg("muted", `${symbols.contextUsage}${Math.round(usage).toString()}%`) : "",
+        );
         const price = fit(cost > 0 ? theme.fg("muted", cost < 0.01 ? "<$0.01" : `~$${cost.toFixed(2)}`) : "");
         const pr = fit(
-          git.pullRequest === undefined ? "" : theme.fg("accent", githubLink(git.pullRequest, true) ?? ""),
+          git.pullRequest === undefined
+            ? ""
+            : theme.fg("accent", githubLink(git.pullRequest, true, symbols.pullRequest) ?? ""),
         );
         const counts = git.changes;
         const stats = !counts
           ? ""
           : [
-              counts.files > 0 ? theme.fg("muted", `Δ${counts.files.toString()}`) : "",
-              counts.added > 0 ? theme.fg("success", `+${counts.added.toString()}`) : "",
-              counts.removed > 0 ? theme.fg("error", `−${counts.removed.toString()}`) : "",
-              counts.untracked > 0 ? theme.fg("warning", `?${counts.untracked.toString()}`) : "",
+              counts.files > 0 ? theme.fg("muted", `${symbols.changedFiles}${counts.files.toString()}`) : "",
+              counts.added > 0 ? theme.fg("success", `${symbols.addedLines}${counts.added.toString()}`) : "",
+              counts.removed > 0 ? theme.fg("error", `${symbols.removedLines}${counts.removed.toString()}`) : "",
+              counts.untracked > 0
+                ? theme.fg("warning", `${symbols.untrackedFiles}${counts.untracked.toString()}`)
+                : "",
             ]
               .filter((part) => part !== "")
               .join(" ");
@@ -157,11 +181,11 @@ export function installFooter(
         const task = fit(
           bead === ""
             ? ""
-            : [!mode ? "" : theme.fg(mode[1], mode[0]), theme.bold(theme.fg("text", bead))]
+            : [!mode ? "" : theme.fg(mode[1], symbols[mode[0]]), theme.bold(theme.fg("text", bead))]
                 .filter((part) => part !== "")
                 .join(" "),
         );
-        const branchLabel = fit(branch === "" ? "" : theme.fg("muted", `↱ ${branch}`));
+        const branchLabel = fit(branch === "" ? "" : theme.fg("muted", `${symbols.branch} ${branch}`));
         const secondary = [...statuses].flatMap(([key, value]) =>
           primaryStatus.has(key) || value.trim() === "" ? [] : [fit(value)],
         );
@@ -190,11 +214,11 @@ export function installFooter(
           bg: showDirectoryDivider ? sageFooter.directoryBackground : sageFooter.background,
         });
         const directoryDivider = showDirectoryDivider
-          ? theme.style("\uE0B0", { fg: sageFooter.directoryBackground, bg: sageFooter.background })
+          ? theme.style(symbols.directoryDivider, { fg: sageFooter.directoryBackground, bg: sageFooter.background })
           : "";
         const metadataStatus = theme.style(showModelDivider ? body.slice(0, -1) : body, { bg: sageFooter.background });
         const modelDivider = showModelDivider
-          ? theme.style("\uE0B2", { fg: sageFooter.modelBackground, bg: sageFooter.background })
+          ? theme.style(symbols.modelDivider, { fg: sageFooter.modelBackground, bg: sageFooter.background })
           : "";
         const modelStatus = theme.style(`${right} `, {
           bg: hasModel ? sageFooter.modelBackground : sageFooter.background,
