@@ -109,6 +109,7 @@ export function registerRuntimeCommands(program: Command): void {
             id: project.id,
             root: project.root,
             profile: project.profile,
+            profileDigest: project.profileDigest,
             mergePolicy: await mergePolicy(project.id),
           })),
         );

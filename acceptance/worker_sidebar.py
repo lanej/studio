@@ -56,7 +56,7 @@ const tasks = Object.entries(titles).map(([key,title]) => ({
   blockedBy: key === 'base' ? [] : [parents[key] ?? 'base'], owns:[key+'.ts'], requirements:['R1'],
 }));
 const graph = draftSchema.parse({summary:'Preserve the lead draft across graph navigation.', tasks});
-const target = runtimeProjectSchema.parse({root:project, source:authority, profile:'personal', base:'main', beadsWorkspace:project, beadsDatabase:'fixture'});
+const target = runtimeProjectSchema.parse({root:project, source:authority, base:'main', beadsWorkspace:project, beadsDatabase:'fixture'});
 const linked = discoveries.change(record.id, row => {
   row.specification = {status:'frozen',version:1,acceptedRevision:row.revision,draft:JSON.parse(draftJson)};
   row.specification.coverageRevision = coverageToken(row.specification);

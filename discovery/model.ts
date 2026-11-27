@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { runtimeProjectSchema } from "../config.ts";
+import { projectSchema } from "../execution/target.ts";
 import { leadPlanSchema, planWorkersSchema } from "../planning/plan.ts";
 import { specRecord } from "../socrates/spec.ts";
 
@@ -26,12 +26,7 @@ export const discoverySchema = z.object({
       phase: z.enum(HandoffPhase),
       workers: planWorkersSchema.optional(),
       owner: z.object({ pid: z.number().int().positive(), started: z.string() }).optional(),
-      target: runtimeProjectSchema
-        .extend({ id: z.uuid() })
-        .refine(
-          (project) => project.id === project.source.projectId,
-          "Handoff project authority differs from its configured source",
-        ),
+      target: projectSchema,
     })
     .optional(),
   approved: z.string().optional(),

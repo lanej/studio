@@ -4,10 +4,7 @@ import { access, realpath, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { processFailure } from "./process.ts";
-import type { StudioProfile } from "./config.ts";
 import { PiMode, piModeSchema } from "./runtime.ts";
-
-export const directoryProfileType = "studio:directory-profile";
 
 async function destination(argument: string, cwd: string): Promise<string> {
   let path = argument.trim();
@@ -21,11 +18,7 @@ async function destination(argument: string, cwd: string): Promise<string> {
   return target;
 }
 
-export function registerDirectory(
-  pi: ExtensionAPI,
-  hasChildWork: (sessionId: string) => boolean,
-  selectedProfile: () => StudioProfile | undefined = () => undefined,
-): void {
+export function registerDirectory(pi: ExtensionAPI, hasChildWork: (sessionId: string) => boolean): void {
   const blocked = (ctx: ExtensionCommandContext): string | undefined => {
     if (process.env["STUDIO_ATTEMPT"] !== undefined) return "Managed tasks stay in their assigned checkout.";
     if (piModeSchema.parse(ctx.mode) !== PiMode.Tui) return "Use /cd in an interactive Pi terminal.";
@@ -76,7 +69,6 @@ export function registerDirectory(
           `Working directory changed from ${ctx.cwd} to ${target}.`,
           false,
         );
-        manager.appendCustomEntry(directoryProfileType, selectedProfile() ?? null);
         await writeFile(
           file,
           `${[manager.getHeader(), ...manager.getEntries()].map((entry) => JSON.stringify(entry)).join("\n")}\n`,

@@ -77,7 +77,6 @@ async function manualDelivery(t: TestContext) {
   const project = runtimeProjectSchema.parse({
     root,
     source: { url: `http://127.0.0.1:${String(address.port)}`, projectId },
-    profile: "personal",
     base: "main",
     beadsWorkspace: root,
     beadsDatabase: "fixture",

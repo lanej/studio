@@ -5,13 +5,19 @@ import { join } from "node:path";
 import { z } from "zod";
 import { knownTaskStatus, TaskStatus, type Task, type TaskReview } from "../beads.ts";
 import { stateDirectory } from "../attempts.ts";
-import { studioProfileSchema, selection } from "../config.ts";
+import { selection } from "../config.ts";
 import { verificationSchema, beadSchema, owner } from "../task-service.ts";
 import { sha } from "../delivery-record.ts";
 import { worktreeReservation, worktreeAllocation } from "../vendor/task-runtime/worktree-contracts.ts";
 import { ExecutionPhase } from "./phase.ts";
 import { storedHandoffIntentSchema, type HandoffIntent, type RetainedHandoffIntent } from "./handoff-model.ts";
-import { interactiveTargetSchema, projectSchema, storedProjectSchema, type RuntimeProject } from "./target.ts";
+import {
+  executionProfileFields,
+  interactiveTargetSchema,
+  projectSchema,
+  storedProjectSchema,
+  type RuntimeProject,
+} from "./target.ts";
 
 export { ExecutionPhase } from "./phase.ts";
 
@@ -38,7 +44,7 @@ export type OperatorDecision = z.infer<typeof operatorDecisionSchema>;
 export const executionSchema = z.object({
   id: z.uuid(),
   project: z.uuid(),
-  profile: studioProfileSchema,
+  ...executionProfileFields,
   controller: selection.optional(),
   phase: z.enum(ExecutionPhase),
   bead: beadSchema.optional(),

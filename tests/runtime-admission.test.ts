@@ -209,7 +209,6 @@ await test("unattended admission skips interactive children before claim and fen
       ...runtimeProjectSchema.parse({
         root: directory,
         source,
-        profile: StudioProfile.Personal,
         base: "main",
         beadsWorkspace: directory,
         beadsDatabase: "fixture",

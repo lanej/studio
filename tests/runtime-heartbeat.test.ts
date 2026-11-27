@@ -29,7 +29,6 @@ await test("supervisor lease maintenance preserves completion and new owners acr
     ...runtimeProjectSchema.parse({
       root: directory,
       source: { url: "http://127.0.0.1:9", projectId },
-      profile: StudioProfile.Personal,
       base: "main",
       beadsWorkspace: directory,
       beadsDatabase: "fixture",

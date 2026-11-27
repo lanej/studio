@@ -1,20 +1,26 @@
 import { z } from "zod";
-import { runtimeProjectSchema } from "../config.ts";
+import { runtimeProjectSchema, studioProfileSchema } from "../config.ts";
 
-export const projectSchema = runtimeProjectSchema
-  .extend({ id: z.uuid() })
-  .refine(
-    (project) => project.id === project.source.projectId,
-    "Runtime project identity differs from its Beads source",
-  );
+export const executionProfileFields = {
+  profile: studioProfileSchema,
+  profileDigest: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/u)
+    .optional(),
+};
+const targetSchema = runtimeProjectSchema.extend({ id: z.uuid(), ...executionProfileFields });
+export const projectSchema = targetSchema.refine(
+  (project) => project.id === project.source.projectId,
+  "Runtime project identity differs from its Beads source",
+);
 export type RuntimeProject = z.infer<typeof projectSchema>;
 
 /**
  * Legacy runtime records may contain claimLabel from earlier releases.
  * Preserve the legacy claim scope so it still differs from any current enrollment.
  */
-export const storedProjectSchema = runtimeProjectSchema
-  .extend({ id: z.uuid(), claimLabel: z.string().min(1).optional() })
+export const storedProjectSchema = targetSchema
+  .extend({ claimLabel: z.string().min(1).optional() })
   .refine(
     (project) => project.id === project.source.projectId,
     "Runtime project identity differs from its Beads source",

@@ -2,7 +2,6 @@ import { BeadsError, type components } from "@lanej/task-runtime/beads";
 import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { TaskBeads, ClaimRefused, owner, type NativeBead } from "../task-service.ts";
-import type { StudioProfile } from "../config.ts";
 import { orderedTasks, type LeadDraft, type PlanWorkers } from "../planning/plan.ts";
 import { run } from "../process.ts";
 import type { RuntimeProject } from "./target.ts";
@@ -175,7 +174,6 @@ export class ExecutionBeads extends TaskBeads {
     title: string,
     draft: LeadDraft,
     ids: Record<string, string>,
-    profile?: StudioProfile,
     interactive = false,
     workers?: PlanWorkers,
   ): Promise<Record<string, string>> {
@@ -210,7 +208,7 @@ export class ExecutionBeads extends TaskBeads {
       const worker = workers?.[task.key];
       if (
         (task.assignment === undefined) !== (worker === undefined) ||
-        (task.assignment && (profile === undefined || worker?.reasoning !== task.assignment.reasoning))
+        (task.assignment && worker?.reasoning !== task.assignment.reasoning)
       )
         throw new Error(`Task ${task.key} needs its approved worker selection`);
       items.push(
@@ -232,7 +230,6 @@ export class ExecutionBeads extends TaskBeads {
               "studio.task": task,
               ...(!worker ? {} : { "studio.worker": worker }),
               ...mergePolicy,
-              ...(profile === undefined ? {} : { "studio.profile": profile }),
               ...(interactive ? { "studio.interactive": true, "studio.graph": id } : {}),
               "studio.root": root,
             },

@@ -9,7 +9,6 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { Type } from "typebox";
 import { z } from "zod";
-import { exampleConfig } from "../config.ts";
 import { mantleModels } from "../pi-models.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -202,8 +201,7 @@ try {
     assert.equal(model.maxTokens, original.maxTokens);
     assert.equal(model.reasoning, original.reasoning);
   }
-  for (const selection of Object.values(exampleConfig.profiles.work))
-    assert.ok(runtime.getModel(selection.provider, selection.model) !== undefined);
+  assert.ok(runtime.getModel("bedrock-mantle", "openai.gpt-6.1-sol") !== undefined);
   assert.equal(runtime.getModel("amazon-bedrock", "us.openai.gpt-6.1-sol")?.api, "bedrock-converse-stream");
   assert.equal(await readFile(join(agent, "models-store.json"), "utf8"), cache);
   const envOutput = await driver("config", "--pi-models", catalogPath);

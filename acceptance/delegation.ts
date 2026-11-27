@@ -7,7 +7,7 @@ import { delimiter, dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { AgentRole, DefaultProvider, StudioProfile, ReasoningLevel } from "../config.ts";
+import { AgentRole, DefaultProvider, ReasoningLevel } from "../config.ts";
 import { run } from "../process.ts";
 import { coldReadInstructions } from "../review-contract.ts";
 import { PiEvent } from "../runtime.ts";
@@ -226,18 +226,16 @@ process.exit(lose ? 1 : (result.status ?? 1));
       config,
       JSON.stringify({
         integrations: { worktrees: { enabled: true } },
-        profiles: {
-          [StudioProfile.Personal]: Object.fromEntries(
-            Object.values(AgentRole).map((model) => [
+        profile: Object.fromEntries(
+          Object.values(AgentRole).map((model) => [
+            model,
+            {
+              provider: DefaultProvider.ChatGPTSubscription,
               model,
-              {
-                provider: DefaultProvider.ChatGPTSubscription,
-                model,
-                reasoning: efforts[model],
-              },
-            ]),
-          ),
-        },
+              reasoning: efforts[model],
+            },
+          ]),
+        ),
       }),
     );
 
@@ -284,7 +282,7 @@ process.exit(lose ? 1 : (result.status ?? 1));
       assert.equal(response.success, true, JSON.stringify(response));
     };
     try {
-      await rpc("profile", RpcCommand.Prompt, "/studio-profile personal");
+      await rpc("profile", RpcCommand.Prompt, "/studio-profile");
       await rpc(
         "lead",
         RpcCommand.Prompt,

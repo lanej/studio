@@ -18,7 +18,7 @@ import { registerDiscovery } from "../discovery/extension.ts";
 import { HandoffPhase } from "../discovery/model.ts";
 import { handoffDraft } from "../discovery/plan.ts";
 import { Discoveries } from "../discovery/store.ts";
-import { exampleConfig, ModelCapability, ReasoningLevel, runtimeProjectSchema, StudioProfile } from "../config.ts";
+import { exampleConfig, ModelCapability, ReasoningLevel, runtimeProjectSchema } from "../config.ts";
 import { randomUUID } from "node:crypto";
 import { registerPlanningDocuments, getPlanningDocuments } from "../planning/documents.ts";
 import { DocumentKind } from "../planning/model.ts";
@@ -54,7 +54,6 @@ async function discoveryFixture(t: TestContext) {
   const target = runtimeProjectSchema.parse({
     root: project,
     source: { url: "http://127.0.0.1:9", projectId: authority },
-    profile: StudioProfile.Personal,
     base: "main",
     beadsWorkspace: project,
     beadsDatabase: "fixture",
@@ -64,7 +63,7 @@ async function discoveryFixture(t: TestContext) {
     config,
     JSON.stringify({
       runtime: { enabled: true, projects: [target] },
-      profiles: exampleConfig.profiles,
+      profile: exampleConfig.profile,
       integrations: {
         worktrees: {
           enabled: true,
@@ -108,7 +107,7 @@ async function discoveryLead(
       (pi) => {
         ownAuthority(registerPlanningDocuments(pi));
         api = pi;
-        const selected = registerDiscovery(pi, () => StudioProfile.Personal);
+        const selected = registerDiscovery(pi);
         discovery = selected;
         registerProjectPolicy(pi, (ctx) => selected.runtimeHandoff(ctx)?.target);
       },

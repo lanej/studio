@@ -1,3 +1,4 @@
+import { runtimeModelAllowed } from "./execution/profile.ts";
 import { integrationStatus, requireIntegration } from "./integrations.ts";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -6,7 +7,7 @@ import { isAbsolute, join } from "node:path";
 import type { AgentSession, ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { z } from "zod";
-import { AgentRole, DefaultProvider, StudioProfile, knownProvider, loadConfig, ReasoningLevel } from "./config.ts";
+import { AgentRole, type ModelSelection, loadConfig, ReasoningLevel } from "./config.ts";
 import { processFailure, run } from "./process.ts";
 
 export const delegateTool = "studio_delegate";
@@ -226,9 +227,9 @@ const queryInput = z.object({ query: z.string().min(1).max(512) });
 const pathInput = z.object({ path: z.string().min(1).max(4096) });
 const delegateInput = z.object({ role: roleSchema, brief: z.string().trim().min(1).max(8000) }).strict();
 
-export function registerDelegation(pi: ExtensionAPI, profile: () => StudioProfile | undefined, onChange: () => void) {
+export function registerDelegation(pi: ExtensionAPI, onChange: () => void) {
   const active = new Map<string, AbortController>();
-  let enabled = false;
+  let leadModel: ModelSelection | undefined;
 
   const sessionBlocker = (ctx: ExtensionContext): string | undefined => {
     if (ctx.sessionManager.getSessionFile() === undefined) return "Delegation requires a persistent lead session";
@@ -238,22 +239,29 @@ export function registerDelegation(pi: ExtensionAPI, profile: () => StudioProfil
   };
   const syncTool = (ctx: ExtensionContext) => {
     const tools = pi.getActiveTools();
-    const available = enabled && profile() !== undefined && sessionBlocker(ctx) === undefined;
+    const available =
+      leadModel !== undefined &&
+      ctx.model?.provider === leadModel.provider &&
+      ctx.model.id === leadModel.model &&
+      sessionBlocker(ctx) === undefined;
     if (tools.includes(delegateTool) !== available)
       pi.setActiveTools(available ? [...tools, delegateTool] : tools.filter((name) => name !== delegateTool));
     return available;
   };
 
-  pi.on("session_start", async (_event, ctx) => {
-    enabled = false;
+  const refresh = async (ctx: ExtensionContext) => {
+    leadModel = undefined;
     syncTool(ctx);
     try {
       const config = await loadConfig();
-      enabled = config.delegation.enabled && (await integrationStatus(config, "worktrees")).available;
+      if (config.profile && config.delegation.enabled && (await integrationStatus(config, "worktrees")).available)
+        leadModel = config.profile.lead;
     } catch {
       // The driver's session initializer reports configuration errors.
     }
-  });
+    syncTool(ctx);
+  };
+  pi.on("session_start", async (_event, ctx) => refresh(ctx));
   pi.on("before_agent_start", (event, ctx) => {
     const available = pi.getActiveTools().includes(delegateTool) && syncTool(ctx);
     const guidance = available
@@ -289,19 +297,18 @@ export function registerDelegation(pi: ExtensionAPI, profile: () => StudioProfil
       const { role, brief } = delegateInput.parse(params);
       const config = await loadConfig();
       const managerExecutable = await requireIntegration(config, "worktrees");
-      const selected = profile();
-      const roles = selected === undefined ? undefined : config.profiles[selected];
+      const roles = config.profile;
       const settings = roles?.[role];
       const lead = roles?.[AgentRole.Lead];
       if (
-        !enabled ||
+        !leadModel ||
         !config.delegation.enabled ||
         !settings ||
         !lead ||
         ctx.model?.provider !== lead.provider ||
         ctx.model.id !== lead.model
       )
-        throw new Error("Select an explicit driver profile with delegation enabled");
+        throw new Error("Use the global Studio lead model with delegation enabled");
       const blocker = sessionBlocker(ctx);
       if (blocker !== undefined) throw new Error(blocker);
       const model = ctx.modelRegistry.find(settings.provider, settings.model);
@@ -309,12 +316,9 @@ export function registerDelegation(pi: ExtensionAPI, profile: () => StudioProfil
         model?.provider !== settings.provider ||
         model.id !== settings.model ||
         !ctx.modelRegistry.hasConfiguredAuth(model) ||
-        (selected === StudioProfile.Personal &&
-          knownProvider(model.provider) !== DefaultProvider.ChatGPTSubscription) ||
-        (selected === StudioProfile.Work &&
-          !/^https:\/\/bedrock-mantle\.[a-z0-9-]+\.api\.aws(?:\/|$)/.test(model.baseUrl))
+        !runtimeModelAllowed(undefined, model)
       )
-        throw new Error("The configured role model is unavailable in the selected profile");
+        throw new Error("The configured role model is unavailable in the global Studio profile");
       const parent = ctx.sessionManager.getSessionId();
       if (
         active.size >= 2 ||
@@ -426,5 +430,6 @@ export function registerDelegation(pi: ExtensionAPI, profile: () => StudioProfil
       }
     },
     syncTool,
+    refresh,
   };
 }

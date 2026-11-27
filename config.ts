@@ -6,11 +6,12 @@ import { extname, isAbsolute, join } from "node:path";
 import { z } from "zod";
 import { defaultPaneKeybindings, paneKeybindingsSchema } from "./pane-keybindings-config.ts";
 
+/** Provider restrictions on attempts written before the global profile. */
 export enum StudioProfile {
   Work = "work",
   Personal = "personal",
 }
-export const studioProfileSchema = z.enum(StudioProfile);
+export const studioProfileSchema = z.enum(StudioProfile).optional();
 
 export enum AgentRole {
   Lead = "lead",
@@ -39,8 +40,7 @@ export enum ModelCapability {
 }
 
 export function knownProvider(value: string): DefaultProvider | undefined {
-  const parsed = z.enum(DefaultProvider).safeParse(value);
-  return parsed.success ? parsed.data : undefined;
+  return z.enum(DefaultProvider).safeParse(value).data;
 }
 
 const modelIdentity = z.strictObject({
@@ -96,7 +96,6 @@ export const runtimeProjectSchema = z
   .object({
     root: z.string().refine(isAbsolute),
     source: serviceSchema,
-    profile: studioProfileSchema,
     base: z.string().min(1),
     merge: z.boolean().default(false),
     beadsWorkspace: z.string().refine(isAbsolute),
@@ -184,16 +183,15 @@ export const configSchema = z
       })
       .strict()
       .optional(),
-    profiles: z
-      .object({
-        [StudioProfile.Work]: profile.optional(),
-        [StudioProfile.Personal]: profile.optional(),
-      })
-      .strict()
-      .default({}),
+    profile: profile.optional(),
   })
   .strict();
 export type StudioConfig = z.infer<typeof configSchema>;
+
+export function requireProfile(config: StudioConfig): NonNullable<StudioConfig["profile"]> {
+  if (!config.profile) throw new Error("Configure the global Studio profile; see studio config --example");
+  return config.profile;
+}
 
 export function workerForTask(roles: z.infer<typeof profile>, assignment?: TaskAssignment): ModelSelection {
   if (!assignment) return roles.worker;
@@ -223,6 +221,22 @@ export async function loadConfig(path = configPath()): Promise<StudioConfig> {
       process.env["STUDIO_CONFIG"] === undefined
     ) {
       return configSchema.parse({});
+    }
+    if (
+      error instanceof z.ZodError &&
+      error.issues.some((issue) => {
+        if (issue.code !== "unrecognized_keys") return false;
+        const { path } = issue;
+        return (
+          (path.length === 0 && issue.keys.includes("profiles")) ||
+          (path[0] === "runtime" && path[1] === "projects" && path.length === 3 && issue.keys.includes("profile"))
+        );
+      })
+    ) {
+      throw new Error(
+        `Cannot load Studio configuration ${path}: Move your model settings into the global profile and remove profiles and runtime.projects[].profile. See studio config --example.`,
+        { cause: error },
+      );
     }
     throw new Error(
       `Cannot load Studio configuration ${path}: ${error instanceof Error ? error.message : String(error)}`,
@@ -273,8 +287,5 @@ export const exampleConfig = {
     url: "http://127.0.0.1:8790",
     projectId: "11111111-1111-4111-8111-111111111111",
   },
-  profiles: {
-    [StudioProfile.Work]: roles(DefaultProvider.BedrockMantle, "openai.gpt-6.1-sol"),
-    [StudioProfile.Personal]: roles(DefaultProvider.ChatGPTSubscription, "gpt-6.1-sol"),
-  },
+  profile: roles(DefaultProvider.ChatGPTSubscription, "gpt-6.1-sol"),
 };

@@ -65,7 +65,6 @@ pollMs = 5000
 
 # [[runtime.projects]]
 # root = "/absolute/path/to/project"
-# profile = "personal"
 # base = "origin/main"
 # merge = false
 # beadsWorkspace = "/absolute/path/to/beads-workspace"
@@ -77,11 +76,29 @@ pollMs = 5000
 # projectId = "00000000-0000-4000-8000-000000000001"
 # tokenFile = "/absolute/path/to/token"
 
-# Optional worker capabilities for a configured profile. Standard uses that
-# profile's worker model. Each task sets its own reasoning level.
-# [profiles.personal.workerModels.fast]
+# One optional global model configuration for all checkouts. Uncomment the
+# four role tables together; choose each role's provider independently.
+# [profile.lead]
+# provider = "openai-codex"
+# model = "gpt-6.1-sol"
+# reasoning = "high"
+# [profile.worker]
+# provider = "bedrock-mantle"
+# model = "openai.gpt-6.1-sol"
+# reasoning = "medium"
+# [profile.reviewer]
+# provider = "openai-codex"
+# model = "gpt-6.1-sol"
+# reasoning = "medium"
+# [profile.explorer]
+# provider = "openai-codex"
+# model = "gpt-6.1-sol"
+# reasoning = "low"
+
+# Optional worker capabilities. Standard uses profile.worker.
+# [profile.workerModels.fast]
 # provider = "openai-codex"
 # model = "your-fast-model"
-# [profiles.personal.workerModels.advanced]
-# provider = "openai-codex"
+# [profile.workerModels.advanced]
+# provider = "bedrock-mantle"
 # model = "your-advanced-model"

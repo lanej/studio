@@ -94,7 +94,6 @@ await test("the task source exposes recovery actions only for the exact enrolled
   const target = runtimeProjectSchema.parse({
     root: "/fixture/enrolled-project",
     source,
-    profile: StudioProfile.Personal,
     base: "main",
     beadsWorkspace: "/fixture/enrolled-project",
     beadsDatabase: "fixture",

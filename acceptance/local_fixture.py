@@ -137,7 +137,7 @@ class FixturePaths:
         (self.work / "driver.json").write_text(json.dumps({
             "beadsService": options.beads,
             "integrations": {name: {"enabled": True} for name in ("zellij", "worktrees", "octo")},
-            "profiles": {"personal": {name: role for name in ("lead", "worker", "reviewer", "explorer")}},
+            "profile": {name: role for name in ("lead", "worker", "reviewer", "explorer")},
         }))
 
 

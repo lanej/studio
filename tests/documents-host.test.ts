@@ -58,7 +58,7 @@ await test(
           (pi) => {
             registerPlanningDocuments(pi);
             api = pi;
-            registerDiscovery(pi, () => undefined);
+            registerDiscovery(pi);
           },
         ],
       });

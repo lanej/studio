@@ -1,3 +1,4 @@
+import { profileDigest } from "../execution/profile.ts";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -12,7 +13,7 @@ import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { fixtureMetricsEnv } from "./beads-fixture.ts";
 import { withBeadsHttp } from "./beads-http-fixture.ts";
-import { AgentRole, StudioProfile, ReasoningLevel, ModelCapability, DefaultProvider } from "../config.ts";
+import { AgentRole, loadConfig, ReasoningLevel, ModelCapability, DefaultProvider } from "../config.ts";
 import { ExecutionBeads } from "../execution/beads.ts";
 import { ExecutionStore, ExecutionPhase } from "../execution/store.ts";
 import { draftSchema, planDigest } from "../planning/plan.ts";
@@ -546,7 +547,6 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     id: source.projectId,
     root: fixture.workspace,
     source: { ...source, url: `http://127.0.0.1:${String(proxyAddress.port)}` },
-    profile: StudioProfile.Personal,
     base,
     merge: false,
     verificationReadPaths: [],
@@ -562,23 +562,21 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       projects: [{ ...project, id: undefined }],
     },
     integrations: { worktrees: { enabled: true, executable: "worktree" } },
-    profiles: {
-      personal: {
-        ...Object.fromEntries(
-          Object.values(AgentRole).map((role) => [
-            role,
-            {
-              provider: DefaultProvider.ChatGPTSubscription,
-              model: role,
-              reasoning: ReasoningLevel.Low,
-            },
-          ]),
-        ),
-        workerModels: {
-          fast: {
+    profile: {
+      ...Object.fromEntries(
+        Object.values(AgentRole).map((role) => [
+          role,
+          {
             provider: DefaultProvider.ChatGPTSubscription,
-            model: fastModel,
+            model: role,
+            reasoning: ReasoningLevel.Low,
           },
+        ]),
+      ),
+      workerModels: {
+        fast: {
+          provider: DefaultProvider.ChatGPTSubscription,
+          model: fastModel,
         },
       },
     },
@@ -680,7 +678,6 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       third: `${parent}.third`,
       held: `${parent}.held`,
     },
-    StudioProfile.Personal,
     false,
     approvedWorkers,
   );
@@ -733,7 +730,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
     assert.equal(prioritize.code, 0, prioritize.stderr);
   }
   const store = new ExecutionStore(state);
-  store.enroll(project);
+  store.enroll({ ...project, profileDigest: profileDigest(await loadConfig(configFile)) });
   let diagnostics = "";
   const startSupervisor = () => {
     const child = spawn(join(root, "scripts/studio"), ["runtime", "serve"], {

@@ -2,10 +2,18 @@ import { processGroupExists, processMatchesStart, run } from "../process.ts";
 import { isDeepStrictEqual } from "node:util";
 import { approvedHandoffTask } from "./publication-graph.ts";
 import { sameBrief } from "../task-service.ts";
-import { loadConfig, studioProfileSchema, AgentRole, selection, workerForTask, type StudioConfig } from "../config.ts";
+import {
+  loadConfig,
+  studioProfileSchema,
+  AgentRole,
+  requireProfile,
+  selection,
+  workerForTask,
+  type StudioConfig,
+} from "../config.ts";
 import { draftSchema } from "../planning/plan.ts";
 import { ExecutionBeads, interactiveTask } from "./beads.ts";
-import { assertRuntimeProfile } from "./profile.ts";
+import { assertRuntimeProfile, profileDigest } from "./profile.ts";
 import { type ExecutionStore, ExecutionPhase, VerificationPhase, pendingDecision, type Execution } from "./store.ts";
 import type { RuntimeProject } from "./target.ts";
 
@@ -60,12 +68,16 @@ export async function retainClaim(
     });
     return;
   }
-  const bound = claimed.metadata["pi.attempt"] === id ? claimed : await service.bind(claimed, id);
   const config = configuration ?? (await loadConfig());
   const admission = store.attempt(id);
-  const profile = studioProfileSchema.parse(bound.metadata["studio.profile"] ?? admission.profile);
-  const roles = config.profiles[profile];
-  if (!roles) throw new Error(`Configure the approved ${profile} profile; another profile will not be substituted`);
+  if (admission.profileDigest !== undefined && admission.profileDigest !== profileDigest(config))
+    throw new Error("Restore the global profile used to claim this task before reconciling it");
+  const roles = requireProfile(config);
+  const bound = claimed.metadata["pi.attempt"] === id ? claimed : await service.bind(claimed, id);
+  const legacyProfile = studioProfileSchema.parse(bound.metadata["studio.profile"]);
+  if (legacyProfile !== undefined && admission.profile !== undefined && legacyProfile !== admission.profile)
+    throw new Error("The task and retained claim have different legacy profiles");
+  const profile = legacyProfile ?? admission.profile;
   const metadata = bound.metadata["studio.task"];
   const intent = store.taskHandoffIntent(admission.project, bound.id);
   const task =
@@ -82,21 +94,17 @@ export async function retainClaim(
     });
   const worker = workerForTask(roles, task?.assignment);
   if (task?.assignment) {
-    if (
-      bound.metadata["studio.profile"] !== admission.profile ||
-      !isDeepStrictEqual(selection.safeParse(pinned).data, worker)
-    )
-      throw new Error(`Task ${task.key}: the approved worker differs from the enrolled profile's configured selection`);
-    await assertRuntimeProfile(config, profile, { [task.key]: worker });
+    if (!isDeepStrictEqual(selection.safeParse(pinned).data, worker))
+      throw new Error(`Task ${task.key}: the approved worker differs from the global profile's configured selection`);
+    await assertRuntimeProfile(config, { [task.key]: worker }, profile);
   } else if (pinned !== undefined) {
     throw new Error("The retained worker selection has no task assignment");
+  } else if (profile !== undefined) {
+    await assertRuntimeProfile(config, {}, profile);
   }
   if (
     (interactive || bound.metadata["studio.interactive"] === true) &&
-    (!interactive ||
-      intent.project !== admission.project ||
-      profile !== admission.profile ||
-      bound.metadata["studio.interactive"] !== true)
+    (!interactive || intent.project !== admission.project || bound.metadata["studio.interactive"] !== true)
   )
     throw new Error("Interactive approval cannot be confirmed for this task; retain its claim");
   store.change(id, (row) => {

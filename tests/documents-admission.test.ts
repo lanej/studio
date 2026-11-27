@@ -127,7 +127,7 @@ await test(
             (pi) => {
               registerPlanningDocuments(pi);
               api = pi;
-              registerDiscovery(pi, () => undefined);
+              registerDiscovery(pi);
               pi.on("input", async (event) => {
                 if (event.text.startsWith("Studio document feedback ")) {
                   if (discardFeedback) {

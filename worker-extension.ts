@@ -9,6 +9,7 @@ import { registerLeadControls } from "./lead/extensions/managed.ts";
 import { socratesGuidance } from "./socrates/guidance.ts";
 import { SpecStatus, specText } from "./socrates/spec.ts";
 import { LeadMode } from "./planning/plan.ts";
+import { runtimeModelAllowed } from "./execution/profile.ts";
 import { StudioProfile } from "./config.ts";
 import { processStart } from "./process.ts";
 import { TaskBeads } from "./task-service.ts";
@@ -61,7 +62,6 @@ export default async function managedWorker(pi: ExtensionAPI): Promise<void> {
     const openTasks = registerStudio(
       pi,
       {
-        profile: lead.profile,
         approvalPending: () => approvalPending,
         activationBlocked: () =>
           submissions.size > 0 || ![Phase.Running, Phase.Verified, Phase.CheckFailed].includes(db.get(id).phase),
@@ -110,17 +110,12 @@ export default async function managedWorker(pi: ExtensionAPI): Promise<void> {
       const pane = await matchWorker(ctx, record);
       const model = ctx.model;
       if (record.revision === null) throw new Error("Missing admitted Beads revision");
-      if (
-        record.profile === StudioProfile.Work &&
-        !/^https:\/\/bedrock-mantle\.[a-z0-9-]+\.api\.aws(?:\/|$)/u.test(model?.baseUrl ?? "")
-      ) {
-        throw new Error("The work worker must resolve to its configured HTTPS Bedrock Mantle endpoint");
-      }
       const registeredModel = ctx.modelRegistry.find(record.model.provider, record.model.model);
       if (
         model?.id !== record.model.model ||
         model.provider !== record.model.provider ||
         model.api === "pi-virtual" ||
+        !runtimeModelAllowed(record.profile === StudioProfile.Work ? record.profile : undefined, model) ||
         (record.leadPlan && (!registeredModel || !ctx.modelRegistry.hasConfiguredAuth(registeredModel)))
       )
         throw new Error("Pi selected a different model from the accepted worker profile");

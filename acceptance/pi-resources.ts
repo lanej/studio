@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { AgentRole, StudioProfile, exampleConfig, ReasoningLevel } from "../config.ts";
+import { AgentRole, exampleConfig, ReasoningLevel } from "../config.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const temporary = await mkdtemp(join(tmpdir(), "studio-resources-"));
@@ -17,10 +17,10 @@ const registry = await ModelRuntime.create({
   authPath: join(agent, "auth.json"),
   modelsPath: null,
 });
-for (const [role, selection] of Object.entries(exampleConfig.profiles.personal))
+for (const [role, selection] of Object.entries(exampleConfig.profile))
   assert.ok(
     registry.getModel(selection.provider, selection.model) !== undefined,
-    `The personal example's ${role} model is unavailable: ${selection.model}`,
+    `The global example's ${role} model is unavailable: ${selection.model}`,
   );
 
 const workModel = {
@@ -31,9 +31,7 @@ const workModel = {
 await writeFile(
   join(temporary, "config.json"),
   JSON.stringify({
-    profiles: {
-      [StudioProfile.Work]: Object.fromEntries(Object.values(AgentRole).map((role) => [role, workModel])),
-    },
+    profile: Object.fromEntries(Object.values(AgentRole).map((role) => [role, workModel])),
   }),
 );
 await writeFile(
@@ -119,11 +117,11 @@ try {
           name,
         );
       found = true;
-      pi.stdin.write('{"id":"profile","type":"prompt","message":"/studio-profile work"}\n');
+      pi.stdin.write('{"id":"profile","type":"prompt","message":"/studio-profile"}\n');
     }
     if (envelope.type === "extension_ui_request" && envelope.method === "notify") {
       const notice = z.object({ message: z.string(), notifyType: z.literal("error") }).parse(envelope);
-      assert.match(notice.message, /Cannot switch to work.*fixture-mantle/);
+      assert.match(notice.message, /Cannot apply fixture-mantle/);
       assert.match(notice.message, /current model is still active/);
       rejectedSwitch = true;
     }

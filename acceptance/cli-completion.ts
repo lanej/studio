@@ -118,14 +118,13 @@ for shell in shells:
         # Negative cases must remain unchanged: no unrelated flags, files, or
         # unavailable integration IDs. Prefix printf only AFTER completion;
         # no Studio command action is ever executed.
-        cases = [('studio start offline-id --profile=p', '--profile=personal'),
+        cases = [('studio start offline-id --wor', '--worker'),
                  ('studio skill --topic=comp', '--topic=compaction'),
                  ('studio runt', 'runtime'),
                  ('studio runtime stat', 'status'),
                  ('studio runtime status --he', '--help'),
                  ('studio tasks --js', '--json'),
-                 ('studio start offline-id --profile w', 'work'),
-                 ('studio start offline-id --profile p', 'personal'),
+                 ('studio start offline-id --profile=p', '--profile=p'),
                  ('studio skill --topic comp', 'compaction'),
                  ('studio runtime help stat', 'status'),
                  ('studio doctor --js', '--js'),
@@ -139,7 +138,7 @@ for shell in shells:
             needle = ('\nRESULT:' + expected + '\r\n').encode()
             if needle not in output:
                 raise RuntimeError(shell + ' native TAB failed for ' + repr(line) + '\n' + transcript.decode(errors='replace'))
-        print(shell + ': real native TAB nested/flag/profile/topic/help cases passed')
+        print(shell + ': real native TAB nested/flag/topic/help cases passed')
     finally:
         capture = os.environ.get('STUDIO_COMPLETION_CAPTURE_DIR')
         if capture:
@@ -166,11 +165,11 @@ for shell in shells:
       "fish",
       "--no-config",
       "-c",
-      "source ./fish.completion; complete -C 'studio start id --profile p'; complete -C 'studio tasks unavailable-id'",
+      "source ./fish.completion; complete -C 'studio start id --wor'; complete -C 'studio tasks unavailable-id'",
     ],
     { cwd: directory, env, timeout: 15_000 },
   );
-  if (fish.status !== 0 || fish.stdout.toString().trim() !== "personal")
+  if (fish.status !== 0 || fish.stdout.toString().trim() !== "--worker")
     throw new Error(`Fish native complete -C failed: ${fish.stdout.toString()} ${fish.stderr.toString()}`);
   const query = run([process.execPath, "--no-install", cli, "completion", "--query", "--", "tasks", "unavailable-id"], {
     env: { ...env, PATH: directory },

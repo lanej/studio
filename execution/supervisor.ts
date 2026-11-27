@@ -15,7 +15,7 @@ import { ownershipConflict, retainedConflicts } from "./admission.ts";
 import { ExecutionBeads, interactiveTask, heartbeat, verifyHeartbeatAuthority } from "./beads.ts";
 import { ExecutionStore, ExecutionPhase, executionSchema, unsettled, type Execution } from "./store.ts";
 import type { RuntimeProject } from "./target.ts";
-import { assertRuntimeProfile } from "./profile.ts";
+import { assertRuntimeProfile, profileDigest } from "./profile.ts";
 import { verifyInteractiveTarget } from "./interactive-target.ts";
 import type { Zellij } from "../zellij.ts";
 
@@ -135,6 +135,8 @@ export async function serveRuntime(signal?: AbortSignal, launchWorkerPane?: Laun
                 id: project.id,
                 root: project.root,
                 merge: project.merge,
+                ...(project.profile === undefined ? {} : { profile: project.profile }),
+                ...(project.profileDigest === undefined ? {} : { profileDigest: project.profileDigest }),
               },
               project,
             ),
@@ -175,13 +177,16 @@ export async function serveRuntime(signal?: AbortSignal, launchWorkerPane?: Laun
               config.runtime.concurrency &&
             attempts.filter((attempt) => attempt.project === project.id && unsettled(attempt)).length < 32
           ) {
-            await assertRuntimeProfile(config, project.profile);
+            const digest = profileDigest(config);
+            if (digest === undefined || project.profileDigest !== digest)
+              throw new Error("Approve a handoff with the current global profile before admitting new work");
+            await assertRuntimeProfile(config);
             await verifyHeartbeatAuthority(project);
             await assertVerificationIsolation(project.root, project.verificationReadPaths);
             const attempt = executionSchema.parse({
               id: randomUUID(),
               project: project.id,
-              profile: project.profile,
+              profileDigest: digest,
               phase: ExecutionPhase.Claiming,
               message: "Atomic ready-work claim intent persisted",
             });
@@ -197,7 +202,7 @@ export async function serveRuntime(signal?: AbortSignal, launchWorkerPane?: Laun
               else {
                 if (claimed.assignee !== owner(attempt.id) || claimed.status !== "in_progress")
                   throw new Error("Atomic claim returned a different owner or status");
-                await retainClaim(store, service, attempt.id, claimed);
+                await retainClaim(store, service, attempt.id, claimed, config);
               }
             } catch (error) {
               const won = await service.owned(attempt.id).catch(() => []);
