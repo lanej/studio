@@ -10,8 +10,8 @@ import { verificationSchema, beadSchema, owner } from "../task-service.ts";
 import { sha } from "../delivery-record.ts";
 import { worktreeReservation, worktreeAllocation } from "../vendor/task-runtime/worktree-contracts.ts";
 import { ExecutionPhase } from "./phase.ts";
-import { handoffIntentSchema, type HandoffIntent, type RetainedHandoffIntent } from "./handoff-model.ts";
-import { interactiveTargetSchema, projectSchema, type RuntimeProject } from "./target.ts";
+import { storedHandoffIntentSchema, type HandoffIntent, type RetainedHandoffIntent } from "./handoff-model.ts";
+import { interactiveTargetSchema, projectSchema, storedProjectSchema, type RuntimeProject } from "./target.ts";
 
 export { ExecutionPhase } from "./phase.ts";
 
@@ -232,16 +232,18 @@ export class ExecutionStore {
       .run(kind, id, JSON.stringify(record));
   }
   projects(): RuntimeProject[] {
-    return this.rows("project").map((row) => projectSchema.parse(row));
+    return this.rows("project").map((row) => storedProjectSchema.parse(row));
   }
   project(id: string): RuntimeProject {
-    return projectSchema.parse(this.read("project", id));
+    return storedProjectSchema.parse(this.read("project", id));
   }
   validateEnrollment(input: RuntimeProject): RuntimeProject {
     const project = { ...input, root: realpathSync(input.root) };
     const current = this.projects().find((item) => item.id === project.id || item.root === project.root);
     if (current && (current.root !== project.root || current.id !== project.id))
       throw new Error("Project identity is already enrolled with a different repository");
+    if (current && "claimLabel" in current && current.claimLabel !== undefined)
+      throw new Error("Legacy project has a retained claim label; reconcile its claim scope before reenrollment");
     if (
       current &&
       !isDeepStrictEqual({ ...current, merge: undefined }, { ...project, merge: undefined }) &&
@@ -340,7 +342,7 @@ export class ExecutionStore {
     });
   }
   intent(id: string): HandoffIntent | undefined {
-    return handoffIntentSchema.optional().parse(this.read("handoff", id));
+    return storedHandoffIntentSchema.optional().parse(this.read("handoff", id));
   }
   taskHandoffIntent(project: string, bead: string): RetainedHandoffIntent | undefined {
     const rows = this.db
@@ -352,7 +354,7 @@ export class ExecutionStore {
     const row = rows[0];
     if (row === undefined) return undefined;
     const { id, record } = z.object({ id: z.uuid(), record: z.string() }).parse(row);
-    return { id, ...handoffIntentSchema.parse(JSON.parse(record)) };
+    return { id, ...storedHandoffIntentSchema.parse(JSON.parse(record)) };
   }
   saveIntent(id: string, value: HandoffIntent): void {
     this.save("handoff", id, value);

@@ -9,6 +9,17 @@ export const projectSchema = runtimeProjectSchema
   );
 export type RuntimeProject = z.infer<typeof projectSchema>;
 
+/**
+ * Legacy runtime records may contain claimLabel from earlier releases.
+ * Preserve the legacy claim scope so it still differs from any current enrollment.
+ */
+export const storedProjectSchema = runtimeProjectSchema
+  .extend({ id: z.uuid(), claimLabel: z.string().min(1).optional() })
+  .refine(
+    (project) => project.id === project.source.projectId,
+    "Runtime project identity differs from its Beads source",
+  );
+
 export const interactiveTargetSchema = z.object({
   session: z.string().min(1),
   socket: z.string().min(1),
