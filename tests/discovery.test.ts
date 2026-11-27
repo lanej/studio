@@ -31,9 +31,66 @@ import {
 } from "../config.ts";
 import { ExecutionStore, activeTaskReviews, executionSchema, ExecutionPhase } from "../execution/store.ts";
 import { retainClaim, writerFence } from "../execution/recovery.ts";
+import { handoffTarget, handoffWorkers } from "../execution/handoff.ts";
 import { ExecutionBeads } from "../execution/beads.ts";
 import { beadSchema, owner } from "../task-service.ts";
 import { taskDetails } from "../beads.ts";
+
+await test("all projects use the same global model settings, including mixed providers", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "studio-global-profile-"));
+  const store = new Discoveries(join(directory, "state"));
+  try {
+    const projects = ["one", "two"].map((name) => ({
+      root: join(directory, name),
+      source: { url: "http://127.0.0.1:9", projectId: randomUUID() },
+      base: "main",
+      beadsWorkspace: directory,
+      beadsDatabase: name,
+    }));
+    const records = await Promise.all(
+      projects.map(async (project) => {
+        await mkdir(project.root);
+        return store.create(project.root, "session", "Global profile fixture");
+      }),
+    );
+    const config = configSchema.parse({
+      runtime: { enabled: true, projects },
+      integrations: { worktrees: { enabled: true } },
+      profile: {
+        ...exampleConfig.profile,
+        worker: { provider: DefaultProvider.BedrockMantle, model: "test-worker", reasoning: ReasoningLevel.Medium },
+      },
+    });
+    assert.equal(config.profile?.lead.provider, DefaultProvider.ChatGPTSubscription);
+    assert.equal(runtimeProjectSchema.safeParse({ ...projects[0], profile: StudioProfile.Work }).success, false);
+    const targets = records.map((record) => handoffTarget(config, record));
+    assert.notEqual(targets[0]?.id, targets[1]?.id);
+    assert.match(targets[0]?.profileDigest ?? "", /^[a-f0-9]{64}$/u);
+    assert.equal(targets[0]?.profileDigest, targets[1]?.profileDigest);
+    for (const target of targets) assert.equal(target.profile, undefined);
+    const draft = draftSchema.parse({
+      summary: "Global worker",
+      tasks: [
+        {
+          key: "first",
+          title: "First",
+          description: "Bounded task",
+          acceptance: "Verified result",
+          assignment: { capability: ModelCapability.Standard, reasoning: ReasoningLevel.High },
+        },
+      ],
+    });
+    assert.deepEqual(handoffWorkers(config, draft), {
+      first: { provider: DefaultProvider.BedrockMantle, model: "test-worker", reasoning: ReasoningLevel.High },
+    });
+    const changed = configSchema.parse({ ...config, profile: exampleConfig.profile });
+    for (const record of records)
+      assert.notEqual(handoffTarget(changed, record).profileDigest, targets[0]?.profileDigest);
+  } finally {
+    store.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 await test("a changed worker mapping blocks admission while retaining the task's owned paths", async () => {
   const directory = await mkdtemp(join(tmpdir(), "studio-assignment-"));
@@ -42,11 +99,9 @@ await test("a changed worker mapping blocks admission while retaining the task's
   const id = randomUUID();
   const provider = DefaultProvider.ChatGPTSubscription;
   const configuration = configSchema.parse({
-    profiles: {
-      personal: {
-        ...exampleConfig.profiles.personal,
-        workerModels: { fast: { provider, model: "different-fast" } },
-      },
+    profile: {
+      ...exampleConfig.profile,
+      workerModels: { fast: { provider, model: "different-fast" } },
     },
   });
   const bead = beadSchema.parse({
@@ -91,7 +146,7 @@ await test("a changed worker mapping blocks admission while retaining the task's
     });
     await assert.rejects(
       retainClaim(store, service, id, bead, configuration),
-      /approved worker differs from the enrolled profile/u,
+      /approved worker differs from the global profile/u,
     );
     const retained = store.attempt(id);
     assert.deepEqual(retained.owns, ["src/first.ts"]);
@@ -157,7 +212,7 @@ await test("daily-driver Socrates starts by title and resumes the picker selecti
       extensionFactories: [
         (pi) => {
           registerPlanningDocuments(pi);
-          registerDiscovery(pi, () => undefined);
+          registerDiscovery(pi);
         },
       ],
     });
@@ -378,7 +433,6 @@ await test("discovery approval freezes the displayed version before effects and 
       ...runtimeProjectSchema.parse({
         root: projectPath,
         source: { url: "http://127.0.0.1:9", projectId: authorityId },
-        profile: StudioProfile.Personal,
         base: "main",
         beadsWorkspace: projectPath,
         beadsDatabase: "fixture",
@@ -722,7 +776,6 @@ await test("unfinished attempts pin enrolled authority while merge defaults stay
       ...runtimeProjectSchema.parse({
         root: directory,
         source: { url: "http://127.0.0.1:9", projectId: id },
-        profile: StudioProfile.Personal,
         base: "main",
         beadsWorkspace: directory,
         beadsDatabase: "fixture",

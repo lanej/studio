@@ -9,12 +9,12 @@ import { registerRuntimeCommands } from "./execution/cli.ts";
 import { startSession } from "./session.ts";
 import { BeadsReader, taskDetails, taskLabel, taskSchema, taskTree } from "./beads.ts";
 import { dispatchGate } from "./capabilities.ts";
-import { configPath, studioProfileSchema, exampleConfig, loadConfig } from "./config.ts";
+import { configPath, exampleConfig, loadConfig } from "./config.ts";
 
 enum HelpTopic {
   Tasks = "tasks",
   Compaction = "compaction",
-  Profiles = "profiles",
+  Profile = "profile",
   Dispatch = "dispatch",
 }
 
@@ -108,7 +108,7 @@ program
       beads,
       beadsService,
       dispatch: dispatchGate,
-      profiles: config.profiles,
+      profile: config.profile ?? null,
     });
     process.exitCode =
       !resources.available ||
@@ -185,12 +185,9 @@ program
 program
   .command("start <bead-id> [verifier...]")
   .description("Start or focus a bead lead. Pass the agreed check as argv after --")
-  .addOption(
-    new Option("--profile <name>", "work or personal").choices(studioProfileSchema.options).makeOptionMandatory(),
-  )
   .option("--worker", "Start a direct worker without a lead plan")
   .option("--tab-id <id>", "Place a new worker in this Zellij tab")
-  .action(async (id: string, verifier: string[], options: { profile: string; tabId?: string; worker?: boolean }) => {
+  .action(async (id: string, verifier: string[], options: { tabId?: string; worker?: boolean }) => {
     if (verifier.length > 0 && !process.argv.slice(2).includes("--"))
       throw new Error("Place the agreed verification command after --");
     const { tabId } = await import("./zellij.ts");
@@ -198,7 +195,6 @@ program
     output(
       await startTask(
         id,
-        studioProfileSchema.parse(options.profile),
         verifier,
         options.tabId === undefined ? undefined : tabId(options.tabId),
         options.worker !== true,
@@ -251,25 +247,23 @@ program
 program
   .command("skill")
   .description("Read compact agent guidance without configuration or services")
-  .addOption(
-    new Option("--topic <topic>", "tasks, compaction, profiles, or dispatch").choices(Object.values(HelpTopic)),
-  )
+  .addOption(new Option("--topic <topic>", "tasks, compaction, profile, or dispatch").choices(Object.values(HelpTopic)))
   .action((options: { topic?: string }) => {
     const topics = {
       [HelpTopic.Tasks]:
         "Use studio tasks [FULL_ID] [--json]. Use beadsService.url and projectId for the HTTP workflow. Existing workspace/database/branch settings still support read-only inspection. Containment and blockers remain separate. Observed descriptions are not accepted execution scope.",
       [HelpTopic.Compaction]:
         "Load the Pi package to enable idle compaction. Defaults: five settled minutes AND 60% context use. Active work, drafts, dialogs, queued input, unknown usage, and active child work prevent compaction. Failed attempts do not loop. Pi near-limit compaction remains independent.",
-      [HelpTopic.Profiles]:
-        "Configure work/personal roles using studio config --example. studio config --pi-models --region REGION generates Mantle models from Pi metadata and models.dev API declarations for merging into Pi models.json. /studio-profile explicitly selects the lead model in Pi after registry validation. Personal uses Pi openai-codex authentication. No credential copies or automatic cross-profile fallback.",
+      [HelpTopic.Profile]:
+        "Configure one global profile using studio config --example. Choose each role’s provider and model independently. studio config --pi-models --region REGION generates Mantle entries for Pi models.json. /studio-profile applies the configured lead model in Pi.",
       [HelpTopic.Dispatch]:
-        "From the repository in Zellij: studio start BEAD_ID --profile work -- make test. Supply a check that covers the accepted criteria; omit it for human review. Repeat the command to focus the registered worker. Use /task-submit SUMMARY in its Pi pane. Inspect studio tasks BEAD_ID --json for the result.",
+        "From the repository in Zellij: studio start BEAD_ID -- make test. Supply a check that covers the accepted criteria; omit it for human review. Repeat the command to focus the registered worker. Use /task-submit SUMMARY in its Pi pane. Inspect studio tasks BEAD_ID --json for the result.",
     } satisfies Record<HelpTopic, string>;
     const topic = options.topic === undefined ? undefined : z.enum(HelpTopic).parse(options.topic);
     console.log(
       topic !== undefined
         ? topics[topic]
-        : `# Studio\n\nRun studio or studio lead for a daily-driver Pi session in the current directory. No bead or integrations are required. Use studio lead -- PI_OPTIONS for native Pi options, including --continue and --resume. Select a profile inside Pi with /studio-profile work or personal.\n\nCommands: lead, config, doctor, tasks, start, resume.\nTopics: ${Object.keys(topics).join(", ")}. Read one with studio skill --topic NAME.\n\n${topics[HelpTopic.Dispatch]}`,
+        : `# Studio\n\nRun studio or studio lead for a daily-driver Pi session in the current directory. No bead or integrations are required. Use studio lead -- PI_OPTIONS for native Pi options, including --continue and --resume. Apply the configured lead model inside Pi with /studio-profile.\n\nCommands: lead, config, doctor, tasks, start, resume.\nTopics: ${Object.keys(topics).join(", ")}. Read one with studio skill --topic NAME.\n\n${topics[HelpTopic.Dispatch]}`,
     );
   });
 

@@ -1,3 +1,4 @@
+import { profileDigest } from "../execution/profile.ts";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -12,7 +13,7 @@ import { Command } from "commander";
 import { z } from "zod";
 import { withBeadsHttp } from "./beads-http-fixture.ts";
 import { fixtureMetricsEnv } from "./beads-fixture.ts";
-import { loadConfig, AgentRole, StudioProfile, ReasoningLevel } from "../config.ts";
+import { loadConfig, AgentRole, ReasoningLevel } from "../config.ts";
 import { ExecutionBeads } from "../execution/beads.ts";
 import { ExecutionStore, ExecutionPhase, pendingDecision } from "../execution/store.ts";
 import { retryWriterFence } from "../execution/recovery.ts";
@@ -286,7 +287,6 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       id: source.projectId,
       root: fixture.workspace,
       source,
-      profile: StudioProfile.Personal,
       base,
       merge: false,
       verificationReadPaths: [],
@@ -303,25 +303,23 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
         projects: [{ ...project, id: undefined }],
       },
       integrations: { worktrees: { enabled: true, executable: "worktree" } },
-      profiles: {
-        personal: Object.fromEntries(
-          Object.values(AgentRole).map((role) => [
-            role,
-            {
-              provider: "openai-codex",
-              model: role,
-              reasoning: ReasoningLevel.Low,
-            },
-          ]),
-        ),
-      },
+      profile: Object.fromEntries(
+        Object.values(AgentRole).map((role) => [
+          role,
+          {
+            provider: "openai-codex",
+            model: role,
+            reasoning: ReasoningLevel.Low,
+          },
+        ]),
+      ),
     };
     await writeFile(configFile, JSON.stringify(config));
     await run(process.execPath, [join(root, "scripts/prepare-delegation.mjs")], {
       cwd: root,
       env,
     });
-    store.enroll(project);
+    store.enroll({ ...project, profileDigest: profileDigest(await loadConfig(configFile)) });
     const enrolled = store.project(project.id);
     const configured = (await loadConfig(configFile)).runtime.projects[0];
     assert.ok(configured !== undefined);
@@ -331,6 +329,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
         id: project.id,
         root: enrolled.root,
         merge: enrolled.merge,
+        profileDigest: enrolled.profileDigest,
       },
       enrolled,
       "Fixture enrollment must match actual scheduler configuration",

@@ -179,7 +179,7 @@ await test("CLI reads the explicitly configured source and dispatch never alloca
     assert.equal(listing.tasks[0]?.id, "fixture-1");
     assert.match((await driver("tasks", "fixture-1")).stdout, /Keep state/);
     const before = await readFile(capture, "utf8");
-    await assert.rejects(driver("start", "--profile", "personal"), /missing required argument/);
+    await assert.rejects(driver("start"), /missing required argument/);
     assert.equal(await readFile(capture, "utf8"), before, "gated start must not call Beads");
     await writeFile(config, "invalid config");
     assert.match((await driver("skill")).stdout, /Studio/);
@@ -219,15 +219,20 @@ await test(
         join(host, "cli.js"),
         'console.log(JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2)})); process.exit(Number(process.env["STUDIO_FIXTURE_EXIT"] ?? 0));',
       );
+      const configFile = join(temporary, "config.json");
+      const lead = { provider: "bedrock-mantle", model: "bedrock-model", reasoning: "high" };
+      const worker = { provider: "openai-codex", model: "subscription-model", reasoning: "low" };
+      await writeFile(configFile, JSON.stringify({ profile: { lead, worker, reviewer: lead, explorer: worker } }));
+      const defaults = ["--provider", lead.provider, "--model", lead.model, "--thinking", lead.reasoning];
       const launch = (args: string[], exit = "0") =>
         execute(join(bundle, "scripts/studio"), args, {
           cwd: checkout,
-          env: { ...process.env, STUDIO_FIXTURE_EXIT: exit },
+          env: { ...process.env, STUDIO_CONFIG: configFile, STUDIO_FIXTURE_EXIT: exit },
           timeout: 10_000,
         });
       for (const [args, forwarded] of [
-        [[], []],
-        [["lead"], []],
+        [[], defaults],
+        [["lead"], defaults],
         [
           ["lead", "--", "--resume", "session with spaces"],
           ["--resume", "session with spaces"],
@@ -241,7 +246,9 @@ await test(
         });
       }
       await assert.rejects(launch(["lead"], "23"), { code: 23 });
-      await assert.rejects(launch(["start", "fixture"]), /required option/);
+      await assert.rejects(launch(["start", "fixture", "--profile", "work"]), /unknown option '--profile'/u);
+      await writeFile(configFile, JSON.stringify({ profiles: { work: { lead, worker } } }));
+      await assert.rejects(launch([]), /Move your model settings into the global profile/u);
     } finally {
       await rm(temporary, { recursive: true, force: true });
     }
@@ -398,7 +405,7 @@ await test("optional integrations stay inactive until enabled and fail before ef
     assert.ok(
       Object.values(report.integrations).every((integration) => !integration.enabled && !integration.available),
     );
-    await assert.rejects(invoke("start", "fixture", "--profile", "personal"), /Enable integrations.zellij.enabled/);
+    await assert.rejects(invoke("start", "fixture"), /Enable integrations.zellij.enabled/);
     await writeFile(
       config,
       JSON.stringify({
@@ -407,10 +414,7 @@ await test("optional integrations stay inactive until enabled and fail before ef
         },
       }),
     );
-    await assert.rejects(
-      invoke("start", "fixture", "--profile", "personal"),
-      /Install .*missing or configure integrations.zellij.executable/,
-    );
+    await assert.rejects(invoke("start", "fixture"), /Install .*missing or configure integrations.zellij.executable/);
     await assert.rejects(invoke("doctor"));
     await assert.rejects(readFile(marker), /ENOENT/);
     await assert.rejects(readFile(join(temporary, "state/attempts.sqlite")), /ENOENT/);

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { HandoffPhase } from "../discovery/model.ts";
-import { DefaultProvider, ReasoningLevel, runtimeProjectSchema, StudioProfile } from "../config.ts";
+import { DefaultProvider, ReasoningLevel, runtimeProjectSchema } from "../config.ts";
 import { LeadMode, draftSchema, planDigest } from "../planning/plan.ts";
 import { beadSchema, TaskBeads } from "../task-service.ts";
 import { SpecStatus, specRecord } from "../socrates/spec.ts";
@@ -78,7 +78,6 @@ const approved: ImplementationSource = {
       ...runtimeProjectSchema.parse({
         root: "/project",
         source: authority,
-        profile: StudioProfile.Personal,
         base: "main",
         beadsWorkspace: "/project",
         beadsDatabase: "fixture",

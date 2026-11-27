@@ -5,7 +5,7 @@ import type { OpenTasks } from "../tasks/panel.ts";
 import { renderPlanCall } from "../plan-renderer.ts";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
-import { existsSync, realpathSync } from "node:fs";
+import { realpathSync } from "node:fs";
 import { Type } from "typebox";
 import { isDeepStrictEqual } from "node:util";
 import { selectorText } from "@lanej/pi-components";
@@ -13,7 +13,7 @@ import { z } from "zod";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/models";
 import { registerSocratesControls } from "../lead/extensions/socrates.ts";
 import { SpecStatus } from "../socrates/spec.ts";
-import { loadConfig, ModelCapability, ReasoningLevel, studioProfileSchema, workerForTask } from "../config.ts";
+import { loadConfig, ModelCapability, ReasoningLevel, requireProfile, workerForTask } from "../config.ts";
 import { socratesGuidance } from "../socrates/guidance.ts";
 import { LeadMode, TaskDelivery, describePlan, draftSchema, planDigest, reviseDelivery } from "../planning/plan.ts";
 import { isEntry, PiEntryType } from "../runtime.ts";
@@ -38,7 +38,6 @@ function discoveryStatus(record: Discovery): string {
 
 export function registerDiscovery(
   pi: ExtensionAPI,
-  profile: () => string | undefined,
   onSelectionChange?: () => void,
   openTasks?: OpenTasks,
   keybindings?: PaneKeybindings,
@@ -152,12 +151,7 @@ export function registerDiscovery(
         ].join("\n\n"),
       };
     const config = await loadConfig();
-    const profileName =
-      studioProfileSchema.safeParse(profile()).data ??
-      config.runtime.projects.find(
-        (project) => existsSync(project.root) && realpathSync(project.root) === record.project,
-      )?.profile;
-    const roles = profileName === undefined ? undefined : config.profiles[profileName];
+    const roles = config.profile;
     const capabilities = Object.values(ModelCapability)
       .filter((tier) => tier === ModelCapability.Standard || roles?.workerModels[tier] !== undefined)
       .map((capability) => {
@@ -467,9 +461,6 @@ export function registerDiscovery(
       const record = await requireBinding(ctx);
       const draft = handoffDraft(record);
       const digest = planDigest(draft);
-      const selectedProfile = profile();
-      if (selectedProfile === undefined)
-        throw new Error("Select /studio-profile work or personal before approving execution");
       if (discoveryBusy()) throw new Error("Wait for the discovery command");
       pending = true;
       try {
@@ -477,8 +468,9 @@ export function registerDiscovery(
           "../execution/handoff.ts"
         );
         const config = await loadConfig();
-        const target = handoffTarget(config, record, selectedProfile);
-        const workers = handoffWorkers(config, draft, target.profile);
+        const target = handoffTarget(config, record);
+        const workers = handoffWorkers(config, draft);
+        const { lead, worker, reviewer } = requireProfile(config);
         const interactive = mode === "interactive" ? await prepareInteractiveHandoff(record) : undefined;
         if (
           !(await reviewHandoff(ctx, {
@@ -487,7 +479,7 @@ export function registerDiscovery(
             specification: record.specification,
             project: target.root,
             sourceId: target.id,
-            profile: target.profile,
+            profile: `global · lead ${lead.provider}/${lead.model} · worker ${worker.provider}/${worker.model} · reviewer ${reviewer.provider}/${reviewer.model}`,
             workers,
             execution: !interactive
               ? "background"
@@ -497,7 +489,6 @@ export function registerDiscovery(
           return;
         const current = await requireBinding(ctx);
         if (
-          selectedProfile !== profile() ||
           current.id !== record.id ||
           current.revision !== record.revision ||
           !isDeepStrictEqual(current.specification, record.specification) ||
@@ -505,7 +496,7 @@ export function registerDiscovery(
           planDigest(current.leadPlan.draft) !== digest
         )
           throw new Error("The displayed breakdown changed; review it again");
-        await approveHandoff(current, selectedProfile, target, interactive, workers);
+        await approveHandoff(current, target, interactive, workers);
         ctx.ui.notify("Approved work is queued in Beads. The lead remains free.", "info");
       } finally {
         pending = false;

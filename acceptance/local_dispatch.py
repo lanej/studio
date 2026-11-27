@@ -229,7 +229,7 @@ def exercise_interactive_dispatch(fixture: Fixture, terminal: Terminal, lead: in
         "enabled": True, "concurrency": 1, "pollMs": 1000,
         "projects": [{
             "root": str(fixture.options.repository.resolve()), "source": source,
-            "base": "HEAD", "profile": "personal", "beadsWorkspace": str(fixture.options.repository),
+            "base": "HEAD", "beadsWorkspace": str(fixture.options.repository),
             "beadsExecutable": fixture.options.bd, "beadsDatabase": get("context")["database"],
         }],
     }
@@ -275,8 +275,6 @@ def exercise_interactive_dispatch(fixture: Fixture, terminal: Terminal, lead: in
             type_line(lead, f"cd {shlex.quote(str(fixture.options.repository))} && exec "
                       f"{shlex.quote(fixture.driver)} lead -- --offline --no-mcp --model openai-codex/gpt-6.1-sol")
             terminal.until("native lead", lambda: "⊛ 6.1" in capture())
-            type_line(lead, "/studio-profile personal")
-            terminal.pty.drain(0.35)
             type_line(lead, "/socrates Interactive markers, local integration only")
             terminal.until("operator decision opens", lambda: WAIT in capture() and "Generate independently" in capture())
             database = Path(fixture.env["STUDIO_STATE_DIR"]) / "discoveries.sqlite"

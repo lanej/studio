@@ -2,11 +2,16 @@ import { spawn } from "node:child_process";
 import { constants } from "node:os";
 import { join } from "node:path";
 import { packageRoot } from "./package-resources.ts";
+import { loadConfig } from "./config.ts";
 
 export async function startSession(args: string[] = []): Promise<void> {
-  const child = spawn(join(packageRoot, "scripts/pi"), ["--extension", join(packageRoot, "extension.ts"), ...args], {
-    stdio: "inherit",
-  });
+  const lead = args.length === 0 ? (await loadConfig()).profile?.lead : undefined;
+  const defaults = !lead ? [] : ["--provider", lead.provider, "--model", lead.model, "--thinking", lead.reasoning];
+  const child = spawn(
+    join(packageRoot, "scripts/pi"),
+    ["--extension", join(packageRoot, "extension.ts"), ...defaults, ...args],
+    { stdio: "inherit" },
+  );
   const interrupt = (): void => {
     child.kill("SIGINT");
   };

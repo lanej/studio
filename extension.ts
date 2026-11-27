@@ -7,6 +7,7 @@ import { createTaskPanelSource } from "./tasks/source.ts";
 import { isDeepStrictEqual } from "node:util";
 import { registerProjectPolicy } from "./execution/policy.ts";
 import { registerDiscovery } from "./discovery/extension.ts";
+import { runtimeModelAllowed } from "./execution/profile.ts";
 import { registerActivation, registerActivationAdmission } from "./activation.ts";
 import { registerCodeIntelligence } from "./code-intelligence/extension.ts";
 import { inspectIntegrations } from "./integrations.ts";
@@ -19,18 +20,10 @@ import { installFooter } from "./footer.ts";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { z } from "zod";
 import { registerArchives } from "./archives.ts";
-import { directoryProfileType, registerDirectory } from "./directory.ts";
+import { registerDirectory } from "./directory.ts";
 import { delegateTool, registerDelegation } from "./delegation.ts";
 import { dispatchGate } from "./capabilities.ts";
-import {
-  AgentRole,
-  DefaultProvider,
-  StudioProfile,
-  studioProfileSchema,
-  type StudioConfig,
-  knownProvider,
-  loadConfig,
-} from "./config.ts";
+import { type StudioConfig, loadConfig, requireProfile } from "./config.ts";
 import { IdleSession, type IdleSessionHost } from "./idle.ts";
 import { isEntry, PiEntryType, PiEvent, PiMode, piModeSchema } from "./runtime.ts";
 import { registerDocumentWorkspace } from "./documents/workspace.ts";
@@ -40,7 +33,6 @@ const attemptType = "studio:idle-attempt";
 const attemptSchema = z.object({ historyId: z.string() });
 
 interface ManagedLead {
-  profile: StudioProfile;
   approvalPending: () => boolean;
   activationBlocked?: () => boolean;
   trackedPullRequest: () => string | undefined;
@@ -75,12 +67,10 @@ export function registerStudio(
   const tasks = new TaskPanel();
   let removeInputListener: (() => void) | undefined;
   let lifecycle = 0;
-  let selectedProfile = managed?.profile;
 
   const discovery = !managed
     ? registerDiscovery(
         pi,
-        () => selectedProfile,
         () => {
           tasks.close();
         },
@@ -94,13 +84,9 @@ export function registerStudio(
   pi.on("session_before_switch", () => (documentPending() ? { cancel: true } : undefined));
   pi.on("session_before_fork", () => (documentPending() ? { cancel: true } : undefined));
   pi.on("session_before_tree", () => (documentPending() ? { cancel: true } : undefined));
-  const delegation = registerDelegation(
-    pi,
-    () => selectedProfile,
-    () => {
-      idle.terminalInput();
-    },
-  );
+  const delegation = registerDelegation(pi, () => {
+    idle.terminalInput();
+  });
   registerActivation(
     pi,
     (ctx) =>
@@ -122,18 +108,12 @@ export function registerStudio(
   registerDirectory(
     pi,
     (sessionId) => documentPending() || delegation.blocks(sessionId) || discovery?.pending() === true,
-    () => selectedProfile,
   );
   registerDiagrams(pi);
   registerMermaidPreview(pi);
   registerMermaidTool(pi);
   registerSearchRendering(pi);
   registerSkillRendering(pi);
-  if (managed)
-    pi.on("session_start", (_event, ctx) => {
-      delegation.syncTool(ctx);
-    });
-
   const release = () => {
     lifecycle++;
     idle.stop();
@@ -227,21 +207,6 @@ export function registerStudio(
   pi.on(PiEvent.SessionStart, async (_event, ctx) => {
     tasks.close();
     idle.newSession();
-    selectedProfile = managed?.profile;
-    if (!managed) {
-      const marker = ctx.sessionManager
-        .getBranch()
-        .findLast((entry) => isEntry(entry, PiEntryType.Custom) && entry.customType === directoryProfileType);
-      if (marker && isEntry(marker, PiEntryType.Custom)) {
-        const profile = studioProfileSchema.safeParse(marker.data);
-        if (profile.success) {
-          // Consume the handoff before revalidation so a later resume does not
-          // override a model or profile the user selected after this switch.
-          pi.appendEntry(directoryProfileType, null);
-          await selectProfile(profile.data, ctx, true);
-        }
-      }
-    }
     await initialize(ctx);
   });
   pi.on(PiEvent.SessionShutdown, () => {
@@ -254,7 +219,6 @@ export function registerStudio(
   });
   pi.on(PiEvent.SessionCompact, async (_event, ctx) => initialize(ctx));
   pi.on(PiEvent.ModelSelect, (_event, ctx) => {
-    selectedProfile = managed?.profile;
     delegation.syncTool(ctx);
   });
   pi.on(PiEvent.Input, () => {
@@ -323,78 +287,39 @@ export function registerStudio(
     );
   }
 
-  async function selectProfile(argument: string, ctx: ExtensionContext, restoring = false): Promise<void> {
-    if (process.env["STUDIO_ATTEMPT"] !== undefined) {
-      ctx.ui.notify("Set the profile on studio start.", "warning");
-      return;
-    }
-    if (!ctx.isIdle() || ctx.hasPendingMessages() || documentPending()) {
-      ctx.ui.notify("Wait for the conversation and queued messages to settle before changing profiles", "warning");
-      return;
-    }
-    const config = await loadConfig();
-    const parsedName = studioProfileSchema.safeParse(argument.trim());
-    if (!parsedName.success) {
-      ctx.ui.notify("Use /studio-profile work or /studio-profile personal", "warning");
-      return;
-    }
-    const name = parsedName.data;
-    const profile = config.profiles[name];
-    if (!profile) {
-      ctx.ui.notify(
-        `Configure the ${name} profile first; studio config --example shows the role selections`,
-        "warning",
-      );
-      return;
-    }
-    const roles = Object.values(AgentRole).map((role) => profile[role]);
-    const models = roles.map((role) => ctx.modelRegistry.find(role.provider, role.model));
-    if (models.some((model) => model === undefined)) {
-      ctx.ui.notify("A configured role model is missing from Pi's registry; no model was changed", "error");
-      return;
-    }
-    if (
-      name === StudioProfile.Personal &&
-      roles.some((role) => knownProvider(role.provider) !== DefaultProvider.ChatGPTSubscription)
-    ) {
-      ctx.ui.notify("The personal profile must use Pi's openai-codex subscription provider", "error");
-      return;
-    }
-    if (
-      name === StudioProfile.Work &&
-      models.some(
-        (model) =>
-          model === undefined || !/^https:\/\/bedrock-mantle\.[a-z0-9-]+\.api\.aws(?:\/|$)/.test(model.baseUrl),
-      )
-    ) {
-      ctx.ui.notify("The work profile must resolve to an explicit HTTPS Bedrock Mantle endpoint", "error");
-      return;
-    }
-    const leadSelection = profile[AgentRole.Lead];
-    const lead = ctx.modelRegistry.find(leadSelection.provider, leadSelection.model);
-    if (!lead) return;
-    if (restoring && (ctx.model?.provider !== lead.provider || ctx.model.id !== lead.id)) {
-      ctx.ui.notify(
-        "The driver profile no longer matches the current model. Select /studio-profile again to enable delegation.",
-        "warning",
-      );
-      return;
-    }
-    const reasoning = restoring ? pi.getThinkingLevel() : leadSelection.reasoning;
-    if (!(await pi.setModel(lead))) {
-      ctx.ui.notify(
-        `Cannot switch to ${name}. Authenticate with ${leadSelection.provider} and retry. The current model is still active.`,
-        "error",
-      );
-      return;
-    }
-    pi.setThinkingLevel(reasoning);
-    selectedProfile = name;
-    delegation.syncTool(ctx);
-  }
   pi.registerCommand("studio-profile", {
-    description: "Explicitly select the work or personal lead model",
-    handler: (argument, ctx) => selectProfile(argument, ctx),
+    description: "Apply the globally configured Studio lead model",
+    async handler(argument, ctx) {
+      if (argument.trim() !== "") {
+        ctx.ui.notify("Use /studio-profile without arguments; configure the profile globally", "warning");
+        return;
+      }
+      if (managed || process.env["STUDIO_ATTEMPT"] !== undefined) {
+        ctx.ui.notify("Managed tasks retain their admitted model", "warning");
+        return;
+      }
+      if (
+        !ctx.isIdle() ||
+        ctx.hasPendingMessages() ||
+        documentPending() ||
+        delegation.blocks(ctx.sessionManager.getSessionId())
+      ) {
+        ctx.ui.notify("Wait for the conversation and delegated work to settle before applying the profile", "warning");
+        return;
+      }
+      try {
+        const { lead } = requireProfile(await loadConfig());
+        const model = ctx.modelRegistry.find(lead.provider, lead.model);
+        if (!model || !runtimeModelAllowed(undefined, model) || !(await pi.setModel(model)))
+          throw new Error(
+            `Cannot apply ${lead.provider}/${lead.model}. Check its Pi registry entry and authentication; the current model is still active.`,
+          );
+        pi.setThinkingLevel(lead.reasoning);
+        await delegation.refresh(ctx);
+      } catch (error) {
+        ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+      }
+    },
   });
 
   pi.registerCommand("studio-status", {

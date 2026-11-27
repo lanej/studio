@@ -160,7 +160,7 @@ await test("answering tolerates lease renewal while guarding request, writer, ad
     await writeFile(
       process.env["STUDIO_CONFIG"],
       JSON.stringify({
-        runtime: { enabled: false, projects: [{ ...project, id: undefined }] },
+        runtime: { enabled: false, projects: [{ ...project, id: undefined, profile: undefined }] },
       }),
     );
     store.saveAttempt(initial);

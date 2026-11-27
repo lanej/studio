@@ -784,7 +784,7 @@ const linked=store.change(approved,row=>{{
   row.specification.status=SpecStatus.Frozen; row.specification.approvalAt='2026-11-24T00:00:00Z';
   row.leadPlan.draft=activeBreakdown; row.approved=planDigest(activeBreakdown);
   row.graph=Object.fromEntries(activeBreakdown.tasks.map(task=>[task.key,'bd-'+task.key])); row.graph.root='bd-root';
-  const target=runtimeProjectSchema.parse({{root:row.project,source:{{url:{json.dumps(source_url)},projectId:{json.dumps(beads_project)},reviewOnly:true}},profile:'personal',base:'main',beadsWorkspace:row.project,beadsDatabase:'fixture'}});
+  const target=runtimeProjectSchema.parse({{root:row.project,source:{{url:{json.dumps(source_url)},projectId:{json.dumps(beads_project)},reviewOnly:true}},base:'main',beadsWorkspace:row.project,beadsDatabase:'fixture'}});
   row.handoff={{operation:crypto.randomUUID(),revision:row.revision,digest:row.approved,phase:'complete',target:{{...target,id:{json.dumps(beads_project)}}}}};
 }});
 const statuses={{assess:'closed',dock:'in_progress',verify:'blocked'}};
@@ -808,7 +808,7 @@ console.log(JSON.stringify({{covered,question,legacy,approved,beads,inProgress,r
 
 
 def check_publication_review(terminal_type, project, env, output, source_url):
-    # Reuse the registered fixture model under the provider required by Studio's personal profile.
+    # Reuse the registered fixture model under the configured provider.
     agent = Path(env["PI_CODING_AGENT_DIR"])
     env = {**env, "STUDIO_CONFIG": str(Path(env["HOME"]) / "handoff-config.json")}
     models_path = agent / "models.json"
@@ -817,17 +817,16 @@ def check_publication_review(terminal_type, project, env, output, source_url):
     models_path.write_text(json.dumps(models))
     model = {"provider": "openai-codex", "model": "local-review", "reasoning": "off"}
     Path(env["STUDIO_CONFIG"]).write_text(json.dumps({
-        "profiles": {"personal": {role: model for role in ("lead", "worker", "reviewer", "explorer")}},
+        "profile": {role: model for role in ("lead", "worker", "reviewer", "explorer")},
         "runtime": {"enabled": True, "projects": [{
             "root": str(project), "source": {"url": source_url, "projectId": beads_project},
-            "profile": "personal", "base": "origin/main", "beadsWorkspace": str(project), "beadsDatabase": "fixture",
+            "base": "origin/main", "beadsWorkspace": str(project), "beadsDatabase": "fixture",
         }]},
         "integrations": {name: {"enabled": True, "executable": "/usr/bin/false"} for name in ("worktrees", "octo")},
     }))
     source = """
 import { applyDeliveryPolicy, handoffDraft } from './discovery/plan.ts';
 import { Discoveries } from './discovery/store.ts';
-import { directoryProfileType } from './directory.ts';
 import { coverageToken, specificationToken } from './socrates/assessment.ts';
 import { SpecStatus } from './socrates/spec.ts';
 import { draftSchema } from './planning/plan.ts';
@@ -879,9 +878,8 @@ turn('assistant','The exporter and the guide each have their own PR. The guide i
 turn('user','Freeze this specification. I want to review the graph and both PRs together before creating tasks.');
 turn('assistant','The frozen specification and the five beads are ready for handoff review.');
 session.appendCustomEntry('studio:discovery',{id:record.id,project:record.project});
-// Restore the selected profile through the same session entries that Studio writes when changing directory.
+// Restore the lead model with the saved conversation; the profile comes from global configuration.
 session.appendModelChange('openai-codex','local-review');
-session.appendCustomEntry(directoryProfileType,'personal');
 console.log(JSON.stringify({id:record.id,session:session.getSessionFile()}));store.close();
 """
     seeded = subprocess.run(["bun", "--no-env-file", "-e", source, str(project)], env=env, cwd=root,
@@ -917,7 +915,8 @@ console.log(JSON.stringify({id:record.id,session:session.getSessionFile()}));sto
         first_page = frame()
         assert any("Implementation" in line and "Delivery" in line for line in first_page), first_page
         wide = " ".join(" ".join(first_page).split())
-        for item in ("◆ Frozen · v1", "● 13 satisfied", "├─╮", "Enter Specification"):
+        for item in ("◆ Frozen · v1", "● 13 satisfied", "├─╮", "Enter Specification",
+                     "Profile global · lead openai-codex/local-review · worker openai-codex/local-review · reviewer openai-codex/local-review"):
             assert item in wide, (item, wide)
         column = next(line.index("Delivery") for line in first_page if "Delivery" in line)
         delivery = [line[column:].strip() for line in first_page if line[column - 2] == "│"]

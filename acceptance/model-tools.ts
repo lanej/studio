@@ -740,11 +740,7 @@ await test(transportAcceptance, { timeout: 30_000 }, async (t) => {
     assert.ok(attempts.reserve(record));
     const managedExtension: ExtensionFactory = (pi) => {
       registerPlanningDocuments(pi);
-      registerDelegation(
-        pi,
-        () => undefined,
-        () => undefined,
-      );
+      registerDelegation(pi, () => undefined);
       registerModelTools(pi, { coding: false });
       registerLeadControls(
         pi,

@@ -244,9 +244,7 @@ export async function executeAssignment(
       if (!selection) throw new Error("The admitted role is missing");
       const model = ctx.modelRegistry.find(selection.provider, selection.model);
       if (!model || !runtimeModelAllowed(attempt.profile, model))
-        throw new Error(
-          `Admitted ${role} model ${selection.provider}/${selection.model} is unavailable for the ${attempt.profile} profile`,
-        );
+        throw new Error(`Admitted ${role} model ${selection.provider}/${selection.model} is unavailable in Pi`);
       const sessionDir = join(store.directory, "runtime-sessions", id, `${role}-${String(round++)}`);
       mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
       let session: AgentSession | undefined;

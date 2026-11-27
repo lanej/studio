@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import { realpathSync } from "node:fs";
 import { z } from "zod";
 import { InteractiveMode } from "@earendil-works/pi-coding-agent";
-import { loadConfig, studioProfileSchema, workerForTask, type StudioConfig } from "../config.ts";
+import { loadConfig, requireProfile, workerForTask, type StudioConfig } from "../config.ts";
 import { planDigest, TaskDelivery, type LeadDraft, type PlanWorkers } from "../planning/plan.ts";
 import { requireIntegration } from "../integrations.ts";
 import { octo } from "../delivery.ts";
@@ -15,19 +15,14 @@ import { checkHandoffRetry, handoffTaskIds } from "./handoff-model.ts";
 import { ExecutionBeads, verifyHeartbeatAuthority } from "./beads.ts";
 import { ensureRuntime } from "./supervisor.ts";
 import { processMatchesStart, processStart } from "../process.ts";
-import { assertRuntimeProfile } from "./profile.ts";
+import { assertRuntimeProfile, profileDigest } from "./profile.ts";
 import { currentInteractiveTarget, verifyInteractiveTarget } from "./interactive-target.ts";
 import { setTimeout as delay } from "node:timers/promises";
 
-export function handoffWorkers(
-  config: StudioConfig,
-  draft: LeadDraft | null,
-  profile: RuntimeProject["profile"],
-): PlanWorkers | undefined {
+export function handoffWorkers(config: StudioConfig, draft: LeadDraft | null): PlanWorkers | undefined {
   const assigned = draft?.tasks.filter((task) => task.assignment !== undefined) ?? [];
   if (assigned.length === 0) return undefined;
-  const roles = config.profiles[profile];
-  if (!roles) throw new Error(`Configure the ${profile} profile first`);
+  const roles = requireProfile(config);
   return Object.fromEntries(assigned.map((task) => [task.key, workerForTask(roles, task.assignment)]));
 }
 
@@ -46,19 +41,20 @@ export async function prepareInteractiveHandoff(record: Discovery): Promise<Inte
   return await currentInteractiveTarget();
 }
 
-export function handoffTarget(config: StudioConfig, record: Discovery, profile: string): RuntimeProject {
+export function handoffTarget(config: StudioConfig, record: Discovery): RuntimeProject {
   if (!config.runtime.enabled)
     throw new Error("Enable runtime and configure this project before approving unattended execution");
   if (!config.integrations.worktrees.enabled) throw new Error("Enable the native worktree integration for execution");
   const project = config.runtime.projects.find((item) => realpathSync(item.root) === record.project);
-  if (!project || project.profile !== studioProfileSchema.parse(profile))
-    throw new Error("Configure this project's runtime repository, Beads service, and selected profile");
+  if (!project) throw new Error("Configure this project's runtime repository and Beads service");
+  requireProfile(config);
   if (project.source.reviewOnly === true)
     throw new Error("Review-only Beads authority does not permit unattended task creation or completion");
   return projectSchema.parse({
     ...project,
     root: record.project,
     id: project.source.projectId,
+    profileDigest: profileDigest(config),
   });
 }
 
@@ -79,14 +75,13 @@ async function verifyHandoff(
   } finally {
     enrollment.close();
   }
-  await assertRuntimeProfile(config, enrolled.profile, workers);
+  await assertRuntimeProfile(config, workers);
   await verifyHeartbeatAuthority(enrolled);
   await assertVerificationIsolation(enrolled.root, enrolled.verificationReadPaths);
 }
 
 export async function approveHandoff(
   record: Discovery,
-  profile: string,
   target: RuntimeProject,
   interactive?: InteractiveTarget,
   workers?: PlanWorkers,
@@ -119,12 +114,12 @@ export async function approveHandoff(
   let project: RuntimeProject;
   try {
     const config = await loadConfig();
-    project = handoffTarget(config, locked, profile);
+    project = handoffTarget(config, locked);
     if (
       !isDeepStrictEqual(project, target) ||
-      !isDeepStrictEqual(handoffWorkers(config, locked.leadPlan.draft, project.profile), workers)
+      !isDeepStrictEqual(handoffWorkers(config, locked.leadPlan.draft), workers)
     )
-      throw new Error("Runtime project authority or worker selections changed after the displayed approval");
+      throw new Error("Runtime project authority or the global profile changed after the displayed approval");
     await verifyHandoff(locked, config, project, workers);
     if (interactive) {
       if (!isDeepStrictEqual(await prepareInteractiveHandoff(record), interactive))
@@ -170,7 +165,6 @@ export async function approveHandoff(
       record.title,
       draft,
       intent.ids,
-      project.profile,
       interactive !== undefined,
       intent.workers,
     );

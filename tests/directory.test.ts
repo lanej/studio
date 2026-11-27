@@ -48,11 +48,9 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
       worktrees: { enabled: true, executable: managerExecutable },
     },
     idleCompaction: { enabled: false },
-    profiles: {
-      work: Object.fromEntries(
-        Object.values(AgentRole).map((role) => [role, { provider: "fixture", model: "tiny", reasoning: "low" }]),
-      ),
-    },
+    profile: Object.fromEntries(
+      Object.values(AgentRole).map((role) => [role, { provider: "fixture", model: "tiny", reasoning: "low" }]),
+    ),
   };
   await writeFile(configFile, JSON.stringify(config));
   delete process.env["STUDIO_ATTEMPT"];
@@ -245,20 +243,18 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
     fullStudio = true;
     await runtime.switchSession(originalFile);
     const driver = runtime.session.extensionRunner;
-    const selectWork = async (session: AgentSession) => {
+    const applyProfile = async (session: AgentSession) => {
       const runner = session.extensionRunner;
       const command = runner.getCommand("studio-profile");
       assert.ok(command !== undefined);
-      await command.handler("work", runner.createCommandContext());
+      await command.handler("", runner.createCommandContext());
     };
-    assert.ok(!runtime.session.getActiveToolNames().includes(delegateTool));
-    await selectWork(runtime.session);
     assert.ok(runtime.session.getActiveToolNames().includes(delegateTool));
     const other = driver.createCommandContext().modelRegistry.find("fixture", "other");
     assert.ok(other !== undefined);
     await runtime.session.setModel(other);
     assert.ok(!runtime.session.getActiveToolNames().includes(delegateTool));
-    await selectWork(runtime.session);
+    await applyProfile(runtime.session);
     assert.ok(runtime.session.getActiveToolNames().includes(delegateTool));
     for (const tool of [undefined, "Agent", "subagent", "SubagentWorkflow"]) {
       standaloneTool = tool;
@@ -274,7 +270,7 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
       try {
         await session.bindExtensions({ mode: PiMode.Rpc });
         await session.setModel(other);
-        await selectWork(session);
+        await applyProfile(session);
         assert.equal(session.model?.id, "tiny");
         assert.ok(!session.getActiveToolNames().includes(delegateTool), tool ?? "--no-session");
       } finally {
@@ -292,10 +288,11 @@ await test("/cd carries the active conversation and tree into rebuilt native Pi 
     await writeFile(configFile, JSON.stringify({ ...config, integrations: {} }));
     await cd(target);
     assert.ok(!runtime.session.getActiveToolNames().includes(delegateTool));
-    await writeFile(configFile, JSON.stringify({ ...config, profiles: {} }));
+    await writeFile(configFile, JSON.stringify({ ...config, profile: undefined }));
     await cd(source);
     assert.equal(runtime.session.getActiveToolNames().includes(delegateTool), false);
-    assert.ok(notifications.some((message) => message.includes("Configure the work profile first")));
+    await applyProfile(runtime.session);
+    assert.ok(notifications.some((message) => message.includes("Configure the global Studio profile")));
   } finally {
     await runtime.dispose();
   }

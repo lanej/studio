@@ -108,7 +108,7 @@ def launch(
                 ("7" if scenario == "failed-check" else "0")]
     placement = ["--tab-id", str(tab_id)] if scenario == "accepted" else []
     worker_flag = ["--worker"] if scenario in (Scenario.ACCEPTED, Scenario.FAILED_CHECK, Scenario.CHANGED_BRIEF) else []
-    start_command = shlex.join([driver, "start", bead, "--profile", "personal", *worker_flag,
+    start_command = shlex.join([driver, "start", bead, *worker_flag,
                                 *placement, "--", *verifier])
     command = f"cd {shlex.quote(str(repository))} && {start_command}; printf '%s' $? > {shlex.quote(str(exit_file))}"
     assert any(p["id"] == launcher_pane for p in terminal.terminals()), "Owned launcher disappeared"
@@ -658,9 +658,9 @@ def check_worker_reuse(case: Case, report: Report) -> None:
     assert any(p["id"] == pane and p["is_focused"] for p in terminal.terminals()), terminal.terminals()
     inventory = json.loads(execute([manager, "status", "--json"]).stdout)
     assert len(inventory["result"]["tasks"]) == 1, inventory
-    terminal.send_to_pane(pane, "/studio-profile personal\r")
+    terminal.send_to_pane(pane, "/studio-profile\r")
     terminal.until("managed Pi refuses the lead profile command", lambda:
-                   "Set the profile on studio start." in pane_text(pane))
+                   "Managed tasks retain their admitted model" in pane_text(pane))
     terminal.send_to_pane(pane, "/model alternate-fixture/different-model\r")
     terminal.until("managed Pi refuses the alternate route", lambda:
                    "Managed Pi requires its admitted model" in pane_text(pane))
@@ -757,7 +757,7 @@ def discovery_delivery_review(case: Case) -> None:
     context = json.loads(harness.execute([str(bead_cli), "-C", str(harness.options.repository), "context", "--json"]).stdout)
     config["runtime"] = {"enabled": True, "projects": [{
         "root": str(harness.options.repository), "source": harness.options.beads,
-        "profile": "personal", "base": "main", "beadsWorkspace": str(harness.options.repository),
+        "base": "main", "beadsWorkspace": str(harness.options.repository),
         "beadsExecutable": str(bead_cli), "beadsDatabase": context["database"]}]}
     octo = harness.paths.guard / "octo-manager"
     octo.write_text("#!/bin/sh\n[ \"$1 $2\" = \"pr instructions\" ] || exit 91\nprintf 'Native fixture publication instructions\\n'\n")
@@ -777,9 +777,6 @@ def discovery_delivery_review(case: Case) -> None:
     exited = harness.options.work / "discovery-delivery.exit"
     terminal.send_to_pane(pane, shlex.join([harness.driver, "lead", "--", "--offline", "--no-mcp", "--provider", ADMITTED_MODEL.provider, "--model", ADMITTED_MODEL.id]) + f"; touch {shlex.quote(str(exited))}\r")
     terminal.until("independent discovery lead opens", lambda: "Press ctrl+o to show full startup help" in terminal.capture_pane(pane))
-    terminal.send_to_pane(pane, "/studio-profile personal")
-    terminal.write_to_pane(pane, 13)
-    terminal.pty.drain(.2)
     terminal.send_to_pane(pane, "/discoveries")
     terminal.write_to_pane(pane, 13)
     terminal.until("native discovery picker opens", lambda: "Select a saved discovery" in terminal.capture_pane(pane))

@@ -118,7 +118,6 @@ test("an older background handoff resolves the approved graph and rejects change
       id: randomUUID(),
       project: id,
       phase: ExecutionPhase.Allocating,
-      profile: project.profile,
       message: "Starting",
       bead,
     });
@@ -204,7 +203,7 @@ test("publication checks the worker model against the retained handoff intent", 
       beadsDatabase: "test",
     });
     const worker = {
-      ...exampleConfig.profiles.personal.worker,
+      ...exampleConfig.profile.worker,
       reasoning: ReasoningLevel.High,
     };
     const draft = draftSchema.parse({
@@ -390,26 +389,23 @@ test("new child delivery selects existing launch paths and rejects mismatches be
   try {
     const service = new TaskBeads(source);
     await service.requireDeliveryLaunch(await service.get("child"), false);
-    await assert.rejects(startTask("child", StudioProfile.Personal, [], undefined, true), /local delivery.*--worker/u);
+    await assert.rejects(startTask("child", [], undefined, true), /local delivery.*--worker/u);
     assert.equal(existsSync(state), false);
     metadata = {
       ...metadata,
       "pi.plan_task": { ...task, delivery: "pull-request" },
     };
     await service.requireDeliveryLaunch(await service.get("child"), true);
-    await assert.rejects(
-      startTask("child", StudioProfile.Personal, [], undefined, false),
-      /PR delivery.*omit --worker/u,
-    );
+    await assert.rejects(startTask("child", [], undefined, false), /PR delivery.*omit --worker/u);
     assert.equal(existsSync(state), false);
     metadata = { ...metadata, "pi.plan_key": "another" };
-    await assert.rejects(startTask("child", StudioProfile.Personal, [], undefined, true), /malformed or mismatched/u);
+    await assert.rejects(startTask("child", [], undefined, true), /malformed or mismatched/u);
     metadata = { ...metadata, "pi.plan_key": "one" };
     parentDigest = "another";
-    await assert.rejects(startTask("child", StudioProfile.Personal, [], undefined, true), /does not match its parent/u);
+    await assert.rejects(startTask("child", [], undefined, true), /does not match its parent/u);
     parentDigest = "digest";
     linked = false;
-    await assert.rejects(startTask("child", StudioProfile.Personal, [], undefined, true), /does not match its parent/u);
+    await assert.rejects(startTask("child", [], undefined, true), /does not match its parent/u);
     assert.equal(existsSync(state), false);
     await service.requireDeliveryLaunch(
       beadSchema.parse({

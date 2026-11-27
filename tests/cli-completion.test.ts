@@ -83,16 +83,15 @@ describe("offline Commander completion", () => {
     expect(query("doctor", "--j")).toEqual([]);
     expect(query("start", "id", "--", "")).toEqual([]);
     expect(query("lead", "--", "--pro")).toEqual([]);
-    expect(query("start", "id", "--profile", "personal", "--w")).toEqual(["--worker"]);
+    expect(query("start", "id", "--w")).toEqual(["--worker"]);
   });
 
   test("declared values, argument choices and help topics", () => {
-    expect(query("start", "id", "--profile", "")).toEqual(["personal", "work"]);
-    expect(query("start", "--profile", "w")).toEqual(["work"]);
-    expect(query("start", "--profile=p")).toEqual(["--profile=personal"]);
+    expect(query("start", "id", "--profile", "")).toEqual([]);
+    expect(query("start", "--profile=p")).toEqual([]);
     expect(query("start", "--profile", "missing")).toEqual([]);
-    expect(query("skill", "--topic", "pro")).toEqual(["profiles"]);
-    expect(query("skill", "--topic", "")).toEqual(["compaction", "dispatch", "profiles", "tasks"]);
+    expect(query("skill", "--topic", "pro")).toEqual(["profile"]);
+    expect(query("skill", "--topic", "")).toEqual(["compaction", "dispatch", "profile", "tasks"]);
     expect(query("skill", "--topic=ta")).toEqual(["--topic=tasks"]);
     expect(query("completion", "")).toEqual(["bash", "fish", "zsh"]);
     expect(query("completion", "z")).toEqual(["zsh"]);
