@@ -561,7 +561,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
       pollMs: 1000,
       projects: [{ ...project, id: undefined }],
     },
-    integrations: { worktrees: { enabled: true, executable: "worktree" } },
+    integrations: { worktrees: { enabled: true, executable: "worktree" }, zellij: { enabled: false } },
     profile: {
       ...Object.fromEntries(
         Object.values(AgentRole).map((role) => [

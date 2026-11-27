@@ -88,13 +88,16 @@ export class Zellij {
   constructor(
     private readonly session: string,
     private readonly cacheDirectory?: string,
+    useCallerPane = true,
   ) {
     const uid = process.getuid?.();
     if (uid === undefined) throw new Error("Zellij requires a Unix user ID");
     this.uid = uid;
     this.path = sessionSocket(session, uid, this.cacheDirectory);
     this.identity = socketIdentity(this.path, uid);
-    const terminal = /^(?:terminal_)?(\d+)$/u.exec(process.env["ZELLIJ_PANE_ID"] ?? "")?.[1];
+    const terminal = useCallerPane
+      ? /^(?:terminal_)?(\d+)$/u.exec(process.env["ZELLIJ_PANE_ID"] ?? "")?.[1]
+      : undefined;
     this.terminal = terminal === undefined ? undefined : tabId(terminal);
   }
 
@@ -228,6 +231,16 @@ export class Zellij {
       explicit ?? candidates.find((pane) => pane.id === this.terminal && !pane.is_plugin && !pane.exited)?.tab_id;
     if (tab === undefined || !candidates.some((pane) => pane.tab_id === tab))
       throw new Error("Start from a live Zellij pane or select an existing tab with --tab-id");
+    return tab;
+  }
+
+  async detachedTab(): Promise<number> {
+    const tabs = new Set(
+      (await this.panes()).filter((pane) => !pane.is_plugin && !pane.exited).map((pane) => pane.tab_id),
+    );
+    const [tab] = tabs;
+    if (tabs.size !== 1 || tab === undefined) throw new Error("Expected one Studio worker tab");
+    await this.requireUnsharedTab(tab);
     return tab;
   }
 

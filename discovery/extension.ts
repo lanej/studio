@@ -452,11 +452,10 @@ export function registerDiscovery(
     },
   });
   pi.registerCommand("plan-approve", {
-    description: "Review and authorize the plan in background mode or with /plan-approve interactive",
+    description: "Review and authorize the plan for runtime execution",
     async handler(argument, ctx) {
-      const mode = argument.trim();
-      if (mode !== "" && mode !== "background" && mode !== "interactive")
-        throw new Error("Use /plan-approve background or /plan-approve interactive");
+      if (argument.trim() !== "")
+        throw new Error("Use /plan-approve without a mode; the runtime follows Zellij configuration");
       if (documents.pending() || !ctx.isIdle()) throw new Error("Wait for the lead turn to settle");
       const record = await requireBinding(ctx);
       const draft = handoffDraft(record);
@@ -464,14 +463,14 @@ export function registerDiscovery(
       if (discoveryBusy()) throw new Error("Wait for the discovery command");
       pending = true;
       try {
-        const { handoffTarget, handoffWorkers, approveHandoff, prepareInteractiveHandoff } = await import(
+        const { handoffTarget, handoffWorkers, approveHandoff, retainedInteractiveTarget } = await import(
           "../execution/handoff.ts"
         );
         const config = await loadConfig();
         const target = handoffTarget(config, record);
         const workers = handoffWorkers(config, draft);
         const { lead, worker, reviewer } = requireProfile(config);
-        const interactive = mode === "interactive" ? await prepareInteractiveHandoff(record) : undefined;
+        const interactive = retainedInteractiveTarget(record);
         if (
           !(await reviewHandoff(ctx, {
             title: record.title,
@@ -481,9 +480,11 @@ export function registerDiscovery(
             sourceId: target.id,
             profile: `global · lead ${lead.provider}/${lead.model} · worker ${worker.provider}/${worker.model} · reviewer ${reviewer.provider}/${reviewer.model}`,
             workers,
-            execution: !interactive
-              ? "background"
-              : `interactive in Zellij ${interactive.session}, tab ${String(interactive.tab)}`,
+            execution: interactive
+              ? `retained Zellij target ${interactive.session}, tab ${String(interactive.tab)}`
+              : config.integrations.zellij.enabled
+                ? "Studio-owned Zellij worker session"
+                : "Headless (Zellij disabled)",
           }))
         )
           return;

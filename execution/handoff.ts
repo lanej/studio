@@ -2,7 +2,6 @@ import { assertVerificationIsolation } from "./sandbox.ts";
 import { isDeepStrictEqual } from "node:util";
 import { realpathSync } from "node:fs";
 import { z } from "zod";
-import { InteractiveMode } from "@earendil-works/pi-coding-agent";
 import { loadConfig, requireProfile, workerForTask, type StudioConfig } from "../config.ts";
 import { planDigest, TaskDelivery, type LeadDraft, type PlanWorkers } from "../planning/plan.ts";
 import { requireIntegration } from "../integrations.ts";
@@ -16,7 +15,7 @@ import { ExecutionBeads, verifyHeartbeatAuthority } from "./beads.ts";
 import { ensureRuntime } from "./supervisor.ts";
 import { processMatchesStart, processStart } from "../process.ts";
 import { assertRuntimeProfile, profileDigest } from "./profile.ts";
-import { currentInteractiveTarget, verifyInteractiveTarget } from "./interactive-target.ts";
+import { verifyInteractiveTarget } from "./interactive-target.ts";
 import { setTimeout as delay } from "node:timers/promises";
 
 export function handoffWorkers(config: StudioConfig, draft: LeadDraft | null): PlanWorkers | undefined {
@@ -26,19 +25,14 @@ export function handoffWorkers(config: StudioConfig, draft: LeadDraft | null): P
   return Object.fromEntries(assigned.map((task) => [task.key, workerForTask(roles, task.assignment)]));
 }
 
-export async function prepareInteractiveHandoff(record: Discovery): Promise<InteractiveTarget> {
-  if (typeof InteractiveMode.prototype.runAssignmentTurn !== "function")
-    throw new Error("The installed Pi host lacks restricted assignment input");
-  if (
-    record.leadPlan.draft?.tasks.some(
-      (task) => task.delivery === TaskDelivery.PullRequest || task.owns.length === 0 || (task.check?.length ?? 0) === 0,
-    ) === true
-  )
-    throw new Error(
-      "Interactive approval requires local delivery, owned paths, and an approved verifier for each task",
-    );
-  await requireIntegration(await loadConfig(), "zellij");
-  return await currentInteractiveTarget();
+export function retainedInteractiveTarget(record: Discovery): InteractiveTarget | undefined {
+  if (record.handoff === undefined) return undefined;
+  const store = new ExecutionStore();
+  try {
+    return store.intent(record.revision)?.interactive;
+  } finally {
+    store.close();
+  }
 }
 
 export function handoffTarget(config: StudioConfig, record: Discovery): RuntimeProject {
@@ -122,7 +116,7 @@ export async function approveHandoff(
       throw new Error("Runtime project authority or the global profile changed after the displayed approval");
     await verifyHandoff(locked, config, project, workers);
     if (interactive) {
-      if (!isDeepStrictEqual(await prepareInteractiveHandoff(record), interactive))
+      if (!isDeepStrictEqual(retainedInteractiveTarget(locked), interactive))
         throw new Error("The displayed interactive target changed; review the approval again");
       await ensureInteractiveSupervisor();
       await verifyInteractiveTarget(interactive);
