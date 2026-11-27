@@ -51,7 +51,14 @@ export function shellOutputPreview(
     render(width) {
       const rows = text.render(width);
       const visible = expanded ? rows : rows.slice(-previewLines);
-      const header = metadata(rows.length - visible.length, width);
+      const hidden = rows.length - visible.length;
+      const first = visible[0]?.replace(/ +$/u, "");
+      if (hidden === 0 && elapsed === undefined && first !== undefined && first.trim() !== "") {
+        const available = width - visibleWidth(first) - 2;
+        const inline = metadata(0, available);
+        if (inline !== "") return [`${first}  ${inline}`, ...visible.slice(1)];
+      }
+      const header = metadata(hidden, width);
       if (visible.length === 0 && header === "") return [];
       return [header, ...visible];
     },

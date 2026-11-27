@@ -87,6 +87,8 @@ console.log(session.getSessionFile());
                         metrics, first_result = lines[row + 1:row + 3]
                         # Studio's native tool card has one padding cell at either end.
                         assert len(physical[row + 1].rstrip()) == width - 1, physical[row + 1]
+                        if index == 0 and width == 128:
+                            first_result, metrics = re.split(r" {2,}(?=≈)", metrics)
                         fields = metrics.split(" · ")
                         tokens = [field for field in fields if re.fullmatch(r"≈\d+ tokens", field)]
                         assert len(tokens) == 1, metrics
@@ -117,4 +119,4 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path)
     run(parser.parse_args().output)
-    print("Native Pi retained Bash headers preserve full-width command wrapping and put results directly after one right-aligned metadata row at 128 and 60 columns; no rendered commands executed.")
+    print("Native Pi retained Bash headers preserve full-width command wrapping and align metadata beside short output or above longer output at 128 and 60 columns; no rendered commands executed.")
