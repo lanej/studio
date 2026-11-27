@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { join } from "node:path";
 import { z } from "zod";
 import { withBeadsHttp } from "./beads-http-fixture.ts";
+import { checkRuntimeStatus } from "./runtime-status.ts";
 import { ExecutionBeads, heartbeat, verifyHeartbeatAuthority } from "../execution/beads.ts";
 import { StudioProfile, configSchema, exampleConfig } from "../config.ts";
 import { profileDigest } from "../execution/profile.ts";
@@ -253,6 +254,7 @@ await withBeadsHttp(options.bd, options.dolt, async (fixture, source) => {
   } finally {
     blockedStore.close();
   }
+  await checkRuntimeStatus(fixture, source);
   console.log(
     `Native Beads graph, hold, atomic admission, heartbeat, and completion passed (${join(fixture.workspace, ".beads")}).`,
   );

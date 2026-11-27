@@ -2,22 +2,25 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { realpathSync } from "node:fs";
 import { Type } from "typebox";
 import { z } from "zod";
-import { loadConfig } from "../config.ts";
-import { ExecutionStore } from "./store.ts";
+import { loadConfig, type StudioConfig } from "../config.ts";
+import { ExecutionStore, type MergeOverride } from "./store.ts";
 import type { RuntimeProject } from "./target.ts";
+
+export function effectiveMergePolicy(project: string, config: StudioConfig, override: MergeOverride | undefined) {
+  const configured = config.runtime.projects.find((item) => item.source.projectId === project);
+  return {
+    project,
+    enabled: configured !== undefined && (override?.enabled ?? configured.merge),
+    origin: override === undefined ? "configuration" : "lead override",
+    override: override ?? null,
+  };
+}
 
 export async function mergePolicy(project: string) {
   const config = await loadConfig();
-  const configured = config.runtime.projects.find((item) => item.source.projectId === project);
   const store = new ExecutionStore();
   try {
-    const override = store.override(project);
-    return {
-      project,
-      enabled: configured !== undefined && (override?.enabled ?? configured.merge),
-      origin: !override ? "configuration" : "lead override",
-      override: override ?? null,
-    };
+    return effectiveMergePolicy(project, config, store.override(project));
   } finally {
     store.close();
   }
