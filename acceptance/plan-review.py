@@ -38,6 +38,7 @@ def run(output):
         (home / "config.json").write_text("{}")
         (agent / "models.json").write_text(json.dumps({"providers": {"fixture": {"baseUrl": "http://127.0.0.1:9/v1", "api": "openai-completions", "apiKey": "fixture", "models": [{"id": "tiny"}]}}}))
         env = {**os.environ, "HOME": str(home), "PI_CODING_AGENT_DIR": str(agent), "STUDIO_CONFIG": str(home / "config.json"), "STUDIO_STATE_DIR": str(home / "state"), "TERM": "xterm-256color", "COLORTERM": "truecolor", "PI_TELEMETRY": "0", "PI_SKIP_VERSION_CHECK": "1"}
+        env["BUN_RUNTIME_TRANSPILER_CACHE_PATH"] = "0"
         subprocess.run([sys.executable, str(root / "scripts/configure.py"), str(root), str(agent)], env=env, check=True, stdout=subprocess.DEVNULL, timeout=30)
         receipt = home / "approval.json"
         fixture = home / "review.ts"

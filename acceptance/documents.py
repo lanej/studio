@@ -563,6 +563,8 @@ vim.fn.writefile({vim.json.encode({socket=vim.env.HOME .. '/nvim.sock',pid=vim.f
                     return lua('vim.bo.modified and vim.tbl_contains(vim.api.nvim_buf_get_lines(0, 0, -1, false), "Local plan survives Studio disconnect.")')
 
                 terminal.until("disconnected Neovim retains the unsaved plan after reload", disconnected_dirty_plan)
+                terminal.until("Studio has finished reloading", lambda:
+                               "Reloaded keybindings, extensions, skills" in terminal.capture_pane(studio))
                 assert assert_companion(lead) == editor, "Reload replaced or resized the disconnected editor"
                 keys(studio, "/quit\r")
                 terminal.until("Studio closed without closing disconnected Neovim", lambda:
