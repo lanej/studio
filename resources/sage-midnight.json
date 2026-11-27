@@ -60,6 +60,8 @@
     "infoBg": "#17231E"
   },
   "vars": {
-    "syntaxNull": "#D89DAE"
+    "syntaxNull": "#D89DAE",
+    "footerBg": "#1C2B23",
+    "footerModelBg": "#2A4034"
   }
 }

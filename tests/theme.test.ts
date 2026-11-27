@@ -10,6 +10,7 @@ import {
   type TerminalColorMode,
 } from "@earendil-works/pi-tui";
 import palette from "../resources/colors.json" with { type: "json" };
+import sage from "../resources/sage-midnight.json" with { type: "json" };
 import theme from "../resources/theme.json" with { type: "json" };
 import { planGraphColor } from "../plan-graph.ts";
 
@@ -123,5 +124,19 @@ await test("the five Socrates state colors remain distinct in truecolor and 256-
   for (const mode of ["truecolor", "256color"] as const) {
     const foregrounds = colors.map((hex) => foregroundAnsi(parseColor(hex), mode));
     assert.equal(new Set(foregrounds).size, colors.length, mode);
+  }
+});
+
+await test("Sage footer and model status stay distinct and readable in both terminal color modes", () => {
+  const surfaces = [sage.colors.userMessageBg, sage.vars.footerBg, sage.vars.footerModelBg];
+  for (const mode of ["truecolor", "256color"] as const) {
+    const backgrounds = surfaces.map((hex) => backgroundAnsi(parseColor(hex), mode));
+    assert.equal(new Set(backgrounds).size, surfaces.length, mode);
+    const background = renderedColor(sage.vars.footerModelBg, mode, true);
+    for (const hex of [sage.colors.text, sage.colors.accent, sage.colors.muted]) {
+      const foreground = renderedColor(hex, mode);
+      const contrast = (luminance(foreground) + 0.05) / (luminance(background) + 0.05);
+      assert.ok(contrast >= 4.5, `${mode} ${hex} on the model surface has ${contrast.toFixed(2)}:1 contrast`);
+    }
   }
 });

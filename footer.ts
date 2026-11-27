@@ -1,17 +1,22 @@
 import { homedir } from "node:os";
 import { isAbsolute, relative, sep } from "node:path";
 import type { ExtensionContext, ThemeColor } from "@earendil-works/pi-coding-agent";
-import { sliceByColumn, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { parseColor, sliceByColumn, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { z } from "zod";
 import { ReasoningLevel } from "./config.ts";
 import { type FooterGit, watchFooterGit } from "./footer-git.ts";
 import { githubLink } from "./github-links.ts";
 import { LeadMode } from "./planning/plan.ts";
 import { run } from "./process.ts";
+import sage from "./resources/sage-midnight.json" with { type: "json" };
 import { FooterStatus, isEntry, isMessageRole, PiEntryType, PiMessageRole } from "./runtime.ts";
 
 const clean = (value: string) => value.replace(/\p{Cc}/gu, " ").trim();
 const separator = " ";
+const sageFooter = {
+  background: parseColor(sage.vars.footerBg),
+  modelBackground: parseColor(sage.vars.footerModelBg),
+};
 const primaryStatus = new Set<string>([FooterStatus.Bead, FooterStatus.Plan]);
 
 const modeGlyph = {
@@ -171,7 +176,13 @@ export function installFooter(
               : truncateToWidth(`${marker} ${directory}`, pathRoom);
         const leftLine = [theme.fg("text", pathLabel), left].filter((part) => part !== "").join(separator);
         const gap = " ".repeat(Math.max(0, inner - visibleWidth(leftLine + right)));
-        return [theme.bg("userMessageBg", ` ${leftLine}${gap}${right} `)];
+        if (theme.name !== sage.name) return [theme.bg("userMessageBg", ` ${leftLine}${gap}${right} `)];
+        if (visibleWidth(right) === 0) {
+          return [theme.style(` ${leftLine}${gap} `, { bg: sageFooter.background })];
+        }
+        const identity = theme.style(` ${leftLine}${gap.slice(1)}`, { bg: sageFooter.background });
+        const modelStatus = theme.style(`${gap.slice(0, 1)}${right} `, { bg: sageFooter.modelBackground });
+        return [identity + modelStatus];
       },
     };
   });
