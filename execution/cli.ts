@@ -1,4 +1,4 @@
-import type { Command } from "commander";
+import { Option, type Command } from "commander";
 import { isDeepStrictEqual } from "node:util";
 
 // The declarations also power offline completion. Load execution dependencies
@@ -96,39 +96,47 @@ export function registerRuntimeCommands(program: Command): void {
     });
   runtime
     .command("status")
-    .description("Inspect runtime ownership, attempts, retained sessions and policy")
-    .action(async () => {
-      const { ExecutionStore } = await import("./store.ts");
-      const { processMatchesStart } = await import("../process.ts");
-      const { mergePolicy } = await import("./policy.ts");
-      const store = new ExecutionStore();
-      try {
-        const supervisor = store.supervisor();
-        const projects = await Promise.all(
-          store.projects().map(async (project) => ({
-            id: project.id,
-            root: project.root,
-            profile: project.profile,
-            profileDigest: project.profileDigest,
-            mergePolicy: await mergePolicy(project.id),
-          })),
-        );
-        console.log(
-          JSON.stringify(
-            {
-              supervisor: supervisor ?? null,
-              allocationOwner: store.allocationOwner() ?? null,
-              live: supervisor !== undefined && (await processMatchesStart(supervisor.pid, supervisor.started)),
-              projects,
-              attempts: store.attempts(),
-            },
-            null,
-            2,
-          ),
-        );
-      } finally {
-        store.close();
+    .description("Inspect runtime ownership, attempts, retained sessions and policy in a live terminal dashboard")
+    .addOption(new Option("--summary", "Print a compact snapshot (default for redirected output)").conflicts("json"))
+    .option("--json", "Print the full status snapshot as JSON")
+    .action(async (options: { summary?: boolean; json?: boolean }) => {
+      const { readRuntimeStatus, formatRuntimeSummary } = await import("./status.ts");
+      const snapshot = await readRuntimeStatus();
+      if (options.json === true) console.log(JSON.stringify(snapshot, null, 2));
+      else if (
+        options.summary === true ||
+        !process.stdin.isTTY ||
+        !process.stdout.isTTY ||
+        process.env["TERM"] === "dumb"
+      )
+        console.log(formatRuntimeSummary(snapshot));
+      else {
+        const { showRuntimeStatus } = await import("./status-tui.ts");
+        await showRuntimeStatus(snapshot);
       }
+    });
+  const bead = runtime.command("bead").description("Close or delete a bead in an enrolled project");
+  bead
+    .command("close <project> <id>")
+    .description("Close one bead with a recorded reason")
+    .requiredOption("--reason <text>", "Reason to record in Beads")
+    .action(async (project: string, id: string, options: { reason: string }) => {
+      const { changeRuntimeBead, inspectRuntimeBead } = await import("./status-beads.ts");
+      await changeRuntimeBead(await inspectRuntimeBead({ project, id }), {
+        kind: "close",
+        reason: options.reason.trim(),
+      });
+      console.log(`Closed ${id} in Beads`);
+    });
+  bead
+    .command("delete <project> <id>")
+    .description("Permanently delete one bead")
+    .requiredOption("--confirm <id>", "Repeat the exact bead ID to confirm deletion")
+    .action(async (project: string, id: string, options: { confirm: string }) => {
+      if (options.confirm !== id) throw new Error("Confirm deletion with the exact bead ID");
+      const { changeRuntimeBead, inspectRuntimeBead } = await import("./status-beads.ts");
+      await changeRuntimeBead(await inspectRuntimeBead({ project, id }), { kind: "delete" });
+      console.log(`Deleted ${id} in Beads`);
     });
   runtime
     .command("stop")

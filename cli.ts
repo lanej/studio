@@ -16,6 +16,7 @@ enum HelpTopic {
   Compaction = "compaction",
   Profile = "profile",
   Dispatch = "dispatch",
+  Runtime = "runtime",
 }
 
 const program = new Command()
@@ -247,7 +248,7 @@ program
 program
   .command("skill")
   .description("Read compact agent guidance without configuration or services")
-  .addOption(new Option("--topic <topic>", "tasks, compaction, profile, or dispatch").choices(Object.values(HelpTopic)))
+  .addOption(new Option("--topic <topic>", "Choose a Studio workflow").choices(Object.values(HelpTopic)))
   .action((options: { topic?: string }) => {
     const topics = {
       [HelpTopic.Tasks]:
@@ -258,6 +259,8 @@ program
         "Configure one global profile using studio config --example. Choose each role’s provider and model independently. studio config --pi-models --region REGION generates Mantle entries for Pi models.json. /studio-profile applies the configured lead model in Pi.",
       [HelpTopic.Dispatch]:
         "From the repository in Zellij: studio start BEAD_ID -- make test. Supply a check that covers the accepted criteria; omit it for human review. Repeat the command to focus the registered worker. Use /task-submit SUMMARY in its Pi pane. Inspect studio tasks BEAD_ID --json for the result.",
+      [HelpTopic.Runtime]:
+        "Use studio runtime status --summary for a bounded snapshot with attempt and pending request IDs, or --json for full receipts. In a terminal, Enter opens the task preview. Use studio runtime bead close PROJECT_ID BEAD_ID --reason TEXT or studio runtime bead delete PROJECT_ID BEAD_ID --confirm BEAD_ID to act on one eligible bead in an enrolled project.",
     } satisfies Record<HelpTopic, string>;
     const topic = options.topic === undefined ? undefined : z.enum(HelpTopic).parse(options.topic);
     console.log(

@@ -57,6 +57,8 @@ Execution yields retained blockers from the ordered attempts. Each blocker can s
 
 Process observation helpers match a PID with its recorded start and probe process groups. The supervisor, allocation and recovery use those observations to keep unsettled writers fenced. Recovery treats missing identity as uncertainty. The execution store supplies the atomic inference reservation. [Process observations](../process.ts), [recovery](../execution/recovery.ts), [inference reservation](../execution/store.ts)
 
+Runtime status reads retained execution records through a read-only store and observes the supervisor's recorded process identity. The CLI summary and terminal dashboard group the same snapshot. The task preview presents the live Beads brief alongside retained execution and evidence. Edit, close, and delete recheck project enrollment and Studio ownership before sending the inspected revision to Beads. The editor saves changed fields in a single update and retains the draft if the save is refused. [Status snapshot](../execution/status.ts), [task preview](../execution/status-preview.ts), [Beads actions](../execution/status-beads.ts)
+
 The Pi host checks that the task panel still belongs to the current session and handoff. The task source matches the Beads project and URL against the configured enrollment and supplies the panel with task observations and scoped receipts. The panel owns focus, draft-safe reply input and interaction. Retry and answer requests go through the existing execution guards. [Pi binding](../extension.ts), [task source](../tasks/source.ts), [task panel](../tasks/panel.ts)
 
 ## Capability map

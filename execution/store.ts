@@ -194,10 +194,14 @@ export function activeTaskReviews(
 /** Durable intents and receipts only. Beads owns task state and dependency readiness. */
 export class ExecutionStore {
   private readonly db: Database;
-  constructor(readonly directory = stateDirectory()) {
-    mkdirSync(directory, { recursive: true, mode: 0o700 });
-    this.db = new Database(join(directory, "runtime.sqlite"), { create: true });
+  constructor(
+    readonly directory = stateDirectory(),
+    readOnly = false,
+  ) {
+    if (!readOnly) mkdirSync(directory, { recursive: true, mode: 0o700 });
+    this.db = new Database(join(directory, "runtime.sqlite"), readOnly ? { readonly: true } : { create: true });
     this.db.run("PRAGMA busy_timeout=5000");
+    if (readOnly) return;
     this.db.run(
       "CREATE TABLE IF NOT EXISTS records (kind TEXT NOT NULL,id TEXT NOT NULL,record TEXT NOT NULL,PRIMARY KEY(kind,id))",
     );

@@ -239,7 +239,7 @@ def exercise_interactive_dispatch(fixture: Fixture, terminal: Terminal, lead: in
     fixture.execute([fixture.options.bd, "-C", str(fixture.options.repository), "context", "--json"])
 
     def state() -> dict:
-        return json.loads(fixture.execute([fixture.driver, "runtime", "status"]).stdout)
+        return json.loads(fixture.execute([fixture.driver, "runtime", "status", "--json"]).stdout)
 
     def attempt(key: str) -> dict:
         return next((item for item in state()["attempts"] if item.get("bead", {}).get("id", "").endswith("." + key)), {})

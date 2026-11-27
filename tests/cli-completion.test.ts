@@ -79,7 +79,7 @@ describe("offline Commander completion", () => {
     expect(query("tasks", "--j")).toEqual(["--json"]);
     expect(query("config", "--r")).toEqual(["--region"]);
     expect(query("publish", "id", "--b")).toEqual(["--base", "--body-file"]);
-    expect(query("runtime", "status", "--")).toEqual(["--help"]);
+    expect(query("runtime", "status", "--")).toEqual(["--help", "--json", "--summary"]);
     expect(query("doctor", "--j")).toEqual([]);
     expect(query("start", "id", "--", "")).toEqual([]);
     expect(query("lead", "--", "--pro")).toEqual([]);
@@ -91,7 +91,7 @@ describe("offline Commander completion", () => {
     expect(query("start", "--profile=p")).toEqual([]);
     expect(query("start", "--profile", "missing")).toEqual([]);
     expect(query("skill", "--topic", "pro")).toEqual(["profile"]);
-    expect(query("skill", "--topic", "")).toEqual(["compaction", "dispatch", "profile", "tasks"]);
+    expect(query("skill", "--topic", "")).toEqual(["compaction", "dispatch", "profile", "runtime", "tasks"]);
     expect(query("skill", "--topic=ta")).toEqual(["--topic=tasks"]);
     expect(query("completion", "")).toEqual(["bash", "fish", "zsh"]);
     expect(query("completion", "z")).toEqual(["zsh"]);
