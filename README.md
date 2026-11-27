@@ -98,7 +98,7 @@ Run `uv run --script acceptance/shell-header.py --output /path/to/captures` to v
 
 Studio raises the lightness of Aurora hues used for text where the original swatch loses contrast on a selected row. The bundled theme targets at least 4.5:1 contrast for text on every painted surface in truecolor and xterm 256-color mode. The surrounding terminal supplies its canvas and opacity. A fresh install selects `dotfiles`. An upgrade preserves the theme selected in Pi’s `/settings`. Compare the same conversation in installed builds [before](docs/assets/worker-handoff-theme-before.png) and [after](docs/assets/worker-handoff-theme-after.png) the palette change.
 
-Select the bundled `sage-midnight` theme in Pi’s `/settings` for Sage colors. Tool responses use a darker green surface than user messages. The footer marks the path with a chevron and uses an angled transition into the lighter Sage surface behind the model and context usage. Syntax-highlighted Lua uses dusty rose for `nil`. Fenced Markdown blocks show their language above the code when the author specifies one.
+Select the bundled `sage-midnight` theme in Pi’s `/settings` for Sage colors. Tool responses use a darker green surface than user messages. Angled dividers separate the directory, Git status, and model usage on the Sage footer. Syntax-highlighted Lua uses dusty rose for `nil`. Fenced Markdown blocks show their language above the code when the author specifies one.
 
 ## Session forks and prompt loops
 

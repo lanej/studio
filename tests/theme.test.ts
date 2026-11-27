@@ -128,15 +128,28 @@ await test("the five Socrates state colors remain distinct in truecolor and 256-
 });
 
 await test("Sage footer and model status stay distinct and readable in both terminal color modes", () => {
-  const surfaces = [sage.colors.userMessageBg, sage.vars.footerBg, sage.vars.footerModelBg];
+  const surfaces = [
+    sage.colors.userMessageBg,
+    sage.vars.footerBg,
+    sage.vars.footerDirectoryBg,
+    sage.vars.footerModelBg,
+  ];
   for (const mode of ["truecolor", "256color"] as const) {
     const backgrounds = surfaces.map((hex) => backgroundAnsi(parseColor(hex), mode));
     assert.equal(new Set(backgrounds).size, surfaces.length, mode);
-    const background = renderedColor(sage.vars.footerModelBg, mode, true);
-    for (const hex of [sage.colors.text, sage.colors.accent, sage.colors.muted]) {
-      const foreground = renderedColor(hex, mode);
-      const contrast = (luminance(foreground) + 0.05) / (luminance(background) + 0.05);
-      assert.ok(contrast >= 4.5, `${mode} ${hex} on the model surface has ${contrast.toFixed(2)}:1 contrast`);
+    const { text, accent, muted, success, error, warning } = sage.colors;
+    const cases = [
+      { surface: sage.vars.footerDirectoryBg, foregrounds: [text] },
+      { surface: sage.vars.footerBg, foregrounds: [text, accent, muted, success, error, warning] },
+      { surface: sage.vars.footerModelBg, foregrounds: [accent, muted] },
+    ];
+    for (const { surface, foregrounds } of cases) {
+      const background = renderedColor(surface, mode, true);
+      for (const hex of foregrounds) {
+        const foreground = renderedColor(hex, mode);
+        const contrast = (luminance(foreground) + 0.05) / (luminance(background) + 0.05);
+        assert.ok(contrast >= 4.5, `${mode} ${hex} on ${surface} has ${contrast.toFixed(2)}:1 contrast`);
+      }
     }
   }
 });

@@ -62,6 +62,7 @@
   "vars": {
     "syntaxNull": "#D89DAE",
     "footerBg": "#1C2B23",
+    "footerDirectoryBg": "#35493E",
     "footerModelBg": "#2A4034"
   }
 }

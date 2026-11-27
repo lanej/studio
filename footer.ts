@@ -15,6 +15,7 @@ const clean = (value: string) => value.replace(/\p{Cc}/gu, " ").trim();
 const separator = " ";
 const sageFooter = {
   background: parseColor(sage.vars.footerBg),
+  directoryBackground: parseColor(sage.vars.footerDirectoryBg),
   modelBackground: parseColor(sage.vars.footerModelBg),
 };
 const primaryStatus = new Set<string>([FooterStatus.Bead, FooterStatus.Plan]);
@@ -175,22 +176,30 @@ export function installFooter(
             : pathRoom > 3
               ? `${marker} …${sliceByColumn(directory, Math.max(0, visibleWidth(directory) - pathRoom + 3), pathRoom - 3, true)}`
               : truncateToWidth(`${marker} ${directory}`, pathRoom);
-        const leftLine = [theme.fg("text", pathLabel), left].filter((part) => part !== "").join(separator);
-        const gap = " ".repeat(Math.max(0, inner - visibleWidth(leftLine + right)));
-        if (!isSage) return [theme.bg("userMessageBg", ` ${leftLine}${gap}${right} `)];
-        if (visibleWidth(right) === 0) {
-          return [theme.style(` ${leftLine}${gap} `, { bg: sageFooter.background })];
-        }
-        const identity = theme.style(` ${leftLine}${gap.slice(1)}`, { bg: sageFooter.background });
-        const transition =
-          gap === ""
-            ? ""
-            : theme.style("\uE0B2", {
-                fg: sageFooter.modelBackground,
-                bg: sageFooter.background,
-              });
-        const modelStatus = theme.style(`${right} `, { bg: sageFooter.modelBackground });
-        return [identity + transition + modelStatus];
+        const path = theme.fg("text", pathLabel);
+        const metadata = left === "" ? "" : separator + left;
+        const gap = " ".repeat(Math.max(0, inner - visibleWidth(path + metadata + right)));
+        if (!isSage) return [theme.bg("userMessageBg", ` ${path}${metadata}${gap}${right} `)];
+        const middle = metadata + gap;
+        // Dividers take the place of whitespace already reserved by the layout.
+        const showDirectoryDivider = pathLabel !== "" && middle.startsWith(" ");
+        const body = showDirectoryDivider ? middle.slice(1) : middle;
+        const hasModel = visibleWidth(right) > 0;
+        const showModelDivider = hasModel && body.endsWith(" ");
+        const directoryStatus = theme.style(` ${path}`, {
+          bg: showDirectoryDivider ? sageFooter.directoryBackground : sageFooter.background,
+        });
+        const directoryDivider = showDirectoryDivider
+          ? theme.style("\uE0B0", { fg: sageFooter.directoryBackground, bg: sageFooter.background })
+          : "";
+        const metadataStatus = theme.style(showModelDivider ? body.slice(0, -1) : body, { bg: sageFooter.background });
+        const modelDivider = showModelDivider
+          ? theme.style("\uE0B2", { fg: sageFooter.modelBackground, bg: sageFooter.background })
+          : "";
+        const modelStatus = theme.style(`${right} `, {
+          bg: hasModel ? sageFooter.modelBackground : sageFooter.background,
+        });
+        return [directoryStatus + directoryDivider + metadataStatus + modelDivider + modelStatus];
       },
     };
   });
