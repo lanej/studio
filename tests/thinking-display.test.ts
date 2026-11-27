@@ -145,6 +145,8 @@ await test("the brain shares the first prose or heading row while narrow Markdow
       assert.ok(text.includes(prose));
       assert.match(text, /Preserve the list item\./u);
       assert.match(text, /const unit = "celsius";/u);
+      assert.match(text, /\bts const unit/u);
+      assert.doesNotMatch(text, /```/u);
     }
   }
 });

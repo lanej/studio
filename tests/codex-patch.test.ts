@@ -333,7 +333,11 @@ await test("Codex shell excerpts preserve the first source line's indentation", 
     });
     for (const expanded of [false, true]) {
       shell.setExpanded(expanded);
-      const rows = shell.render(80).map((row) => stripTerminalSequences(row).trimEnd());
+      const rows = shell.render(80).map((row) =>
+        stripTerminalSequences(row)
+          .replace(/ {2,}≈\d+ tokens *$/u, "")
+          .trimEnd(),
+      );
       for (const line of source)
         assert.ok(
           rows.some((row) => row.endsWith(line)),
@@ -371,9 +375,12 @@ await test("finished shells use the result separator for size, hidden rows and s
       const status = rows[heading + 1];
       assert.ok(status !== undefined);
       const firstOutput = stripTerminalSequences(rows[heading + 2] ?? "").trim();
-      assert.equal(firstOutput, expanded ? "first" : "two", "Use the existing separator without adding a second row");
       const label = [...(expanded ? [] : ["1 more line"]), size, ...(durationMs === 1000 ? ["1.0s"] : [])].join(" · ");
-      assert.equal(stripTerminalSequences(status).trim(), label);
+      const inline = expanded && durationMs === 999;
+      assert.equal(firstOutput, inline ? "two" : expanded ? "first" : "two");
+      const statusText = stripTerminalSequences(status).trim();
+      if (inline) assert.match(statusText, /^first {2,}≈\d+ tokens$/u);
+      else assert.equal(statusText, label);
       assert.ok(status.includes(inlayText(theme, label)), "Shell metadata uses Studio's inlay foreground");
       assert.doesNotMatch(display, /ctrl\+[oy]|earlier lines|to expand|Took/u);
       assert.equal(display.includes("first"), expanded);
@@ -437,9 +444,13 @@ await test("shell previews report only rows they actually hide", async (t) => {
       const [heading, metadata, ...shown] = rows;
       assert.equal(heading, "$ cat report");
       assert.ok(metadata !== undefined);
-      assert.deepEqual(shown, expanded ? output : output.slice(-5));
-      if (!expanded && length === 9) assert.match(metadata, /^4 more lines · ≈\d+ tokens$/u);
-      else assert.match(metadata, /^≈\d+ tokens$/u);
+      if (!expanded && length === 9) {
+        assert.match(metadata, /^4 more lines · ≈\d+ tokens$/u);
+        assert.deepEqual(shown, output.slice(-5));
+      } else {
+        assert.match(metadata, /^result 1 {2,}≈\d+ tokens$/u);
+        assert.deepEqual(shown, output.slice(1));
+      }
     }
   }
 });

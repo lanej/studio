@@ -441,3 +441,33 @@ index e36f266558d7310540dd03f67c567ea38cb1d14e..f24982a78461e1bd678fa9970fbae94b
              const resolved = this.showHardwareCursor ? line.replace(FOCUSED_FAKE_CURSOR, "$1$2") : line;
              return resolved.replaceAll(FAKE_CURSOR_START, "\x1b[7m").replaceAll(FAKE_CURSOR_END, "\x1b[27m");
          });
+diff --git a/dist/components/markdown.js b/dist/components/markdown.js
+--- a/dist/components/markdown.js
++++ b/dist/components/markdown.js
+@@ -481,12 +481,15 @@
+             }
+             case "code": {
+                 const indent = this.theme.codeBlockIndent ?? "  ";
+-                lines.push(this.theme.codeBlockBorder(`\`\`\`${token.lang || ""}`));
++                const language = token.lang?.trim().split(/\s+/u, 1)[0];
++                if (language) {
++                    lines.push(this.theme.codeBlockBorder(language));
++                }
+                 if (this.theme.highlightCode) {
+-                    const key = `${token.lang ?? ""}\0${token.text}`;
++                    const key = `${language ?? ""}\0${token.text}`;
+                     let highlighted = this.blockHighlightedCode?.get(key);
+                     if (!highlighted) {
+-                        highlighted = this.theme.highlightCode(token.text, token.lang);
++                        highlighted = this.theme.highlightCode(token.text, language);
+                         this.blockHighlightedCode?.set(key, highlighted);
+                     }
+                     for (const hlLine of highlighted) {
+@@ -500,7 +503,6 @@
+                         lines.push(`${indent}${this.theme.codeBlock(codeLine)}`);
+                     }
+                 }
+-                lines.push(this.theme.codeBlockBorder("```"));
+                 if (nextTokenType && nextTokenType !== "space") {
+                     lines.push(""); // Add spacing after code blocks (unless space token follows)
+                 }

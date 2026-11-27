@@ -98,6 +98,8 @@ Run `uv run --script acceptance/shell-header.py --output /path/to/captures` to v
 
 Studio raises the lightness of Aurora hues used for text where the original swatch loses contrast on a selected row. The bundled theme targets at least 4.5:1 contrast for text on every painted surface in truecolor and xterm 256-color mode. The surrounding terminal supplies its canvas and opacity. A fresh install selects `dotfiles`. An upgrade preserves the theme selected in Pi’s `/settings`. Compare the same conversation in installed builds [before](docs/assets/worker-handoff-theme-before.png) and [after](docs/assets/worker-handoff-theme-after.png) the palette change.
 
+Select the bundled `sage-midnight` theme in Pi’s `/settings` for Sage colors. Tool responses use a darker green surface than user messages. Syntax-highlighted Lua uses dusty rose for `nil`. Fenced Markdown blocks show their language above the code when the author specifies one.
+
 ## Session forks and prompt loops
 
 In an ordinary persistent Studio conversation, use Pi’s `/fork` picker to select the user message where a different continuation should begin. Pi opens a child session with the earlier history and puts the selected message in the editor for revision. The child shows its parent transcript and branch point above the editor. `/resume` returns to the original conversation; parent and child may have the same inherited display name, so inspect the session preview. The original’s later messages remain available. Forking creates no task claim, process, pane, or checkout writer.

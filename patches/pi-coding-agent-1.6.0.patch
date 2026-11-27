@@ -906,3 +906,54 @@ index be4a571d0f5ab07f482d8d634f937e0448787c1d..bcea3cb865d57c26d1f6ea24d51a0e33
          }
          finally {
              this.scopes.delete(toolCall.id);
+diff --git a/dist/modes/interactive/theme/theme-tokens.js b/dist/modes/interactive/theme/theme-tokens.js
+--- a/dist/modes/interactive/theme/theme-tokens.js
++++ b/dist/modes/interactive/theme/theme-tokens.js
+@@ -75,6 +75,7 @@
+     syntaxVariable: { slot: "foreground", description: "Syntax highlighting: variable names" },
+     syntaxString: { slot: "foreground", description: "Syntax highlighting: string literals" },
+     syntaxNumber: { slot: "foreground", description: "Syntax highlighting: number literals" },
++    syntaxNull: { slot: "foreground", description: "Syntax highlighting: null literals", fallback: "syntaxNumber" },
+     syntaxType: { slot: "foreground", description: "Syntax highlighting: type names" },
+     syntaxOperator: { slot: "foreground", description: "Syntax highlighting: operators" },
+     syntaxPunctuation: { slot: "foreground", description: "Syntax highlighting: punctuation" },
+diff --git a/dist/modes/interactive/theme/theme-tokens.d.ts b/dist/modes/interactive/theme/theme-tokens.d.ts
+--- a/dist/modes/interactive/theme/theme-tokens.d.ts
++++ b/dist/modes/interactive/theme/theme-tokens.d.ts
+@@ -189,6 +189,11 @@
+     readonly syntaxNumber: {
+         readonly slot: "foreground";
+         readonly description: "Syntax highlighting: number literals";
++    };
++    readonly syntaxNull: {
++        readonly slot: "foreground";
++        readonly description: "Syntax highlighting: null literals";
++        readonly fallback: "syntaxNumber";
+     };
+     readonly syntaxType: {
+         readonly slot: "foreground";
+diff --git a/dist/modes/interactive/theme/theme.js b/dist/modes/interactive/theme/theme.js
+--- a/dist/modes/interactive/theme/theme.js
++++ b/dist/modes/interactive/theme/theme.js
+@@ -394,7 +394,11 @@
+ }
+ function createTheme(themeJson, mode, sourcePath) {
+     const colorMode = mode ?? getTerminalColorMode();
+-    const resolvedColors = withThemeTokenFallbacks(resolveThemeColors(themeJson.colors, themeJson.vars));
++    // Accept the Studio role as a theme variable so the same theme file still loads in stock Pi.
++    const colors = themeJson.vars?.syntaxNull === undefined
++        ? themeJson.colors
++        : { syntaxNull: "syntaxNull", ...themeJson.colors };
++    const resolvedColors = withThemeTokenFallbacks(resolveThemeColors(colors, themeJson.vars));
+     const { fgColors, bgColors } = splitThemeColors(resolvedColors);
+     return new Theme(fgColors, bgColors, colorMode, {
+         name: themeJson.name,
+@@ -717,7 +721,7 @@
+         default: (s) => t.fg("text", s),
+         keyword: (s) => t.fg("syntaxKeyword", s),
+         built_in: (s) => t.fg("syntaxType", s),
+-        literal: (s) => t.fg("syntaxNumber", s),
++        literal: (s) => t.fg(s === "nil" || s === "null" || s === "None" ? "syntaxNull" : "syntaxNumber", s),
+         number: (s) => t.fg("syntaxNumber", s),
+         regexp: (s) => t.fg("syntaxString", s),
+         string: (s) => t.fg("syntaxString", s),
