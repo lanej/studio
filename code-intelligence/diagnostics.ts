@@ -1,3 +1,4 @@
+import sageUI from "../resources/sage-terminal-ui.json" with { type: "json" };
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { z } from "zod";
@@ -52,7 +53,7 @@ export function snapshot(path: string, result: Diagnostics | undefined): Diagnos
 }
 
 export function diagnosticGlyph(severity: "error" | "warning") {
-  return severity === "error" ? "×" : "⚠";
+  return severity === "error" ? sageUI.symbols["diagnostic.error"] : sageUI.symbols["diagnostic.warning"];
 }
 
 const clean = (text: string) => text.replace(/\p{Cc}/gu, " ");

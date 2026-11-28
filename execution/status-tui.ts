@@ -1,3 +1,4 @@
+import sageUI from "../resources/sage-terminal-ui.json" with { type: "json" };
 import {
   backgroundAnsi,
   foregroundAnsi,
@@ -24,11 +25,11 @@ import { readRuntimeStatus, runtimeAttemptGroups, statusLine, supervisorStatus, 
 import type { Execution } from "./store.ts";
 import { RuntimeTaskPreview, type RuntimeStatusStyle } from "./status-preview.ts";
 
-const active = { glyph: "●", tone: "accent" } as const;
-const idle = { glyph: "○", tone: "muted" } as const;
-const warning = { glyph: "◐", tone: "warning" } as const;
-const error = { glyph: "!", tone: "error" } as const;
-const successful = { glyph: "✓", tone: "success" } as const;
+const active = { glyph: sageUI.states["execution.running"], tone: "accent" } as const;
+const idle = { glyph: sageUI.states["execution.queued"], tone: "muted" } as const;
+const warning = { glyph: sageUI.states["execution.input"], tone: "warning" } as const;
+const error = { glyph: sageUI.states["execution.blocked"], tone: "error" } as const;
+const successful = { glyph: sageUI.states["execution.succeeded"], tone: "success" } as const;
 
 const phaseMarks = {
   [ExecutionPhase.Queued]: { ...idle, label: "Queued" },

@@ -64,16 +64,16 @@ await test("inline diagnostics distinguish pending and reported results, wrap, a
   const narrow = diagnosticRows(value, plain, 30, false);
   assert.ok(narrow.every((row) => visibleWidth(row) <= 30));
   const text = narrow.join("\n");
-  assert.match(text, /× 7:3, 9:3\n {2}Type/u);
-  assert.doesNotMatch(text, /⚠ 3:1/u);
+  assert.match(text, / 7:3, 9:3\n {2}Type/u);
+  assert.doesNotMatch(text, / 3:1/u);
   assert.match(text, /1 more message/u);
   assert.doesNotMatch(text, /TS2322/u);
   assert.equal(text.match(/assignable/gu)?.length, 1);
   assert.equal(text.includes("\x1b"), false);
-  assert.match(diagnosticRows(value, plain, 100, true).join("\n"), /⚠ 3:1 {2}Unused value/u);
+  assert.match(diagnosticRows(value, plain, 100, true).join("\n"), / 3:1 {2}Unused value/u);
   const wide = diagnosticRows(value, plain, 55, false);
-  const first = wide.findIndex((row) => row.startsWith("× 7:3"));
-  assert.match(wide[first] ?? "", /^× 7:3, 9:3 {2}Type/u);
+  const first = wide.findIndex((row) => row.startsWith(" 7:3"));
+  assert.match(wide[first] ?? "", /^ 7:3, 9:3 {2}Type/u);
   assert.match(wide[first + 1] ?? "", /^ {12}\S/u);
   assert.match(text, /document version/u);
   assert.match(
@@ -391,7 +391,7 @@ await test("edit inlays stay attached to each occurrence and underline the sourc
     assert.ok(rows.every((row) => visibleWidth(row) <= width));
     for (const name of ["a", "b"]) {
       assert.ok(
-        rows.some((row) => row.includes(`const ${name} = \x1b[4:3m"bad"\x1b[24m`) && row.includes("× Use a number")),
+        rows.some((row) => row.includes(`const ${name} = \x1b[4:3m"bad"\x1b[24m`) && row.includes(" Use a number")),
       );
     }
   }

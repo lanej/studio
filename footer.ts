@@ -9,6 +9,7 @@ import { githubLink } from "./github-links.ts";
 import { LeadMode } from "./planning/plan.ts";
 import { run } from "./process.ts";
 import sage from "./resources/sage-midnight.json" with { type: "json" };
+import sageUI from "./resources/sage-terminal-ui.json" with { type: "json" };
 import sageSymbols from "./resources/sage-statusline.json" with { type: "json" };
 import { FooterStatus, isEntry, isMessageRole, PiEntryType, PiMessageRole } from "./runtime.ts";
 
@@ -44,12 +45,12 @@ const modeGlyph = {
 } satisfies Record<LeadMode, [keyof typeof sageSymbols, ThemeColor]>;
 
 const reasoningGlyph = {
-  [ReasoningLevel.Off]: ["", "dim"],
-  [ReasoningLevel.Minimal]: ["▁", "muted"],
-  [ReasoningLevel.Low]: ["▂", "muted"],
-  [ReasoningLevel.Medium]: ["▄", "accent"],
-  [ReasoningLevel.High]: ["▆", "accent"],
-  [ReasoningLevel.ExtraHigh]: ["█", "accent"],
+  [ReasoningLevel.Off]: [sageUI.symbols["model.reasoning.off"], "dim"],
+  [ReasoningLevel.Minimal]: [sageUI.symbols["model.reasoning.minimal"], "muted"],
+  [ReasoningLevel.Low]: [sageUI.symbols["model.reasoning.low"], "muted"],
+  [ReasoningLevel.Medium]: [sageUI.symbols["model.reasoning.medium"], "accent"],
+  [ReasoningLevel.High]: [sageUI.symbols["model.reasoning.high"], "accent"],
+  [ReasoningLevel.ExtraHigh]: [sageUI.symbols["model.reasoning.extra_high"], "accent"],
 } satisfies Record<ReasoningLevel, [string, ThemeColor]>;
 
 const modelVariantGlyph = new Map([

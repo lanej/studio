@@ -1,19 +1,23 @@
+import sageUI from "../resources/sage-terminal-ui.json" with { type: "json" };
 import type { Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { knownTaskStatus, TaskStatus } from "../beads.ts";
 import type { TaskAssignment } from "../config.ts";
 
 const statusTones = {
-  [TaskStatus.Open]: { glyph: "○", tone: "muted" },
-  [TaskStatus.InProgress]: { glyph: "◐", tone: "accent" },
-  [TaskStatus.Blocked]: { glyph: "×", tone: "error" },
-  [TaskStatus.Deferred]: { glyph: "–", tone: "warning" },
-  [TaskStatus.Closed]: { glyph: "●", tone: "success" },
+  [TaskStatus.Open]: { glyph: sageUI.symbols["task.open"], tone: "muted" },
+  [TaskStatus.InProgress]: { glyph: sageUI.states["execution.running"], tone: "accent" },
+  [TaskStatus.Blocked]: { glyph: sageUI.states["execution.blocked"], tone: "error" },
+  [TaskStatus.Deferred]: { glyph: sageUI.symbols["task.deferred"], tone: "warning" },
+  [TaskStatus.Closed]: { glyph: sageUI.symbols["task.closed"], tone: "success" },
 } satisfies Record<TaskStatus, { glyph: string; tone: ThemeColor }>;
 
 export function taskStatusGlyph(status: string, theme: Pick<Theme, "fg">): string {
   const recognized = knownTaskStatus(status);
-  const { glyph, tone } = recognized === undefined ? { glyph: "?", tone: "muted" as const } : statusTones[recognized];
+  const { glyph, tone } =
+    recognized === undefined
+      ? { glyph: sageUI.symbols["task.unknown"], tone: "muted" as const }
+      : statusTones[recognized];
   return theme.fg(tone, glyph);
 }
 

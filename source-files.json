@@ -333,6 +333,7 @@
   "resources/colors.json",
   "resources/sage-midnight.json",
   "resources/sage-statusline.json",
+  "resources/sage-terminal-ui.json",
   "resources/socrates/SKILL.md",
   "resources/socrates/references/data-change-planning.md",
   "resources/socrates/references/dialogue.txt",
