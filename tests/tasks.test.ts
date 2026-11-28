@@ -688,8 +688,8 @@ await test("compact task browser keeps titles, hides identity, follows dependenc
     () => {},
   );
   const render = () => browser.render(60).map(stripAnsi).join("\n");
-  assert.match(render(), /! Reject the unsafe result +· +fast · low/u);
-  assert.match(browser.render(34).map(stripAnsi).join("\n"), /! Reject the unsafe result/u);
+  assert.match(render(), / Reject the unsafe result +· +fast · low/u);
+  assert.match(browser.render(34).map(stripAnsi).join("\n"), / Reject the unsafe result/u);
   assert.doesNotMatch(browser.render(34).map(stripAnsi).join("\n"), /fast · low/u);
   assert.doesNotMatch(render(), /canonical-long|in_progress|Status:/u);
   browser.handleInput("j");
@@ -703,10 +703,10 @@ await test("compact task browser keeps titles, hides identity, follows dependenc
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.match(render(), /verifier exited 42/u);
   browser.handleInput("\x1b[D");
-  assert.match(render(), /› ! Reject the unsafe result/u);
+  assert.match(render(), /  Reject the unsafe result/u);
   browser.handleInput("r");
   await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.match(render(), /› ! Reject the unsafe result/u);
+  assert.match(render(), /  Reject the unsafe result/u);
   for (const [columns, rows] of [
     [80, 24],
     [60, 20],
@@ -764,7 +764,7 @@ await test("failed external links and late detail replies preserve the operator'
   assert.match(failedView(), /Dependency lookup unavailable/u);
   assert.doesNotMatch(failedView(), /No tasks in this source/u);
   fail.handleInput("\x1b[D");
-  assert.match(failedView(), /› ! Reject the unsafe result/u);
+  assert.match(failedView(), /  Reject the unsafe result/u);
 
   let release: ((task: typeof rejected) => void) | undefined;
   const pending = new Promise<typeof rejected>((resolve) => {
@@ -792,12 +792,12 @@ await test("failed external links and late detail replies preserve the operator'
   browser.handleInput("\r");
   browser.handleInput("\x1b[D");
   browser.handleInput("j");
-  assert.match(view(), /› ○ Wait for the prerequisite/u);
+  assert.match(view(), / ○ Wait for the prerequisite/u);
   assert.match(view(), /↑↓ move/u);
   release?.(rejected);
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(calls, [rejected.id]);
-  assert.match(view(), /› ○ Wait for the prerequisite/u);
+  assert.match(view(), / ○ Wait for the prerequisite/u);
   browser.handleInput("\r");
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(calls, [rejected.id, successor.id]);
@@ -842,7 +842,7 @@ await test("live refresh preserves the focused task and Escape closes the floati
   const view = () => browser.render(60).map(stripAnsi).join("\n");
   assert.match(view(), /Enter inspect/u);
   browser.handleInput("j");
-  assert.match(view(), /› ○ Wait for the prerequisite/u);
+  assert.match(view(), / ○ Wait for the prerequisite/u);
   const refresh = browser.refresh();
   await browser.refresh();
   assert.equal(reads, 1, "background refreshes must not overlap");
@@ -865,7 +865,7 @@ await test("live refresh preserves the focused task and Escape closes the floati
     "refresh must preserve inspector scroll and disclosure selection",
   );
   browser.handleInput("\x1b[D");
-  assert.match(view(), /› ○ Wait for the prerequisite/u);
+  assert.match(view(), / ○ Wait for the prerequisite/u);
   browser.handleInput("\x1b");
   assert.equal(closed, true);
   browser.dispose();
@@ -1096,7 +1096,7 @@ await test("automatic refresh revalidates an explicitly inspected task outside a
   assert.deepEqual(shown, [successor.id]);
   assert.match(browser.render(60).map(stripAnsi).join("\n"), /Wait for the prerequisite/u);
   browser.handleInput("\x1b[D");
-  assert.match(browser.render(60).map(stripAnsi).join("\n"), /› ● Wait for the prerequisite/u);
+  assert.match(browser.render(60).map(stripAnsi).join("\n"), /  Wait for the prerequisite/u);
 });
 
 await test("a list projection does not erase expanded task details during refresh", async () => {

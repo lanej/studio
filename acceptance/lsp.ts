@@ -182,7 +182,7 @@ try {
   assert.match(callComponent.render(100).join("\n"), /answer.*number/u);
   for (const width of [100, 120]) {
     const rows = callComponent.render(width);
-    assert.ok(rows.some((row) => row.includes("×") && row.includes("not assignable")));
+    assert.ok(rows.some((row) => row.includes("") && row.includes("not assignable")));
     assert.ok(rows.some((row) => row.includes("\x1b[4:3m")));
   }
   // The type diagnostic needs the updated source line for its range and inlay.
@@ -351,7 +351,7 @@ try {
     renderContext,
   );
   assert.match(restored.render(100).join("\n"), /Retained late diagnostic/u);
-  assert.doesNotMatch(callComponent.render(100).join("\n"), /×|Retained late diagnostic/u);
+  assert.doesNotMatch(callComponent.render(100).join("\n"), /|Retained late diagnostic/u);
   // Sessions saved before Tree-sitter keep their original LSP labels.
   const legacyContext = {
     ...policyContext,

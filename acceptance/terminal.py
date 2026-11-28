@@ -37,7 +37,15 @@ mode.add_argument("--discovery-only", action="store_true", help="exercise discov
 args = parser.parse_args()
 output = args.output.resolve()
 palette = json.loads((root / "resources/colors.json").read_text())
-theme = json.loads((root / "resources/theme.json").read_text())["colors"]
+theme_file = "sage-midnight.json" if args.task_review else "theme.json"
+theme = json.loads((root / "resources" / theme_file).read_text())["colors"]
+sage_ui = json.loads((root / "resources/sage-terminal-ui.json").read_text())
+selection_mark = sage_ui["symbols"]["ui.selection"]
+running_mark = sage_ui["states"]["execution.running"]
+open_mark = sage_ui["symbols"]["task.open"]
+closed_mark = sage_ui["symbols"]["task.closed"]
+if args.task_review:
+    palette = sage_ui
 output.mkdir(parents=True, exist_ok=True)
 
 review_project = "a93fe08d-5663-4c9b-bf6e-97a846663808"
@@ -182,6 +190,8 @@ elif 'show' in sys.argv: print(json.dumps([next(task for task in tasks if task['
     subprocess.run([sys.executable, str(root / "scripts/configure.py"), str(root), str(agent)], env=env, check=True, stdout=subprocess.DEVNULL)
     settings_path = agent / "settings.json"
     settings = json.loads(settings_path.read_text())
+    if args.task_review:
+        settings["theme"] = "sage-midnight"
     settings["retry"] = {"enabled": False, "maxRetries": 0}
     settings_path.write_text(json.dumps(settings))
     design = home / "design"
@@ -263,9 +273,14 @@ interactive.close();
     provider.issue_reads = 0
     provider.responses = 0
     font_size = 18 if args.task_review else 14
+    hack = Path.home() / "Library/Fonts/HackNerdFontMono-Regular.ttf"
     try:
-        font = ImageFont.truetype("/System/Library/Fonts/Menlo.ttc", font_size)
-        bold = ImageFont.truetype("/System/Library/Fonts/Menlo.ttc", font_size, index=1)
+        if args.task_review and hack.is_file():
+            font = ImageFont.truetype(str(hack), font_size)
+            bold = ImageFont.truetype(str(hack.with_name("HackNerdFontMono-Bold.ttf")), font_size)
+        else:
+            font = ImageFont.truetype("/System/Library/Fonts/Menlo.ttc", font_size)
+            bold = ImageFont.truetype("/System/Library/Fonts/Menlo.ttc", font_size, index=1)
     except OSError:
         font = ImageFont.truetype("DejaVuSansMono.ttf", font_size)
         bold = ImageFont.truetype("DejaVuSansMono-Bold.ttf", font_size)
@@ -413,14 +428,14 @@ interactive.close();
                 os.write(master, b"\x1b[44;5u")  # Configured Ctrl+, opens Tasks.
                 wait_text("Diff presentation")
                 wait_text("Enter inspect")
-                assert any("›" in line and "Diff presentation" in line for line in screen.display), screen.display
+                assert any(selection_mark in line and "Diff presentation" in line for line in screen.display), screen.display
                 capture("task-status-panel")
                 os.write(master, b"\x1bt")
                 pump(.1)
                 assert "Enter inspect" in "\n".join(screen.display), screen.display
                 completed = [dict(task, status="closed") if task["id"] == "ui-12.1" else task for task in review_tasks]
                 provider.issue_listing = (200, {"items": completed, "has_more": False})
-                wait_until(lambda: any("● Inline replacements" in line for line in screen.display), timeout=8)
+                wait_until(lambda: any(f"{closed_mark} Inline replacements" in line for line in screen.display), timeout=8)
                 capture("task-status-updated")
                 os.write(master, b"\x1b")
                 wait_text("preserved lead draft")
@@ -472,7 +487,7 @@ interactive.close();
                 wait_text("The reviewer found:")
                 os.write(master, b"\x1b[D")
                 pump(.2)
-                assert any("›" in line and "Inline replacements" in line for line in screen.display), screen.display
+                assert any(selection_mark in line and "Inline replacements" in line for line in screen.display), screen.display
                 os.write(master, b"\x1b")
                 pump(.3)
                 assert "Enter inspect" not in "\n".join(screen.display), screen.display
@@ -671,15 +686,15 @@ interactive.close();
             os.write(master, b"/tasks\r")
             pump(1)
             view = "\n".join(screen.display)
-            assert "◐ Studio" in view and "Idle compaction" in view and "Deliver through Octo" in view, screen.display
+            assert f"{running_mark} Studio" in view and "Idle compaction" in view and "Deliver through Octo" in view, screen.display
             assert "daily-1" not in view and "Status:" not in view, screen.display
             for noise in ["navigation", "Pi can explain", "[Extensions]", "[Extension issues]", "Warning: Extension", "idle compact", "escape/ctrl+c"]:
                 assert noise not in view, screen.display
             colors = {screen.buffer[y][x].fg.upper() for y in range(rows) for x in range(columns)}
             assert palette["roles"]["accent"].lstrip("#") in colors, colors
-            assert "├─ ○ Idle compaction" in view and "│  └─ ● Check idle guard" in view, screen.display
+            assert f"├─ {open_mark} Idle compaction" in view and f"│  └─ {closed_mark} Check idle guard" in view, screen.display
             if columns == 80:
-                selected_row = next(y for y, line in enumerate(screen.display) if "›" in line and "◐ Studio" in line)
+                selected_row = next(y for y, line in enumerate(screen.display) if selection_mark in line and f"{running_mark} Studio" in line)
                 assert screen.buffer[selected_row][columns-4].bg.upper() == theme["userMessageBg"].lstrip("#"), screen.display
             capture("tasks")
             wait_text("Enter inspect")
@@ -703,10 +718,10 @@ interactive.close();
             capture("task-brief")
             os.write(master, b"\x1b[D")
             pump(.2)
-            assert any("›" in line and "Idle compaction" in line for line in screen.display), screen.display
+            assert any(selection_mark in line and "Idle compaction" in line for line in screen.display), screen.display
             os.write(master, b"r")
             pump(.4)
-            assert any("›" in line and "Idle compaction" in line for line in screen.display), screen.display
+            assert any(selection_mark in line and "Idle compaction" in line for line in screen.display), screen.display
             os.write(master, b"\x1b")
             pump(.2)
             os.write(master, b"/archives\r")

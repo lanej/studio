@@ -1,3 +1,4 @@
+import sageUI from "../resources/sage-terminal-ui.json" with { type: "json" };
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type TuiMouseEvent, hyperlink, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { taskTree, taskWorkerAssignment, taskWorkerDetails, type Task, type TreeRow } from "../beads.ts";
@@ -325,10 +326,10 @@ export class TaskBrowser {
     const tree = this.rows.slice(this.treeOffset, this.treeOffset + this.bodyHeight).map((row) => {
       const selected = row.task.id === this.selected;
       const glyph = needsAttention(row.task, this.snapshot)
-        ? this.theme.fg("error", "!")
+        ? this.theme.fg("error", sageUI.states["execution.input"])
         : taskStatusGlyph(row.task.status, this.theme);
       const branch = this.theme.fg("muted", row.branch ?? "");
-      const label = `${selected ? "›" : " "} ${branch}${glyph} ${plain(row.task.title)}${row.warning === undefined ? "" : " ⚠"}`;
+      const label = `${selected ? sageUI.symbols["ui.selection"] : " "} ${branch}${glyph} ${plain(row.task.title)}${row.warning === undefined ? "" : " " + sageUI.symbols["diagnostic.warning"]}`;
       const padded = this.pad(
         withTaskAssignment(label, taskWorkerAssignment(row.task)?.assignment, treeWidth, (text) =>
           this.theme.fg("muted", text),

@@ -1,3 +1,4 @@
+import sageUI from "./resources/sage-terminal-ui.json" with { type: "json" };
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { z } from "zod";
@@ -35,9 +36,9 @@ const eventSchema = z.discriminatedUnion("kind", [
 ]);
 
 const verificationStyle = {
-  [VerificationOutcome.Passed]: ["●", "success", "Verification passed"],
-  [VerificationOutcome.Failed]: ["×", "error", "Verification failed"],
-  [VerificationOutcome.Review]: ["◇", "warning", "Verification needs review"],
+  [VerificationOutcome.Passed]: [sageUI.symbols["publication.checks_passed"], "success", "Verification passed"],
+  [VerificationOutcome.Failed]: [sageUI.states["execution.failed"], "error", "Verification failed"],
+  [VerificationOutcome.Review]: [sageUI.states["execution.input"], "warning", "Verification needs review"],
 } as const;
 
 export function registerTranscriptEvents(pi: ExtensionAPI): void {
@@ -46,7 +47,10 @@ export function registerTranscriptEvents(pi: ExtensionAPI): void {
     if (!parsed.success) return undefined;
     const event = parsed.data;
     const detail = (event.detail ?? "").replace(/(?!\n)\p{Cc}/gu, " ").trim();
-    const fold = detail === "" ? "" : theme.fg("dim", expanded ? "▾ " : "▸ ");
+    const fold =
+      detail === ""
+        ? ""
+        : theme.fg("dim", (expanded ? sageUI.symbols["ui.collapse"] : sageUI.symbols["ui.expand"]) + " ");
     let title: string;
     if (event.kind === TranscriptEventKind.Octo) {
       const caption = event.notice === undefined ? "Tracking" : "Octo receipt";
